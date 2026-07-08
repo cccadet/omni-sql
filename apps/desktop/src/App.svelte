@@ -48,6 +48,7 @@
     busyMsg = "Introspecção…";
     try {
       await backend.call("metadata.introspect", { connectionId: activeConnectionId });
+      await loadConnections();
     } finally {
       busyMsg = null;
     }
