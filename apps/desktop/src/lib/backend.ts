@@ -25,6 +25,31 @@ const BACKEND_URL =
 
 let counter = 0;
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  retries = 4,
+  delayMs = 250,
+): Promise<Response> {
+  let lastErr: Error | undefined;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, init);
+      return res;
+    } catch (e) {
+      lastErr = e as Error;
+      if (i < retries) {
+        await sleep(delayMs * (i + 1));
+      }
+    }
+  }
+  throw lastErr ?? new Error("fetch failed");
+}
+
 export const backend = {
   async call<T = unknown>(method: string, params: AnyParams): Promise<T> {
     const id = ++counter;
@@ -34,7 +59,7 @@ export const backend = {
       method,
       ...(params ? { params } : {}),
     });
-    const res = await fetch(BACKEND_URL, {
+    const res = await fetchWithRetry(BACKEND_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,

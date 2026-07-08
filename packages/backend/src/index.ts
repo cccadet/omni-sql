@@ -21,6 +21,9 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
     "content-type": "application/json",
     "content-length": Buffer.byteLength(payload),
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
   });
   res.end(payload);
 }
@@ -73,6 +76,15 @@ class UnknownMethodError extends Error {
 
 export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof createServer> {
   const server = createServer(async (req, res) => {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      });
+      res.end();
+      return;
+    }
     if (req.method !== "POST" || req.url !== "/rpc") {
       send(res, 404, { error: "not found" });
       return;

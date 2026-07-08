@@ -46,6 +46,9 @@
 
 <header class="toolbar">
   <select aria-label="Conexão ativa" value={activeConnectionId ?? ""} onchange={onSelect}>
+    {#if connections.length === 0}
+      <option value="" disabled>Nenhuma conexão cadastrada</option>
+    {/if}
     {#each connections as c}
       <option value={c.id}>{c.label} — {c.dialect}</option>
     {/each}

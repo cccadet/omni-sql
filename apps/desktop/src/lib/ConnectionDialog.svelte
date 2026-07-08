@@ -118,8 +118,16 @@
     }
   }
 
-  function onBackdropClick(e: MouseEvent) {
-    if (e.target === e.currentTarget) onClose();
+  let mouseDownOnBackdrop = $state(false);
+
+  function onBackdropMouseDown(e: MouseEvent) {
+    mouseDownOnBackdrop = e.target === e.currentTarget;
+  }
+  function onBackdropMouseUp(e: MouseEvent) {
+    if (mouseDownOnBackdrop && e.target === e.currentTarget) {
+      onClose();
+    }
+    mouseDownOnBackdrop = false;
   }
   function onBackdropKey(e: KeyboardEvent) {
     if (e.key === "Escape") onClose();
@@ -127,7 +135,7 @@
 </script>
 
 {#if open}
-  <div class="backdrop" onclick={onBackdropClick} onkeydown={onBackdropKey} role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="conn-title">
+  <div class="backdrop" onmousedown={onBackdropMouseDown} onmouseup={onBackdropMouseUp} onkeydown={onBackdropKey} role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="conn-title">
     <form class="dialog" onsubmit={onSave}>
       <h2 id="conn-title">{editing ? "Editar conexão" : "Nova conexão"}</h2>
 
