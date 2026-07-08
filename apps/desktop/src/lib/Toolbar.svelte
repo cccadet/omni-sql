@@ -178,12 +178,21 @@
     font-size: 12px;
   }
   select {
-    background: #2d2d30;
+    background-color: #2d2d30;
     color: #ddd;
     border: 1px solid #3c3c3c;
-    padding: 4px 8px;
+    padding: 4px 24px 4px 8px;
     border-radius: 4px;
     min-width: 220px;
+    /* No Windows o <select> nativo desenha via UxTheme (GDI monocromático) e
+       ignora até font-family para emoji — appearance:none devolve o
+       desenho do texto ao próprio Chromium (aí sim com glifo colorido). A
+       seta precisa ser recriada manualmente pois some junto com o chrome nativo. */
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ddd'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
   }
   select.limit-select {
     min-width: unset;

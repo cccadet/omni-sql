@@ -56,8 +56,12 @@ export function autocompleteTier1(
   // Caso 1: cursor imediatamente após FROM/JOIN → tabelas/views. Um
   // qualificador aqui é um schema (`ai.<cursor>`), não um alias.
   if (ctx.clause === "from" || ctx.clause === "join") {
-    const rels = ctx.qualifier
-      ? meta.listRelations().filter((r) => r.schema === ctx.qualifier)
+    // Case-insensitive: identificadores não-citados são digitados em
+    // qualquer case pelo usuário, mas o schema cacheado reflete o folding
+    // do dialeto (Postgres → minúsculas, Oracle → MAIÚSCULAS).
+    const qualifierLower = ctx.qualifier?.toLowerCase();
+    const rels = qualifierLower
+      ? meta.listRelations().filter((r) => r.schema.toLowerCase() === qualifierLower)
       : meta.listRelations();
     const partial = ctx.cursorToken?.value ?? "";
     return rels

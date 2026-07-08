@@ -7,6 +7,8 @@ packages:
 onlyBuiltDependencies:
   - esbuild
   - "@sveltejs/vite-plugin-svelte"
+  - oracledb
 allowBuilds:
   better-sqlite3: set this to true or false
   esbuild: set this to true or false
+  oracledb: true

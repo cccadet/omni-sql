@@ -10,7 +10,14 @@
   }
   let { open, editing = null, onClose, onSaved }: Props = $props();
 
-  type Mode = "postgres" | "demo";
+  type Mode = "postgres" | "oracle" | "demo";
+
+  function defaultPortFor(m: Mode): string {
+    return m === "oracle" ? "1521" : "5432";
+  }
+  function defaultDatabaseFor(m: Mode): string {
+    return m === "oracle" ? "orcl" : "postgres";
+  }
 
   let mode = $state<Mode>("postgres");
   let label = $state("");
@@ -27,15 +34,16 @@
 
   $effect(() => {
     if (open) {
-      const isPostgres = editing?.dialect === "postgres";
-      mode = isPostgres ? "postgres" : "demo";
+      const editingDialect = editing?.dialect;
+      const isKnown = editingDialect === "postgres" || editingDialect === "oracle";
+      mode = isKnown ? editingDialect : "demo";
       label = editing?.label ?? "";
       id = editing?.id ?? "";
       user = editing?.user ?? "";
       password = "";
       ssl = editing?.options?.ssl === true || editing?.options?.ssl === "require";
-      if (isPostgres) {
-        const parts = parseEndpoint(editing!.endpoint);
+      if (isKnown) {
+        const parts = parseEndpoint(editing!.endpoint, defaultPortFor(mode));
         host = parts.host;
         port = parts.port;
         database = parts.database;
@@ -50,11 +58,24 @@
     }
   });
 
-  function parseEndpoint(endpoint: string): { host: string; port: string; database: string } {
+  function parseEndpoint(
+    endpoint: string,
+    defaultPort = "5432",
+  ): { host: string; port: string; database: string } {
     // Expects "host:port/database"
     const [hostPort, db] = endpoint.split("/");
     const [h, p] = hostPort?.split(":") ?? ["", ""];
-    return { host: h ?? "", port: p ?? "5432", database: db ?? "postgres" };
+    return { host: h ?? "", port: p ?? defaultPort, database: db ?? "postgres" };
+  }
+
+  function onModeChange(e: Event): void {
+    const next = (e.currentTarget as HTMLSelectElement).value as Mode;
+    const isDefaultPort = port === "" || port === defaultPortFor("postgres") || port === defaultPortFor("oracle");
+    const isDefaultDatabase = database === "" || database === defaultDatabaseFor("postgres") || database === defaultDatabaseFor("oracle");
+    mode = next;
+    if (next === "demo") return;
+    if (isDefaultPort) port = defaultPortFor(next);
+    if (isDefaultDatabase) database = defaultDatabaseFor(next);
   }
 
   function buildEndpoint(): string {
@@ -67,7 +88,7 @@
 
   async function onTest(e: Event) {
     e.preventDefault();
-    if (mode !== "postgres") return;
+    if (mode === "demo") return;
     busy = true;
     testResult = null;
     error = null;
@@ -75,7 +96,7 @@
       const cfg: ConnectionConfig = {
         id: id || generateId(),
         label: label || `${host}/${database}`,
-        dialect: "postgres",
+        dialect: mode,
         endpoint: buildEndpoint(),
         user,
         options: ssl ? { ssl: "require" } : undefined,
@@ -105,7 +126,7 @@
           : {
               id: id || generateId(),
               label: label || `${host}/${database}`,
-              dialect: "postgres",
+              dialect: mode,
               endpoint: buildEndpoint(),
               user,
               options: ssl ? { ssl: "require" } : undefined,
@@ -141,8 +162,9 @@
 
       <label>
         <span>Tipo</span>
-        <select bind:value={mode} disabled={busy}>
+        <select value={mode} onchange={onModeChange} disabled={busy}>
           <option value="postgres">PostgreSQL</option>
+          <option value="oracle">Oracle</option>
           <option value="demo">Demo (in-memory)</option>
         </select>
       </label>
@@ -152,7 +174,7 @@
         <input type="text" bind:value={label} placeholder="Minha conexão" disabled={busy} required />
       </label>
 
-      {#if mode === "postgres"}
+      {#if mode === "postgres" || mode === "oracle"}
         <div class="row">
           <label class="grow">
             <span>Host</span>
@@ -160,18 +182,18 @@
           </label>
           <label>
             <span>Porta</span>
-            <input type="text" bind:value={port} placeholder="5432" disabled={busy} required />
+            <input type="text" bind:value={port} placeholder={defaultPortFor(mode)} disabled={busy} required />
           </label>
         </div>
 
         <label>
-          <span>Database</span>
-          <input type="text" bind:value={database} placeholder="postgres" disabled={busy} required />
+          <span>{mode === "oracle" ? "Service name / SID" : "Database"}</span>
+          <input type="text" bind:value={database} placeholder={defaultDatabaseFor(mode)} disabled={busy} required />
         </label>
 
         <label>
           <span>Usuário</span>
-          <input type="text" bind:value={user} placeholder="postgres" disabled={busy} required />
+          <input type="text" bind:value={user} placeholder={mode === "oracle" ? "system" : "postgres"} disabled={busy} required />
         </label>
 
         <label>
@@ -198,14 +220,14 @@
       {/if}
 
       <div class="actions">
-        {#if mode === "postgres"}
+        {#if mode === "postgres" || mode === "oracle"}
           <button type="button" onclick={onTest} disabled={busy || !host || !user}>
             {busy ? "Testando…" : "Testar conexão"}
           </button>
         {/if}
         <div class="spacer"></div>
         <button type="button" class="secondary" onclick={onClose} disabled={busy}>Cancelar</button>
-        <button type="submit" disabled={busy || (mode === "postgres" && (!host || !user))}>
+        <button type="submit" disabled={busy || ((mode === "postgres" || mode === "oracle") && (!host || !user))}>
           {busy ? "Salvando…" : "Salvar"}
         </button>
       </div>

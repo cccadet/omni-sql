@@ -9,6 +9,7 @@ import {
   resolveAdapter,
 } from "@omni-sql/adapters-core";
 import { PostgresAdapter, pgAdapterFactory } from "@omni-sql/adapters-pg";
+import { OracleAdapter, oracleAdapterFactory } from "@omni-sql/adapters-oracle";
 import { dialectDescriptor } from "@omni-sql/dialect-descriptors";
 import {
   autocompleteTier1,
@@ -64,15 +65,20 @@ const sessions = new Map<string, Session>();
 
 // ─────────────────────────── Registry bootstrap
 
-// Fase 0: tudo via in-memory; Fase 2 troca `postgres` por adaptador real.
+// Fase 0: tudo via in-memory; Fase 2 troca `postgres` por adaptador real,
+// Fase 4 adiciona `oracle` (demais dialetos seguem em-memory por ora).
 bootstrapDefaultRegistry();
 registerAdapter("postgres", pgAdapterFactory);
+registerAdapter("oracle", oracleAdapterFactory);
 
 // ─────────────────────────── Adapter construction
 
 function createAdapter(config: ConnectionConfig, password?: string): Adapter {
   if (config.dialect === "postgres") {
     return new PostgresAdapter(config, password);
+  }
+  if (config.dialect === "oracle") {
+    return new OracleAdapter(config, password);
   }
   return resolveAdapter(config);
 }
@@ -128,14 +134,20 @@ function metaSourceOf(session: Session): MetadataSource {
     },
     listFunctions: () => cache.getFunctions(session.config.id),
     resolveRelation: (ref: ScopeRef): Relation | null => {
-      const all = cache.getTablesBySchema(
-        session.config.id,
-        ref.schema ?? cache.listSchemas(session.config.id)[0]?.name ?? "public",
-      );
+      // Comparação case-insensitive: dialetos diferem no folding de
+      // identificadores não-citados (Postgres → minúsculas via
+      // information_schema, Oracle → MAIÚSCULAS via ALL_TAB_COLUMNS), mas o
+      // usuário digita como bem entender.
+      const all: Relation[] = [];
+      for (const s of cache.listSchemas(session.config.id)) {
+        all.push(...cache.getTablesBySchema(session.config.id, s.name));
+      }
+      const table = ref.table.toLowerCase();
+      const schema = ref.schema?.toLowerCase();
       return (
         all.find((r) =>
-          r.name === ref.table &&
-          (ref.schema == null || r.schema === ref.schema)
+          r.name.toLowerCase() === table &&
+          (schema == null || r.schema.toLowerCase() === schema)
         ) ?? null
       );
     },
@@ -155,7 +167,18 @@ export const handlers: RpcRouter = {
       await setPassword(configWithSlot, password);
     }
 
-    const session = await buildSession(configWithSlot, password);
+    // Editar uma conexão existente reenvia senha vazia (o diálogo nunca a
+    // preenche de volta) — sem isto, a sessão recém-criada ficaria sem
+    // credencial até o próximo restart do backend.
+    const effectivePassword =
+      password !== undefined && password.length > 0
+        ? password
+        : await getPassword(configWithSlot).catch(() => undefined);
+
+    const previous = sessions.get(config.id);
+    if (previous) await previous.adapter.close().catch(() => undefined);
+
+    const session = await buildSession(configWithSlot, effectivePassword);
     sessions.set(config.id, session);
     cache.upsertConnection(configWithSlot);
     return { connectionId: config.id, ok: true };

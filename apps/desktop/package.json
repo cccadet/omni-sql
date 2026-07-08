@@ -13,17 +13,18 @@
     "test": "echo \"no tests\" && exit 0"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
-    "@omni-sql/ts-types": "workspace:*",
-    "@omni-sql/dialect-descriptors": "workspace:*",
+    "@lucide/svelte": "^1.23.0",
     "@omni-sql/adapters-core": "workspace:*",
     "@omni-sql/autocomplete-engine": "workspace:*",
+    "@omni-sql/dialect-descriptors": "workspace:*",
+    "@omni-sql/ts-types": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
     "monaco-editor": "^0.52.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
-    "@tsconfig/svelte": "^5.0.0",
     "@tauri-apps/cli": "^2.0.0",
+    "@tsconfig/svelte": "^5.0.0",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "typescript": "^5.7.0",

@@ -1,5 +1,13 @@
 <script lang="ts">
   import type { QueryResult } from "@omni-sql/ts-types";
+  import Hash from "@lucide/svelte/icons/hash";
+  import CaseSensitive from "@lucide/svelte/icons/case-sensitive";
+  import Calendar from "@lucide/svelte/icons/calendar";
+  import ToggleLeft from "@lucide/svelte/icons/toggle-left";
+  import Braces from "@lucide/svelte/icons/braces";
+  import Fingerprint from "@lucide/svelte/icons/fingerprint";
+  import Binary from "@lucide/svelte/icons/binary";
+  import CircleHelp from "@lucide/svelte/icons/circle-help";
 
   interface Props {
     result: QueryResult | null;
@@ -27,6 +35,18 @@
 
   function closeExpanded() {
     expanded = null;
+  }
+
+  function typeIcon(dataType: string) {
+    const t = dataType.toLowerCase();
+    if (/^oid:|unknown/.test(t)) return CircleHelp;
+    if (/uuid/.test(t)) return Fingerprint;
+    if (/bool/.test(t)) return ToggleLeft;
+    if (/json/.test(t)) return Braces;
+    if (/bytea|blob|raw|binary/.test(t)) return Binary;
+    if (/timestamp|^date|^time/.test(t)) return Calendar;
+    if (/int|number|numeric|real|double|float|decimal/.test(t)) return Hash;
+    return CaseSensitive;
   }
 
   function onOverlayKeydown(e: KeyboardEvent) {
@@ -69,7 +89,12 @@
         <thead>
           <tr>
             {#each result.columns as c}
-              <th>{c.name}<span class="type">{c.dataType}</span></th>
+              {@const TypeIcon = typeIcon(c.dataType)}
+              <th
+                >{c.name}<span class="type" title={c.dataType}
+                  ><TypeIcon size={13} strokeWidth={2} /></span
+                ></th
+              >
             {/each}
           </tr>
         </thead>
@@ -173,10 +198,11 @@
     top: 0;
   }
   .type {
+    display: inline-flex;
+    align-items: center;
     color: #6a9955;
     margin-left: 6px;
-    font-weight: 400;
-    font-size: 11px;
+    vertical-align: middle;
   }
   td { color: #ccc; }
   .null { color: #569cd6; font-style: italic; }
