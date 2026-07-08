@@ -7,7 +7,7 @@ Multi-database SQL IDE with intelligent autocomplete (no LLM in v1).
 - **Frontend:** TypeScript + Svelte + Monaco Editor — `apps/desktop/src`
 - **Backend:** Node.js (TypeScript) — adapters relacionais, cache, query exec
 - **Parser/Validator:** JVM sidecar (Kotlin) com Apache Calcite — `services/jvm-sidecar`
-- **Cache:** SQLite embutido (`better-sqlite3`)
+- **Cache:** SQLite embutido (`node:sqlite` builtin, Node 22+) — `packages/metadata-cache`
 - **Credenciais:** `keyring` crate no Tauri (nunca em config/SQLite)
 - **Oracle:** thin mode por default (sem instant client)
 - **MongoDB:** deferido para v2
@@ -28,33 +28,46 @@ nameLengthLimits.
 ## Monorepo (pnpm workspaces)
 ```
 apps/desktop                    Tauri + Svelte + Monaco
+apps/desktop/src-tauri          Rust shell (spawns Node backend sidecar)
 packages/ts-types              Modelo unificado + contratos
-packages/adapters-core         Interface Adapter + adaptador pg
+packages/dialect-descriptors   Descritores por dialeto (consumidos pelo lexer)
+packages/adapters-core         Interface Adapter + InMemoryAdapter
+packages/adapters-pg           Adaptador PostgreSQL real (driver `pg`): information_schema + pg_catalog, pool, server-side cursor, EXPLAIN JSON
+packages/metadata-cache        Cache SQLite (`node:sqlite` builtin) + last_synced_at por entidade
+packages/autocomplete-engine   Lexer tier1 + provider de autocomplete
+packages/backend               Node HTTP JSON-RPC (handlers + protocol + Adapter registry)
+services/jvm-sidecar           Spike Kotlin/Gradle (`/health` HTTP porta 41921) — Calcite em Fase 3
+# Fases subsequentes:
 packages/adapters-mysql        (Fase 4)
 packages/adapters-mariadb      (Fase 4)
 packages/adapters-mssql        (Fase 4)
 packages/adapters-oracle       (Fase 4)
-packages/autocomplete-engine   Lexer tier1 + provider + tier2 sidecar client
-packages/dialect-descriptors   Descritores por dialeto (consumidos pelo lexer)
-services/jvm-sidecar          Kotlin + Apache Calcite + JDBC genérico (Fase 6)
 ```
 
 ## Fases
-- **F0 Fundação:** monorepo, Tauri shell mínimo, Monaco + results grid mínimo,
-  Adapter interface, smoke test Postgres (testcontainers).
-- **F1 Modelo + cache:** ts-types + SQLite + last_synced_at/etag por entidade.
-- **F2 PG + lexer tier1:** adaptador pg completo (information_schema + pg_catalog),
-  lexer TS cobrindo casos 1-4 da suíte de 8. Casos 5-8 ficam `it.todo`.
-- **F3 Calcite spike (5 dias):** tolerant-vs-fragment + extrair aliases/CTE/subquery
+- **F0 Fundação ✅:** monorepo, Tauri shell mínimo, Monaco + results grid mínimo,
+  Adapter interface, smoke test E2E via JSON-RPC (InMemoryAdapter), spike JVM
+  sidecar Kotlin, CI GitHub Actions.
+- **F1 Modelo + cache ✅:** `packages/ts-types` (modelo unificado) + `packages/metadata-cache`
+  (SQLite via `node:sqlite`, `last_synced_at` por entidade, APIs em memória <2ms).
+  Backend integrado: introspecção persiste no cache, lookups via índice em memória.
+- **F2 PG + lexer tier1 ✅:** `packages/adapters-pg` real (driver `pg`, `information_schema`
+  + `pg_catalog` para funções com overloads, pool 4 conns, server-side cursor,
+  `EXPLAIN (FORMAT JSON)`). Registrado em `registerAdapter("postgres", pgAdapterFactory)`.
+  Lexer TS em `packages/autocomplete-engine` cobre 6 dos 8 casos da suíte (1-6 ✅,
+  7-8 ficam `it.todo` para Fase 3 via sidecar).
+- **F3 Calcite spike (5 dias) — PRÓXIMA:** instalar `gradle`, adicionar `calcite-core`
+  ao `services/jvm-sidecar`, tolerant-vs-fragment + extrair aliases/CTE/subquery
   do `SqlSelect`. Decisão Calcite vs ANTLR. Endpoint `/scope/resolve` no sidecar.
-  Tiering engine TS: tier1 <5ms, tier2 sidecar debounced ~80ms com LRU.
+  Tiering engine TS: tier1 <5ms (já existe), tier2 sidecar debounced ~80ms com LRU.
 - **F4 MySQL → MariaDB → SQL Server → Oracle.** Suíte 8/8 verde por banco.
-- **F5 Funções com assinatura** (snippets Monaco, overloads separados) + `EXPLAIN` textual.
+- **F5 Funções com assinatura** (snippets Monaco, overloads separados) + `EXPLAIN` textual
+  (`Adapter.explain` já retorna JSON; falta plugar Monaco e visual tree).
 - **F6 JDBC genérico no sidecar** (best-effort, featureFlags, classloader isolado).
 - **F7 ODBC** (tentar `node-odbc` direto antes da bridge JDBC-ODBC).
 - **F9 Polimento:** P99<100ms com 10k tabelas, ordenação por relevância, ícones,
   tratamento de erro 4 categorias, history/recall, tabs multi-resultado, `EXPLAIN VISUAL`,
-  suíte testcontainers (PG/MySQL/MariaDB/SQLServer/Oracle via gvenzl/oracle-xe).
+  suíte testcontainers (PG/MySQL/MariaDB/SQLServer/Oracle via `gvenzl/oracle-xe`).
 
 ## Suíte 8 casos — parser de escopo
 1. `FROM`/`JOIN` → tabelas/views
@@ -67,9 +80,10 @@ services/jvm-sidecar          Kotlin + Apache Calcite + JDBC genérico (Fase 6)
 8. Subqueries correlacionadas — escopo aninhado
 
 ## Spikes de risco (Fase 0, 1-2 dias cada)
-1. JVM sidecar cold-start + IPC (lazy spawn + pool).
-2. Calcite tolerant-vs-fragment (expande na Fase 3).
-3. `oracledb` thin mode.
+1. ✅ JVM sidecar cold-start + IPC (spike Kotlin `/health` pronto em `services/jvm-sidecar`;
+   gradle-wrapper via `bootstrap.sh`). Falta instalar `gradle` localmente para validar.
+2. ⏳ Calcite tolerant-vs-fragment (expande na Fase 3 — spike de 5 dias).
+3. ⏳ `oracledb` thin mode (validar em Fase 4).
 
 ## Verificação pós-edição
 ```
@@ -77,6 +91,6 @@ pnpm -r typecheck && pnpm -r lint && pnpm test
 ```
 
 ## Riscos técnicos (em ordem)
-1. Parser de escopo tolerante (Fase 3) — onde集中 maior esforço de engenharia.
+1. Parser de escopo tolerante (Fase 3) — onde se concentra o maior esforço de engenharia.
 2. ODBC (Fase 7) — maior incerteza sobre estabilidade de biblioteca/ponte.
 3. Cobertura inconsistente de `DatabaseMetaData` em drivers JDBC customizados.
