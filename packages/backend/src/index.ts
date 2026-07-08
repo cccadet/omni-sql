@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { pathToFileURL } from "node:url";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -125,6 +126,8 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
 }
 
 // Auto-start when executed via `pnpm start`.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Use pathToFileURL so the comparison works on Windows (argv[1] uses
+// backslashes, import.meta.url uses forward slashes and three slashes).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   startServer();
 }
