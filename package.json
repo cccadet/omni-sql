@@ -1,0 +1,28 @@
+{
+  "name": "omni-sql",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One IDE for every database.",
+  "type": "module",
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --parallel typecheck",
+    "lint": "pnpm -r --parallel lint",
+    "test": "pnpm -r --parallel test",
+    "verify": "pnpm -r typecheck && pnpm -r lint && pnpm -r test",
+    "build": "pnpm -r --filter './packages/**' build",
+    "dev:frontend": "pnpm --filter desktop dev",
+    "dev:backend": "pnpm --filter backend start",
+    "dev:tauri": "cargo tauri dev --manifest-path apps/desktop/src-tauri/Cargo.toml"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.20.0"
+  }
+}

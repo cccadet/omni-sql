@@ -1,0 +1,31 @@
+node_modules
+dist
+build
+.target
+.alpha-tauri
+.turbo
+.cache
+.parcel-cache
+.next
+coverage
+*.log
+.env
+.env.*
+!.env.example
+
+# Agent / IDE local state
+.serena/
+
+# Tauri / Rust
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen
+**/*.rs.bk
+
+# JVM sidecar
+services/jvm-sidecar/build
+services/jvm-sidecar/.gradle
+services/jvm-sidecar/out
+
+# OS
+.DS_Store
+Thumbs.db

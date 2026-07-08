@@ -1,0 +1,112 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type {
+  JsonRpcRequest,
+  JsonRpcResponse,
+  JsonRpcError,
+} from "./protocol.ts";
+import { handlers } from "./handlers.ts";
+
+const DEFAULT_PORT = Number(process.env.OMNI_SQL_PORT ?? 41920);
+
+// ─────────────────────────── JSON helpers
+
+async function readBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function send(res: ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(payload),
+  });
+  res.end(payload);
+}
+
+function errorResponse(
+  id: string | number | null,
+  code: number,
+  message: string,
+  data?: unknown,
+): JsonRpcResponse {
+  const err: JsonRpcError = { code, message, ...(data !== undefined ? { data } : {}) };
+  return { jsonrpc: "2.0", id, error: err };
+}
+
+// ─────────────────────────── Method dispatch (typed by RpcRouter)
+
+async function dispatch(method: string, params: unknown): Promise<unknown> {
+  switch (method) {
+    case "connection.add":
+      return handlers["connection.add"](params as never);
+    case "connection.list":
+      return handlers["connection.list"]();
+    case "connection.remove":
+      return handlers["connection.remove"](params as never);
+    case "query.run":
+      return handlers["query.run"](params as never);
+    case "metadata.introspect":
+      return handlers["metadata.introspect"](params as never);
+    case "metadata.listRelations":
+      return handlers["metadata.listRelations"](params as never);
+    case "completion.get":
+      return handlers["completion.get"](params as never);
+    default:
+      throw new UnknownMethodError(method);
+  }
+}
+
+class UnknownMethodError extends Error {
+  readonly method: string;
+  constructor(method: string) {
+    super(`unknown method: ${method}`);
+    this.name = "UnknownMethodError";
+    this.method = method;
+  }
+}
+
+// ─────────────────────────── Server
+
+export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof createServer> {
+  const server = createServer(async (req, res) => {
+    if (req.method !== "POST" || req.url !== "/rpc") {
+      send(res, 404, { error: "not found" });
+      return;
+    }
+    let raw: string;
+    try {
+      raw = await readBody(req);
+    } catch (e) {
+      send(res, 400, errorResponse(null, -32700, "Parse error", String(e)));
+      return;
+    }
+    let rpc: JsonRpcRequest;
+    try {
+      rpc = JSON.parse(raw) as JsonRpcRequest;
+    } catch (e) {
+      send(res, 400, errorResponse(null, -32700, "Parse error", String(e)));
+      return;
+    }
+    try {
+      const result = await dispatch(rpc.method, rpc.params);
+      send(res, 200, { jsonrpc: "2.0", id: rpc.id, result } satisfies JsonRpcResponse);
+    } catch (e) {
+      if (e instanceof UnknownMethodError) {
+        send(res, 200, errorResponse(rpc.id, -32601, e.message));
+        return;
+      }
+      send(res, 200, errorResponse(rpc.id, -32000, (e as Error).message, (e as Error).stack));
+    }
+  });
+
+  server.listen(port);
+  console.log(`[omni-sql] backend HTTP listening on http://127.0.0.1:${port}/rpc`);
+  return server;
+}
+
+// Auto-start when executed via `pnpm start`.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  startServer();
+}

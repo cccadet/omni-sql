@@ -1,0 +1,7 @@
+build/
+.gradle/
+out/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin/
+.idea/

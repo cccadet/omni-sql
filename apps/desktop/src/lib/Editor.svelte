@@ -1,0 +1,134 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import * as monaco from "monaco-editor";
+  import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
+  import type { Suggestion } from "@omni-sql/autocomplete-engine";
+
+  interface Props {
+    value: string;
+    onAutocomplete?: (cursor: number) => Promise<Suggestion[]>;
+    onRun?: () => void;
+  }
+  let { value = $bindable(), onAutocomplete, onRun }: Props = $props();
+
+  let container: HTMLDivElement;
+  let editor: monaco.editor.IStandaloneCodeEditor | null = null;
+  let dispose: (() => void) | null = null;
+
+  function mapKind(k: Suggestion["kind"]): monaco.languages.CompletionItemKind {
+    switch (k) {
+      case "table": return monaco.languages.CompletionItemKind.Class;
+      case "view": return monaco.languages.CompletionItemKind.Interface;
+      case "column": return monaco.languages.CompletionItemKind.Field;
+      case "function": return monaco.languages.CompletionItemKind.Function;
+      case "keyword": return monaco.languages.CompletionItemKind.Keyword;
+      case "star": return monaco.languages.CompletionItemKind.Value;
+      default: return monaco.languages.CompletionItemKind.Text;
+    }
+  }
+
+  onMount(() => {
+    monaco.languages.register({ id: "sql-omni", extensions: [".sql"] });
+    const kw = [...postgresDescriptor.keywords];
+    monaco.languages.setMonarchTokensProvider("sql-omni", {
+      defaultToken: "",
+      tokenizer: {
+        root: [
+          [new RegExp(`\\b(?:${kw.join("|")})\\b`, "i"), "keyword"],
+          [/--.*$/, "comment"],
+          [/\/\*/, "comment", "@comment"],
+          [/'/, "string", "@string"],
+          [/[a-zA-Z_][\w$]*/, "identifier"],
+          [/[0-9]+(\.[0-9]+)?/, "number"],
+        ],
+        string: [
+          [/[^']+/, "string"],
+          [/''/, "string"],
+          [/'/, "string", "@pop"],
+        ],
+        comment: [
+          [/[^*]+/, "comment"],
+          [/\*\//, "comment", "@pop"],
+        ],
+      },
+    });
+
+    editor = monaco.editor.create(container, {
+      value,
+      language: "sql-omni",
+      theme: "vs-dark",
+      automaticLayout: true,
+      fontSize: 13,
+      fontFamily: "ui-monospace, monospace",
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      padding: { top: 8, bottom: 8 },
+      tabSize: 2,
+    });
+
+    editor.onDidChangeModelContent(() => {
+      value = editor!.getValue();
+    });
+
+    editor.addAction({
+      id: "omni-run-query",
+      label: "Executar query",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+      run: () => onRun?.(),
+    });
+
+    monaco.languages.registerCompletionItemProvider("sql-omni", {
+      triggerCharacters: [".", " "],
+      async provideCompletionItems(model, position) {
+        const cursor = model.getOffsetAt(position);
+        const word = model.getWordUntilPosition(position);
+        let suggestions: Suggestion[] = [];
+        try {
+          suggestions = (await onAutocomplete?.(cursor)) ?? [];
+        } catch {
+          suggestions = [];
+        }
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+        return {
+          suggestions: suggestions.map((s) => ({
+            label: s.label,
+            kind: mapKind(s.kind),
+            detail: s.detail,
+            insertText: s.insertText ?? s.label,
+            insertTextRules:
+              s.insertText && (s.insertText.includes("$1") || s.insertText.includes("$2"))
+                ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+                : undefined,
+            range,
+          })),
+        };
+      },
+    });
+
+    return () => {
+      editor?.dispose();
+    };
+  });
+
+  // Sincroniza valor externo -> editor quando `value` muda por fora.
+  $effect(() => {
+    if (editor && editor.getValue() !== value) {
+      editor.setValue(value);
+    }
+  });
+</script>
+
+<div class="editor" bind:this={container}></div>
+
+<style>
+  .editor {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+</style>
