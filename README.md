@@ -79,7 +79,9 @@ Tauri Shell (Rust)
   └─ Node backend (TS) — JSON-RPC HTTP localhost:41920
        ├─ Adapters: PostgreSQL ✅ | MySQL/MariaDB/SQLServer/Oracle ⏳ | JDBC/ODBC ⏳
        ├─ Metadata cache: SQLite (node:sqlite builtin) com last_synced_at
-       └─ Autocomplete engine: lexer tier1 ✅ | Calcite tier2 ⏳ (Fase 3)
+       └─ Autocomplete engine: lexer tier1 ✅ | Calcite tier2 ✅ (colunas de CTE)
+  └─ JVM sidecar (Kotlin, opcional) — HTTP localhost:41921
+       └─ Apache Calcite: /scope/resolve resolve colunas de `WITH x AS (...)`
 ```
 
 Veja `PROJECT_PLAN.md` para o roadmap completo e `AGENTS.md` para detalhes
@@ -90,7 +92,7 @@ técnicos.
 - ✅ Fase 0: Fundação (monorepo, Tauri, Monaco, results grid, CI)
 - ✅ Fase 1: Cache SQLite + modelo unificado de metadados
 - ✅ Fase 2: Adaptador PostgreSQL real + lexer tier1 (casos 1-6)
-- ⏳ Fase 3: Parser de escopo via Apache Calcite (spike de 5 dias)
+- ✅ Fase 3: Colunas de CTE via Apache Calcite (`/scope/resolve` no sidecar JVM)
 - ⏳ Fases 4-7: Demais bancos (MySQL, Oracle, SQL Server, JDBC, ODBC)
 - ⏳ Fase 9: Polimento transversal
 

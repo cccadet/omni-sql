@@ -118,9 +118,26 @@ function extractScope(tokens: readonly Token[]): ScopeRef[] {
   // Re-pass: capturar pares `table [alias]` e `schema.table [alias]` em janela FROM.
   let i = 0;
   let insideFrom = false;
+  // Profundidade de parênteses: corpos de CTE (`WITH x AS (...)`) e
+  // subqueries têm seu próprio FROM/JOIN interno, que não pode vazar pro
+  // escopo da query externa — senão `WITH b1 AS (SELECT ... FROM t1 JOIN t2
+  // ...) SELECT <cursor> FROM b1` sugere colunas de t1/t2 junto com as de
+  // b1. Só processamos FROM/JOIN/identificadores no nível 0 (fora de
+  // qualquer parêntese); dentro deles, só rastreamos abre/fecha.
+  let depth = 0;
   while (i < tokens.length) {
     const t = tokens[i]!;
-    if (t.type === "keyword") {
+    if (t.type === "punct" && t.value === "(") {
+      depth++;
+      i++;
+      continue;
+    }
+    if (t.type === "punct" && t.value === ")") {
+      depth = Math.max(0, depth - 1);
+      i++;
+      continue;
+    }
+    if (depth === 0 && t.type === "keyword") {
       const up = t.upper ?? t.value.toUpperCase();
       if (up === "FROM" || JOIN_TOKENS.has(up)) {
         insideFrom = true;
@@ -135,7 +152,7 @@ function extractScope(tokens: readonly Token[]): ScopeRef[] {
         continue;
       }
     }
-    if (insideFrom && t.type === "identifier") {
+    if (depth === 0 && insideFrom && t.type === "identifier") {
       // Possível `schema.table` ou `table` seguido de alias.
       let schema: string | null = null;
       let table = t.value;
@@ -162,7 +179,7 @@ function extractScope(tokens: readonly Token[]): ScopeRef[] {
       i = aliasTok ? aliasId + 1 : j;
       continue;
     }
-    if (insideFrom && t.type === "punct" && t.value === ",") {
+    if (depth === 0 && insideFrom && t.type === "punct" && t.value === ",") {
       i++;
       continue;
     }

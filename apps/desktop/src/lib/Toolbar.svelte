@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ConnectionEntry } from "./backend";
+  import SidecarStatus from "./SidecarStatus.svelte";
 
   interface Props {
     connections: ConnectionEntry[];
@@ -161,6 +162,8 @@
   </select>
 
   <kbd>Ctrl/⌘+Enter</kbd>
+
+  <SidecarStatus />
 
   {#if busyMsg}
     <span class="busy">{busyMsg}</span>

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Gradle wrapper — gerado por bootstrap.sh
+# JAVA_OPTS é respeitado (ex.: -Djavax.net.ssl.trustStoreType=Windows-ROOT
+# em redes com inspeção SSL corporativa — ver README, secao Troubleshooting).
+APP_HOME=$( cd "${0%/*}" > /dev/null && pwd )
+CLASSPATH="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+exec java $JAVA_OPTS -cp "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"

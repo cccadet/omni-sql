@@ -4,11 +4,13 @@ use std::time::{Duration, Instant};
 use tauri::Manager;
 
 struct BackendChild(Mutex<Option<Child>>);
+struct SidecarChild(Mutex<Option<Child>>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(BackendChild(Mutex::new(None)))
+        .manage(SidecarChild(Mutex::new(None)))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -63,6 +65,70 @@ pub fn run() {
 
             let state: tauri::State<'_, BackendChild> = app.state();
             *state.0.lock().unwrap() = Some(child);
+
+            // Sidecar JVM (Fase 3, opcional): spawn assíncrono, nunca bloqueia o
+            // boot da janela. Enquanto o parser tolerante (Calcite/ANTLR) não
+            // existe, este processo só serve /health; o autocomplete continua
+            // 100% tier1 (TS) até o endpoint /scope/resolve existir. Qualquer
+            // falha aqui é best-effort — nunca deve derrubar o app.
+            //
+            // Roda o jar já compilado direto (`java -jar`), NUNCA via `gradlew
+            // run`: o wrapper do Gradle sobe um Daemon que sobrevive à morte
+            // do processo que o lançou, então `child.kill()` no window-destroy
+            // não mata o processo real que segura a porta — ele fica órfão e
+            // trava a próxima subida com `BindException: Address already in
+            // use`. `java -jar` é um processo comum, sem Daemon, que o kill
+            // mata de verdade. Gere/atualize o jar com `./gradlew jar`.
+            let sidecar_dir = workspace_root.join("services/jvm-sidecar");
+            let sidecar_jar = sidecar_dir.join("build/libs/omni-sql-sidecar.jar");
+            if sidecar_jar.exists() {
+                let mut cmd = Command::new("java");
+                cmd.arg("-jar").arg(&sidecar_jar);
+                cmd.current_dir(&sidecar_dir)
+                    .env("OMNI_SIDE_CAR_PORT", "41921")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit());
+
+                match cmd.spawn() {
+                    Ok(child) => {
+                        log::info!("Starting JVM sidecar (tier2, background boot)");
+                        let sidecar_state: tauri::State<'_, SidecarChild> = app.state();
+                        *sidecar_state.0.lock().unwrap() = Some(child);
+
+                        // Checagem de /health roda numa thread separada: só serve
+                        // pra log de diagnóstico, nunca atrasa o boot da janela.
+                        std::thread::spawn(|| {
+                            let deadline = Instant::now() + Duration::from_secs(30);
+                            while Instant::now() < deadline {
+                                if std::net::TcpStream::connect_timeout(
+                                    &"127.0.0.1:41921".parse().unwrap(),
+                                    Duration::from_millis(200),
+                                )
+                                .is_ok()
+                                {
+                                    log::info!("JVM sidecar (tier2) is listening on 127.0.0.1:41921");
+                                    return;
+                                }
+                                std::thread::sleep(Duration::from_millis(300));
+                            }
+                            log::warn!(
+                                "JVM sidecar (tier2) did not become reachable in 30s — autocomplete segue em tier1"
+                            );
+                        });
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "failed to spawn JVM sidecar (tier2 fica indisponível, autocomplete segue em tier1): {e}"
+                        );
+                    }
+                }
+            } else {
+                log::info!(
+                    "JVM sidecar jar não encontrado (rode services/jvm-sidecar/bootstrap.sh e depois ./gradlew jar) — autocomplete segue em tier1"
+                );
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -72,6 +138,13 @@ pub fn run() {
                 if let Some(mut child) = guard.take() {
                     let _ = child.kill();
                     log::info!("backend sidecar killed");
+                }
+
+                let sidecar_state: tauri::State<'_, SidecarChild> = window.state();
+                let mut sidecar_guard = sidecar_state.0.lock().unwrap();
+                if let Some(mut child) = sidecar_guard.take() {
+                    let _ = child.kill();
+                    log::info!("JVM sidecar killed");
                 }
             }
         })

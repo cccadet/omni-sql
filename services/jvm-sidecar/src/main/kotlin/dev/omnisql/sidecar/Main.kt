@@ -1,23 +1,22 @@
 package dev.omnisql.sidecar
 
 import com.sun.net.httpserver.HttpServer
+import dev.omnisql.sidecar.scope.ScopeResolver
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicLong
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
- * Spike da Fase 0 — JVM sidecar mínimo.
- *
- * Risco mitigado: validar que (a) Kotlin + JDK-only HTTP server sobe limpo num
- * cold-start < 1s, (b) Tauri consegue matar o processo na fase de teardown, e
- * (c) o contrato HTTP /health é suficiente como heart-beat para futuras
- * chamadas /scope/resolve (Calcite fase 3).
+ * JVM sidecar — HTTP server mínimo (`com.sun.net.httpserver`, JDK puro) +
+ * `/scope/resolve` (Fase 3: resolução de colunas de CTE via Apache Calcite,
+ * ver `dev.omnisql.sidecar.scope.ScopeResolver`).
  *
  * Porta padrão 41921 — distinta do backend Node (41920) para evitar conflito
- * deAssigned no Tauri. Override via env `OMNI_SIDE_CAR_PORT`.
+ * no Tauri. Override via env `OMNI_SIDE_CAR_PORT`.
  *
- * Tudo aqui é deliberadamente "sem frameworks": Ktor/AutHttp/Coroutines entram
- * só quando a Fase 3 decidir Calcite vs ANTLR. Em um spike, menos código externo
- * = menos variáveis nas falhas.
+ * Ktor/Coroutines continuam de fora deliberadamente: o server síncrono do
+ * JDK já é suficiente para o volume de requests do autocomplete tier2.
  */
 fun main() {
     val port = (System.getenv("OMNI_SIDE_CAR_PORT") ?: "41921").toInt()
@@ -31,16 +30,55 @@ fun main() {
         val body = """{"status":"ok","pid":$pid,"uptimeMs":$uptimeMs,"requests":${requestCount.incrementAndGet()}}"""
         val bytes = body.toByteArray(Charsets.UTF_8)
         exchange.responseHeaders.add("content-type", "application/json")
+        // Sem isso, o fetch() do webview (origin http://localhost:1420 em dev,
+        // tauri://localhost em produção) é bloqueado por CORS mesmo com a
+        // resposta chegando — mesmo problema já resolvido no backend Node.
+        exchange.responseHeaders.add("access-control-allow-origin", "*")
         exchange.sendResponseHeaders(200, bytes.size.toLong())
-        exchange.responseBody.use { it.write(bytes) }
+        exchange.responseBody.write(bytes)
         exchange.close()
+    }
+
+    server.createContext("/scope/resolve") { exchange ->
+        try {
+            if (exchange.requestMethod != "POST") {
+                exchange.sendResponseHeaders(405, -1)
+                exchange.close()
+                return@createContext
+            }
+            val requestBody = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
+            val sql = JSONObject(requestBody).optString("sql", "")
+            val ctes = ScopeResolver.resolveCtes(sql)
+            val ctesJson =
+                JSONArray(
+                    ctes.map { cte ->
+                        JSONObject().put("name", cte.name).put("columns", JSONArray(cte.columns))
+                    },
+                )
+            val bytes = JSONObject().put("ctes", ctesJson).toString().toByteArray(Charsets.UTF_8)
+            exchange.responseHeaders.add("content-type", "application/json")
+            exchange.responseHeaders.add("access-control-allow-origin", "*")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.write(bytes)
+        } catch (e: Exception) {
+            // Best-effort: erro de parse/JSON malformado nunca deve derrubar
+            // o sidecar nem virar 500 — o cliente (Node backend) trata
+            // corpo vazio como "sem CTEs resolvidas" e segue em tier1 puro.
+            val bytes = """{"ctes":[]}""".toByteArray(Charsets.UTF_8)
+            exchange.responseHeaders.add("content-type", "application/json")
+            exchange.responseHeaders.add("access-control-allow-origin", "*")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.write(bytes)
+        } finally {
+            exchange.close()
+        }
     }
 
     server.createContext("/") { exchange ->
         val msg = "not found: ${exchange.requestURI}"
         val bytes = msg.toByteArray(Charsets.UTF_8)
         exchange.sendResponseHeaders(404, bytes.size.toLong())
-        exchange.responseBody.use { it.write(bytes) }
+        exchange.responseBody.write(bytes)
         exchange.close()
     }
 

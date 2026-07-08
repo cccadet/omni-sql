@@ -7,7 +7,7 @@ autocomplete (no LLM in v1). See `PROJECT_PLAN.md` for the full roadmap.
 - **Shell:** Tauri (Rust) — `apps/desktop/src-tauri`
 - **Frontend:** TypeScript + Svelte 5 + Monaco Editor — `apps/desktop/src`
 - **Backend:** Node (TypeScript) — HTTP JSON-RPC — `packages/backend`
-- **Parser/Validator (Fase 3):** JVM sidecar (Kotlin) com Apache Calcite — TODO
+- **Parser/Validator (Fase 3):** JVM sidecar (Kotlin) com Apache Calcite — colunas de CTE via `/scope/resolve` ✅; `CalciteSchemaAdapter` com schema/tipos reais TODO
 - **Cache:** SQLite embutido (`node:sqlite` builtin, Node 22+) — `packages/metadata-cache`
 - **Oracle:** thin mode por default (sem instant client) — TODO Fase 4
 - **MongoDB:** deferido para v2
@@ -23,7 +23,7 @@ packages/adapters-pg             Adaptador PostgreSQL real (driver `pg`)
 packages/autocomplete-engine     Lexer tier1 + provider de autocomplete
 packages/metadata-cache          Cache SQLite (`node:sqlite` builtin) + last_synced_at
 packages/backend                 Node HTTP JSON-RPC (handlers + protocol)
-services/jvm-sidecar             Spike Kotlin/Gradle mínimo (Fase 0) — Calcite em Fase 3
+services/jvm-sidecar             Kotlin/Gradle + Calcite: /health, /scope/resolve (colunas de CTE)
 ```
 
 ## Comandos
@@ -68,18 +68,31 @@ services/jvm-sidecar             Spike Kotlin/Gradle mínimo (Fase 0) — Calcit
 - ✅ Persistência de conexões: lista de conexões é restaurada do SQLite no boot do backend,
   com senhas recuperadas do keyring e adaptadores reidratados automaticamente.
 
-## Próximas ações (quando continuar — Fase 3)
-1. **Destravar Gradle local:** `pacman -S gradle` e validar
-   `services/jvm-sidecar/bootstrap.sh` + `./gradlew run`.
-2. **Adicionar Apache Calcite** ao `services/jvm-sidecar/build.gradle.kts`
-   (dependência `org.apache.calcite:calcite-core` 1.37+).
-3. **Spike de 5 dias: tolerant-vs-fragment usando `SqlParser.parseStatementFragment`
-   + error recovery custom para extrair aliases/CTE/subquery do `SqlSelect`.**
-4. **Decisão final: Calcite vs ANTLR** (ANTLR vira fallback se tolerância falhar).
-5. **Endpoint HTTP `/scope/resolve`** no sidecar se Calcite vencer:
-   recebe `(query, cursorOffset, schemaId)` → `{clause, availableAliases, availableColumns}`.
-6. **Tiering engine TS:** tier1 já em `packages/autocomplete-engine`;
-   adicionar tier2 debounced ~80ms chama sidecar via HTTP para casos 7-8.
+## Fase 3 — Calcite (colunas de CTE)
+- ✅ **Apache Calcite** adicionado a `services/jvm-sidecar/build.gradle.kts`
+  (`org.apache.calcite:calcite-core:1.37.0`); fat-jar exclui `META-INF/*.SF|RSA|DSA|EC`
+  (dependências assinadas do Calcite quebravam `java -jar` sem essa exclusão).
+- ✅ **`dev.omnisql.sidecar.scope.ScopeResolver` + `/scope/resolve`:** resolve
+  colunas de CTE sem tolerant-parse do statement inteiro — o corpo de cada CTE
+  (`AS (...)`) é isolado via varredura textual balanceada (`CteTextScanner`) e
+  parseado isoladamente pelo Calcite; a query externa (que costuma estar
+  incompleta enquanto o usuário digita) nem entra no parser. Testes:
+  `services/jvm-sidecar/src/test/kotlin/.../ScopeResolverTest.kt` (7 casos,
+  incluindo a query real do bug reportado).
+- ✅ **`packages/backend/src/sidecar-client.ts`:** chama `/scope/resolve` com
+  timeout de 250ms; `completion.get` injeta as colunas resolvidas como
+  `Relation`s sintéticas em `metaSourceOf` (CTEs sombreiam tabelas reais de
+  mesmo nome), então o tier1 (`autocompleteTier1`) resolve `FROM cte` /
+  `cte.<cursor>` sem mudança nenhuma no `engine.ts`. Falha do sidecar
+  (indisponível/timeout/JSON inválido) sempre faz `completion.get` cair de
+  volta pro tier1 puro — nunca quebra o autocomplete.
+- ⏳ **Ainda TODO:** `CalciteSchemaAdapter` com schema/catálogo real (tipos de
+  coluna, expansão de `SELECT *`, validação completa) — hoje `/scope/resolve`
+  só infere NOMES de coluna via `SqlValidatorUtil.getAlias`, sintaticamente.
+  Decisão Calcite vs ANTLR nem chegou a ser necessária: o parse tolerante do
+  statement inteiro (`SqlParser.parseStatementFragment` + recovery custom)
+  foi evitado inteiramente para este caso — só voltaria à mesa se precisarmos
+  resolver escopo de subqueries correlacionadas (fora do que o bug pedia).
 
 ## Memory persistida
 - Plano + decisões arquiteturais salvos no `mymem0ry` (project scope). Buscar

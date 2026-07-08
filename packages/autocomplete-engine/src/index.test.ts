@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
 import type { DialectDescriptor } from "@omni-sql/dialect-descriptors";
 import { autocompleteTier1, type MetadataSource } from "./engine.ts";
-import type { ScopeRef } from "./context.ts";
+import { resolveContext, type ScopeRef } from "./context.ts";
 import type { FunctionDef, Relation } from "@omni-sql/ts-types";
 
 const USERS: Relation = {
@@ -122,5 +122,26 @@ test("caso 6: ORDER BY reusa colunas em escopo", () => {
   assert.ok(labels.includes("email"));
 });
 
-test.todo("caso 7: CTE WITH x AS (...) deve listar x no FROM");
+test("caso 7: CTE WITH x AS (...) lista x no FROM externo", () => {
+  const sql = "WITH x AS (SELECT id FROM users) SELECT id FROM x";
+  const cursor = sql.length - "x".length; // logo após "FROM " externo
+  const ctx = resolveContext(sql, cursor, postgresDescriptor);
+  assert.deepEqual(ctx.scope, [{ schema: null, table: "x", alias: "x" }]);
+});
+
+test("caso 7b: colunas das tabelas internas do CTE não vazam pro escopo externo", () => {
+  const meta = metaOf(postgresDescriptor);
+  // O corpo do CTE referencia `users`/`orders` — essas NÃO podem aparecer
+  // como sugestão no SELECT externo, só o próprio CTE (`x`, sem colunas
+  // conhecidas aqui: o mock não resolve CTEs, isso é responsabilidade do
+  // tier2/backend injetando uma Relation sintética em resolveRelation).
+  const sql = "WITH x AS (SELECT id, total FROM orders JOIN users ON true) SELECT  FROM x";
+  const cursor = sql.indexOf("SELECT  FROM x") + "SELECT ".length;
+  const out = autocompleteTier1(sql, cursor, meta);
+  const labels = out.map((s) => s.label);
+  assert.ok(!labels.includes("total"), "coluna de `orders` (dentro do CTE) vazou pro escopo externo");
+  assert.ok(!labels.includes("user_id"), "coluna de `users`/`orders` (dentro do CTE) vazou pro escopo externo");
+  assert.ok(!labels.includes("email"), "coluna de `users` (dentro do CTE) vazou pro escopo externo");
+});
+
 test.todo("caso 8: subqueries correlacionadas herdam escopo externo");

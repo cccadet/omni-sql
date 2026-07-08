@@ -18,6 +18,7 @@ import {
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
 
+import { resolveCteRelations } from "./sidecar-client.ts";
 import {
   getPassword,
   setPassword,
@@ -122,7 +123,7 @@ function requireSession(id: string): Session {
   return s;
 }
 
-function metaSourceOf(session: Session): MetadataSource {
+function metaSourceOf(session: Session, cteRelations: readonly Relation[] = []): MetadataSource {
   return {
     dialect: dialectDescriptor(session.config.dialect),
     listRelations: (): readonly Relation[] => {
@@ -138,12 +139,18 @@ function metaSourceOf(session: Session): MetadataSource {
       // identificadores não-citados (Postgres → minúsculas via
       // information_schema, Oracle → MAIÚSCULAS via ALL_TAB_COLUMNS), mas o
       // usuário digita como bem entender.
+      const table = ref.table.toLowerCase();
+      const schema = ref.schema?.toLowerCase();
+      // CTEs (tier2 via sidecar/Calcite) sombreiam tabelas reais de mesmo
+      // nome — mesma regra de resolução de escopo do SQL padrão.
+      if (schema == null) {
+        const cte = cteRelations.find((r) => r.name.toLowerCase() === table);
+        if (cte) return cte;
+      }
       const all: Relation[] = [];
       for (const s of cache.listSchemas(session.config.id)) {
         all.push(...cache.getTablesBySchema(session.config.id, s.name));
       }
-      const table = ref.table.toLowerCase();
-      const schema = ref.schema?.toLowerCase();
       return (
         all.find((r) =>
           r.name.toLowerCase() === table &&
@@ -285,7 +292,12 @@ export const handlers: RpcRouter = {
     cursor,
   }: CompletionParams): Promise<CompletionResult> {
     const s = requireSession(connectionId);
-    const meta = metaSourceOf(s);
+    // Tier2: resolve colunas de CTEs via sidecar JVM/Calcite antes de rodar
+    // o tier1 (lexer puro, síncrono) — best-effort, timeout curto; se o
+    // sidecar não responder a tempo, cteRelations fica vazio e o
+    // autocomplete segue 100% tier1, como sempre foi.
+    const cteRelations = await resolveCteRelations(sql);
+    const meta = metaSourceOf(s, cteRelations);
     const suggestions = autocompleteTier1(sql, cursor, meta);
     return { suggestions };
   },

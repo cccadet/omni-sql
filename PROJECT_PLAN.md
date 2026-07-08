@@ -7,6 +7,7 @@ Multi-database SQL IDE with intelligent autocomplete (no LLM in v1).
 - **Frontend:** TypeScript + Svelte + Monaco Editor — `apps/desktop/src`
 - **Backend:** Node.js (TypeScript) — adapters relacionais, cache, query exec
 - **Parser/Validator:** JVM sidecar (Kotlin) com Apache Calcite — `services/jvm-sidecar`
+  (colunas de CTE via `/scope/resolve` ✅; schema/tipos reais ainda TODO)
 - **Cache:** SQLite embutido (`node:sqlite` builtin, Node 22+) — `packages/metadata-cache`
 - **Credenciais:** `keyring` crate no Tauri (nunca em config/SQLite)
 - **Oracle:** thin mode por default (sem instant client)
@@ -36,7 +37,7 @@ packages/adapters-pg           Adaptador PostgreSQL real (driver `pg`): informat
 packages/metadata-cache        Cache SQLite (`node:sqlite` builtin) + last_synced_at por entidade
 packages/autocomplete-engine   Lexer tier1 + provider de autocomplete
 packages/backend               Node HTTP JSON-RPC (handlers + protocol + Adapter registry)
-services/jvm-sidecar           Spike Kotlin/Gradle (`/health` HTTP porta 41921) — Calcite em Fase 3
+services/jvm-sidecar           Kotlin/Gradle + Calcite: /health, /scope/resolve (colunas de CTE) — porta 41921
 # Fases subsequentes:
 packages/adapters-mysql        (Fase 4)
 packages/adapters-mariadb      (Fase 4)
@@ -56,10 +57,13 @@ packages/adapters-oracle       (Fase 4)
   `EXPLAIN (FORMAT JSON)`). Registrado em `registerAdapter("postgres", pgAdapterFactory)`.
   Lexer TS em `packages/autocomplete-engine` cobre 6 dos 8 casos da suíte (1-6 ✅,
   7-8 ficam `it.todo` para Fase 3 via sidecar).
-- **F3 Calcite spike (5 dias) — PRÓXIMA:** instalar `gradle`, adicionar `calcite-core`
-  ao `services/jvm-sidecar`, tolerant-vs-fragment + extrair aliases/CTE/subquery
-  do `SqlSelect`. Decisão Calcite vs ANTLR. Endpoint `/scope/resolve` no sidecar.
-  Tiering engine TS: tier1 <5ms (já existe), tier2 sidecar debounced ~80ms com LRU.
+- **F3 Calcite (colunas de CTE) ✅:** `calcite-core` em `services/jvm-sidecar`,
+  endpoint `/scope/resolve` (`ScopeResolver.kt`) extrai colunas de `WITH x AS
+  (...)` parseando cada corpo isoladamente (sem tolerant-vs-fragment do
+  statement inteiro — evitado deliberadamente, ver `AGENTS.md`). Tiering:
+  `packages/backend/src/sidecar-client.ts` chama o sidecar com timeout de
+  250ms antes do tier1 síncrono; falha cai de volta pro tier1 puro.
+  Subqueries correlacionadas (caso 8) seguem fora de escopo.
 - **F4 MySQL → MariaDB → SQL Server → Oracle.** Suíte 8/8 verde por banco.
 - **F5 Funções com assinatura** (snippets Monaco, overloads separados) + `EXPLAIN` textual
   (`Adapter.explain` já retorna JSON; falta plugar Monaco e visual tree).
@@ -76,13 +80,15 @@ packages/adapters-oracle       (Fase 4)
 4. Alias simples `FROM tabela t` → `t.` colunas
 5. Múltiplos JOINs com aliases → colunas de todas em escopo
 6. `WHERE`/`ON`/`GROUP BY`/`ORDER BY` → mesmas colunas
-7. CTEs `WITH x AS (...)` → `x` disponível no main
-8. Subqueries correlacionadas — escopo aninhado
+7. ✅ CTEs `WITH x AS (...)` → `x` disponível no main, colunas via `/scope/resolve` (Calcite)
+8. ⏳ Subqueries correlacionadas — escopo aninhado
 
 ## Spikes de risco (Fase 0, 1-2 dias cada)
-1. ✅ JVM sidecar cold-start + IPC (spike Kotlin `/health` pronto em `services/jvm-sidecar`;
-   gradle-wrapper via `bootstrap.sh`). Falta instalar `gradle` localmente para validar.
-2. ⏳ Calcite tolerant-vs-fragment (expande na Fase 3 — spike de 5 dias).
+1. ✅ JVM sidecar cold-start + IPC (`/health` + `/scope/resolve` em `services/jvm-sidecar`;
+   gradle-wrapper via `bootstrap.sh`; jar buildado e testado com `./gradlew jar`/`test`).
+2. ✅ Calcite — tolerant-vs-fragment do statement inteiro acabou não sendo necessário: o
+   caso 7 (colunas de CTE) é resolvido parseando só o corpo de cada CTE isoladamente
+   (ver `AGENTS.md`). Escopo aninhado (caso 8) continuaria precisando do spike original.
 3. ⏳ `oracledb` thin mode (validar em Fase 4).
 
 ## Verificação pós-edição
