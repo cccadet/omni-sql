@@ -79,10 +79,14 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "access-control-allow-origin": "*",
-        "access-control-allow-methods": "POST, OPTIONS",
+        "access-control-allow-methods": "POST, OPTIONS, GET",
         "access-control-allow-headers": "content-type",
       });
       res.end();
+      return;
+    }
+    if (req.url === "/health") {
+      send(res, 200, { status: "ok", port });
       return;
     }
     if (req.method !== "POST" || req.url !== "/rpc") {
@@ -115,7 +119,7 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
     }
   });
 
-  server.listen(port);
+  server.listen(port, "127.0.0.1");
   console.log(`[omni-sql] backend HTTP listening on http://127.0.0.1:${port}/rpc`);
   return server;
 }

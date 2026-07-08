@@ -1,5 +1,6 @@
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::Manager;
 
 struct BackendChild(Mutex<Option<Child>>);
@@ -41,6 +42,24 @@ pub fn run() {
                     log::error!("failed to spawn Node backend: {e}");
                     e
                 })?;
+
+            // Wait a moment for the backend to bind to 127.0.0.1:41920.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                if std::net::TcpStream::connect_timeout(
+                    &"127.0.0.1:41920".parse().unwrap(),
+                    Duration::from_millis(100),
+                )
+                .is_ok()
+                {
+                    log::info!("backend sidecar is listening on 127.0.0.1:41920");
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if Instant::now() >= deadline {
+                log::warn!("backend sidecar did not become reachable in 5s");
+            }
 
             let state: tauri::State<'_, BackendChild> = app.state();
             *state.0.lock().unwrap() = Some(child);
