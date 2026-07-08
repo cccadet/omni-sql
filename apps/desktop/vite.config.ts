@@ -8,6 +8,9 @@ const frontendPort = 1420;
 export default defineConfig({
   plugins: [svelte()],
   clearScreen: false,
+  resolve: {
+    conditions: ["browser"],
+  },
   server: {
     port: frontendPort,
     strictPort: true,
