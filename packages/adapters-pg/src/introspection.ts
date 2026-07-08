@@ -108,7 +108,7 @@ SELECT
 FROM pg_proc p
 JOIN pg_namespace n ON p.pronamespace = n.oid
 JOIN pg_type t      ON p.prorettype   = t.oid
-WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+WHERE n.nspname = $1
   AND p.prokind = 'f'
 ORDER BY schema, name
 `;
@@ -235,7 +235,28 @@ export async function runQueryViaPool(
   const client = await pool.connect();
   try {
     const cursorName = `omni_q_${Math.random().toString(36).slice(2)}`;
-    await client.query(`DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sql}`);
+    try {
+      await client.query(`DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sql}`);
+    } catch {
+      // Not every statement can back a cursor (SHOW, SET, DDL, plain DML
+      // without RETURNING, etc.) — fall back to running it directly.
+      const res = await client.query(sql);
+      const cols: QueryResultColumn[] = (res.fields ?? []).map((f) => ({
+        name: f.name,
+        dataType: mapPgOidToDataType(f.dataTypeID),
+        nullable: true,
+      }));
+      const rows = res.rows.map((r) =>
+        cols.map((c) => (r as Record<string, unknown>)[c.name] ?? null),
+      );
+      return {
+        columns: cols,
+        rows: rows.slice(0, limit),
+        rowsAffected: cols.length === 0 ? res.rowCount ?? undefined : undefined,
+        rowsMoreAvailable: rows.length > limit,
+        elapsedMs: Date.now() - t0,
+      };
+    }
     const rowsFetched: unknown[][] = [];
     let cols: QueryResultColumn[] = [];
     let moreAvailable = false;

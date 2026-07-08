@@ -11,6 +11,11 @@
     onAdd?: () => void;
     onEdit?: (id: string) => void;
     onRemove?: (id: string) => void;
+    onRefreshMetadata?: (id: string) => void;
+    limit: number;
+    onLimitChange?: (limit: number) => void;
+    fontFamily: string;
+    onFontChange?: (fontFamily: string) => void;
   }
   let {
     connections,
@@ -22,7 +27,24 @@
     onAdd,
     onEdit,
     onRemove,
+    onRefreshMetadata,
+    limit,
+    onLimitChange,
+    fontFamily,
+    onFontChange,
   }: Props = $props();
+
+  const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
+
+  const FONT_OPTIONS: Array<{ label: string; value: string }> = [
+    { label: "Padrão", value: "ui-monospace, monospace" },
+    { label: "Cascadia Code", value: "'Cascadia Code', ui-monospace, monospace" },
+    { label: "Fira Code", value: "'Fira Code', ui-monospace, monospace" },
+    { label: "JetBrains Mono", value: "'JetBrains Mono', ui-monospace, monospace" },
+    { label: "Consolas", value: "Consolas, ui-monospace, monospace" },
+    { label: "Menlo", value: "Menlo, ui-monospace, monospace" },
+    { label: "Courier New", value: "'Courier New', monospace" },
+  ];
 
   const DIALECT_ICONS: Record<ConnectionEntry["dialect"], string> = {
     postgres: "🐘",
@@ -74,6 +96,10 @@
       onRemove?.(activeConnectionId);
     }
   }
+  function onRefreshMetadataClick(e: Event) {
+    e.preventDefault();
+    if (activeConnectionId) onRefreshMetadata?.(activeConnectionId);
+  }
 
   const activeConnection = $derived(
     connections.find((c) => c.id === activeConnectionId),
@@ -93,6 +119,13 @@
 
   {#if activeConnection}
     <span class="meta-status" title={metaStatus.label}>{metaStatus.icon}</span>
+    <button
+      class="icon"
+      title="Atualizar metadados (tabelas/colunas)"
+      onclick={onRefreshMetadataClick}
+      disabled={!activeConnectionId || !!busyMsg}
+      aria-label="Atualizar metadados"
+    >⟳</button>
   {/if}
 
   <button class="icon" title="Nova conexão" onclick={onAdd} aria-label="Nova conexão">+</button>
@@ -102,6 +135,30 @@
   <button onclick={onRunClick} disabled={running || !activeConnectionId}>
     {running ? "Executando…" : "Executar"}
   </button>
+
+  <select
+    class="limit-select"
+    title="Limite de linhas"
+    aria-label="Limite de linhas"
+    value={limit}
+    onchange={(e) => onLimitChange?.(Number(e.currentTarget.value))}
+  >
+    {#each LIMIT_OPTIONS as opt}
+      <option value={opt}>{opt} linhas</option>
+    {/each}
+  </select>
+
+  <select
+    class="font-select"
+    title="Fonte do editor (por aba)"
+    aria-label="Fonte do editor"
+    value={fontFamily}
+    onchange={(e) => onFontChange?.(e.currentTarget.value)}
+  >
+    {#each FONT_OPTIONS as opt}
+      <option value={opt.value}>{opt.label}</option>
+    {/each}
+  </select>
 
   <kbd>Ctrl/⌘+Enter</kbd>
 
@@ -127,6 +184,14 @@
     padding: 4px 8px;
     border-radius: 4px;
     min-width: 220px;
+  }
+  select.limit-select {
+    min-width: unset;
+    width: auto;
+  }
+  select.font-select {
+    min-width: unset;
+    width: auto;
   }
   button {
     background: #0e639c;

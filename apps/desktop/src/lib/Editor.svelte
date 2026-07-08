@@ -6,10 +6,16 @@
 
   interface Props {
     value: string;
+    fontFamily?: string;
     onAutocomplete?: (cursor: number) => Promise<Suggestion[]>;
     onRun?: () => void;
   }
-  let { value = $bindable(), onAutocomplete, onRun }: Props = $props();
+  let {
+    value = $bindable(),
+    fontFamily = "ui-monospace, monospace",
+    onAutocomplete,
+    onRun,
+  }: Props = $props();
 
   let container: HTMLDivElement;
   let editor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -59,7 +65,7 @@
       theme: "vs-dark",
       automaticLayout: true,
       fontSize: 13,
-      fontFamily: "ui-monospace, monospace",
+      fontFamily,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       padding: { top: 8, bottom: 8 },
@@ -120,6 +126,10 @@
     if (editor && editor.getValue() !== value) {
       editor.setValue(value);
     }
+  });
+
+  $effect(() => {
+    editor?.updateOptions({ fontFamily });
   });
 </script>
 

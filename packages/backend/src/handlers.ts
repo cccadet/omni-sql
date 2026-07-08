@@ -184,7 +184,11 @@ export const handlers: RpcRouter = {
   },
 
   async "connection.test"({ config, password }: TestConnectionParams): Promise<TestConnectionResult> {
-    const adapter = createAdapter(config, password);
+    const effectivePassword =
+      password !== undefined && password.length > 0
+        ? password
+        : await getPassword(config).catch(() => undefined);
+    const adapter = createAdapter(config, effectivePassword);
     try {
       const result = await adapter.test();
       await adapter.close().catch(() => undefined);

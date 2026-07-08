@@ -53,6 +53,27 @@ export function autocompleteTier1(
   const dialect = meta.dialect;
   const ctx: ResolvedContext = resolveContext(input, cursor, dialect);
 
+  // Caso 1: cursor imediatamente após FROM/JOIN → tabelas/views. Um
+  // qualificador aqui é um schema (`ai.<cursor>`), não um alias.
+  if (ctx.clause === "from" || ctx.clause === "join") {
+    const rels = ctx.qualifier
+      ? meta.listRelations().filter((r) => r.schema === ctx.qualifier)
+      : meta.listRelations();
+    const partial = ctx.cursorToken?.value ?? "";
+    return rels
+      .map((r) => ({
+        kind: r.kind === "view" ? ("view" as const) : ("table" as const),
+        label: r.name,
+        detail: r.schema,
+        // Schema já digitado pelo usuário (`ctx.qualifier`) não deve ser
+        // repetido; do contrário, qualifica para produzir SQL executável
+        // em schemas fora do search_path padrão.
+        insertText: ctx.qualifier || r.schema === "public" ? undefined : `${r.schema}.${r.name}`,
+        relevance: 90,
+      }))
+      .filter((s) => !partial || s.label.toLowerCase().startsWith(partial.toLowerCase()));
+  }
+
   // Caso 4: `alias.` → colunas do alias.
   if (ctx.qualifier) {
     const ref = ctx.scope.find((s) => s.alias === ctx.qualifier);
@@ -65,20 +86,6 @@ export function autocompleteTier1(
       detail: c.dataType,
       relevance: 100,
     }));
-  }
-
-  // Caso 1: cursor imediatamente após FROM/JOIN → tabelas/views.
-  if (ctx.clause === "from" || ctx.clause === "join") {
-    const rels = meta.listRelations();
-    const partial = ctx.cursorToken?.value ?? "";
-    return rels
-      .map((r) => ({
-        kind: r.kind === "view" ? ("view" as const) : ("table" as const),
-        label: r.name,
-        detail: r.schema,
-        relevance: 90,
-      }))
-      .filter((s) => !partial || s.label.toLowerCase().startsWith(partial.toLowerCase()));
   }
 
   // Caso 2: SELECT sem FROM ainda → `*` + funções.

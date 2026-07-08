@@ -144,7 +144,7 @@ function parseEndpoint(
   options?: Record<string, string | number | boolean>,
 ): ParsedEndpoint {
   const directOptions: Record<string, string | number | boolean> = { ...options };
-  if (password !== undefined) {
+  if (password !== undefined && password.length > 0) {
     directOptions.password = password;
   }
 
