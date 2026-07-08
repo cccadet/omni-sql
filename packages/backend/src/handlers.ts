@@ -169,6 +169,7 @@ export const handlers: RpcRouter = {
       endpoint: c.endpoint,
       user: c.user,
       options: c.options,
+      lastSyncedAt: cache.lastSyncedAt(c.id, "connection"),
     }));
     return { configs };
   },

@@ -24,6 +24,38 @@
     onRemove,
   }: Props = $props();
 
+  const DIALECT_ICONS: Record<ConnectionEntry["dialect"], string> = {
+    postgres: "🐘",
+    mysql: "🐬",
+    mariadb: "🦭",
+    sqlserver: "🗄️",
+    oracle: "🟠",
+    "jdbc-generic": "🔌",
+    odbc: "🔗",
+  };
+
+  function dialectIcon(dialect: ConnectionEntry["dialect"]): string {
+    return DIALECT_ICONS[dialect] ?? "🗄️";
+  }
+
+  function formatMetaStatus(entry: ConnectionEntry | undefined): {
+    icon: string;
+    label: string;
+  } {
+    if (!entry) return { icon: "", label: "" };
+    if (entry.lastSyncedAt) {
+      const d = new Date(entry.lastSyncedAt);
+      return {
+        icon: "🟢",
+        label: `Metadados sincronizados em ${d.toLocaleString()}`,
+      };
+    }
+    return {
+      icon: "⚪",
+      label: "Metadados ainda não lidos — autocomplete de tabelas indisponível",
+    };
+  }
+
   function onRunClick(e: Event) {
     e.preventDefault();
     onRun?.();
@@ -42,6 +74,11 @@
       onRemove?.(activeConnectionId);
     }
   }
+
+  const activeConnection = $derived(
+    connections.find((c) => c.id === activeConnectionId),
+  );
+  const metaStatus = $derived(formatMetaStatus(activeConnection));
 </script>
 
 <header class="toolbar">
@@ -50,9 +87,13 @@
       <option value="" disabled>Nenhuma conexão cadastrada</option>
     {/if}
     {#each connections as c}
-      <option value={c.id}>{c.label} — {c.dialect}</option>
+      <option value={c.id}>{dialectIcon(c.dialect)} {c.label}</option>
     {/each}
   </select>
+
+  {#if activeConnection}
+    <span class="meta-status" title={metaStatus.label}>{metaStatus.icon}</span>
+  {/if}
 
   <button class="icon" title="Nova conexão" onclick={onAdd} aria-label="Nova conexão">+</button>
   <button class="icon" title="Editar conexão" onclick={onEditClick} disabled={!activeConnectionId} aria-label="Editar conexão">✎</button>
@@ -116,4 +157,10 @@
     opacity: 0.7;
   }
   .busy { color: #9cdcfe; margin-left: auto; }
+  .meta-status {
+    font-size: 12px;
+    line-height: 1;
+    cursor: default;
+    opacity: 0.9;
+  }
 </style>

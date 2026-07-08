@@ -47,7 +47,9 @@ export interface AddConnectionResult {
 }
 
 export interface ListConnectionsResult {
-  configs: ReadonlyArray<Omit<ConnectionConfig, "passwordSlot">>;
+  configs: ReadonlyArray<
+    Omit<ConnectionConfig, "passwordSlot"> & { lastSyncedAt?: number }
+  >;
 }
 
 export interface TestConnectionParams {

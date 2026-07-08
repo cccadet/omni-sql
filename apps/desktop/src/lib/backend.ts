@@ -8,6 +8,7 @@ export interface ConnectionEntry {
   endpoint: string;
   user: string;
   options?: Record<string, string | number | boolean>;
+  lastSyncedAt?: number;
 }
 
 type AnyParams = Record<string, unknown> | undefined;
