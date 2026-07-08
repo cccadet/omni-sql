@@ -16,7 +16,8 @@
     "build": "pnpm -r --filter './packages/**' build",
     "dev:frontend": "pnpm --filter desktop dev",
     "dev:backend": "pnpm --filter backend start",
-    "dev:tauri": "cargo tauri dev --manifest-path apps/desktop/src-tauri/Cargo.toml"
+    "dev:tauri": "pnpm --filter desktop dev:tauri",
+    "build:tauri": "pnpm --filter desktop build:tauri"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
