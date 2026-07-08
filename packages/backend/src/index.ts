@@ -45,6 +45,8 @@ async function dispatch(method: string, params: unknown): Promise<unknown> {
       return handlers["connection.list"]();
     case "connection.remove":
       return handlers["connection.remove"](params as never);
+    case "connection.test":
+      return handlers["connection.test"](params as never);
     case "query.run":
       return handlers["query.run"](params as never);
     case "metadata.introspect":

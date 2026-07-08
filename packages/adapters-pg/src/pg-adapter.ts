@@ -39,9 +39,9 @@ export class PostgresAdapter implements Adapter {
   private relationsBySchema = new Map<string, Relation[]>();
   private functionsBySchema = new Map<string, FunctionDef[]>();
 
-  constructor(config: ConnectionConfig) {
+  constructor(config: ConnectionConfig, password?: string) {
     this.id = config.id;
-    const conn = parseEndpoint(config.endpoint, config.user, config.options);
+    const conn = parseEndpoint(config.endpoint, config.user, password, config.options);
     this.pool = new pg.Pool({
       connectionString: conn.connectionString,
       max: 4,
@@ -134,27 +134,37 @@ export class PostgresAdapter implements Adapter {
 
 interface ParsedEndpoint {
   connectionString?: string;
-  directOptions?: Record<string, string | number>;
+  directOptions?: Record<string, string | number | boolean>;
 }
 
 function parseEndpoint(
   endpoint: string,
   user: string,
-  _options?: Record<string, string | number | boolean>,
+  password?: string,
+  options?: Record<string, string | number | boolean>,
 ): ParsedEndpoint {
+  const directOptions: Record<string, string | number | boolean> = { ...options };
+  if (password !== undefined) {
+    directOptions.password = password;
+  }
+
   if (endpoint.startsWith("postgres://") || endpoint.startsWith("postgresql://")) {
-    return { connectionString: endpoint };
+    return { connectionString: endpoint, directOptions };
   }
-  // Expects "host:port/database" — fallback simples. A senha virá do keyring
-  // em Fase 1; por ora assume `passwordSlot` выставa ивentualmente pelo caller
-  // via pool options em _options.
   if (endpoint.startsWith("host=") || endpoint.startsWith("port=")) {
-    // keyword=value connection string
-    return { connectionString: endpoint };
+    return { connectionString: endpoint, directOptions };
   }
-  // host:port/db without user — pass through as keyword=val form.
+  // host:port/db without user — pass structured options to pg.Pool.
+  const [hostPort, db] = endpoint.split("/");
+  const [host, port] = (hostPort ?? "").split(":");
   return {
-    connectionString: `host=${endpoint.split("/")[0]} user=${user} dbname=${endpoint.split("/")[1] ?? "postgres"}`,
+    directOptions: {
+      ...directOptions,
+      host: host ?? "",
+      ...(port ? { port: Number(port) } : {}),
+      database: db ?? "postgres",
+      user,
+    },
   };
 }
 

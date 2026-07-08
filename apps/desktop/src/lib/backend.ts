@@ -7,6 +7,7 @@ export interface ConnectionEntry {
   dialect: ConnectionConfig["dialect"];
   endpoint: string;
   user: string;
+  options?: Record<string, string | number | boolean>;
 }
 
 type AnyParams = Record<string, unknown> | undefined;
@@ -50,8 +51,10 @@ export const backend = {
 
 // Typed wrappers (referência; UI chama diretamente via `backend.call`).
 export type BackendHandlers = {
-  "connection.add": (p: { config: ConnectionConfig }) => Promise<{ connectionId: string; ok: boolean }>;
+  "connection.add": (p: { config: ConnectionConfig; password?: string }) => Promise<{ connectionId: string; ok: boolean }>;
   "connection.list": () => Promise<{ configs: ConnectionEntry[] }>;
+  "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
+  "connection.test": (p: { config: ConnectionConfig; password?: string }) => Promise<{ ok: boolean; latencyMs: number; message?: string }>;
   "query.run": (p: { connectionId: string; sql: string; limit?: number }) => Promise<QueryResult>;
   "metadata.introspect": (p: { connectionId: string }) => Promise<Database>;
   "completion.get": (p: { connectionId: string; sql: string; cursor: number }) => Promise<{ suggestions: Suggestion[] }>;

@@ -61,7 +61,12 @@ services/jvm-sidecar             Spike Kotlin/Gradle mínimo (Fase 0) — Calcit
   porta 41921 — bootstrap via `bootstrap.sh` (baixa gradle-wrapper).
 - ✅ CI GitHub Actions: `pnpm verify` + `cargo check` com cache de crates.
 - ✅ `pnpm verify` green (0 erros, ~25 testes pass + 2 todo + 1 skip condicional).
-- ⏳ Pendente: `keyring` crate no Tauri para credenciais (TODO Fase 1顺手).
+- ✅ UI de configuração de conexão: modal Svelte para host/porta/database/usuário/senha/SSL
+  e botões adicionar/editar/remover na toolbar (`apps/desktop/src/lib/ConnectionDialog.svelte`).
+- ✅ Keyring: backend Node usa `@napi-rs/keyring` (Windows/macOS/Linux) para senhas;
+  fallback dev via arquivo quando `OMNI_SQL_DEV_KEYRING_FILE`/`OMNI_SQL_DEV_KEYRING=1`.
+- ✅ Persistência de conexões: lista de conexões é restaurada do SQLite no boot do backend,
+  com senhas recuperadas do keyring e adaptadores reidratados automaticamente.
 
 ## Próximas ações (quando continuar — Fase 3)
 1. **Destravar Gradle local:** `pacman -S gradle` e validar

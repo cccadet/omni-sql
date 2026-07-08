@@ -7,10 +7,9 @@ import {
   bootstrapDefaultRegistry,
   registerAdapter,
   resolveAdapter,
-  InMemoryAdapter,
 } from "@omni-sql/adapters-core";
-import { pgAdapterFactory } from "@omni-sql/adapters-pg";
-import { postgresDescriptor, dialectDescriptor } from "@omni-sql/dialect-descriptors";
+import { PostgresAdapter, pgAdapterFactory } from "@omni-sql/adapters-pg";
+import { dialectDescriptor } from "@omni-sql/dialect-descriptors";
 import {
   autocompleteTier1,
   type MetadataSource,
@@ -18,11 +17,19 @@ import {
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
 
+import {
+  getPassword,
+  setPassword,
+  deletePassword,
+  passwordSlotFor,
+} from "./keyring.ts";
 import type {
   RpcRouter,
   AddConnectionParams,
   AddConnectionResult,
   ListConnectionsResult,
+  TestConnectionParams,
+  TestConnectionResult,
   RunQueryParams,
   RunQueryResult,
   IntrospectParams,
@@ -61,6 +68,46 @@ const sessions = new Map<string, Session>();
 bootstrapDefaultRegistry();
 registerAdapter("postgres", pgAdapterFactory);
 
+// ─────────────────────────── Adapter construction
+
+function createAdapter(config: ConnectionConfig, password?: string): Adapter {
+  if (config.dialect === "postgres") {
+    return new PostgresAdapter(config, password);
+  }
+  return resolveAdapter(config);
+}
+
+async function buildSession(
+  config: ConnectionConfig,
+  password?: string,
+): Promise<Session> {
+  const adapter = createAdapter(config, password);
+  return { config, adapter };
+}
+
+// ─────────────────────────── Boot: restore persisted connections
+
+async function restoreConnections(): Promise<void> {
+  for (const cfg of cache.listConnections()) {
+    const password = await getPassword(cfg).catch((e) => {
+      console.warn(`[omni-sql] keyring failed for ${cfg.id}: ${(e as Error).message}`);
+      return undefined;
+    });
+    try {
+      const session = await buildSession(
+        { ...cfg, passwordSlot: passwordSlotFor(cfg) },
+        password,
+      );
+      sessions.set(cfg.id, session);
+      console.log(`[omni-sql] restored connection ${cfg.id} (${cfg.dialect})`);
+    } catch (e) {
+      console.warn(`[omni-sql] failed to restore ${cfg.id}: ${(e as Error).message}`);
+    }
+  }
+}
+
+void restoreConnections();
+
 // ─────────────────────────── Helpers
 
 function requireSession(id: string): Session {
@@ -98,10 +145,19 @@ function metaSourceOf(session: Session): MetadataSource {
 // ─────────────────────────── Handlers
 
 export const handlers: RpcRouter = {
-  async "connection.add"({ config }: AddConnectionParams): Promise<AddConnectionResult> {
-    const adapter = resolveAdapter(config);
-    sessions.set(config.id, { config, adapter });
-    cache.upsertConnection(config);
+  async "connection.add"({ config, password }: AddConnectionParams): Promise<AddConnectionResult> {
+    const configWithSlot: ConnectionConfig = {
+      ...config,
+      passwordSlot: passwordSlotFor(config),
+    };
+
+    if (password !== undefined && password.length > 0) {
+      await setPassword(configWithSlot, password);
+    }
+
+    const session = await buildSession(configWithSlot, password);
+    sessions.set(config.id, session);
+    cache.upsertConnection(configWithSlot);
     return { connectionId: config.id, ok: true };
   },
 
@@ -122,7 +178,20 @@ export const handlers: RpcRouter = {
     if (s) await s.adapter.close().catch(() => undefined);
     sessions.delete(connectionId);
     cache.removeConnection(connectionId);
+    await deletePassword({ id: connectionId }).catch(() => undefined);
     return { ok: true };
+  },
+
+  async "connection.test"({ config, password }: TestConnectionParams): Promise<TestConnectionResult> {
+    const adapter = createAdapter(config, password);
+    try {
+      const result = await adapter.test();
+      await adapter.close().catch(() => undefined);
+      return result;
+    } catch (e) {
+      await adapter.close().catch(() => undefined);
+      return { ok: false, latencyMs: 0, message: (e as Error).message };
+    }
   },
 
   async "query.run"({ connectionId, sql, limit }: RunQueryParams): Promise<RunQueryResult> {
@@ -137,8 +206,7 @@ export const handlers: RpcRouter = {
     const db: Database = await s.adapter.introspect();
 
     // Coleta relações e funções por schema a partir do adaptador; persiste no
-    // cache unificado. Em Fase 2 isto vira a real introspecção PG; por
-    // enquanto vem do InMemoryAdapter.
+    // cache unificado.
     const schemasByName = new Map<string, {
       name: string;
       relations: readonly Relation[];

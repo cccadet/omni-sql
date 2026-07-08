@@ -29,6 +29,7 @@ export type RpcMethod =
   | "connection.add"
   | "connection.list"
   | "connection.remove"
+  | "connection.test"
   | "query.run"
   | "metadata.introspect"
   | "metadata.listRelations"
@@ -38,6 +39,7 @@ export type RpcMethod =
 
 export interface AddConnectionParams {
   config: ConnectionConfig;
+  password?: string;
 }
 export interface AddConnectionResult {
   connectionId: string;
@@ -46,6 +48,16 @@ export interface AddConnectionResult {
 
 export interface ListConnectionsResult {
   configs: ReadonlyArray<Omit<ConnectionConfig, "passwordSlot">>;
+}
+
+export interface TestConnectionParams {
+  config: ConnectionConfig;
+  password?: string;
+}
+export interface TestConnectionResult {
+  ok: boolean;
+  latencyMs: number;
+  message?: string;
 }
 
 export interface RunQueryParams {
@@ -93,6 +105,7 @@ export interface RpcRouter {
   "connection.add": (p: AddConnectionParams) => Promise<AddConnectionResult>;
   "connection.list": () => Promise<ListConnectionsResult>;
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
+  "connection.test": (p: TestConnectionParams) => Promise<TestConnectionResult>;
   "query.run": (p: RunQueryParams) => Promise<RunQueryResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;
   "metadata.listRelations": (p: ListRelationsParams) => Promise<ListRelationsResult>;
