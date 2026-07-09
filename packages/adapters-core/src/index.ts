@@ -43,8 +43,25 @@ export interface Adapter {
   /** Plano de execução (textual em Fase 5, visual em Fase 9). */
   explain(sql: string): Promise<ExplainResult>;
 
+  /**
+   * `UPDATE` de uma linha via chave primária — edição inline da grade de
+   * resultados. `spec.where` deve cobrir exatamente as colunas de PK (quem
+   * garante isso é a camada acima, via metadata-cache — o adaptador só
+   * monta e executa o SQL parametrizado). Retorna `rowsAffected`.
+   */
+  updateRow(spec: RowUpdateSpec): Promise<number>;
+
   /** Descritor de dialeto consumido pelo lexer. */
   dialectDescriptor(): DialectDescriptor;
+}
+
+export interface RowUpdateSpec {
+  readonly schema: string | null;
+  readonly table: string;
+  /** Coluna → novo valor. */
+  readonly set: Readonly<Record<string, unknown>>;
+  /** Coluna de PK → valor original (usado no `WHERE`). */
+  readonly where: Readonly<Record<string, unknown>>;
 }
 
 export interface TestResult {

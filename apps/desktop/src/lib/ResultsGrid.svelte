@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { QueryResult } from "@omni-sql/ts-types";
+  import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
   import Hash from "@lucide/svelte/icons/hash";
   import CaseSensitive from "@lucide/svelte/icons/case-sensitive";
   import Calendar from "@lucide/svelte/icons/calendar";
@@ -8,14 +8,20 @@
   import Fingerprint from "@lucide/svelte/icons/fingerprint";
   import Binary from "@lucide/svelte/icons/binary";
   import CircleHelp from "@lucide/svelte/icons/circle-help";
+  import Check from "@lucide/svelte/icons/check";
+  import X from "@lucide/svelte/icons/x";
 
   interface Props {
     result: QueryResult | null;
     error: string | null;
     running: boolean;
+    /** Null quando não analisado ainda, ou quando a query não é editável. */
+    editability?: RowEditability | null;
     onLoadMore?: () => void;
+    /** Grava uma célula via `row.update`. Deve lançar em caso de falha. */
+    onCellEdit?: (edit: { set: Record<string, unknown>; where: Record<string, unknown> }) => Promise<void>;
   }
-  let { result, error, running, onLoadMore }: Props = $props();
+  let { result, error, running, editability = null, onLoadMore, onCellEdit }: Props = $props();
 
   const MAX_CELL_CHARS = 200;
 
@@ -52,6 +58,118 @@
   function onOverlayKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") closeExpanded();
   }
+
+  // ─────────────────────────── Edição inline (duplo clique)
+
+  // Índice, em `result.columns`, de cada coluna de PK — `null` se a query
+  // não é editável OU se alguma coluna de PK não veio no resultset (sem
+  // isso não dá pra montar o WHERE, então a linha inteira fica read-only).
+  const pkColumnIndexes = $derived.by((): number[] | null => {
+    if (!editability?.editable || !result) return null;
+    const idx: number[] = [];
+    for (const pk of editability.pkColumns) {
+      const i = result.columns.findIndex((c) => c.name === pk);
+      if (i < 0) return null;
+      idx.push(i);
+    }
+    return idx;
+  });
+
+  function sourceColumnFor(colIndex: number): string | null {
+    if (!editability?.editable || !result) return null;
+    if (editability.selectStar) return result.columns[colIndex]?.name ?? null;
+    return editability.columns[colIndex]?.sourceColumn ?? null;
+  }
+
+  function isCellEditable(colIndex: number): boolean {
+    return pkColumnIndexes !== null && sourceColumnFor(colIndex) !== null;
+  }
+
+  let editingCell = $state<{ row: number; col: number } | null>(null);
+  let editValue = $state("");
+  let savingCell = $state<{ row: number; col: number } | null>(null);
+  let cellError = $state<{ row: number; col: number; message: string } | null>(null);
+
+  // Nova query (novo `result`) invalida qualquer edição/erro pendente da
+  // anterior — não usa deep-watch, só a troca de referência de `result`.
+  $effect(() => {
+    result;
+    editingCell = null;
+    savingCell = null;
+    cellError = null;
+  });
+
+  function isEditing(row: number, col: number): boolean {
+    return editingCell?.row === row && editingCell?.col === col;
+  }
+  function isSaving(row: number, col: number): boolean {
+    return savingCell?.row === row && savingCell?.col === col;
+  }
+  function errorFor(row: number, col: number): string | null {
+    return cellError?.row === row && cellError?.col === col ? cellError.message : null;
+  }
+
+  function startEdit(rowIndex: number, colIndex: number, cell: unknown) {
+    if (!isCellEditable(colIndex) || isSaving(rowIndex, colIndex)) return;
+    cellError = null;
+    editingCell = { row: rowIndex, col: colIndex };
+    editValue = cell === null ? "" : cellText(cell);
+  }
+
+  function cancelEdit() {
+    editingCell = null;
+  }
+
+  function onEditKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void commitEdit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+    }
+  }
+
+  // Célula em branco vira `NULL` — simplificação deliberada (não dá pra
+  // distinguir "string vazia" de NULL num `<input>` de texto simples).
+  async function commitEdit() {
+    if (!editingCell || !result || !pkColumnIndexes || !editability) {
+      editingCell = null;
+      return;
+    }
+    const { row: rowIndex, col: colIndex } = editingCell;
+    const sourceColumn = sourceColumnFor(colIndex);
+    const row = result.rows[rowIndex];
+    if (!sourceColumn || !row) {
+      editingCell = null;
+      return;
+    }
+    const previous = row[colIndex];
+    const originalText = previous === null ? "" : cellText(previous);
+    editingCell = null;
+    if (editValue === originalText) return; // sem mudança visível
+
+    const nextValue: unknown = editValue === "" ? null : editValue;
+    const where: Record<string, unknown> = {};
+    editability.pkColumns.forEach((pk, i) => {
+      where[pk] = row[pkColumnIndexes[i]!];
+    });
+
+    savingCell = { row: rowIndex, col: colIndex };
+    try {
+      await onCellEdit?.({ set: { [sourceColumn]: nextValue }, where });
+      row[colIndex] = nextValue;
+    } catch (e) {
+      cellError = { row: rowIndex, col: colIndex, message: (e as Error).message };
+    } finally {
+      savingCell = null;
+    }
+  }
+
+  function autofocus(node: HTMLInputElement) {
+    node.focus();
+    node.select();
+  }
 </script>
 
 <svelte:window onkeydown={onOverlayKeydown} />
@@ -64,6 +182,11 @@
         {result.rows.length} linha(s) · {result.columns.length} coluna(s)
         · {result.elapsedMs}ms
       </span>
+      {#if editability?.editable}
+        <span class="meta editable-badge" title="Duplo clique numa célula para editar">
+          editável ({editability.table?.schema}.{editability.table?.name})
+        </span>
+      {/if}
       {#if result.rowsMoreAvailable}
         <button
           class="load-more"
@@ -99,11 +222,42 @@
           </tr>
         </thead>
         <tbody>
-          {#each result.rows as row}
+          {#each result.rows as row, rowIndex}
             <tr>
               {#each row as cell, i}
-                <td>
-                  {#if cell === null}
+                <td
+                  class:editable={isCellEditable(i)}
+                  class:cell-error={errorFor(rowIndex, i) !== null}
+                  title={errorFor(rowIndex, i) ?? undefined}
+                  ondblclick={() => startEdit(rowIndex, i, cell)}
+                >
+                  {#if isEditing(rowIndex, i)}
+                    <div class="cell-edit">
+                      <input
+                        class="cell-input"
+                        bind:value={editValue}
+                        onkeydown={onEditKeydown}
+                        onblur={cancelEdit}
+                        use:autofocus
+                      />
+                      <button
+                        class="cell-confirm"
+                        title="Confirmar (Enter)"
+                        aria-label="Confirmar"
+                        onmousedown={(e) => e.preventDefault()}
+                        onclick={commitEdit}
+                      ><Check size={13} strokeWidth={2.5} /></button>
+                      <button
+                        class="cell-cancel"
+                        title="Cancelar (Esc)"
+                        aria-label="Cancelar"
+                        onmousedown={(e) => e.preventDefault()}
+                        onclick={cancelEdit}
+                      ><X size={13} strokeWidth={2.5} /></button>
+                    </div>
+                  {:else if isSaving(rowIndex, i)}
+                    <span class="cell-saving">{cellText(cell)}</span>
+                  {:else if cell === null}
                     <span class="null">NULL</span>
                   {:else}
                     {@const text = cellText(cell)}
@@ -160,6 +314,7 @@
     color: #9cdcfe;
   }
   .meta { color: #888; font-family: ui-monospace, monospace; }
+  .editable-badge { color: #6a9955; }
   .load-more {
     margin-left: auto;
     padding: 3px 10px;
@@ -222,6 +377,43 @@
     vertical-align: middle;
   }
   .expand:hover { color: #fff; }
+
+  td.editable { cursor: text; }
+  td.editable:hover { background: rgba(255, 255, 255, 0.05); }
+  td.cell-error { outline: 1px solid #f48771; outline-offset: -1px; }
+  .cell-saving { opacity: 0.5; font-style: italic; }
+  .cell-edit {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin: -1px;
+  }
+  .cell-input {
+    flex: 1;
+    min-width: 60px;
+    box-sizing: border-box;
+    padding: 0;
+    border: 1px solid #007acc;
+    border-radius: 2px;
+    background: #1e1e1e;
+    color: #ccc;
+    font: inherit;
+    outline: none;
+  }
+  .cell-confirm, .cell-cancel {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    padding: 2px;
+    border: 1px solid #3c3c3c;
+    border-radius: 2px;
+    background: #2d2d30;
+    cursor: pointer;
+  }
+  .cell-confirm { color: #6a9955; }
+  .cell-confirm:hover { background: #2d3d2d; }
+  .cell-cancel { color: #f48771; }
+  .cell-cancel:hover { background: #3d2d2d; }
 
   .modal-overlay {
     position: fixed;

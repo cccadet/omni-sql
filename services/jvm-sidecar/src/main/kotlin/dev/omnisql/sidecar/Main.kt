@@ -1,6 +1,7 @@
 package dev.omnisql.sidecar
 
 import com.sun.net.httpserver.HttpServer
+import dev.omnisql.sidecar.editability.QueryEditabilityAnalyzer
 import dev.omnisql.sidecar.scope.ScopeResolver
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicLong
@@ -65,6 +66,50 @@ fun main() {
             // o sidecar nem virar 500 — o cliente (Node backend) trata
             // corpo vazio como "sem CTEs resolvidas" e segue em tier1 puro.
             val bytes = """{"ctes":[]}""".toByteArray(Charsets.UTF_8)
+            exchange.responseHeaders.add("content-type", "application/json")
+            exchange.responseHeaders.add("access-control-allow-origin", "*")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.write(bytes)
+        } finally {
+            exchange.close()
+        }
+    }
+
+    server.createContext("/query/editability") { exchange ->
+        try {
+            if (exchange.requestMethod != "POST") {
+                exchange.sendResponseHeaders(405, -1)
+                exchange.close()
+                return@createContext
+            }
+            val requestBody = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
+            val sql = JSONObject(requestBody).optString("sql", "")
+            val result = QueryEditabilityAnalyzer.analyze(sql)
+            val columnsJson =
+                JSONArray(result.columns.map { c -> JSONObject().put("sourceColumn", c.sourceColumn ?: JSONObject.NULL) })
+            val tableJson =
+                result.table?.let { JSONObject().put("schema", it.schema ?: JSONObject.NULL).put("name", it.name) }
+                    ?: JSONObject.NULL
+            val bytes =
+                JSONObject()
+                    .put("editable", result.editable)
+                    .put("reason", result.reason ?: JSONObject.NULL)
+                    .put("table", tableJson)
+                    .put("selectStar", result.selectStar)
+                    .put("columns", columnsJson)
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+            exchange.responseHeaders.add("content-type", "application/json")
+            exchange.responseHeaders.add("access-control-allow-origin", "*")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.write(bytes)
+        } catch (e: Exception) {
+            // Best-effort, mesmo espírito do /scope/resolve: qualquer falha
+            // vira "não editável" em vez de 500 — o backend Node trata isso
+            // como grade read-only, exatamente como seria sem esta feature.
+            val bytes =
+                """{"editable":false,"reason":"internal error","table":null,"selectStar":false,"columns":[]}"""
+                    .toByteArray(Charsets.UTF_8)
             exchange.responseHeaders.add("content-type", "application/json")
             exchange.responseHeaders.add("access-control-allow-origin", "*")
             exchange.sendResponseHeaders(200, bytes.size.toLong())

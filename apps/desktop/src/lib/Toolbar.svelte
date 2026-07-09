@@ -17,6 +17,8 @@
     onLimitChange?: (limit: number) => void;
     fontFamily: string;
     onFontChange?: (fontFamily: string) => void;
+    onSave?: () => void;
+    onOpen?: () => void;
   }
   let {
     connections,
@@ -33,6 +35,8 @@
     onLimitChange,
     fontFamily,
     onFontChange,
+    onSave,
+    onOpen,
   }: Props = $props();
 
   const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
@@ -160,6 +164,9 @@
       <option value={opt.value}>{opt.label}</option>
     {/each}
   </select>
+
+  <button class="icon" title="Salvar aba (.sql) — Ctrl/⌘+S" onclick={onSave} aria-label="Salvar aba">💾</button>
+  <button class="icon" title="Abrir arquivo .sql — Ctrl/⌘+O" onclick={onOpen} aria-label="Abrir arquivo">📂</button>
 
   <kbd>Ctrl/⌘+Enter</kbd>
 

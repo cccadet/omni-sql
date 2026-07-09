@@ -53,6 +53,10 @@ async function dispatch(method: string, params: unknown): Promise<unknown> {
       return handlers["connection.test"](params as never);
     case "query.run":
       return handlers["query.run"](params as never);
+    case "query.analyzeEditability":
+      return handlers["query.analyzeEditability"](params as never);
+    case "row.update":
+      return handlers["row.update"](params as never);
     case "metadata.introspect":
       return handlers["metadata.introspect"](params as never);
     case "metadata.listRelations":

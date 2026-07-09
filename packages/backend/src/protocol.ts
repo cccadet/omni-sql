@@ -1,4 +1,4 @@
-import type { ConnectionConfig, QueryResult, Database } from "@omni-sql/ts-types";
+import type { ConnectionConfig, QueryResult, Database, RowEditability } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 
 // ─────────────────────────── JSON-RPC envelope
@@ -31,6 +31,8 @@ export type RpcMethod =
   | "connection.remove"
   | "connection.test"
   | "query.run"
+  | "query.analyzeEditability"
+  | "row.update"
   | "metadata.introspect"
   | "metadata.listRelations"
   | "completion.get";
@@ -68,6 +70,24 @@ export interface RunQueryParams {
   limit?: number;
 }
 export type RunQueryResult = QueryResult;
+
+export interface AnalyzeEditabilityParams {
+  connectionId: string;
+  sql: string;
+}
+export type AnalyzeEditabilityResult = RowEditability;
+
+export interface UpdateRowParams {
+  connectionId: string;
+  table: { schema: string; name: string };
+  /** Coluna → novo valor. */
+  set: Record<string, unknown>;
+  /** Coluna de PK → valor original — deve cobrir exatamente a PK da tabela. */
+  where: Record<string, unknown>;
+}
+export interface UpdateRowResult {
+  rowsAffected: number;
+}
 
 export interface IntrospectParams {
   connectionId: string;
@@ -109,6 +129,8 @@ export interface RpcRouter {
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
   "connection.test": (p: TestConnectionParams) => Promise<TestConnectionResult>;
   "query.run": (p: RunQueryParams) => Promise<RunQueryResult>;
+  "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;
+  "row.update": (p: UpdateRowParams) => Promise<UpdateRowResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;
   "metadata.listRelations": (p: ListRelationsParams) => Promise<ListRelationsResult>;
   "completion.get": (p: CompletionParams) => Promise<CompletionResult>;

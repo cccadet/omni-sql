@@ -19,6 +19,7 @@
     "@omni-sql/dialect-descriptors": "workspace:*",
     "@omni-sql/ts-types": "workspace:*",
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
     "monaco-editor": "^0.52.0"
   },
   "devDependencies": {

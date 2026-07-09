@@ -1,4 +1,4 @@
-import type { Relation } from "@omni-sql/ts-types";
+import type { QueryEditability, Relation } from "@omni-sql/ts-types";
 
 const SIDECAR_URL = process.env.OMNI_SQL_SIDECAR_URL ?? "http://127.0.0.1:41921";
 const TIMEOUT_MS = 250;
@@ -46,4 +46,39 @@ export async function resolveCteRelations(sql: string): Promise<Relation[]> {
     })),
     constraints: [],
   }));
+}
+
+const NOT_EDITABLE: QueryEditability = {
+  editable: false,
+  reason: "sidecar indisponível",
+  table: null,
+  selectStar: false,
+  columns: [],
+};
+
+/**
+ * Decide se `sql` é um `SELECT` simples de uma tabela só, via o sidecar
+ * JVM (Apache Calcite — ver
+ * `services/jvm-sidecar/.../editability/QueryEditabilityAnalyzer.kt`).
+ * Alimenta a edição inline da grade de resultados: só habilita edição de
+ * célula quando dá pra mapear cada coluna projetada de volta a uma coluna
+ * real de uma tabela conhecida, sem ambiguidade de JOIN/subquery/set-op.
+ *
+ * Best-effort: timeout curto e qualquer falha (sidecar fora do ar, jar não
+ * buildado, SQL não parseável) retorna `editable: false` — a grade cai de
+ * volta a read-only, nunca falha a query em si.
+ */
+export async function analyzeQueryEditability(sql: string): Promise<QueryEditability> {
+  try {
+    const res = await fetch(`${SIDECAR_URL}/query/editability`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sql }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) return NOT_EDITABLE;
+    return (await res.json()) as QueryEditability;
+  } catch {
+    return NOT_EDITABLE;
+  }
 }

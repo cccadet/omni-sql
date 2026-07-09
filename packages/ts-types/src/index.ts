@@ -126,6 +126,52 @@ export interface ExplainResult {
   readonly raw: unknown;
 }
 
+// ─────────────────────────── Editabilidade da grade de resultados
+
+/** Tabela de origem de um SELECT elegível para edição de célula. */
+export interface EditableTable {
+  readonly schema: string | null;
+  readonly name: string;
+}
+
+/** Uma coluna projetada: nome real da coluna de origem, ou `null` se for uma expressão. */
+export interface EditableColumn {
+  readonly sourceColumn: string | null;
+}
+
+/**
+ * Resultado da análise (via sidecar JVM/Calcite) de se uma query é um
+ * `SELECT` simples de uma tabela só — condição mínima para a grade de
+ * resultados permitir edição de célula com segurança.
+ */
+export interface QueryEditability {
+  readonly editable: boolean;
+  readonly reason: string | null;
+  readonly table: EditableTable | null;
+  /** `true` quando a projeção inteira é `*` (colunas mapeiam 1:1 por nome). */
+  readonly selectStar: boolean;
+  /** Posicional, alinhado a `QueryResult.columns` — vazio quando `selectStar`. */
+  readonly columns: readonly EditableColumn[];
+}
+
+/**
+ * Versão enriquecida de `QueryEditability`: combina a análise sintática do
+ * sidecar (Calcite, dialeto-agnóstico) com a chave primária real da tabela,
+ * resolvida server-side via metadata-cache. É isto que a UI consome — o
+ * backend nunca confia de volta em `pkColumns`/`table` vindos do cliente ao
+ * executar o `UPDATE` (revalida contra o cache antes de gravar).
+ */
+export interface RowEditability {
+  readonly editable: boolean;
+  readonly reason: string | null;
+  /** `schema` sempre concreto (nunca `null`) quando `editable`. */
+  readonly table: EditableTable | null;
+  /** Vazio quando não editável (sem PK conhecida, tabela não introspectada, etc.). */
+  readonly pkColumns: readonly string[];
+  readonly selectStar: boolean;
+  readonly columns: readonly EditableColumn[];
+}
+
 export class QueryError extends Error {
   readonly causeTag: QueryErrorCause;
   readonly sqlState?: string;

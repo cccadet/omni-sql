@@ -10,6 +10,7 @@ import type {
   RunQueryResult,
   ListRelationsResult,
   CompletionResult,
+  AnalyzeEditabilityResult,
 } from "../src/protocol.ts";
 
 // Isolate the SQLite cache and dev keyring to a tmp dir so tests don't pollute
@@ -105,6 +106,124 @@ test("smoke: add connection → introspect → list relations → run query → 
     assert.ok(bad.error);
     assert.equal(bad.error.code, -32601);
   } finally {
+    server.close();
+  }
+});
+
+test("row editability: query.analyzeEditability resolves real PK, row.update validates before touching the adapter", async () => {
+  // Porta dedicada (não TEST_PORT): reabrir a mesma porta logo depois que o
+  // teste anterior fechou o servidor é uma corrida — no Windows o socket às
+  // vezes não solta a tempo do próximo `listen()`, e o `persistence` abaixo
+  // já evita isso usando portas próprias (`port1`/`port2`) pelo mesmo motivo.
+  const editPort = TEST_PORT + 10;
+  const editUrl = `http://127.0.0.1:${editPort}/rpc`;
+  const server = startServer(editPort);
+  const originalFetch = globalThis.fetch;
+  try {
+    await rpc("connection.add", {
+      config: {
+        id: "edit-demo",
+        label: "Edit Demo",
+        dialect: "jdbc-generic",
+        endpoint: "memory://local",
+        user: "anon",
+      },
+    }, editUrl);
+    await rpc("metadata.introspect", { connectionId: "edit-demo" }, editUrl);
+
+    // Mocka só o sidecar (Calcite): sem JOIN é "editável", com JOIN não é —
+    // suficiente pra exercitar a lógica de enriquecimento com PK, sem
+    // depender do sidecar JVM estar de pé neste ambiente de teste. Chamadas
+    // ao servidor RPC local (o próprio helper `rpc()` usa `fetch`) passam
+    // direto pro fetch original.
+    globalThis.fetch = (async (input: string, init?: RequestInit) => {
+      if (String(input) !== "http://127.0.0.1:41921/query/editability") {
+        return originalFetch(input, init);
+      }
+      const sql = JSON.parse(String(init?.body)).sql as string;
+      const editable = /from\s+users\b/i.test(sql) && !/\bjoin\b/i.test(sql);
+      return new Response(
+        JSON.stringify(
+          editable
+            ? { editable: true, reason: null, table: { schema: null, name: "users" }, selectStar: true, columns: [] }
+            : { editable: false, reason: "mock: não editável", table: null, selectStar: false, columns: [] },
+        ),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    // Tabela não qualificada (schema: null) resolve contra o metadata-cache
+    // e traz schema/PK reais.
+    const analyzed = await rpc(
+      "query.analyzeEditability",
+      { connectionId: "edit-demo", sql: "select * from users" },
+      editUrl,
+    );
+    const analyzedRes = analyzed.result as AnalyzeEditabilityResult;
+    assert.equal(analyzedRes.editable, true);
+    assert.deepEqual(analyzedRes.pkColumns, ["id"]);
+    assert.equal(analyzedRes.table?.schema, "public");
+    assert.equal(analyzedRes.table?.name, "users");
+
+    // JOIN: o sidecar já recusa — sem tabela nem PK no resultado.
+    const joinAnalyzed = await rpc(
+      "query.analyzeEditability",
+      {
+        connectionId: "edit-demo",
+        sql: "select * from users u join orders o on o.user_id = u.id",
+      },
+      editUrl,
+    );
+    const joinRes = joinAnalyzed.result as AnalyzeEditabilityResult;
+    assert.equal(joinRes.editable, false);
+    assert.deepEqual(joinRes.pkColumns, []);
+
+    // row.update nunca confia no `where` do cliente: se não cobrir
+    // exatamente a PK real (id), rejeita antes de chegar no adapter.
+    const badWhere = await rpc(
+      "row.update",
+      {
+        connectionId: "edit-demo",
+        table: { schema: "public", name: "users" },
+        set: { name: "novo nome" },
+        where: { name: "old" },
+      },
+      editUrl,
+    );
+    assert.ok(badWhere.error);
+    assert.match(badWhere.error!.message, /chave primária/);
+
+    // Coluna desconhecida em `set` — também rejeitada antes do adapter.
+    const badColumn = await rpc(
+      "row.update",
+      {
+        connectionId: "edit-demo",
+        table: { schema: "public", name: "users" },
+        set: { not_a_real_column: "x" },
+        where: { id: 1 },
+      },
+      editUrl,
+    );
+    assert.ok(badColumn.error);
+    assert.match(badColumn.error!.message, /coluna desconhecida/);
+
+    // Request válido chega até o adapter — o InMemoryAdapter não suporta
+    // escrita (dados sintéticos, sem storage real), então falha ALI, não na
+    // validação: confirma que a validação não está mascarando o caminho feliz.
+    const valid = await rpc(
+      "row.update",
+      {
+        connectionId: "edit-demo",
+        table: { schema: "public", name: "users" },
+        set: { name: "novo nome" },
+        where: { id: 1 },
+      },
+      editUrl,
+    );
+    assert.ok(valid.error);
+    assert.match(valid.error!.message, /não suportada/);
+  } finally {
+    globalThis.fetch = originalFetch;
     server.close();
   }
 });

@@ -122,6 +122,46 @@ test("caso 6: ORDER BY reusa colunas em escopo", () => {
   assert.ok(labels.includes("email"));
 });
 
+test("colunas sem prefixo digitado saem em ordem alfabética", () => {
+  const meta = metaOf(postgresDescriptor);
+  const sql = "SELECT  FROM users";
+  const cursor = "SELECT ".length;
+  const out = autocompleteTier1(sql, cursor, meta);
+  const colLabels = out.filter((s) => s.kind === "column").map((s) => s.label);
+  assert.deepEqual(colLabels, ["email", "id", "name"]);
+});
+
+test("sugestão 'Todas as colunas' insere todas as colunas de uma vez", () => {
+  const meta = metaOf(postgresDescriptor);
+  const sql = "SELECT  FROM users";
+  const cursor = "SELECT ".length;
+  const out = autocompleteTier1(sql, cursor, meta);
+  const allCols = out.find((s) => s.kind === "all-columns");
+  assert.ok(allCols, "sugestão 'Todas as colunas' ausente");
+  assert.equal(allCols!.insertText, "id, name, email");
+});
+
+test("'Todas as colunas' não aparece fora do select-list (ex: WHERE)", () => {
+  const meta = metaOf(postgresDescriptor);
+  const sql = "SELECT u.id FROM users u WHERE ";
+  const cursor = sql.length;
+  const out = autocompleteTier1(sql, cursor, meta);
+  assert.ok(!out.some((s) => s.kind === "all-columns"));
+});
+
+test("coluna já digitada no SELECT some das sugestões individuais mas continua na de 'Todas as colunas'", () => {
+  const meta = metaOf(postgresDescriptor);
+  const sql = "SELECT id,  FROM users";
+  const cursor = "SELECT id, ".length;
+  const out = autocompleteTier1(sql, cursor, meta);
+  const colLabels = out.filter((s) => s.kind === "column").map((s) => s.label);
+  assert.ok(!colLabels.includes("id"), "coluna já selecionada ainda aparece na lista individual");
+  assert.ok(colLabels.includes("email"));
+  assert.ok(colLabels.includes("name"));
+  const allCols = out.find((s) => s.kind === "all-columns");
+  assert.ok(allCols?.insertText?.includes("id"), "'id' deveria continuar na sugestão 'Todas as colunas'");
+});
+
 test("caso 7: CTE WITH x AS (...) lista x no FROM externo", () => {
   const sql = "WITH x AS (SELECT id FROM users) SELECT id FROM x";
   const cursor = sql.length - "x".length; // logo após "FROM " externo

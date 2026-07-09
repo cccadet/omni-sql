@@ -9,11 +9,12 @@ import type {
   Schema,
 } from "@omni-sql/ts-types";
 import { oracleDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, AdapterFactory, TestResult } from "@omni-sql/adapters-core";
+import type { Adapter, AdapterFactory, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import {
   introspectSchemas,
   listFunctionsPerSchema,
   runQueryViaConnection,
+  updateRowViaConnection,
   type ArgumentRow,
   type ColumnRow,
   type ConstraintRow,
@@ -133,6 +134,19 @@ export class OracleAdapter implements Adapter {
     const conn = await pool.getConnection();
     try {
       return await runQueryViaConnection(conn, sql, limit);
+    } catch (e) {
+      await conn.rollback().catch(() => undefined);
+      throw e;
+    } finally {
+      await conn.close();
+    }
+  }
+
+  async updateRow(spec: RowUpdateSpec): Promise<number> {
+    const pool = await this.getPool();
+    const conn = await pool.getConnection();
+    try {
+      return await updateRowViaConnection(conn, spec);
     } catch (e) {
       await conn.rollback().catch(() => undefined);
       throw e;

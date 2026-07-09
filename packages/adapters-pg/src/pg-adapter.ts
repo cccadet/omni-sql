@@ -9,11 +9,12 @@ import type {
   Schema,
 } from "@omni-sql/ts-types";
 import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, AdapterFactory, TestResult } from "@omni-sql/adapters-core";
+import type { Adapter, AdapterFactory, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import {
   introspectSchemas,
   listFunctionsPerSchema,
   runQueryViaPool,
+  updateRowViaPool,
   type ColumnRow,
   type FunctionRow,
   type RelationRow,
@@ -109,6 +110,10 @@ export class PostgresAdapter implements Adapter {
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
     return runQueryViaPool(this.pool, sql, limit);
+  }
+
+  async updateRow(spec: RowUpdateSpec): Promise<number> {
+    return updateRowViaPool(this.pool, spec);
   }
 
   async explain(sql: string): Promise<ExplainResult> {

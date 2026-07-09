@@ -5,7 +5,8 @@
   import TabBar from "./lib/TabBar.svelte";
   import ConnectionDialog from "./lib/ConnectionDialog.svelte";
   import { backend, type ConnectionEntry } from "./lib/backend";
-  import type { QueryResult, ConnectionConfig } from "@omni-sql/ts-types";
+  import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
+  import type { QueryResult, ConnectionConfig, RowEditability } from "@omni-sql/ts-types";
   import type { Suggestion } from "@omni-sql/autocomplete-engine";
 
   const SESSION_KEY = "omni-sql:session";
@@ -17,9 +18,13 @@
     queryLimit: number;
     fontFamily: string;
     connectionId: string | null;
+    filePath: string | null;
+    savedSql: string | null;
     result: QueryResult | null;
     error: string | null;
     running: boolean;
+    /** Null enquanto não analisado, ou quando a query não é editável. */
+    editability: RowEditability | null;
   }
 
   interface PersistedTab {
@@ -29,6 +34,7 @@
     queryLimit: number;
     fontFamily: string;
     connectionId: string | null;
+    filePath: string | null;
   }
 
   const DEFAULT_FONT_FAMILY = "ui-monospace, monospace";
@@ -62,9 +68,12 @@
       queryLimit: partial?.queryLimit ?? 1000,
       fontFamily: partial?.fontFamily ?? DEFAULT_FONT_FAMILY,
       connectionId: partial?.connectionId ?? null,
+      filePath: partial?.filePath ?? null,
+      savedSql: null,
       result: null,
       error: null,
       running: false,
+      editability: null,
     };
   }
 
@@ -170,18 +179,40 @@
     if (!tab.connectionId) return;
     tab.running = true;
     tab.error = null;
+    tab.editability = null;
     try {
       tab.result = await backend.call<QueryResult>("query.run", {
         connectionId: tab.connectionId,
         sql: tab.sql,
         limit: tab.queryLimit,
       });
+      // Best-effort: se o sidecar/metadata-cache falhar, a grade só fica
+      // read-only — nunca deve invalidar o resultado que já rodou.
+      tab.editability = await backend
+        .call<RowEditability>("query.analyzeEditability", {
+          connectionId: tab.connectionId,
+          sql: tab.sql,
+        })
+        .catch(() => null);
     } catch (e) {
       tab.error = (e as Error).message;
       tab.result = null;
     } finally {
       tab.running = false;
     }
+  }
+
+  /** Callback da grade de resultados para gravar uma célula editada via `row.update`. */
+  async function onCellEdit(edit: { set: Record<string, unknown>; where: Record<string, unknown> }): Promise<void> {
+    const tab = tabs[activeIndex];
+    const table = tab?.editability?.table;
+    if (!tab?.connectionId || !table) throw new Error("sem tabela resolvida para edição");
+    await backend.call("row.update", {
+      connectionId: tab.connectionId,
+      table,
+      set: edit.set,
+      where: edit.where,
+    });
   }
 
   function onLimitChange(newLimit: number) {
@@ -246,6 +277,59 @@
     if (tab) tab.title = title;
   }
 
+  async function onSaveTabAs() {
+    if (activeIndex < 0) return;
+    const tab = tabs[activeIndex]!;
+    const path = await pickSavePath(tab.title);
+    if (!path) return;
+    try {
+      await writeSqlFile(path, tab.sql);
+      tab.filePath = path;
+      tab.title = basenameNoExt(path);
+      tab.savedSql = tab.sql;
+      tab.error = null;
+    } catch (e) {
+      tab.error = `Falha ao salvar arquivo: ${(e as Error).message}`;
+    }
+  }
+
+  async function onSaveTab() {
+    if (activeIndex < 0) return;
+    const tab = tabs[activeIndex]!;
+    if (!tab.filePath) {
+      await onSaveTabAs();
+      return;
+    }
+    try {
+      await writeSqlFile(tab.filePath, tab.sql);
+      tab.savedSql = tab.sql;
+      tab.error = null;
+    } catch (e) {
+      tab.error = `Falha ao salvar arquivo: ${(e as Error).message}`;
+    }
+  }
+
+  async function onOpenFile() {
+    const path = await pickOpenPath();
+    if (!path) return;
+    try {
+      const contents = await readSqlFile(path);
+      const inheritedConnectionId =
+        activeIndex >= 0 ? tabs[activeIndex]!.connectionId : (connections[0]?.id ?? null);
+      const tab = makeTab({
+        title: basenameNoExt(path),
+        sql: contents,
+        filePath: path,
+        connectionId: inheritedConnectionId,
+      });
+      tab.savedSql = contents;
+      tabs.push(tab);
+      activeTabId = tab.id;
+    } catch (e) {
+      if (activeIndex >= 0) tabs[activeIndex]!.error = `Falha ao abrir arquivo: ${(e as Error).message}`;
+    }
+  }
+
   function onGlobalKeydown(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
@@ -255,6 +339,15 @@
     } else if (e.key.toLowerCase() === "w") {
       e.preventDefault();
       onCloseTab(activeTabId);
+    } else if (e.key.toLowerCase() === "s" && e.shiftKey) {
+      e.preventDefault();
+      void onSaveTabAs();
+    } else if (e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      void onSaveTab();
+    } else if (e.key.toLowerCase() === "o") {
+      e.preventDefault();
+      void onOpenFile();
     }
   }
 
@@ -323,6 +416,7 @@
         queryLimit: t.queryLimit,
         fontFamily: t.fontFamily,
         connectionId: t.connectionId,
+        filePath: t.filePath,
       })),
       activeTabId,
     };
@@ -352,10 +446,16 @@
     onLimitChange={onLimitChange}
     fontFamily={tabs[activeIndex]?.fontFamily ?? DEFAULT_FONT_FAMILY}
     onFontChange={onFontChange}
+    onSave={onSaveTab}
+    onOpen={onOpenFile}
   />
 
   <TabBar
-    tabs={tabs.map((t) => ({ id: t.id, title: t.title }))}
+    tabs={tabs.map((t) => ({
+      id: t.id,
+      title: t.title,
+      dirty: t.filePath != null && t.sql !== t.savedSql,
+    }))}
     {activeTabId}
     onSelect={onSelectTab}
     onClose={onCloseTab}
@@ -378,7 +478,9 @@
         result={tabs[activeIndex]!.result}
         error={tabs[activeIndex]!.error}
         running={tabs[activeIndex]!.running}
+        editability={tabs[activeIndex]!.editability}
         onLoadMore={onLoadMore}
+        onCellEdit={onCellEdit}
       />
     </section>
   {/if}

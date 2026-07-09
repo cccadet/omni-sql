@@ -19,7 +19,8 @@ export type SuggestionKind =
   | "column"
   | "function"
   | "keyword"
-  | "star";
+  | "star"
+  | "all-columns";
 
 export interface Suggestion {
   readonly kind: SuggestionKind;
@@ -84,12 +85,14 @@ export function autocompleteTier1(
     if (!ref) return [];
     const rel = meta.resolveRelation(ref);
     if (!rel) return [];
-    return rel.columns.map((c) => ({
-      kind: "column" as const,
-      label: c.name,
-      detail: c.dataType,
-      relevance: 100,
-    }));
+    return [...rel.columns]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({
+        kind: "column" as const,
+        label: c.name,
+        detail: c.dataType,
+        relevance: 100,
+      }));
   }
 
   // Caso 2: SELECT sem FROM ainda → `*` + funções.
@@ -112,11 +115,16 @@ export function autocompleteTier1(
     ctx.clause === "order-by" ||
     ctx.clause === "on"
   ) {
+    const isSelectList = ctx.clause === "select-list";
+    const alreadySelected = new Set(ctx.selectedColumns);
     const cols: Suggestion[] = [];
+    const allColumnNames: string[] = [];
     for (const ref of ctx.scope) {
       const rel = meta.resolveRelation(ref);
       if (!rel) continue;
       for (const c of rel.columns) {
+        allColumnNames.push(c.name);
+        if (isSelectList && alreadySelected.has(c.name.toLowerCase())) continue;
         cols.push({
           kind: "column",
           label: c.name,
@@ -125,6 +133,10 @@ export function autocompleteTier1(
         });
       }
     }
+    // Ordem alfabética como base — quando nada foi digitado ainda, a lista
+    // fica previsível; com prefixo digitado, o consumidor (Monaco) reordena
+    // por fuzzy-match e essa ordenação de base não atrapalha.
+    cols.sort((a, b) => a.label.localeCompare(b.label));
     // Funções também aplicáveis em listas.
     const fns = meta.listFunctions().map((f) => ({
       kind: "function" as const,
@@ -132,7 +144,20 @@ export function autocompleteTier1(
       detail: f.overloads[0]?.returnType,
       relevance: 50,
     }));
-    return [...cols, ...fns];
+    const result: Suggestion[] = [...cols, ...fns];
+    // "Todas as colunas de uma vez" — só no select-list, e sempre com a
+    // lista completa (mesmo as já digitadas), já que o objetivo é inserir
+    // tudo de uma vez, não complementar o que já está lá.
+    if (isSelectList && allColumnNames.length > 0) {
+      result.unshift({
+        kind: "all-columns",
+        label: "Todas as colunas",
+        detail: allColumnNames.join(", "),
+        insertText: allColumnNames.join(", "),
+        relevance: 999,
+      });
+    }
+    return result;
   }
 
   return [];

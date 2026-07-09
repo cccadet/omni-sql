@@ -43,6 +43,12 @@ export interface ResolvedContext {
   readonly statementText: string;
   /** Offset do statement dentro do SQL completo. */
   readonly statementStart: number;
+  /**
+   * Nomes de colunas (lowercased) já digitados na lista do `SELECT` antes do
+   * cursor — populado apenas quando `clause === "select-list"`. Usado para
+   * não sugerir de novo uma coluna que o usuário já escolheu.
+   */
+  readonly selectedColumns: readonly string[];
 }
 
 const CLAUSE_KEYWORDS: Record<string, ClauseId> = {
@@ -188,6 +194,69 @@ function extractScope(tokens: readonly Token[]): ScopeRef[] {
   return refs;
 }
 
+/**
+ * Extrai colunas já digitadas na lista do `SELECT` (profundidade 0) antes do
+ * cursor, para excluí-las das sugestões individuais. Só considera segmentos
+ * (separados por vírgula em profundidade 0) já completos — o último
+ * segmento é o que está sendo digitado agora e não conta. Segmentos que
+ * contêm parênteses (expressões, chamadas de função) são ignorados: só
+ * `col` ou `t.col` simples são reconhecidos, para evitar falsos positivos.
+ */
+function extractAlreadySelectedColumns(prelude: readonly Token[]): string[] {
+  let selectIdx = -1;
+  let depth = 0;
+  for (let i = 0; i < prelude.length; i++) {
+    const t = prelude[i]!;
+    if (t.type === "punct" && t.value === "(") {
+      depth++;
+      continue;
+    }
+    if (t.type === "punct" && t.value === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth === 0 && t.type === "keyword" && (t.upper ?? t.value.toUpperCase()) === "SELECT") {
+      selectIdx = i;
+    }
+  }
+  if (selectIdx < 0) return [];
+
+  const segments: Token[][] = [[]];
+  depth = 0;
+  for (let i = selectIdx + 1; i < prelude.length; i++) {
+    const t = prelude[i]!;
+    if (t.type === "punct" && t.value === "(") {
+      depth++;
+      segments[segments.length - 1]!.push(t);
+      continue;
+    }
+    if (t.type === "punct" && t.value === ")") {
+      depth = Math.max(0, depth - 1);
+      segments[segments.length - 1]!.push(t);
+      continue;
+    }
+    if (depth === 0 && t.type === "punct" && t.value === ",") {
+      segments.push([]);
+      continue;
+    }
+    segments[segments.length - 1]!.push(t);
+  }
+
+  // O último segmento é o que está sendo digitado agora; não conta como
+  // "já selecionado".
+  const completed = segments.slice(0, -1);
+  const used: string[] = [];
+  for (const seg of completed) {
+    const hasParen = seg.some((t) => t.type === "punct" && (t.value === "(" || t.value === ")"));
+    if (hasParen) continue;
+    const idents = seg.filter((t) => t.type === "identifier");
+    if (idents.length < 1 || idents.length > 2) continue;
+    const last = idents[idents.length - 1]!;
+    used.push(last.value.toLowerCase());
+  }
+  return used;
+}
+
 /** Calcula qualificador antes do cursor: `t.` → "t". */
 function detectQualifier(tokens: readonly Token[]): string | null {
   if (tokens.length < 2) return null;
@@ -229,6 +298,7 @@ export function resolveContext(
   // <cursor> FROM users u` ainda resolve aliases da cláusula FROM à direita.
   const scope = extractScope(significant);
   const qualifier = detectQualifier(prelude);
+  const selectedColumns = clause === "select-list" ? extractAlreadySelectedColumns(prelude) : [];
   return {
     clause,
     prelude,
@@ -238,5 +308,6 @@ export function resolveContext(
     qualifier,
     statementText: text,
     statementStart: start,
+    selectedColumns,
   };
 }

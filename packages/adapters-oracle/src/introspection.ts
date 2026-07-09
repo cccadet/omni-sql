@@ -9,6 +9,8 @@ import type {
   QueryResultColumn,
   Relation,
 } from "@omni-sql/ts-types";
+import type { RowUpdateSpec } from "@omni-sql/adapters-core";
+import { oracleDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 
 // ─────────────────────────── Types
 
@@ -295,6 +297,48 @@ export async function runQueryViaConnection(
   } finally {
     await rs.close();
   }
+}
+
+/**
+ * `UPDATE` de uma linha via PK, com bind vars nomeados (`:s0, :s1, ...` /
+ * `:w0, :w1, ...`) — nunca interpola valores no SQL. `spec.where`/`spec.set`
+ * já vêm validados pela camada de backend (colunas reais, `where` cobrindo
+ * exatamente a PK); aqui só quotamos identificadores e montamos os binds.
+ */
+export async function updateRowViaConnection(conn: Connection, spec: RowUpdateSpec): Promise<number> {
+  const setEntries = Object.entries(spec.set);
+  const whereEntries = Object.entries(spec.where);
+  if (setEntries.length === 0) throw new Error("updateRow: nada para atualizar (set vazio)");
+  if (whereEntries.length === 0) throw new Error("updateRow: where vazio (sem PK para localizar a linha)");
+
+  const binds: Record<string, unknown> = {};
+  const setClause = setEntries
+    .map(([col, val], i) => {
+      const bind = `s${i}`;
+      binds[bind] = val;
+      return `${quoteIdentifier(oracleDescriptor, col)} = :${bind}`;
+    })
+    .join(", ");
+  const whereClause = whereEntries
+    .map(([col, val], i) => {
+      const bind = `w${i}`;
+      binds[bind] = val;
+      return `${quoteIdentifier(oracleDescriptor, col)} = :${bind}`;
+    })
+    .join(" AND ");
+  const tableRef = spec.schema
+    ? `${quoteIdentifier(oracleDescriptor, spec.schema)}.${quoteIdentifier(oracleDescriptor, spec.table)}`
+    : quoteIdentifier(oracleDescriptor, spec.table);
+
+  // `binds` é `Record<string, unknown>` (valores de coluna arbitrários) — os
+  // typings do oracledb exigem um `BindParameter` mais estreito que `unknown`
+  // não satisfaz estruturalmente, daí o cast no limite com o driver.
+  const result = await conn.execute(
+    `UPDATE ${tableRef} SET ${setClause} WHERE ${whereClause}`,
+    binds as Record<string, oracledb.BindParameter>,
+  );
+  await conn.commit();
+  return result.rowsAffected ?? 0;
 }
 
 async function execRows<T>(

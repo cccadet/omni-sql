@@ -139,3 +139,25 @@ const REGISTRY = {
 export function dialectDescriptor(dialect: DialectId): Readonly<DialectDescriptor> {
   return REGISTRY[dialect];
 }
+
+/**
+ * Cerca `name` com o quote de identificador canônico do dialeto, escapando
+ * o próprio caractere de fechamento por dobra (`""`, `` `` ``, `]]`).
+ *
+ * Não deriva isto de `identifierQuoteChars` porque o campo mistura dois
+ * sentidos diferentes por dialeto: para `sqlserver` os dois chars são um
+ * par assimétrico (`[`...`]`); para `mysql`/`mariadb` são dois ESTILOS
+ * alternativos aceitos (`` ` `` OU `"`, cada um auto-fechado). Não dá pra
+ * distinguir os dois casos só olhando o array — por isso o switch explícito.
+ */
+export function quoteIdentifier(descriptor: DialectDescriptor, name: string): string {
+  switch (descriptor.dialect) {
+    case "sqlserver":
+      return `[${name.replace(/]/g, "]]")}]`;
+    case "mysql":
+    case "mariadb":
+      return `\`${name.replace(/`/g, "``")}\``;
+    default:
+      return `"${name.replace(/"/g, '""')}"`;
+  }
+}

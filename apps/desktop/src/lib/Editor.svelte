@@ -29,6 +29,7 @@
       case "function": return monaco.languages.CompletionItemKind.Function;
       case "keyword": return monaco.languages.CompletionItemKind.Keyword;
       case "star": return monaco.languages.CompletionItemKind.Value;
+      case "all-columns": return monaco.languages.CompletionItemKind.Snippet;
       default: return monaco.languages.CompletionItemKind.Text;
     }
   }
@@ -101,7 +102,7 @@
           endColumn: word.endColumn,
         };
         return {
-          suggestions: suggestions.map((s) => ({
+          suggestions: suggestions.map((s, i) => ({
             label: s.label,
             kind: mapKind(s.kind),
             detail: s.detail,
@@ -110,6 +111,11 @@
               s.insertText && (s.insertText.includes("$1") || s.insertText.includes("$2"))
                 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
                 : undefined,
+            // O engine já calcula a ordem correta (bulk-insert primeiro,
+            // colunas em ordem alfabética, depois funções) — sortText força
+            // o Monaco a respeitá-la em vez de aplicar sua própria heurística
+            // quando não há texto digitado ainda.
+            sortText: String(i).padStart(5, "0"),
             range,
           })),
         };

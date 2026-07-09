@@ -105,6 +105,9 @@
         />
       {:else}
         <span class="tab-title" title={tab.title}>{tab.title}</span>
+        {#if tab.dirty}
+          <span class="tab-dirty" title="Alterações não salvas">●</span>
+        {/if}
       {/if}
       <button
         class="tab-close"
@@ -150,6 +153,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .tab-dirty {
+    color: #e2b93d;
+    font-size: 8px;
+    line-height: 1;
+    flex-shrink: 0;
   }
   .tab-rename {
     background: #1e1e1e;

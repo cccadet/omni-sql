@@ -1,4 +1,4 @@
-import type { ConnectionConfig, QueryResult, Database } from "@omni-sql/ts-types";
+import type { ConnectionConfig, QueryResult, Database, RowEditability } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 
 export interface ConnectionEntry {
@@ -82,6 +82,13 @@ export type BackendHandlers = {
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
   "connection.test": (p: { config: ConnectionConfig; password?: string }) => Promise<{ ok: boolean; latencyMs: number; message?: string }>;
   "query.run": (p: { connectionId: string; sql: string; limit?: number }) => Promise<QueryResult>;
+  "query.analyzeEditability": (p: { connectionId: string; sql: string }) => Promise<RowEditability>;
+  "row.update": (p: {
+    connectionId: string;
+    table: { schema: string; name: string };
+    set: Record<string, unknown>;
+    where: Record<string, unknown>;
+  }) => Promise<{ rowsAffected: number }>;
   "metadata.introspect": (p: { connectionId: string }) => Promise<Database>;
   "completion.get": (p: { connectionId: string; sql: string; cursor: number }) => Promise<{ suggestions: Suggestion[] }>;
 };

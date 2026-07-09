@@ -11,6 +11,8 @@ import type {
   Relation,
   Schema,
 } from "@omni-sql/ts-types";
+import type { RowUpdateSpec } from "@omni-sql/adapters-core";
+import { postgresDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 
 // ─────────────────────────── Types
 
@@ -292,6 +294,44 @@ export async function runQueryViaPool(
   } catch (e) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * `UPDATE` de uma linha via PK, parametrizado (`$1, $2, ...`) — nunca
+ * interpola valores diretamente no SQL. `spec.where`/`spec.set` já vêm
+ * validados pela camada de backend (colunas reais, `where` cobrindo
+ * exatamente a PK); aqui só quotamos identificadores e montamos os binds.
+ */
+export async function updateRowViaPool(pool: Pool, spec: RowUpdateSpec): Promise<number> {
+  const setEntries = Object.entries(spec.set);
+  const whereEntries = Object.entries(spec.where);
+  if (setEntries.length === 0) throw new Error("updateRow: nada para atualizar (set vazio)");
+  if (whereEntries.length === 0) throw new Error("updateRow: where vazio (sem PK para localizar a linha)");
+
+  const values: unknown[] = [];
+  const setClause = setEntries
+    .map(([col, val]) => {
+      values.push(val);
+      return `${quoteIdentifier(postgresDescriptor, col)} = $${values.length}`;
+    })
+    .join(", ");
+  const whereClause = whereEntries
+    .map(([col, val]) => {
+      values.push(val);
+      return `${quoteIdentifier(postgresDescriptor, col)} = $${values.length}`;
+    })
+    .join(" AND ");
+  const tableRef = spec.schema
+    ? `${quoteIdentifier(postgresDescriptor, spec.schema)}.${quoteIdentifier(postgresDescriptor, spec.table)}`
+    : quoteIdentifier(postgresDescriptor, spec.table);
+
+  const client = await pool.connect();
+  try {
+    const res = await client.query(`UPDATE ${tableRef} SET ${setClause} WHERE ${whereClause}`, values);
+    return res.rowCount ?? 0;
   } finally {
     client.release();
   }

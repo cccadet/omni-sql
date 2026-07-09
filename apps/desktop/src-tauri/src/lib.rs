@@ -6,9 +6,25 @@ use tauri::Manager;
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
 
+// Leitura/escrita de abas salvas como `.sql`. O caminho vem sempre do diálogo
+// nativo (plugin `dialog`) ou de uma sessão restaurada, nunca de input livre
+// do usuário — por isso um comando de app simples (sem escopo declarado via
+// plugin `fs`) é suficiente aqui.
+#[tauri::command]
+fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, contents).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![write_text_file, read_text_file])
         .manage(BackendChild(Mutex::new(None)))
         .manage(SidecarChild(Mutex::new(None)))
         .setup(|app| {
