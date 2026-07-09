@@ -61,6 +61,14 @@ async function dispatch(method: string, params: unknown): Promise<unknown> {
       return handlers["metadata.introspect"](params as never);
     case "metadata.listRelations":
       return handlers["metadata.listRelations"](params as never);
+    case "metadata.listFunctions":
+      return handlers["metadata.listFunctions"](params as never);
+    case "metadata.listIndexes":
+      return handlers["metadata.listIndexes"](params as never);
+    case "metadata.getDefinition":
+      return handlers["metadata.getDefinition"](params as never);
+    case "connection.listSchemas":
+      return handlers["connection.listSchemas"](params as never);
     case "completion.get":
       return handlers["completion.get"](params as never);
     default:

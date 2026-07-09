@@ -3,6 +3,7 @@ import type {
   Database,
   ExplainResult,
   FunctionDef,
+  IndexInfo,
   QueryResult,
   Relation,
   Schema,
@@ -31,6 +32,8 @@ export interface Adapter {
 
   /** Introspecção completa — populando o cache unificado. */
   introspect(): Promise<Database>;
+  /** Lista os schemas disponíveis no banco sem introspectar tabelas/colunas — usado pela UI para escolher o que indexar antes de rodar `introspect()`. */
+  listAvailableSchemas(): Promise<readonly string[]>;
 
   // ─────────────────────── Lookups no cache (Fase 1 providencia estes via AdapterCache)
   listSchemas(): readonly Schema[];
@@ -42,6 +45,11 @@ export interface Adapter {
   runQuery(sql: string, limit: number): Promise<QueryResult>;
   /** Plano de execução (textual em Fase 5, visual em Fase 9). */
   explain(sql: string): Promise<ExplainResult>;
+
+  /** Índices de uma tabela — consulta ao vivo direto no dicionário de dados (não cacheada). */
+  listIndexes(schema: string, table: string): Promise<readonly IndexInfo[]>;
+  /** Texto de definição (`CREATE VIEW`/`CREATE FUNCTION`) de uma view ou função — consulta ao vivo. */
+  getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string>;
 
   /**
    * `UPDATE` de uma linha via chave primária — edição inline da grade de

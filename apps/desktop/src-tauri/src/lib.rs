@@ -36,6 +36,18 @@ pub fn run() {
                 )?;
             }
 
+            // O ícone do bundle (tauri.conf.json `bundle.icon`) tem o texto
+            // "Omni SQL" e é o que o Windows usa para o .exe/instalador/Explorer.
+            // Em tamanhos pequenos (barra de tarefas, título da janela) o texto
+            // fica ilegível, então trocamos o ícone da janela em runtime por
+            // uma versão simplificada, sem texto.
+            if let Some(window) = app.get_webview_window("main") {
+                let window_icon = tauri::image::Image::from_bytes(include_bytes!(
+                    "../icons/icon-window.png"
+                ))?;
+                window.set_icon(window_icon)?;
+            }
+
             // Spawn Node backend as a sidecar: HTTP JSON-RPC on port 41920.
             // In dev, pnpm install already ran from the repo root; we point
             // node at packages/backend/src/index.ts (type-stripping on Node 22+).
@@ -49,38 +61,54 @@ pub fn run() {
 
             log::info!("Starting backend sidecar: {}", backend_entry.display());
 
-            let child = Command::new("node")
-                .arg(&backend_entry)
-                .env("OMNI_SQL_PORT", "41920")
-                .stdin(Stdio::null())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .map_err(|e| {
-                    log::error!("failed to spawn Node backend: {e}");
-                    e
-                })?;
+            // Se já existe um backend respondendo nessa porta (ex.: sobrou de
+            // um hot-reload do `cargo tauri dev` que matou o processo pai sem
+            // dar tempo do `WindowEvent::Destroyed` rodar), reaproveita em vez
+            // de tentar subir um segundo — evita o `EADDRINUSE` em cascata.
+            let backend_already_running = std::net::TcpStream::connect_timeout(
+                &"127.0.0.1:41920".parse().unwrap(),
+                Duration::from_millis(200),
+            )
+            .is_ok();
 
-            // Wait a moment for the backend to bind to 127.0.0.1:41920.
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while Instant::now() < deadline {
-                if std::net::TcpStream::connect_timeout(
-                    &"127.0.0.1:41920".parse().unwrap(),
-                    Duration::from_millis(100),
-                )
-                .is_ok()
-                {
-                    log::info!("backend sidecar is listening on 127.0.0.1:41920");
-                    break;
+            if backend_already_running {
+                log::info!(
+                    "backend sidecar já está escutando em 127.0.0.1:41920 — reaproveitando processo existente"
+                );
+            } else {
+                let child = Command::new("node")
+                    .arg(&backend_entry)
+                    .env("OMNI_SQL_PORT", "41920")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .spawn()
+                    .map_err(|e| {
+                        log::error!("failed to spawn Node backend: {e}");
+                        e
+                    })?;
+
+                // Wait a moment for the backend to bind to 127.0.0.1:41920.
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while Instant::now() < deadline {
+                    if std::net::TcpStream::connect_timeout(
+                        &"127.0.0.1:41920".parse().unwrap(),
+                        Duration::from_millis(100),
+                    )
+                    .is_ok()
+                    {
+                        log::info!("backend sidecar is listening on 127.0.0.1:41920");
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
                 }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            if Instant::now() >= deadline {
-                log::warn!("backend sidecar did not become reachable in 5s");
-            }
+                if Instant::now() >= deadline {
+                    log::warn!("backend sidecar did not become reachable in 5s");
+                }
 
-            let state: tauri::State<'_, BackendChild> = app.state();
-            *state.0.lock().unwrap() = Some(child);
+                let state: tauri::State<'_, BackendChild> = app.state();
+                *state.0.lock().unwrap() = Some(child);
+            }
 
             // Sidecar JVM (Fase 3, opcional): spawn assíncrono, nunca bloqueia o
             // boot da janela. Enquanto o parser tolerante (Calcite/ANTLR) não
@@ -97,7 +125,21 @@ pub fn run() {
             // mata de verdade. Gere/atualize o jar com `./gradlew jar`.
             let sidecar_dir = workspace_root.join("services/jvm-sidecar");
             let sidecar_jar = sidecar_dir.join("build/libs/omni-sql-sidecar.jar");
-            if sidecar_jar.exists() {
+            // Mesma lógica de reaproveitamento do backend Node: se já tem
+            // algo respondendo em 41921 (sobra de um hot-reload anterior),
+            // não tenta subir outro — é exatamente o que gerava o
+            // `BindException: Address already in use` reportado.
+            let sidecar_already_running = std::net::TcpStream::connect_timeout(
+                &"127.0.0.1:41921".parse().unwrap(),
+                Duration::from_millis(200),
+            )
+            .is_ok();
+
+            if sidecar_already_running {
+                log::info!(
+                    "JVM sidecar (tier2) já está escutando em 127.0.0.1:41921 — reaproveitando processo existente"
+                );
+            } else if sidecar_jar.exists() {
                 let mut cmd = Command::new("java");
                 cmd.arg("-jar").arg(&sidecar_jar);
                 cmd.current_dir(&sidecar_dir)

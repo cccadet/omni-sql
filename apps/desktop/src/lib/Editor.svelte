@@ -21,6 +21,14 @@
   let editor: monaco.editor.IStandaloneCodeEditor | null = null;
   let dispose: (() => void) | null = null;
 
+  export function insertAtCursor(text: string) {
+    if (!editor) return;
+    const sel = editor.getSelection();
+    if (!sel) return;
+    editor.executeEdits("sidebar-insert", [{ range: sel, text }]);
+    editor.focus();
+  }
+
   function mapKind(k: Suggestion["kind"]): monaco.languages.CompletionItemKind {
     switch (k) {
       case "table": return monaco.languages.CompletionItemKind.Class;
@@ -71,6 +79,7 @@
       scrollBeyondLastLine: false,
       padding: { top: 8, bottom: 8 },
       tabSize: 2,
+      lineNumbers: "on",
     });
 
     editor.onDidChangeModelContent(() => {

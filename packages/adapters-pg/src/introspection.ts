@@ -6,6 +6,7 @@ import type {
   FunctionDef,
   FunctionOverload,
   FunctionParameter,
+  IndexInfo,
   QueryResult,
   QueryResultColumn,
   Relation,
@@ -54,6 +55,19 @@ WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
   AND table_type IN ('BASE TABLE', 'VIEW')
 ORDER BY table_schema, table_name
 `;
+
+const SCHEMA_NAMES_SQL = `
+SELECT schema_name
+FROM information_schema.schemata
+WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+ORDER BY schema_name
+`;
+
+/** Lista os nomes de schema disponíveis sem introspectar tabelas/colunas — usado pela UI para deixar o usuário escolher o que indexar. */
+export async function listSchemaNames(client: PoolClient): Promise<readonly string[]> {
+  const { rows } = await client.query<{ schema_name: string }>(SCHEMA_NAMES_SQL);
+  return rows.map((r) => r.schema_name);
+}
 
 const COLUMNS_SQL = `
 SELECT
@@ -115,20 +129,95 @@ WHERE n.nspname = $1
 ORDER BY schema, name
 `;
 
+const INDEXES_SQL = `
+SELECT
+  ic.relname AS index_name,
+  ix.indisunique AS is_unique,
+  ix.indisprimary AS is_primary,
+  a.attname AS column_name,
+  k.ord AS ordinal
+FROM pg_index ix
+JOIN pg_class ic ON ic.oid = ix.indexrelid
+JOIN pg_class tc ON tc.oid = ix.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+JOIN pg_attribute a ON a.attrelid = tc.oid AND a.attnum = k.attnum
+WHERE n.nspname = $1 AND tc.relname = $2
+ORDER BY ic.relname, k.ord
+`;
+
+export interface IndexRow {
+  index_name: string;
+  is_unique: boolean;
+  is_primary: boolean;
+  column_name: string;
+  ordinal: number;
+}
+
+/** Índices de uma tabela — consulta ao vivo (não faz parte da introspecção em lote). */
+export async function listIndexesViaPool(pool: Pool, schema: string, table: string): Promise<IndexInfo[]> {
+  const { rows } = await pool.query<IndexRow>(INDEXES_SQL, [schema, table]);
+  const byName = new Map<string, IndexRow[]>();
+  for (const r of rows) {
+    if (!byName.has(r.index_name)) byName.set(r.index_name, []);
+    byName.get(r.index_name)!.push(r);
+  }
+  return [...byName.entries()].map(([name, cols]) => ({
+    name,
+    unique: cols[0]!.is_unique,
+    primary: cols[0]!.is_primary,
+    columns: cols.slice().sort((a, b) => a.ordinal - b.ordinal).map((c) => c.column_name),
+  }));
+}
+
+/** Texto de definição (`CREATE VIEW`/`CREATE FUNCTION`) — consulta ao vivo via catálogo. */
+export async function getDefinitionViaPool(
+  pool: Pool,
+  kind: "view" | "function",
+  schema: string,
+  name: string,
+): Promise<string> {
+  if (kind === "view") {
+    const { rows } = await pool.query<{ definition: string }>(
+      `SELECT view_definition AS definition FROM information_schema.views WHERE table_schema = $1 AND table_name = $2`,
+      [schema, name],
+    );
+    if (rows.length === 0) throw new Error(`view não encontrada: ${schema}.${name}`);
+    return `CREATE OR REPLACE VIEW ${quoteIdentifier(postgresDescriptor, schema)}.${quoteIdentifier(postgresDescriptor, name)} AS\n${rows[0]!.definition}`;
+  }
+  const { rows } = await pool.query<{ def: string }>(
+    `SELECT pg_get_functiondef(p.oid) AS def
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = $1 AND p.proname = $2
+     ORDER BY p.oid`,
+    [schema, name],
+  );
+  if (rows.length === 0) throw new Error(`função não encontrada: ${schema}.${name}`);
+  return rows.map((r) => r.def).join("\n\n");
+}
+
 // ─────────────────────────── Introspection routines
 
 export async function introspectSchemas(
   client: PoolClient,
+  schemaFilter?: readonly string[],
 ): Promise<ReadonlyArray<readonly [number, string, readonly Relation[]]>> {
+  // Filtro em memória (em vez de parametrizar RELATIONS_SQL/COLUMNS_SQL) —
+  // mantém as queries multi-linha existentes intactas; o ganho real é pular
+  // `listFunctionsPerSchema` (uma query por schema) para os excluídos.
+  const allow = schemaFilter && schemaFilter.length > 0 ? new Set(schemaFilter) : null;
   const rels = (await client.query<RelationRow>(RELATIONS_SQL)).rows;
   const bySchema = new Map<string, RelationRow[]>();
   for (const r of rels) {
+    if (allow && !allow.has(r.table_schema)) continue;
     if (!bySchema.has(r.table_schema)) bySchema.set(r.table_schema, []);
     bySchema.get(r.table_schema)!.push(r);
   }
   const cols = (await client.query<ColumnRow>(COLUMNS_SQL)).rows;
   const colsByTable = new Map<string, ColumnRow[]>();
   for (const c of cols) {
+    if (allow && !allow.has(c.table_schema)) continue;
     const key = `${c.table_schema}.${c.table_name}`;
     if (!colsByTable.has(key)) colsByTable.set(key, []);
     colsByTable.get(key)!.push(c);

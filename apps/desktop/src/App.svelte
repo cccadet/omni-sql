@@ -3,10 +3,13 @@
   import ResultsGrid from "./lib/ResultsGrid.svelte";
   import Toolbar from "./lib/Toolbar.svelte";
   import TabBar from "./lib/TabBar.svelte";
+  import Sidebar from "./lib/Sidebar.svelte";
+  import HistoryPanel, { type HistoryEntry } from "./lib/HistoryPanel.svelte";
   import ConnectionDialog from "./lib/ConnectionDialog.svelte";
-  import { backend, type ConnectionEntry } from "./lib/backend";
+  import { backend, type ConnectionEntry, type RelationInfo } from "./lib/backend";
+  import { dialectIcon } from "./lib/dialect-icons";
   import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
-  import type { QueryResult, ConnectionConfig, RowEditability } from "@omni-sql/ts-types";
+  import type { QueryResult, ConnectionConfig, RowEditability, FunctionDef } from "@omni-sql/ts-types";
   import type { Suggestion } from "@omni-sql/autocomplete-engine";
 
   const SESSION_KEY = "omni-sql:session";
@@ -102,6 +105,26 @@
   let dialogOpen = $state(false);
   let editingConfig = $state<ConnectionConfig | null>(null);
 
+  const HISTORY_KEY = "omni-sql:history";
+  const HISTORY_LIMIT = 50;
+
+  function loadHistory(): HistoryEntry[] {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  let queryHistory = $state<HistoryEntry[]>(loadHistory());
+  let historyOpen = $state(false);
+
+  let sidebarOpen = $state(true);
+  let sidebarCache = $state<Record<string, { relations: RelationInfo[]; functions: FunctionDef[] }>>({});
+  let sidebarLoading = $state(false);
+  let editorRef = $state<{ insertAtCursor: (t: string) => void } | undefined>();
+
   let booted = false;
 
   function sanitizeTabConnections() {
@@ -140,12 +163,29 @@
     }
   }
 
+  async function loadSidebarData(connectionId: string | null) {
+    if (!connectionId) return;
+    sidebarLoading = true;
+    try {
+      const [relRes, fnRes] = await Promise.all([
+        backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId }),
+        backend.call<{ functions: FunctionDef[] }>("metadata.listFunctions", { connectionId }),
+      ]);
+      sidebarCache[connectionId] = { relations: relRes.relations, functions: fnRes.functions };
+    } catch {
+      // best-effort — a sidebar só fica vazia/desatualizada, nunca invalida a query já rodada.
+    } finally {
+      sidebarLoading = false;
+    }
+  }
+
   async function introspectConnection(connectionId: string | null) {
     if (!connectionId) return;
     busyMsg = "Introspecção…";
     try {
       await backend.call("metadata.introspect", { connectionId });
       await loadConnections();
+      await loadSidebarData(connectionId);
       if (activeIndex >= 0) tabs[activeIndex]!.error = null;
     } catch (e) {
       if (activeIndex >= 0) {
@@ -155,6 +195,13 @@
       busyMsg = null;
     }
   }
+
+  $effect(() => {
+    const id = activeConnectionId;
+    if (id && !sidebarCache[id]) {
+      void loadSidebarData(id);
+    }
+  });
 
   function introspectActive() {
     return introspectConnection(activeConnectionId);
@@ -172,6 +219,22 @@
     }
   }
 
+  function pushHistory(tab: QueryTab, ok: boolean, elapsedMs: number, errorMessage?: string) {
+    const conn = connections.find((c) => c.id === tab.connectionId);
+    const entry: HistoryEntry = {
+      id: makeTabId(),
+      sql: tab.sql,
+      connectionId: tab.connectionId,
+      connectionLabel: conn?.label ?? "?",
+      dialect: conn?.dialect ?? null,
+      ranAt: Date.now(),
+      ok,
+      elapsedMs,
+      errorMessage,
+    };
+    queryHistory = [entry, ...queryHistory].slice(0, HISTORY_LIMIT);
+  }
+
   async function onRun() {
     const idx = activeIndex;
     if (idx < 0) return;
@@ -180,6 +243,7 @@
     tab.running = true;
     tab.error = null;
     tab.editability = null;
+    const startedAt = Date.now();
     try {
       tab.result = await backend.call<QueryResult>("query.run", {
         connectionId: tab.connectionId,
@@ -194,9 +258,11 @@
           sql: tab.sql,
         })
         .catch(() => null);
+      pushHistory(tab, true, Date.now() - startedAt);
     } catch (e) {
       tab.error = (e as Error).message;
       tab.result = null;
+      pushHistory(tab, false, Date.now() - startedAt, tab.error);
     } finally {
       tab.running = false;
     }
@@ -220,9 +286,35 @@
     tabs[activeIndex]!.queryLimit = newLimit;
   }
 
-  function onFontChange(newFontFamily: string) {
+  function onToggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+  }
+
+  function onToggleHistory() {
+    historyOpen = !historyOpen;
+  }
+
+  function onSidebarInsert(text: string) {
+    editorRef?.insertAtCursor(text);
+  }
+
+  function onSidebarOpenInNewTab(title: string, sql: string) {
+    const tab = makeTab({ title, sql, connectionId: activeConnectionId });
+    tabs.push(tab);
+    activeTabId = tab.id;
+  }
+
+  function onSelectHistoryEntry(entry: HistoryEntry) {
     if (activeIndex < 0) return;
-    tabs[activeIndex]!.fontFamily = newFontFamily;
+    tabs[activeIndex]!.sql = entry.sql;
+    if (entry.connectionId && connections.some((c) => c.id === entry.connectionId)) {
+      tabs[activeIndex]!.connectionId = entry.connectionId;
+    }
+    historyOpen = false;
+  }
+
+  function onClearHistory() {
+    queryHistory = [];
   }
 
   async function onLoadMore() {
@@ -372,6 +464,7 @@
       endpoint: c.endpoint,
       user: c.user,
       options: c.options,
+      schemas: c.schemas,
     };
     dialogOpen = true;
   }
@@ -426,6 +519,14 @@
       // localStorage indisponível/cheio — sessão simplesmente não é restaurada.
     }
   });
+
+  $effect(() => {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(queryHistory));
+    } catch {
+      // localStorage indisponível/cheio — histórico simplesmente não é persistido.
+    }
+  });
 </script>
 
 <svelte:window onkeydown={onGlobalKeydown} />
@@ -444,10 +545,12 @@
     onRefreshMetadata={introspectActive}
     limit={tabs[activeIndex]?.queryLimit ?? 1000}
     onLimitChange={onLimitChange}
-    fontFamily={tabs[activeIndex]?.fontFamily ?? DEFAULT_FONT_FAMILY}
-    onFontChange={onFontChange}
     onSave={onSaveTab}
     onOpen={onOpenFile}
+    {sidebarOpen}
+    onToggleSidebar={onToggleSidebar}
+    {historyOpen}
+    onToggleHistory={onToggleHistory}
   />
 
   <TabBar
@@ -455,6 +558,12 @@
       id: t.id,
       title: t.title,
       dirty: t.filePath != null && t.sql !== t.savedSql,
+      dialectIcon: t.connectionId
+        ? (() => {
+            const d = connections.find((c) => c.id === t.connectionId)?.dialect;
+            return d ? dialectIcon(d) : undefined;
+          })()
+        : undefined,
     }))}
     {activeTabId}
     onSelect={onSelectTab}
@@ -463,9 +572,22 @@
     onRename={onRenameTab}
   />
 
+  {#if sidebarOpen}
+    <Sidebar
+      relations={activeConnectionId ? (sidebarCache[activeConnectionId]?.relations ?? []) : []}
+      functions={activeConnectionId ? (sidebarCache[activeConnectionId]?.functions ?? []) : []}
+      loading={sidebarLoading}
+      connectionId={activeConnectionId}
+      onInsert={onSidebarInsert}
+      onRefresh={() => loadSidebarData(activeConnectionId)}
+      onOpenInNewTab={onSidebarOpenInNewTab}
+    />
+  {/if}
+
   {#if activeIndex >= 0}
     <section class="editor-pane">
       <Editor
+        bind:this={editorRef}
         bind:value={tabs[activeIndex]!.sql}
         fontFamily={tabs[activeIndex]!.fontFamily}
         onAutocomplete={onAutocomplete}
@@ -493,6 +615,14 @@
   onSaved={onConnectionSaved}
 />
 
+<HistoryPanel
+  open={historyOpen}
+  entries={queryHistory}
+  onClose={() => (historyOpen = false)}
+  onSelect={onSelectHistoryEntry}
+  onClear={onClearHistory}
+/>
+
 <style>
   :global(html, body) {
     margin: 0;
@@ -505,13 +635,20 @@
   :global(#app) { height: 100vh; display: flex; }
   .app {
     display: grid;
+    grid-template-columns: auto 1fr;
     grid-template-rows: auto auto 1fr 1fr;
     height: 100%;
     width: 100%;
   }
+  .app > :global(header.toolbar) { grid-column: 1 / -1; grid-row: 1; }
+  .app > :global(div.tab-bar) { grid-column: 1 / -1; grid-row: 2; }
+  .app > :global(aside.sidebar) { grid-column: 1; grid-row: 3 / span 2; }
   .editor-pane, .results-pane {
+    grid-column: 2;
     min-height: 0;
     overflow: hidden;
     border-top: 1px solid #2a2a2a;
   }
+  .editor-pane { grid-row: 3; }
+  .results-pane { grid-row: 4; }
 </style>

@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS connections (
   user            TEXT NOT NULL,
   options_json    TEXT,
   password_slot   TEXT,
-  last_synced_at  INTEGER
+  last_synced_at  INTEGER,
+  schemas_json    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS schemas (
@@ -110,6 +111,14 @@ export class MetadataCache {
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA foreign_keys = ON;");
     db.exec(DDL);
+    // `CREATE TABLE IF NOT EXISTS` não adiciona colunas a bancos já
+    // existentes no disco do usuário — migração defensiva para quem tinha
+    // metadata.db criado antes do campo `schemas` existir.
+    try {
+      db.exec("ALTER TABLE connections ADD COLUMN schemas_json TEXT;");
+    } catch {
+      // coluna já existe.
+    }
     return new MetadataCache(db);
   }
 
@@ -126,18 +135,19 @@ export class MetadataCache {
 
   private reindex(): void {
     const connStmt = this.db.prepare(
-      "SELECT id, label, dialect, endpoint, user, options_json, password_slot, last_synced_at FROM connections",
+      "SELECT id, label, dialect, endpoint, user, options_json, password_slot, last_synced_at, schemas_json FROM connections",
     );
     for (const c of connStmt.all() as Array<{
       id: string; label: string; dialect: string; endpoint: string;
       user: string; options_json: string | null; password_slot: string | null;
-      last_synced_at: number | null;
+      last_synced_at: number | null; schemas_json: string | null;
     }>) {
       const mem: MemConnection = {
         config: {
           id: c.id, label: c.label, dialect: c.dialect as ConnectionConfig["dialect"],
           endpoint: c.endpoint, user: c.user,
           options: c.options_json ? JSON.parse(c.options_json) : undefined,
+          schemas: c.schemas_json ? JSON.parse(c.schemas_json) : undefined,
         },
         passwordSlot: c.password_slot ?? undefined,
         lastSyncedAt: c.last_synced_at ?? undefined,
@@ -203,15 +213,16 @@ export class MetadataCache {
 
   upsertConnection(config: ConnectionConfig): void {
     const sql = `
-      INSERT INTO connections (id, label, dialect, endpoint, user, options_json, password_slot)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO connections (id, label, dialect, endpoint, user, options_json, password_slot, schemas_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         label = excluded.label,
         dialect = excluded.dialect,
         endpoint = excluded.endpoint,
         user    = excluded.user,
         options_json = excluded.options_json,
-        password_slot = COALESCE(excluded.password_slot, connections.password_slot)
+        password_slot = COALESCE(excluded.password_slot, connections.password_slot),
+        schemas_json = excluded.schemas_json
     `;
     this.db
       .prepare(sql)
@@ -223,17 +234,21 @@ export class MetadataCache {
         config.user,
         config.options ? JSON.stringify(config.options) : null,
         config.passwordSlot ?? null,
+        config.schemas && config.schemas.length > 0 ? JSON.stringify(config.schemas) : null,
       );
-    // Reindex só esta conexão.
-    let mem = this.conns.get(config.id);
-    if (!mem) {
-      mem = {
-        config: { ...config, passwordSlot: undefined as never } as Omit<ConnectionConfig, "passwordSlot">,
-        passwordSlot: config.passwordSlot,
-        schemas: new Map(),
-      };
-      this.conns.set(config.id, mem);
-    }
+    // Atualiza o espelho em memória. Numa edição (`existing` já presente)
+    // o objeto `config` antigo precisa ser substituído pelo novo — antes só
+    // era criado na primeira inserção, então mudanças (schemas, label,
+    // endpoint...) escritas com sucesso no SQLite só apareciam de fato
+    // depois de reiniciar o processo (reindex() relendo do banco do zero).
+    const existing = this.conns.get(config.id);
+    const mem: MemConnection = {
+      config: { ...config, passwordSlot: undefined as never } as Omit<ConnectionConfig, "passwordSlot">,
+      passwordSlot: config.passwordSlot ?? existing?.passwordSlot,
+      lastSyncedAt: existing?.lastSyncedAt,
+      schemas: existing?.schemas ?? new Map(),
+    };
+    this.conns.set(config.id, mem);
     this.reloadSchemas(mem);
   }
 

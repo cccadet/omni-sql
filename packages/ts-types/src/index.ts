@@ -76,6 +76,16 @@ export interface FunctionDef {
   readonly lastSyncedAt?: number;
 }
 
+export interface IndexInfo {
+  readonly name: string;
+  readonly unique: boolean;
+  readonly primary: boolean;
+  readonly columns: readonly string[];
+}
+
+/** Objetos cujo texto de definição (CREATE ...) pode ser exibido ao usuário. */
+export type ObjectDefinitionKind = "table" | "view" | "function";
+
 export interface Schema {
   readonly database: string;
   readonly name: string;
@@ -101,6 +111,8 @@ export interface ConnectionConfig {
   /** Senha nunca persistida em config — vem do keyring no runtime. */
   readonly passwordSlot?: string;
   readonly options?: Record<string, string | number | boolean>;
+  /** Allowlist de schemas a introspectar; `undefined`/vazio = todos (comportamento padrão). */
+  readonly schemas?: readonly string[];
 }
 
 // ─────────────────────────── Resultados de query

@@ -31,6 +31,9 @@
   let busy = $state(false);
   let testResult = $state<{ ok: boolean; latencyMs: number; message?: string } | null>(null);
   let error = $state<string | null>(null);
+  let availableSchemas = $state<string[] | null>(null);
+  let selectedSchemas = $state<Set<string>>(new Set());
+  let schemasLoading = $state(false);
 
   $effect(() => {
     if (open) {
@@ -55,6 +58,11 @@
       testResult = null;
       error = null;
       busy = false;
+      availableSchemas = null;
+      selectedSchemas = new Set(editing?.schemas ?? []);
+      if (isKnown && editing?.schemas && editing.schemas.length > 0) {
+        void loadSchemas();
+      }
     }
   });
 
@@ -109,6 +117,40 @@
     }
   }
 
+  function toggleSchema(name: string) {
+    const next = new Set(selectedSchemas);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    selectedSchemas = next;
+  }
+
+  async function loadSchemas() {
+    if (mode === "demo") return;
+    schemasLoading = true;
+    error = null;
+    try {
+      const cfg: ConnectionConfig = {
+        id: id || generateId(),
+        label: label || `${host}/${database}`,
+        dialect: mode,
+        endpoint: buildEndpoint(),
+        user,
+        options: ssl ? { ssl: "require" } : undefined,
+      };
+      const res = await backend.call<{ schemas: string[] }>("connection.listSchemas", { config: cfg, password });
+      availableSchemas = [...res.schemas];
+    } catch (e) {
+      error = (e as Error).message;
+    } finally {
+      schemasLoading = false;
+    }
+  }
+
+  function onLoadSchemasClick(e: Event) {
+    e.preventDefault();
+    void loadSchemas();
+  }
+
   async function onSave(e: Event) {
     e.preventDefault();
     busy = true;
@@ -130,6 +172,7 @@
               endpoint: buildEndpoint(),
               user,
               options: ssl ? { ssl: "require" } : undefined,
+              schemas: selectedSchemas.size > 0 ? [...selectedSchemas] : undefined,
             };
       await backend.call("connection.add", { config: cfg, password });
       onSaved();
@@ -205,6 +248,36 @@
           <input type="checkbox" bind:checked={ssl} disabled={busy} />
           <span>SSL require</span>
         </label>
+
+        <div class="schemas-section">
+          <div class="schemas-header">
+            <span>Schemas a indexar</span>
+            <button
+              type="button"
+              class="link"
+              onclick={onLoadSchemasClick}
+              disabled={busy || schemasLoading || !host || !user}
+            >{schemasLoading ? "Carregando…" : "Carregar schemas"}</button>
+          </div>
+          {#if availableSchemas === null}
+            <p class="hint">Sem seleção: todos os schemas serão indexados.</p>
+          {:else if availableSchemas.length === 0}
+            <p class="hint">Nenhum schema encontrado.</p>
+          {:else}
+            <div class="schemas-actions">
+              <button type="button" class="link" onclick={() => (selectedSchemas = new Set(availableSchemas))}>Selecionar todos</button>
+              <button type="button" class="link" onclick={() => (selectedSchemas = new Set())}>Selecionar nenhum</button>
+            </div>
+            <div class="schemas-list">
+              {#each availableSchemas as s}
+                <label class="inline schema-item">
+                  <input type="checkbox" checked={selectedSchemas.has(s)} onchange={() => toggleSchema(s)} />
+                  <span>{s}</span>
+                </label>
+              {/each}
+            </div>
+          {/if}
+        </div>
       {/if}
 
       {#if error}
@@ -320,6 +393,54 @@
   button:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  .schemas-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    background: #1e1e1e;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+  }
+  .schemas-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #ccc;
+  }
+  .schemas-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .schemas-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 140px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .schema-item {
+    font-size: 12px;
+  }
+  .hint {
+    margin: 0;
+    font-size: 11px;
+    color: #888;
+  }
+  button.link {
+    background: transparent;
+    color: #4fa3e0;
+    padding: 0;
+    font-weight: 400;
+    font-size: 12px;
+    text-decoration: underline;
+  }
+  button.link:disabled {
+    color: #666;
+    text-decoration: none;
   }
   .error {
     color: #f48771;

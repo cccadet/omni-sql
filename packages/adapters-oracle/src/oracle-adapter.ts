@@ -4,6 +4,7 @@ import type {
   Database,
   ExplainResult,
   FunctionDef,
+  IndexInfo,
   QueryResult,
   Relation,
   Schema,
@@ -11,8 +12,11 @@ import type {
 import { oracleDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Adapter, AdapterFactory, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import {
+  getDefinitionViaConnection,
   introspectSchemas,
   listFunctionsPerSchema,
+  listIndexesViaConnection,
+  listSchemaNames,
   runQueryViaConnection,
   updateRowViaConnection,
   type ArgumentRow,
@@ -41,12 +45,14 @@ export class OracleAdapter implements Adapter {
   private schemasCache: Schema[] = [];
   private relationsBySchema = new Map<string, Relation[]>();
   private functionsBySchema = new Map<string, FunctionDef[]>();
+  private readonly schemaFilter?: readonly string[];
 
   constructor(config: ConnectionConfig, password?: string) {
     this.id = config.id;
     this.connectString = config.endpoint;
     this.user = config.user;
     this.password = password ?? "";
+    this.schemaFilter = config.schemas;
   }
 
   private getPool(): Promise<Pool> {
@@ -94,7 +100,7 @@ export class OracleAdapter implements Adapter {
     const pool = await this.getPool();
     const conn = await pool.getConnection();
     try {
-      const schemas = await introspectSchemas(conn);
+      const schemas = await introspectSchemas(conn, this.schemaFilter);
       this.schemasCache = schemas.map(([, name]) => ({ database: "oracle", name }));
       this.relationsBySchema.clear();
       this.functionsBySchema.clear();
@@ -108,6 +114,16 @@ export class OracleAdapter implements Adapter {
         name: "oracle",
         schemas: this.schemasCache,
       };
+    } finally {
+      await conn.close();
+    }
+  }
+
+  async listAvailableSchemas(): Promise<readonly string[]> {
+    const pool = await this.getPool();
+    const conn = await pool.getConnection();
+    try {
+      return await listSchemaNames(conn);
     } finally {
       await conn.close();
     }
@@ -172,6 +188,26 @@ export class OracleAdapter implements Adapter {
       const rows = (r.rows ?? []) as Array<{ line: string }>;
       const textual = rows.map((row) => row.line).join("\n");
       return { textual, format: "text", raw: rows };
+    } finally {
+      await conn.close();
+    }
+  }
+
+  async listIndexes(schema: string, table: string): Promise<readonly IndexInfo[]> {
+    const pool = await this.getPool();
+    const conn = await pool.getConnection();
+    try {
+      return await listIndexesViaConnection(conn, schema, table);
+    } finally {
+      await conn.close();
+    }
+  }
+
+  async getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string> {
+    const pool = await this.getPool();
+    const conn = await pool.getConnection();
+    try {
+      return await getDefinitionViaConnection(conn, kind, schema, name);
     } finally {
       await conn.close();
     }

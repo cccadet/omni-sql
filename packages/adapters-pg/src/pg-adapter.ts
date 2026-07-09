@@ -4,6 +4,7 @@ import type {
   Database,
   ExplainResult,
   FunctionDef,
+  IndexInfo,
   QueryResult,
   Relation,
   Schema,
@@ -11,8 +12,11 @@ import type {
 import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Adapter, AdapterFactory, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import {
+  getDefinitionViaPool,
   introspectSchemas,
   listFunctionsPerSchema,
+  listIndexesViaPool,
+  listSchemaNames,
   runQueryViaPool,
   updateRowViaPool,
   type ColumnRow,
@@ -39,9 +43,11 @@ export class PostgresAdapter implements Adapter {
   private schemasCache: Schema[] = [];
   private relationsBySchema = new Map<string, Relation[]>();
   private functionsBySchema = new Map<string, FunctionDef[]>();
+  private readonly schemaFilter?: readonly string[];
 
   constructor(config: ConnectionConfig, password?: string) {
     this.id = config.id;
+    this.schemaFilter = config.schemas;
     const conn = parseEndpoint(config.endpoint, config.user, password, config.options);
     this.pool = new pg.Pool({
       connectionString: conn.connectionString,
@@ -72,7 +78,7 @@ export class PostgresAdapter implements Adapter {
   async introspect(): Promise<Database> {
     const client = await this.pool.connect();
     try {
-      const schemas = await introspectSchemas(client);
+      const schemas = await introspectSchemas(client, this.schemaFilter);
       this.schemasCache = schemas.map(([, name]) => ({ database: "postgres", name }));
       this.relationsBySchema.clear();
       this.functionsBySchema.clear();
@@ -87,6 +93,15 @@ export class PostgresAdapter implements Adapter {
         schemas: this.schemasCache,
       };
       return this.introspected;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listAvailableSchemas(): Promise<readonly string[]> {
+    const client = await this.pool.connect();
+    try {
+      return await listSchemaNames(client);
     } finally {
       client.release();
     }
@@ -128,6 +143,14 @@ export class PostgresAdapter implements Adapter {
     } finally {
       client.release();
     }
+  }
+
+  async listIndexes(schema: string, table: string): Promise<readonly IndexInfo[]> {
+    return listIndexesViaPool(this.pool, schema, table);
+  }
+
+  async getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string> {
+    return getDefinitionViaPool(this.pool, kind, schema, name);
   }
 
   dialectDescriptor() {

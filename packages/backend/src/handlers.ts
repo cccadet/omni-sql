@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import type { ConnectionConfig, Relation, Database } from "@omni-sql/ts-types";
+import type { ConnectionConfig, Relation, Database, FunctionDef } from "@omni-sql/ts-types";
 import type { Adapter } from "@omni-sql/adapters-core";
 import {
   bootstrapDefaultRegistry,
@@ -10,7 +10,7 @@ import {
 } from "@omni-sql/adapters-core";
 import { PostgresAdapter, pgAdapterFactory } from "@omni-sql/adapters-pg";
 import { OracleAdapter, oracleAdapterFactory } from "@omni-sql/adapters-oracle";
-import { dialectDescriptor } from "@omni-sql/dialect-descriptors";
+import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
   autocompleteTier1,
   type MetadataSource,
@@ -32,6 +32,8 @@ import type {
   ListConnectionsResult,
   TestConnectionParams,
   TestConnectionResult,
+  ListSchemasParams,
+  ListSchemasResult,
   RunQueryParams,
   RunQueryResult,
   AnalyzeEditabilityParams,
@@ -42,6 +44,12 @@ import type {
   IntrospectResult,
   ListRelationsParams,
   ListRelationsResult,
+  ListFunctionsParams,
+  ListFunctionsResult,
+  ListIndexesParams,
+  ListIndexesResult,
+  GetDefinitionParams,
+  GetDefinitionResult,
   CompletionParams,
   CompletionResult,
 } from "./protocol.ts";
@@ -147,6 +155,39 @@ function resolveRelationByName(
   return all.find((r) => r.name.toLowerCase() === t && (s == null || r.schema.toLowerCase() === s)) ?? null;
 }
 
+// DDL construída a partir dos metadados já cacheados (colunas + PK/FK) — não
+// é uma cópia fiel do DDL real (sem índices, checks, storage etc.), mas
+// dispensa uma ida ao banco só para visualização rápida da estrutura.
+function buildTableDdl(dialect: ConnectionConfig["dialect"], relation: Relation): string {
+  const descriptor = dialectDescriptor(dialect);
+  const q = (id: string) => quoteIdentifier(descriptor, id);
+  const tableRef = `${q(relation.schema)}.${q(relation.name)}`;
+
+  const columnLines = relation.columns
+    .slice()
+    .sort((a, b) => a.ordinalPosition - b.ordinalPosition)
+    .map((c) => {
+      const parts = [q(c.name), c.dataType];
+      if (!c.nullable) parts.push("NOT NULL");
+      if (c.defaultValue !== undefined) parts.push(`DEFAULT ${c.defaultValue}`);
+      return `  ${parts.join(" ")}`;
+    });
+
+  const constraintLines: string[] = [];
+  const pk = relation.constraints.find((c) => c.kind === "primary");
+  if (pk) {
+    constraintLines.push(`  CONSTRAINT ${q(pk.name)} PRIMARY KEY (${pk.columns.map(q).join(", ")})`);
+  }
+  for (const fk of relation.constraints.filter((c) => c.kind === "foreign")) {
+    const ref = fk.references!;
+    constraintLines.push(
+      `  CONSTRAINT ${q(fk.name)} FOREIGN KEY (${fk.columns.map(q).join(", ")}) REFERENCES ${q(ref.schema)}.${q(ref.table)} (${q(ref.column)})`,
+    );
+  }
+
+  return `CREATE TABLE ${tableRef} (\n${[...columnLines, ...constraintLines].join(",\n")}\n);`;
+}
+
 function metaSourceOf(session: Session, cteRelations: readonly Relation[] = []): MetadataSource {
   return {
     dialect: dialectDescriptor(session.config.dialect),
@@ -208,6 +249,7 @@ export const handlers: RpcRouter = {
       endpoint: c.endpoint,
       user: c.user,
       options: c.options,
+      schemas: c.schemas,
       lastSyncedAt: cache.lastSyncedAt(c.id, "connection"),
     }));
     return { configs };
@@ -235,6 +277,21 @@ export const handlers: RpcRouter = {
     } catch (e) {
       await adapter.close().catch(() => undefined);
       return { ok: false, latencyMs: 0, message: (e as Error).message };
+    }
+  },
+
+  async "connection.listSchemas"({ config, password }: ListSchemasParams): Promise<ListSchemasResult> {
+    const effectivePassword =
+      password !== undefined && password.length > 0
+        ? password
+        : await getPassword(config).catch(() => undefined);
+    const adapter = createAdapter(config, effectivePassword);
+    try {
+      await adapter.connect();
+      const schemas = await adapter.listAvailableSchemas();
+      return { schemas };
+    } finally {
+      await adapter.close().catch(() => undefined);
     }
   },
 
@@ -332,11 +389,12 @@ export const handlers: RpcRouter = {
     const schemasByName = new Map<string, {
       name: string;
       relations: readonly Relation[];
-      functions: readonly { schema: string; name: string; overloads: readonly never[] }[];
+      functions: readonly FunctionDef[];
     }>();
     for (const schema of s.adapter.listSchemas()) {
       const rels = s.adapter.listTables(schema.name);
-      schemasByName.set(schema.name, { name: schema.name, relations: rels, functions: [] });
+      const fns = s.adapter.listFunctions(schema.name);
+      schemasByName.set(schema.name, { name: schema.name, relations: rels, functions: fns });
     }
     cache.ingestIntrospection(
       connectionId,
@@ -366,11 +424,48 @@ export const handlers: RpcRouter = {
             dataType: c.dataType,
             nullable: c.nullable,
             isPrimaryKey: c.isPrimaryKey,
+            ...(c.foreignKeyTo ? { foreignKeyTo: c.foreignKeyTo } : {}),
           })),
         });
       }
     }
     return { relations: all };
+  },
+
+  async "metadata.listFunctions"({
+    connectionId,
+    schema,
+  }: ListFunctionsParams): Promise<ListFunctionsResult> {
+    const s = requireSession(connectionId);
+    return { functions: cache.getFunctions(s.config.id, schema) };
+  },
+
+  async "metadata.listIndexes"({
+    connectionId,
+    schema,
+    table,
+  }: ListIndexesParams): Promise<ListIndexesResult> {
+    const s = requireSession(connectionId);
+    await s.adapter.connect();
+    const indexes = await s.adapter.listIndexes(schema, table);
+    return { indexes };
+  },
+
+  async "metadata.getDefinition"({
+    connectionId,
+    kind,
+    schema,
+    name,
+  }: GetDefinitionParams): Promise<GetDefinitionResult> {
+    const s = requireSession(connectionId);
+    if (kind === "table") {
+      const relation = resolveRelationByName(connectionId, name, schema);
+      if (!relation) throw new Error(`tabela não encontrada: ${schema}.${name}`);
+      return { sql: buildTableDdl(s.config.dialect, relation) };
+    }
+    await s.adapter.connect();
+    const sql = await s.adapter.getDefinition(kind, schema, name);
+    return { sql };
   },
 
   async "completion.get"({

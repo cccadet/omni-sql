@@ -3,6 +3,7 @@ import type {
   Database,
   ExplainResult,
   FunctionDef,
+  IndexInfo,
   QueryResult,
   Relation,
   Schema,
@@ -95,6 +96,10 @@ export class InMemoryAdapter implements Adapter {
     };
   }
 
+  async listAvailableSchemas(): Promise<readonly string[]> {
+    return this.schemas.map((s) => s.schema);
+  }
+
   listSchemas(): readonly Schema[] {
     return this.schemas.map((s) => ({ database: "in-memory", name: s.schema }));
   }
@@ -155,6 +160,14 @@ export class InMemoryAdapter implements Adapter {
 
   async explain(sql: string): Promise<ExplainResult> {
     return { textual: `(in-memory) ${sql}`, format: "text", raw: null };
+  }
+
+  async listIndexes(_schema: string, _table: string): Promise<readonly IndexInfo[]> {
+    return [];
+  }
+
+  async getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string> {
+    throw new Error(`InMemoryAdapter: definição de ${kind} não suportada (dados sintéticos): ${schema}.${name}`);
   }
 
   async updateRow(): Promise<number> {

@@ -1,4 +1,12 @@
-import type { ConnectionConfig, QueryResult, Database, RowEditability } from "@omni-sql/ts-types";
+import type {
+  ConnectionConfig,
+  QueryResult,
+  Database,
+  RowEditability,
+  FunctionDef,
+  IndexInfo,
+  ObjectDefinitionKind,
+} from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 
 export interface ConnectionEntry {
@@ -8,7 +16,29 @@ export interface ConnectionEntry {
   endpoint: string;
   user: string;
   options?: Record<string, string | number | boolean>;
+  schemas?: string[];
   lastSyncedAt?: number;
+}
+
+export interface RelationColumn {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  isPrimaryKey: boolean;
+  foreignKeyTo?: ColumnRef;
+}
+
+export interface RelationInfo {
+  schema: string;
+  name: string;
+  kind: "table" | "view";
+  columns: RelationColumn[];
+}
+
+export interface ColumnRef {
+  schema: string;
+  table: string;
+  column: string;
 }
 
 type AnyParams = Record<string, unknown> | undefined;
@@ -81,6 +111,7 @@ export type BackendHandlers = {
   "connection.list": () => Promise<{ configs: ConnectionEntry[] }>;
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
   "connection.test": (p: { config: ConnectionConfig; password?: string }) => Promise<{ ok: boolean; latencyMs: number; message?: string }>;
+  "connection.listSchemas": (p: { config: ConnectionConfig; password?: string }) => Promise<{ schemas: string[] }>;
   "query.run": (p: { connectionId: string; sql: string; limit?: number }) => Promise<QueryResult>;
   "query.analyzeEditability": (p: { connectionId: string; sql: string }) => Promise<RowEditability>;
   "row.update": (p: {
@@ -90,5 +121,16 @@ export type BackendHandlers = {
     where: Record<string, unknown>;
   }) => Promise<{ rowsAffected: number }>;
   "metadata.introspect": (p: { connectionId: string }) => Promise<Database>;
+  "metadata.listRelations": (p: { connectionId: string; schema?: string }) => Promise<{ relations: RelationInfo[] }>;
+  "metadata.listFunctions": (p: { connectionId: string; schema?: string }) => Promise<{ functions: FunctionDef[] }>;
+  "metadata.listIndexes": (p: { connectionId: string; schema: string; table: string }) => Promise<{ indexes: IndexInfo[] }>;
+  "metadata.getDefinition": (p: {
+    connectionId: string;
+    kind: ObjectDefinitionKind;
+    schema: string;
+    name: string;
+  }) => Promise<{ sql: string }>;
   "completion.get": (p: { connectionId: string; sql: string; cursor: number }) => Promise<{ suggestions: Suggestion[] }>;
 };
+
+export type { IndexInfo, ObjectDefinitionKind };

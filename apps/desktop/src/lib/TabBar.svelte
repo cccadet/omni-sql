@@ -10,6 +10,7 @@
     id: string;
     title: string;
     dirty?: boolean;
+    dialectIcon?: string;
   }
 
   interface Props {
@@ -104,6 +105,9 @@
           use:focusOnMount
         />
       {:else}
+        {#if tab.dialectIcon}
+          <span class="tab-dialect" aria-hidden="true">{tab.dialectIcon}</span>
+        {/if}
         <span class="tab-title" title={tab.title}>{tab.title}</span>
         {#if tab.dirty}
           <span class="tab-dirty" title="Alterações não salvas">●</span>
@@ -153,6 +157,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .tab-dialect {
+    font-size: 12px;
+    line-height: 1;
+    flex-shrink: 0;
   }
   .tab-dirty {
     color: #e2b93d;

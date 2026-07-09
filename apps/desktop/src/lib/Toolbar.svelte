@@ -1,6 +1,17 @@
 <script lang="ts">
   import type { ConnectionEntry } from "./backend";
+  import { dialectIcon } from "./dialect-icons";
   import SidecarStatus from "./SidecarStatus.svelte";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Play from "@lucide/svelte/icons/play";
+  import Loader2 from "@lucide/svelte/icons/loader-2";
+  import Save from "@lucide/svelte/icons/save";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import History from "@lucide/svelte/icons/history";
 
   interface Props {
     connections: ConnectionEntry[];
@@ -15,10 +26,12 @@
     onRefreshMetadata?: (id: string) => void;
     limit: number;
     onLimitChange?: (limit: number) => void;
-    fontFamily: string;
-    onFontChange?: (fontFamily: string) => void;
     onSave?: () => void;
     onOpen?: () => void;
+    sidebarOpen?: boolean;
+    onToggleSidebar?: () => void;
+    historyOpen?: boolean;
+    onToggleHistory?: () => void;
   }
   let {
     connections,
@@ -33,37 +46,15 @@
     onRefreshMetadata,
     limit,
     onLimitChange,
-    fontFamily,
-    onFontChange,
     onSave,
     onOpen,
+    sidebarOpen = true,
+    onToggleSidebar,
+    historyOpen = false,
+    onToggleHistory,
   }: Props = $props();
 
   const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
-
-  const FONT_OPTIONS: Array<{ label: string; value: string }> = [
-    { label: "Padrão", value: "ui-monospace, monospace" },
-    { label: "Cascadia Code", value: "'Cascadia Code', ui-monospace, monospace" },
-    { label: "Fira Code", value: "'Fira Code', ui-monospace, monospace" },
-    { label: "JetBrains Mono", value: "'JetBrains Mono', ui-monospace, monospace" },
-    { label: "Consolas", value: "Consolas, ui-monospace, monospace" },
-    { label: "Menlo", value: "Menlo, ui-monospace, monospace" },
-    { label: "Courier New", value: "'Courier New', monospace" },
-  ];
-
-  const DIALECT_ICONS: Record<ConnectionEntry["dialect"], string> = {
-    postgres: "🐘",
-    mysql: "🐬",
-    mariadb: "🦭",
-    sqlserver: "🗄️",
-    oracle: "🟠",
-    "jdbc-generic": "🔌",
-    odbc: "🔗",
-  };
-
-  function dialectIcon(dialect: ConnectionEntry["dialect"]): string {
-    return DIALECT_ICONS[dialect] ?? "🗄️";
-  }
 
   function formatMetaStatus(entry: ConnectionEntry | undefined): {
     icon: string;
@@ -113,79 +104,148 @@
 </script>
 
 <header class="toolbar">
-  <select aria-label="Conexão ativa" value={activeConnectionId ?? ""} onchange={onSelect}>
-    {#if connections.length === 0}
-      <option value="" disabled>Nenhuma conexão cadastrada</option>
-    {/if}
-    {#each connections as c}
-      <option value={c.id}>{dialectIcon(c.dialect)} {c.label}</option>
-    {/each}
-  </select>
+  <div class="group">
+    <span class="group-label">Conexão</span>
+    <div class="group-controls">
+      <select aria-label="Conexão ativa" value={activeConnectionId ?? ""} onchange={onSelect}>
+        {#if connections.length === 0}
+          <option value="" disabled>Nenhuma conexão cadastrada</option>
+        {/if}
+        {#each connections as c}
+          <option value={c.id}>{c.label}</option>
+        {/each}
+      </select>
+      {#if activeConnection}
+        <span class="dialect-icon" aria-hidden="true">{dialectIcon(activeConnection.dialect)}</span>
+        <span class="meta-status" title={metaStatus.label}>{metaStatus.icon}</span>
+      {/if}
+    </div>
+  </div>
 
-  {#if activeConnection}
-    <span class="meta-status" title={metaStatus.label}>{metaStatus.icon}</span>
-    <button
-      class="icon"
-      title="Atualizar metadados (tabelas/colunas)"
-      onclick={onRefreshMetadataClick}
-      disabled={!activeConnectionId || !!busyMsg}
-      aria-label="Atualizar metadados"
-    >⟳</button>
-  {/if}
+  <div class="divider"></div>
 
-  <button class="icon" title="Nova conexão" onclick={onAdd} aria-label="Nova conexão">+</button>
-  <button class="icon" title="Editar conexão" onclick={onEditClick} disabled={!activeConnectionId} aria-label="Editar conexão">✎</button>
-  <button class="icon danger" title="Remover conexão" onclick={onRemoveClick} disabled={!activeConnectionId} aria-label="Remover conexão">−</button>
+  <div class="group">
+    <span class="group-label">Fonte</span>
+    <div class="group-controls">
+      <button
+        class="icon"
+        title="Atualizar metadados (tabelas/colunas)"
+        onclick={onRefreshMetadataClick}
+        disabled={!activeConnectionId || !!busyMsg}
+        aria-label="Atualizar metadados"
+      ><RefreshCw size={14} /></button>
+      <button class="icon" title="Nova conexão" onclick={onAdd} aria-label="Nova conexão"><Plus size={14} /></button>
+      <button class="icon" title="Editar conexão" onclick={onEditClick} disabled={!activeConnectionId} aria-label="Editar conexão"><Pencil size={14} /></button>
+      <button class="icon danger" title="Remover conexão" onclick={onRemoveClick} disabled={!activeConnectionId} aria-label="Remover conexão"><Trash2 size={14} /></button>
+    </div>
+  </div>
 
-  <button onclick={onRunClick} disabled={running || !activeConnectionId}>
-    {running ? "Executando…" : "Executar"}
-  </button>
+  <div class="divider"></div>
 
-  <select
-    class="limit-select"
-    title="Limite de linhas"
-    aria-label="Limite de linhas"
-    value={limit}
-    onchange={(e) => onLimitChange?.(Number(e.currentTarget.value))}
-  >
-    {#each LIMIT_OPTIONS as opt}
-      <option value={opt}>{opt} linhas</option>
-    {/each}
-  </select>
+  <div class="group">
+    <span class="group-label">Execução</span>
+    <div class="group-controls">
+      <button
+        class="run"
+        title="Executar query (Ctrl/⌘+Enter)"
+        onclick={onRunClick}
+        disabled={running || !activeConnectionId}
+      >
+        {#if running}
+          <Loader2 size={14} class="spin" /> Executando…
+        {:else}
+          <Play size={14} /> Executar
+        {/if}
+      </button>
+    </div>
+  </div>
 
-  <select
-    class="font-select"
-    title="Fonte do editor (por aba)"
-    aria-label="Fonte do editor"
-    value={fontFamily}
-    onchange={(e) => onFontChange?.(e.currentTarget.value)}
-  >
-    {#each FONT_OPTIONS as opt}
-      <option value={opt.value}>{opt.label}</option>
-    {/each}
-  </select>
+  <div class="divider"></div>
 
-  <button class="icon" title="Salvar aba (.sql) — Ctrl/⌘+S" onclick={onSave} aria-label="Salvar aba">💾</button>
-  <button class="icon" title="Abrir arquivo .sql — Ctrl/⌘+O" onclick={onOpen} aria-label="Abrir arquivo">📂</button>
+  <div class="group">
+    <span class="group-label">Limite</span>
+    <div class="group-controls">
+      <select
+        class="limit-select"
+        title="Limite de linhas"
+        aria-label="Limite de linhas"
+        value={limit}
+        onchange={(e) => onLimitChange?.(Number(e.currentTarget.value))}
+      >
+        {#each LIMIT_OPTIONS as opt}
+          <option value={opt}>{opt} linhas</option>
+        {/each}
+      </select>
+    </div>
+  </div>
 
-  <kbd>Ctrl/⌘+Enter</kbd>
+  <div class="divider"></div>
 
-  <SidecarStatus />
+  <div class="group">
+    <span class="group-label">Editor</span>
+    <div class="group-controls">
+      <button class="icon labeled" title="Salvar aba (.sql) — Ctrl/⌘+S" onclick={onSave} aria-label="Salvar aba"><Save size={14} /> Salvar</button>
+      <button class="icon labeled" title="Abrir arquivo .sql — Ctrl/⌘+O" onclick={onOpen} aria-label="Abrir arquivo"><FolderOpen size={14} /> Abrir</button>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
 
   {#if busyMsg}
     <span class="busy">{busyMsg}</span>
   {/if}
+
+  <button
+    class="icon toggle"
+    class:active={sidebarOpen}
+    title="Objetos do banco"
+    aria-label="Alternar painel de objetos do banco"
+    onclick={onToggleSidebar}
+  ><PanelLeft size={15} /></button>
+
+  <button
+    class="icon toggle"
+    class:active={historyOpen}
+    title="Histórico de queries"
+    aria-label="Alternar histórico de queries"
+    onclick={onToggleHistory}
+  ><History size={15} /></button>
+
+  <SidecarStatus />
 </header>
 
 <style>
   .toolbar {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    align-items: flex-end;
+    gap: 10px;
     padding: 6px 12px;
     background: #252526;
     border-bottom: 1px solid #333;
     font-size: 12px;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .group-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #888;
+    padding-left: 1px;
+  }
+  .group-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .divider {
+    align-self: stretch;
+    width: 1px;
+    background: #3c3c3c;
+    margin-bottom: 2px;
   }
   select {
     background-color: #2d2d30;
@@ -193,7 +253,7 @@
     border: 1px solid #3c3c3c;
     padding: 4px 24px 4px 8px;
     border-radius: 4px;
-    min-width: 220px;
+    min-width: 200px;
     /* No Windows o <select> nativo desenha via UxTheme (GDI monocromático) e
        ignora até font-family para emoji — appearance:none devolve o
        desenho do texto ao próprio Chromium (aí sim com glifo colorido). A
@@ -208,10 +268,6 @@
     min-width: unset;
     width: auto;
   }
-  select.font-select {
-    min-width: unset;
-    width: auto;
-  }
   button {
     background: #0e639c;
     color: #fff;
@@ -221,30 +277,48 @@
     cursor: pointer;
     font-weight: 600;
   }
+  button.run {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
   button.icon {
-    padding: 6px 10px;
+    padding: 6px 8px;
     background: #2d2d30;
     border: 1px solid #3c3c3c;
-    font-size: 14px;
     line-height: 1;
+    display: inline-flex;
+    align-items: center;
+  }
+  button.icon.labeled {
+    gap: 5px;
+    font-weight: 400;
+  }
+  button.icon.toggle.active {
+    background: #0e639c;
+    border-color: #0e639c;
   }
   button.danger {
     color: #f48771;
   }
   button:disabled { opacity: 0.5; cursor: default; }
-  kbd {
-    background: #2d2d30;
-    border: 1px solid #3c3c3c;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-family: ui-monospace, monospace;
-    opacity: 0.7;
+  .spacer { flex: 1; }
+  .busy { color: #9cdcfe; }
+  .dialect-icon {
+    font-size: 14px;
+    line-height: 1;
   }
-  .busy { color: #9cdcfe; margin-left: auto; }
   .meta-status {
     font-size: 12px;
     line-height: 1;
     cursor: default;
     opacity: 0.9;
+  }
+  :global(.spin) {
+    animation: toolbar-spin 1s linear infinite;
+  }
+  @keyframes toolbar-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 </style>

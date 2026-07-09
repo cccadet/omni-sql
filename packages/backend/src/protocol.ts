@@ -1,4 +1,12 @@
-import type { ConnectionConfig, QueryResult, Database, RowEditability } from "@omni-sql/ts-types";
+import type {
+  ConnectionConfig,
+  QueryResult,
+  Database,
+  RowEditability,
+  FunctionDef,
+  IndexInfo,
+  ObjectDefinitionKind,
+} from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 
 // ─────────────────────────── JSON-RPC envelope
@@ -30,11 +38,15 @@ export type RpcMethod =
   | "connection.list"
   | "connection.remove"
   | "connection.test"
+  | "connection.listSchemas"
   | "query.run"
   | "query.analyzeEditability"
   | "row.update"
   | "metadata.introspect"
   | "metadata.listRelations"
+  | "metadata.listFunctions"
+  | "metadata.listIndexes"
+  | "metadata.getDefinition"
   | "completion.get";
 
 // ─────────────────────────── Params/Results
@@ -108,8 +120,44 @@ export interface ListRelationsResult {
       dataType: string;
       nullable: boolean;
       isPrimaryKey: boolean;
+      foreignKeyTo?: { schema: string; table: string; column: string };
     }>;
   }>;
+}
+
+export interface ListSchemasParams {
+  config: ConnectionConfig;
+  password?: string;
+}
+export interface ListSchemasResult {
+  schemas: readonly string[];
+}
+
+export interface ListFunctionsParams {
+  connectionId: string;
+  schema?: string;
+}
+export interface ListFunctionsResult {
+  functions: readonly FunctionDef[];
+}
+
+export interface ListIndexesParams {
+  connectionId: string;
+  schema: string;
+  table: string;
+}
+export interface ListIndexesResult {
+  indexes: readonly IndexInfo[];
+}
+
+export interface GetDefinitionParams {
+  connectionId: string;
+  kind: ObjectDefinitionKind;
+  schema: string;
+  name: string;
+}
+export interface GetDefinitionResult {
+  sql: string;
 }
 
 export interface CompletionParams {
@@ -128,11 +176,15 @@ export interface RpcRouter {
   "connection.list": () => Promise<ListConnectionsResult>;
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
   "connection.test": (p: TestConnectionParams) => Promise<TestConnectionResult>;
+  "connection.listSchemas": (p: ListSchemasParams) => Promise<ListSchemasResult>;
   "query.run": (p: RunQueryParams) => Promise<RunQueryResult>;
   "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;
   "row.update": (p: UpdateRowParams) => Promise<UpdateRowResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;
   "metadata.listRelations": (p: ListRelationsParams) => Promise<ListRelationsResult>;
+  "metadata.listFunctions": (p: ListFunctionsParams) => Promise<ListFunctionsResult>;
+  "metadata.listIndexes": (p: ListIndexesParams) => Promise<ListIndexesResult>;
+  "metadata.getDefinition": (p: GetDefinitionParams) => Promise<GetDefinitionResult>;
   "completion.get": (p: CompletionParams) => Promise<CompletionResult>;
 }
 
