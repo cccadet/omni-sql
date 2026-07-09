@@ -11,6 +11,8 @@
   import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
   import type { QueryResult, ConnectionConfig, RowEditability, FunctionDef } from "@omni-sql/ts-types";
   import type { Suggestion } from "@omni-sql/autocomplete-engine";
+  import { splitStatements, statementAt, type SqlStatement } from "./lib/sql-statements";
+  import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 
   const SESSION_KEY = "omni-sql:session";
 
@@ -28,6 +30,8 @@
     running: boolean;
     /** Null enquanto não analisado, ou quando a query não é editável. */
     editability: RowEditability | null;
+    /** Instrução efetivamente executada por último (usado por "carregar mais"). */
+    lastRunSql: string | null;
   }
 
   interface PersistedTab {
@@ -77,6 +81,7 @@
       error: null,
       running: false,
       editability: null,
+      lastRunSql: null,
     };
   }
 
@@ -120,10 +125,40 @@
   let queryHistory = $state<HistoryEntry[]>(loadHistory());
   let historyOpen = $state(false);
 
+  const VARIABLES_KEY = "omni-sql:sqlVariables";
+
+  function loadSavedVariables(): Record<string, string> {
+    try {
+      const raw = localStorage.getItem(VARIABLES_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Último valor preenchido por nome de variável (`:nome`) — reusado entre execuções. */
+  let savedVariables = $state<Record<string, string>>(loadSavedVariables());
+
   let sidebarOpen = $state(true);
   let sidebarCache = $state<Record<string, { relations: RelationInfo[]; functions: FunctionDef[] }>>({});
   let sidebarLoading = $state(false);
-  let editorRef = $state<{ insertAtCursor: (t: string) => void } | undefined>();
+  let editorRef = $state<
+    | {
+        insertAtCursor: (t: string) => void;
+        getRunTarget: () => { selectionText: string | null; cursorOffset: number };
+      }
+    | undefined
+  >();
+  let pendingRun = $state<{ tab: QueryTab; statements: SqlStatement[]; current: SqlStatement } | null>(
+    null,
+  );
+  /** Aberto quando `requestRun` encontra `:variáveis` nas instruções a rodar. */
+  let pendingVariables = $state<{
+    tab: QueryTab;
+    sqls: string[];
+    names: string[];
+    values: Record<string, string>;
+  } | null>(null);
 
   let booted = false;
 
@@ -235,19 +270,23 @@
     queryHistory = [entry, ...queryHistory].slice(0, HISTORY_LIMIT);
   }
 
-  async function onRun() {
-    const idx = activeIndex;
-    if (idx < 0) return;
-    const tab = tabs[idx]!;
-    if (!tab.connectionId) return;
+  /** Executa uma instrução isolada nesta aba. Retorna se teve sucesso. */
+  async function runSql(
+    tab: QueryTab,
+    sql: string,
+    opts: { clearResultOnError?: boolean } = {},
+  ): Promise<boolean> {
+    const clearResultOnError = opts.clearResultOnError ?? true;
+    if (!tab.connectionId) return false;
     tab.running = true;
     tab.error = null;
     tab.editability = null;
+    tab.lastRunSql = sql;
     const startedAt = Date.now();
     try {
       tab.result = await backend.call<QueryResult>("query.run", {
         connectionId: tab.connectionId,
-        sql: tab.sql,
+        sql,
         limit: tab.queryLimit,
       });
       // Best-effort: se o sidecar/metadata-cache falhar, a grade só fica
@@ -255,17 +294,125 @@
       tab.editability = await backend
         .call<RowEditability>("query.analyzeEditability", {
           connectionId: tab.connectionId,
-          sql: tab.sql,
+          sql,
         })
         .catch(() => null);
       pushHistory(tab, true, Date.now() - startedAt);
+      return true;
     } catch (e) {
       tab.error = (e as Error).message;
-      tab.result = null;
+      if (clearResultOnError) tab.result = null;
       pushHistory(tab, false, Date.now() - startedAt, tab.error);
+      return false;
     } finally {
       tab.running = false;
     }
+  }
+
+  /** Roda todas as instruções (já com variáveis substituídas) em sequência; para na primeira que falhar. */
+  async function runAllStatements(tab: QueryTab, sqls: readonly string[]) {
+    tab.result = null;
+    tab.error = null;
+    for (let i = 0; i < sqls.length; i++) {
+      const ok = await runSql(tab, sqls[i]!, { clearResultOnError: false });
+      if (!ok) {
+        tab.error = `Instrução ${i + 1}/${sqls.length} falhou: ${tab.error}`;
+        break;
+      }
+    }
+  }
+
+  /** Roda uma ou mais instruções já resolvidas (sem `:variáveis` pendentes). */
+  async function runResolvedSqls(tab: QueryTab, sqls: readonly string[]) {
+    if (sqls.length <= 1) {
+      await runSql(tab, sqls[0] ?? "");
+    } else {
+      await runAllStatements(tab, sqls);
+    }
+  }
+
+  /**
+   * Ponto único antes de qualquer execução: se `sqls` referencia `:variáveis`,
+   * abre o modal de preenchimento (pré-preenchido com o último valor usado)
+   * e só executa depois de confirmado. Sem variáveis, roda na hora.
+   */
+  function requestRun(tab: QueryTab, sqls: readonly string[]) {
+    const names = extractVariablesUnion(sqls);
+    if (names.length === 0) {
+      void runResolvedSqls(tab, sqls);
+      return;
+    }
+    const values: Record<string, string> = {};
+    for (const name of names) values[name] = savedVariables[name] ?? "";
+    pendingVariables = { tab, sqls: [...sqls], names, values };
+  }
+
+  /**
+   * Executado pelo botão "Executar" e por Ctrl/⌘+Enter no editor.
+   * Com seleção não vazia, roda só a seleção. Sem seleção e com uma única
+   * instrução na aba, roda ela direto. Com várias instruções e sem seleção,
+   * abre o menu para escolher entre "instrução atual" e "todas".
+   */
+  function onRun() {
+    const idx = activeIndex;
+    if (idx < 0) return;
+    const tab = tabs[idx]!;
+    if (!tab.connectionId) return;
+
+    const target = editorRef?.getRunTarget();
+    const selection = target?.selectionText?.trim();
+    if (selection) {
+      requestRun(tab, [selection]);
+      return;
+    }
+
+    const statements = splitStatements(tab.sql);
+    if (statements.length <= 1) {
+      requestRun(tab, [statements[0]?.text ?? tab.sql.trim()]);
+      return;
+    }
+
+    const cursorOffset = target?.cursorOffset ?? tab.sql.length;
+    const current = statementAt(statements, cursorOffset) ?? statements[statements.length - 1]!;
+    pendingRun = { tab, statements, current };
+  }
+
+  function onRunChoice(choice: "current" | "all") {
+    const pending = pendingRun;
+    pendingRun = null;
+    if (!pending) return;
+    if (choice === "current") {
+      requestRun(pending.tab, [pending.current.text]);
+    } else {
+      requestRun(
+        pending.tab,
+        pending.statements.map((s) => s.text),
+      );
+    }
+  }
+
+  function onRunChoiceCancel() {
+    pendingRun = null;
+  }
+
+  async function onVariablesConfirm() {
+    const pending = pendingVariables;
+    pendingVariables = null;
+    if (!pending) return;
+    for (const name of pending.names) {
+      savedVariables[name] = pending.values[name] ?? "";
+    }
+    const substituted = pending.sqls.map((sql) => substituteVariables(sql, pending.values));
+    await runResolvedSqls(pending.tab, substituted);
+  }
+
+  function onVariablesCancel() {
+    pendingVariables = null;
+  }
+
+  function autofocusFirst(node: HTMLInputElement) {
+    node.focus();
+    node.select();
   }
 
   /** Callback da grade de resultados para gravar uma célula editada via `row.update`. */
@@ -321,7 +468,9 @@
     if (activeIndex < 0) return;
     const tab = tabs[activeIndex]!;
     tab.queryLimit += tab.queryLimit;
-    await onRun();
+    // Recarrega a mesma instrução que gerou o resultado atual, não o
+    // conteúdo inteiro da aba (que pode ter várias instruções).
+    await runSql(tab, tab.lastRunSql ?? tab.sql.trim());
   }
 
   async function onAutocomplete(cursor: number): Promise<Suggestion[]> {
@@ -423,6 +572,11 @@
   }
 
   function onGlobalKeydown(e: KeyboardEvent) {
+    if (pendingVariables && e.key === "Escape") {
+      e.preventDefault();
+      onVariablesCancel();
+      return;
+    }
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
     if (e.key.toLowerCase() === "t") {
@@ -527,6 +681,14 @@
       // localStorage indisponível/cheio — histórico simplesmente não é persistido.
     }
   });
+
+  $effect(() => {
+    try {
+      localStorage.setItem(VARIABLES_KEY, JSON.stringify(savedVariables));
+    } catch {
+      // localStorage indisponível/cheio — valores de variáveis só não persistem entre sessões.
+    }
+  });
 </script>
 
 <svelte:window onkeydown={onGlobalKeydown} />
@@ -538,6 +700,9 @@
     {busyMsg}
     running={tabs[activeIndex]?.running ?? false}
     onRun={onRun}
+    pendingRunCount={pendingRun?.statements.length ?? null}
+    onRunChoice={onRunChoice}
+    onRunChoiceCancel={onRunChoiceCancel}
     onSelectConnection={onSelectConnection}
     onAdd={onAddConnection}
     onEdit={onEditConnection}
@@ -623,6 +788,36 @@
   onClear={onClearHistory}
 />
 
+{#if pendingVariables}
+  <div class="variables-backdrop" onclick={onVariablesCancel} role="presentation">
+    <div class="variables-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <header class="variables-header">Preencha as variáveis</header>
+      <form
+        class="variables-body"
+        onsubmit={(e) => {
+          e.preventDefault();
+          void onVariablesConfirm();
+        }}
+      >
+        {#each pendingVariables.names as name, i (name)}
+          <label class="variable-field">
+            <span>:{name}</span>
+            {#if i === 0}
+              <input type="text" bind:value={pendingVariables.values[name]} use:autofocusFirst />
+            {:else}
+              <input type="text" bind:value={pendingVariables.values[name]} />
+            {/if}
+          </label>
+        {/each}
+        <div class="variables-actions">
+          <button type="button" onclick={onVariablesCancel}>Cancelar</button>
+          <button type="submit" class="primary">Executar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
 <style>
   :global(html, body) {
     margin: 0;
@@ -651,4 +846,76 @@
   }
   .editor-pane { grid-row: 3; }
   .results-pane { grid-row: 4; }
+
+  .variables-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .variables-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(360px, 90vw);
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+  }
+  .variables-header {
+    padding: 10px 14px;
+    background: #2d2d30;
+    border-bottom: 1px solid #333;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ddd;
+  }
+  .variables-body {
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    gap: 10px;
+  }
+  .variable-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: #9d9d9d;
+  }
+  .variable-field input {
+    background: #2d2d2d;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+    color: #ddd;
+    padding: 6px 8px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .variable-field input:focus {
+    outline: 1px solid #0e639c;
+  }
+  .variables-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .variables-actions button {
+    background: #2d2d2d;
+    color: #ddd;
+    font-weight: 400;
+  }
+  .variables-actions button.primary {
+    background: #0e639c;
+    color: #fff;
+    font-weight: 600;
+  }
+  .variables-actions button.primary:hover {
+    background: #1177bb;
+  }
 </style>

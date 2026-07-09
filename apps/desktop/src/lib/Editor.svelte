@@ -29,6 +29,17 @@
     editor.focus();
   }
 
+  /** Seleção atual (se houver) e offset do cursor — usado para decidir o que rodar. */
+  export function getRunTarget(): { selectionText: string | null; cursorOffset: number } {
+    if (!editor) return { selectionText: null, cursorOffset: 0 };
+    const model = editor.getModel();
+    const sel = editor.getSelection();
+    const position = editor.getPosition();
+    const cursorOffset = model && position ? model.getOffsetAt(position) : 0;
+    const selectionText = model && sel && !sel.isEmpty() ? model.getValueInRange(sel) : null;
+    return { selectionText, cursorOffset };
+  }
+
   function mapKind(k: Suggestion["kind"]): monaco.languages.CompletionItemKind {
     switch (k) {
       case "table": return monaco.languages.CompletionItemKind.Class;
@@ -80,6 +91,8 @@
       padding: { top: 8, bottom: 8 },
       tabSize: 2,
       lineNumbers: "on",
+      matchBrackets: "always",
+      bracketPairColorization: { enabled: true },
     });
 
     editor.onDidChangeModelContent(() => {

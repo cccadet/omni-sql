@@ -19,6 +19,10 @@
     busyMsg: string | null;
     running: boolean;
     onRun?: () => void;
+    /** Não nulo quando há várias instruções na aba e nenhuma seleção — mostra o menu de escolha. */
+    pendingRunCount?: number | null;
+    onRunChoice?: (choice: "current" | "all") => void;
+    onRunChoiceCancel?: () => void;
     onSelectConnection?: (id: string) => void;
     onAdd?: () => void;
     onEdit?: (id: string) => void;
@@ -39,6 +43,9 @@
     busyMsg,
     running,
     onRun,
+    pendingRunCount = null,
+    onRunChoice,
+    onRunChoiceCancel,
     onSelectConnection,
     onAdd,
     onEdit,
@@ -78,6 +85,16 @@
     e.preventDefault();
     onRun?.();
   }
+  function onRunMenuKeydown(e: KeyboardEvent) {
+    if (pendingRunCount && e.key === "Escape") {
+      e.preventDefault();
+      onRunChoiceCancel?.();
+    }
+  }
+  /** Foca "Rodar instrução atual" ao abrir o modal — um Enter já confirma. */
+  function autofocusButton(node: HTMLButtonElement) {
+    node.focus();
+  }
   function onSelect(e: Event) {
     const v = (e.currentTarget as HTMLSelectElement).value;
     onSelectConnection?.(v);
@@ -102,6 +119,8 @@
   );
   const metaStatus = $derived(formatMetaStatus(activeConnection));
 </script>
+
+<svelte:window onkeydown={onRunMenuKeydown} />
 
 <header class="toolbar">
   <div class="group">
@@ -214,6 +233,27 @@
   <SidecarStatus />
 </header>
 
+{#if pendingRunCount}
+  <div class="run-menu-backdrop" onclick={() => onRunChoiceCancel?.()} role="presentation">
+    <div class="run-menu" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <header class="run-menu-header">Esta aba tem várias instruções</header>
+      <div class="run-menu-body">
+        <button
+          type="button"
+          class="run-menu-option primary"
+          use:autofocusButton
+          onclick={() => onRunChoice?.("current")}
+        >
+          Rodar instrução atual
+        </button>
+        <button type="button" class="run-menu-option" onclick={() => onRunChoice?.("all")}>
+          Rodar todas ({pendingRunCount})
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .toolbar {
     display: flex;
@@ -281,6 +321,58 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+  .run-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .run-menu {
+    display: flex;
+    flex-direction: column;
+    width: min(340px, 90vw);
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+  }
+  .run-menu-header {
+    padding: 10px 14px;
+    background: #2d2d30;
+    border-bottom: 1px solid #333;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ddd;
+  }
+  .run-menu-body {
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 4px;
+  }
+  .run-menu-option {
+    background: transparent;
+    color: #ddd;
+    font-weight: 400;
+    text-align: left;
+    border-radius: 4px;
+    padding: 10px 12px;
+  }
+  .run-menu-option:hover {
+    background: #094771;
+  }
+  .run-menu-option.primary {
+    background: #0e639c;
+    color: #fff;
+    font-weight: 600;
+  }
+  .run-menu-option.primary:hover {
+    background: #1177bb;
   }
   button.icon {
     padding: 6px 8px;
