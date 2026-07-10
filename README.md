@@ -26,6 +26,34 @@ durante o desenvolvimento.
 
 **Windows:** instale o [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) e o [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
+### JVM sidecar (obrigatório para autocomplete tier2)
+
+`pnpm dev:tauri` sobe normalmente sem o JVM sidecar, mas o autocomplete fica
+travado em tier1 (sem resolução de colunas de CTE) e só um log `INFO` no
+console avisa disso. Para habilitar o tier2, gere o jar **antes** de rodar
+`pnpm dev:tauri`:
+
+```powershell
+# Windows (PowerShell)
+winget install --id EclipseAdoptium.Temurin.21.JDK -e   # se ainda não tiver JDK 21
+java -version                                             # em um terminal novo, para o PATH atualizar
+cd services\jvm-sidecar
+.\gradlew.bat jar
+```
+
+```bash
+# Linux/macOS
+cd services/jvm-sidecar
+./bootstrap.sh   # só na primeira vez, gera o gradle wrapper
+./gradlew jar
+```
+
+O jar fica em `services/jvm-sidecar/build/libs/omni-sql-sidecar.jar` e é
+detectado automaticamente pelo Tauri no próximo `pnpm dev:tauri`. Rode
+`./gradlew jar` de novo sempre que mexer em `Main.kt`. Se o build falhar com
+`PKIX path building failed` (rede corporativa com SSL inspection), veja
+`services/jvm-sidecar/README.md#troubleshooting-ssl-ao-baixar-a-distribuição-do-gradle`.
+
 ## Instalação
 
 ```bash

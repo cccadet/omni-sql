@@ -69,6 +69,13 @@ export interface RunQueryParams {
 }
 export type RunQueryResult = QueryResult;
 
+export interface CancelQueryParams {
+  connectionId: string;
+}
+export interface CancelQueryResult {
+  cancelled: boolean;
+}
+
 export interface AnalyzeEditabilityParams {
   connectionId: string;
   sql: string;
@@ -164,6 +171,7 @@ export interface RpcRouter {
   "connection.test": (p: TestConnectionParams) => Promise<TestConnectionResult>;
   "connection.listSchemas": (p: ListSchemasParams) => Promise<ListSchemasResult>;
   "query.run": (p: RunQueryParams) => Promise<RunQueryResult>;
+  "query.cancel": (p: CancelQueryParams) => Promise<CancelQueryResult>;
   "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;
   "row.update": (p: UpdateRowParams) => Promise<UpdateRowResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;

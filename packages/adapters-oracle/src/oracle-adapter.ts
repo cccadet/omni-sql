@@ -1,4 +1,4 @@
-import oracledb, { type Pool } from "oracledb";
+import oracledb, { type Connection, type Pool } from "oracledb";
 import type {
   ConnectionConfig,
   ExplainResult,
@@ -36,6 +36,7 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
   private readonly user: string;
   private readonly password: string;
   private poolPromise: Promise<Pool> | null = null;
+  private runningConn: Connection | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -122,14 +123,21 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
     const pool = await this.getPool();
     const conn = await pool.getConnection();
+    this.runningConn = conn;
     try {
       return await runQueryViaConnection(conn, sql, limit);
     } catch (e) {
       await conn.rollback().catch(() => undefined);
       throw e;
     } finally {
+      this.runningConn = null;
       await conn.close();
     }
+  }
+
+  /** `.break()` interrompe a operação em andamento nesta conexão específica — o `catch`/rollback em `runQuery` cobre a limpeza da transação abortada. */
+  async cancelRunning(): Promise<void> {
+    await this.runningConn?.break();
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {

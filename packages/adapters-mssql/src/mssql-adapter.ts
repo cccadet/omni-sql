@@ -1,4 +1,4 @@
-import sql, { type ConnectionPool, type config as MssqlConfig } from "mssql";
+import sql, { type ConnectionPool, type Request, type config as MssqlConfig } from "mssql";
 import type {
   ConnectionConfig,
   ExplainResult,
@@ -33,6 +33,7 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
   private readonly poolConfig: MssqlConfig;
   private poolPromise: Promise<ConnectionPool> | null = null;
+  private runningRequest: Request | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -101,7 +102,18 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
   async runQuery(sqlText: string, limit: number): Promise<QueryResult> {
     const pool = await this.getPool();
-    return runQueryViaPool(pool, sqlText, limit);
+    try {
+      return await runQueryViaPool(pool, sqlText, limit, (request) => {
+        this.runningRequest = request;
+      });
+    } finally {
+      this.runningRequest = null;
+    }
+  }
+
+  /** `Request.cancel()` é suportado nativamente pelo driver `mssql` para abortar um request em andamento na mesma conexão. */
+  async cancelRunning(): Promise<void> {
+    this.runningRequest?.cancel();
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {

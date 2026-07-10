@@ -34,6 +34,8 @@ import type {
   ListSchemasResult,
   RunQueryParams,
   RunQueryResult,
+  CancelQueryParams,
+  CancelQueryResult,
   AnalyzeEditabilityParams,
   AnalyzeEditabilityResult,
   UpdateRowParams,
@@ -283,6 +285,13 @@ export const handlers: RpcRouter = {
     const s = requireSession(connectionId);
     await s.adapter.connect();
     return s.adapter.runQuery(sql, limit ?? 1000);
+  },
+
+  async "query.cancel"({ connectionId }: CancelQueryParams): Promise<CancelQueryResult> {
+    const s = requireSession(connectionId);
+    if (!s.adapter.cancelRunning) return { cancelled: false };
+    await s.adapter.cancelRunning();
+    return { cancelled: true };
   },
 
   async "query.analyzeEditability"({
