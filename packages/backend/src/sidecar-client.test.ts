@@ -21,7 +21,7 @@ test("sidecar-client: sql sem WITH nem tenta chamar o sidecar", async () => {
 
 test("sidecar-client: mapeia resposta do sidecar para Relation[]", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     assert.equal(String(input), "http://127.0.0.1:41921/scope/resolve");
     assert.equal(init?.method, "POST");
     assert.equal(JSON.parse(String(init?.body)).sql, "with b1 as (select 1 as x) select from b1");

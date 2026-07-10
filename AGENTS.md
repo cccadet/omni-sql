@@ -24,8 +24,7 @@ packages/ts-types                Modelo unificado + contratos
 packages/dialect-descriptors     Descritores por dialeto (lexer consome)
 packages/adapters-core           Interface Adapter + InMemoryAdapter
 packages/adapters-pg             Adaptador PostgreSQL real (driver `pg`)
-packages/adapters-mysql          Adaptador MySQL real (driver `mysql2/promise`)
-packages/adapters-mariadb        Adaptador MariaDB real (driver `mysql2/promise`)
+packages/adapters-mysql          Adaptador MySQL/MariaDB real (driver `mysql2/promise`)
 packages/adapters-mssql          Adaptador SQL Server real (driver `mssql`/Tedious)
 packages/adapters-oracle         Adaptador Oracle real (driver `oracledb` thin mode)
 packages/autocomplete-engine     Lexer tier1 + provider de autocomplete
@@ -39,7 +38,7 @@ services/jvm-sidecar             Kotlin/Gradle + Calcite: /health, /scope/resolv
 - **Lint:** `pnpm -r lint` (ESLint 9 flat config em `eslint.config.js`)
 - **Test:** `pnpm -r test` (Node `--test`, sem jest/vitest)
 - **Full verify:** `pnpm verify`  →  typecheck && lint && test
-- **Install:** `pnpm install`  (esbuild é aprovado em `pnpm-workspace.yaml#onlyBuiltDependencies`)
+- **Install:** `pnpm install`  (esbuild é aprovado em `pnpm-workspace.yaml#allowBuilds`)
 - **Frontend dev (Vite standalone):** `pnpm dev:frontend`  (\>porta 1420)
 - **Backend dev (HTTP JSON-RPC):** `pnpm dev:backend`  (\>porta 41920)
 - **Tauri dev (full desktop):** `pnpm dev:tauri`  (spawns backend + Vite together)

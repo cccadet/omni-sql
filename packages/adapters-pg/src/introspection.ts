@@ -10,7 +10,6 @@ import type {
   QueryResult,
   QueryResultColumn,
   Relation,
-  Schema,
 } from "@omni-sql/ts-types";
 import type { RowUpdateSpec } from "@omni-sql/adapters-core";
 import { postgresDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
@@ -448,11 +447,6 @@ function mapPgOidToDataType(oid: number): string {
     114: "json",
   };
   return map[oid] ?? `oid:${oid}`;
-}
-
-// Re-export Schema helpers used by adapter.
-export function emptySchemas(): Schema[] {
-  return [];
 }
 
 export type { Pool, PoolClient, ConnectionConfig };

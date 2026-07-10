@@ -33,21 +33,7 @@ export interface JsonRpcError {
 
 // ─────────────────────────── Methods (typed contracts)
 
-export type RpcMethod =
-  | "connection.add"
-  | "connection.list"
-  | "connection.remove"
-  | "connection.test"
-  | "connection.listSchemas"
-  | "query.run"
-  | "query.analyzeEditability"
-  | "row.update"
-  | "metadata.introspect"
-  | "metadata.listRelations"
-  | "metadata.listFunctions"
-  | "metadata.listIndexes"
-  | "metadata.getDefinition"
-  | "completion.get";
+export type RpcMethod = keyof RpcRouter;
 
 // ─────────────────────────── Params/Results
 

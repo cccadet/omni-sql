@@ -8,11 +8,10 @@ import {
   registerAdapter,
   resolveAdapter,
 } from "@omni-sql/adapters-core";
-import { PostgresAdapter, pgAdapterFactory } from "@omni-sql/adapters-pg";
-import { OracleAdapter, oracleAdapterFactory } from "@omni-sql/adapters-oracle";
-import { MysqlAdapter, mysqlAdapterFactory } from "@omni-sql/adapters-mysql";
-import { MariadbAdapter, mariadbAdapterFactory } from "@omni-sql/adapters-mariadb";
-import { MssqlAdapter, mssqlAdapterFactory } from "@omni-sql/adapters-mssql";
+import { PostgresAdapter } from "@omni-sql/adapters-pg";
+import { OracleAdapter } from "@omni-sql/adapters-oracle";
+import { MysqlAdapter } from "@omni-sql/adapters-mysql";
+import { MssqlAdapter } from "@omni-sql/adapters-mssql";
 import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
   autocompleteTier1,
@@ -84,40 +83,13 @@ const sessions = new Map<string, Session>();
 // Fase 0: tudo via in-memory; Fase 2 troca `postgres` por adaptador real,
 // Fase 4 adiciona `oracle` (demais dialetos seguem em-memory por ora).
 bootstrapDefaultRegistry();
-registerAdapter("postgres", pgAdapterFactory);
-registerAdapter("oracle", oracleAdapterFactory);
-registerAdapter("mysql", mysqlAdapterFactory);
-registerAdapter("mariadb", mariadbAdapterFactory);
-registerAdapter("sqlserver", mssqlAdapterFactory);
+registerAdapter("postgres", (config, password) => new PostgresAdapter(config, password));
+registerAdapter("oracle", (config, password) => new OracleAdapter(config, password));
+registerAdapter("mysql", (config, password) => new MysqlAdapter(config, password));
+registerAdapter("mariadb", (config, password) => new MysqlAdapter(config, password));
+registerAdapter("sqlserver", (config, password) => new MssqlAdapter(config, password));
 
 // ─────────────────────────── Adapter construction
-
-function createAdapter(config: ConnectionConfig, password?: string): Adapter {
-  if (config.dialect === "postgres") {
-    return new PostgresAdapter(config, password);
-  }
-  if (config.dialect === "oracle") {
-    return new OracleAdapter(config, password);
-  }
-  if (config.dialect === "mysql") {
-    return new MysqlAdapter(config, password);
-  }
-  if (config.dialect === "mariadb") {
-    return new MariadbAdapter(config, password);
-  }
-  if (config.dialect === "sqlserver") {
-    return new MssqlAdapter(config, password);
-  }
-  return resolveAdapter(config);
-}
-
-async function buildSession(
-  config: ConnectionConfig,
-  password?: string,
-): Promise<Session> {
-  const adapter = createAdapter(config, password);
-  return { config, adapter };
-}
 
 // ─────────────────────────── Boot: restore persisted connections
 
@@ -128,11 +100,9 @@ async function restoreConnections(): Promise<void> {
       return undefined;
     });
     try {
-      const session = await buildSession(
-        { ...cfg, passwordSlot: passwordSlotFor(cfg) },
-        password,
-      );
-      sessions.set(cfg.id, session);
+      const configWithSlot = { ...cfg, passwordSlot: passwordSlotFor(cfg) };
+      const adapter = resolveAdapter(configWithSlot, password);
+      sessions.set(cfg.id, { config: configWithSlot, adapter });
       console.log(`[omni-sql] restored connection ${cfg.id} (${cfg.dialect})`);
     } catch (e) {
       console.warn(`[omni-sql] failed to restore ${cfg.id}: ${(e as Error).message}`);
@@ -163,11 +133,15 @@ function resolveRelationByName(
 ): Relation | null {
   const t = table.toLowerCase();
   const s = schema?.toLowerCase();
-  const all: Relation[] = [];
   for (const sch of cache.listSchemas(connectionId)) {
-    all.push(...cache.getTablesBySchema(connectionId, sch.name));
+    if (s != null && sch.name.toLowerCase() !== s) continue;
+    for (const r of cache.getTablesBySchema(connectionId, sch.name)) {
+      if (r.name.toLowerCase() === t && (s == null || r.schema.toLowerCase() === s)) {
+        return r;
+      }
+    }
   }
-  return all.find((r) => r.name.toLowerCase() === t && (s == null || r.schema.toLowerCase() === s)) ?? null;
+  return null;
 }
 
 // DDL construída a partir dos metadados já cacheados (colunas + PK/FK) — não
@@ -250,8 +224,8 @@ export const handlers: RpcRouter = {
     const previous = sessions.get(config.id);
     if (previous) await previous.adapter.close().catch(() => undefined);
 
-    const session = await buildSession(configWithSlot, effectivePassword);
-    sessions.set(config.id, session);
+    const adapter = resolveAdapter(configWithSlot, effectivePassword);
+    sessions.set(config.id, { config: configWithSlot, adapter });
     cache.upsertConnection(configWithSlot);
     return { connectionId: config.id, ok: true };
   },
@@ -284,7 +258,7 @@ export const handlers: RpcRouter = {
       password !== undefined && password.length > 0
         ? password
         : await getPassword(config).catch(() => undefined);
-    const adapter = createAdapter(config, effectivePassword);
+    const adapter = resolveAdapter(config, effectivePassword);
     try {
       const result = await adapter.test();
       await adapter.close().catch(() => undefined);
@@ -300,7 +274,7 @@ export const handlers: RpcRouter = {
       password !== undefined && password.length > 0
         ? password
         : await getPassword(config).catch(() => undefined);
-    const adapter = createAdapter(config, effectivePassword);
+    const adapter = resolveAdapter(config, effectivePassword);
     try {
       await adapter.connect();
       const schemas = await adapter.listAvailableSchemas();

@@ -62,9 +62,7 @@
   }
 
   function makeTabId(): string {
-    return typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
   function makeTab(partial?: Partial<PersistedTab>): QueryTab {

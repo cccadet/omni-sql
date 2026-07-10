@@ -2,13 +2,9 @@ packages:
   - "apps/*"
   - "packages/*"
 
-# pnpm v11+ settings live here. Permite scripts de build para deps que
-# precisam de pós-instalação (esbuild é usado por Vite/Svelte).
-onlyBuiltDependencies:
-  - esbuild
-  - "@sveltejs/vite-plugin-svelte"
-  - oracledb
+# pnpm v11+ usa allowBuilds (map true/false). Antes onlyBuiltDependencies,
+# removido no v11. Ver: https://pnpm.io/settings#allowbuilds
 allowBuilds:
-  better-sqlite3: set this to true or false
-  esbuild: set this to true or false
+  esbuild: true
+  "@sveltejs/vite-plugin-svelte": true
   oracledb: true
