@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
+import { registerAdapter } from "@omni-sql/adapters-core";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -12,6 +13,9 @@ import type {
   CompletionResult,
   AnalyzeEditabilityResult,
 } from "../src/protocol.ts";
+import { InMemoryAdapter } from "./in-memory-adapter.ts";
+
+registerAdapter("jdbc-generic", (config) => new InMemoryAdapter(config));
 
 // Isolate the SQLite cache and dev keyring to a tmp dir so tests don't pollute
 // $XDG_DATA_HOME. Must run BEFORE importing the backend module (which opens the

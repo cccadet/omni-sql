@@ -1,6 +1,5 @@
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import type { Adapter, AdapterFactory } from "./index.ts";
-import { InMemoryAdapter } from "./in-memory.ts";
 
 /**
  * Registro de fábricas por dialeto. Em Fase 2 adicionamos `pg` real; Fase 4
@@ -8,30 +7,14 @@ import { InMemoryAdapter } from "./in-memory.ts";
  */
 const factories = new Map<ConnectionConfig["dialect"], AdapterFactory>();
 
-/** Fase 0: InMemoryAdapter responde por dialetos não implementados como fallback. */
-function inMemoryFactory(config: ConnectionConfig): Adapter {
-  return new InMemoryAdapter(config);
-}
-
 export function registerAdapter(dialect: ConnectionConfig["dialect"], factory: AdapterFactory): void {
   factories.set(dialect, factory);
 }
 
 export function resolveAdapter(config: ConnectionConfig, password?: string): Adapter {
-  const factory = factories.get(config.dialect) ?? inMemoryFactory;
+  const factory = factories.get(config.dialect);
+  if (!factory) {
+    throw new Error(`adapter not registered for dialect: ${config.dialect}`);
+  }
   return factory(config, password);
 }
-
-// Bootstrap default registry — Fase 0 só tem in-memory; fases subsequentes
-// chamam registerAdapter("postgres", pgFactory) antes de resolveAdapter.
-export function bootstrapDefaultRegistry(): void {
-  for (const dialect of [
-    "postgres", "mysql", "mariadb", "sqlserver", "oracle", "jdbc-generic", "odbc",
-  ] as const) {
-    if (!factories.has(dialect)) {
-      registerAdapter(dialect, inMemoryFactory);
-    }
-  }
-}
-
-export { InMemoryAdapter };
