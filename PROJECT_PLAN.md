@@ -32,7 +32,7 @@ apps/desktop                    Tauri + Svelte + Monaco
 apps/desktop/src-tauri          Rust shell (spawns Node backend sidecar)
 packages/ts-types              Modelo unificado + contratos
 packages/dialect-descriptors   Descritores por dialeto (consumidos pelo lexer)
-packages/adapters-core         Interface Adapter + InMemoryAdapter
+packages/adapters-core         Interface Adapter + registry
 packages/adapters-pg           Adaptador PostgreSQL real (driver `pg`): information_schema + pg_catalog, pool, server-side cursor, EXPLAIN JSON
 packages/metadata-cache        Cache SQLite (`node:sqlite` builtin) + last_synced_at por entidade
 packages/autocomplete-engine   Lexer tier1 + provider de autocomplete
@@ -45,7 +45,7 @@ packages/adapters-oracle       Adaptador Oracle real (driver `oracledb` thin mod
 
 ## Fases
 - **F0 Fundação ✅:** monorepo, Tauri shell mínimo, Monaco + results grid mínimo,
-  Adapter interface, smoke test E2E via JSON-RPC (InMemoryAdapter), spike JVM
+  Adapter interface, smoke test E2E via JSON-RPC (InMemoryAdapter em test-only), spike JVM
   sidecar Kotlin, CI GitHub Actions.
 - **F1 Modelo + cache ✅:** `packages/ts-types` (modelo unificado) + `packages/metadata-cache`
   (SQLite via `node:sqlite`, `last_synced_at` por entidade, APIs em memória <2ms).

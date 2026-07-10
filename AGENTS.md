@@ -22,7 +22,7 @@ apps/desktop                Tauri shell + Svelte + Monaco
 apps/desktop/src-tauri      Rust shell (spawns Node backend sidecar)
 packages/ts-types                Modelo unificado + contratos
 packages/dialect-descriptors     Descritores por dialeto (lexer consome)
-packages/adapters-core           Interface Adapter + InMemoryAdapter
+packages/adapters-core           Interface Adapter + registry
 packages/adapters-pg             Adaptador PostgreSQL real (driver `pg`)
 packages/adapters-mysql          Adaptador MySQL/MariaDB real (driver `mysql2/promise`)
 packages/adapters-mssql          Adaptador SQL Server real (driver `mssql`/Tedious)
