@@ -30,3 +30,5 @@ services/jvm-sidecar/out
 # OS
 .DS_Store
 Thumbs.db
+.claude/.headroom_wrap_marker.json
+.tokensave/

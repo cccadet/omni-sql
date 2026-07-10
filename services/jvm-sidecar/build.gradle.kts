@@ -25,6 +25,10 @@ dependencies {
     // aspas, unicode etc.).
     implementation("org.json:json:20240303")
     testImplementation(kotlin("test"))
+    // Só de teste: driver JDBC real e embutido pra validar carregamento
+    // dinâmico de jar (JdbcConnectionManagerTest) sem precisar de um banco
+    // externo nem de um jar fixture no repo.
+    testImplementation("com.h2database:h2:2.2.224")
 }
 
 application {

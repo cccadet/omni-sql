@@ -15,7 +15,10 @@ import type {
 } from "../src/protocol.ts";
 import { InMemoryAdapter } from "./in-memory-adapter.ts";
 
-registerAdapter("jdbc-generic", (config) => new InMemoryAdapter(config));
+// "odbc" ainda não tem adaptador de produção registrado (Fase 7) — livre pra
+// smoke usar como dialeto sintético. "jdbc-generic" agora é um adaptador real
+// (ver @omni-sql/adapters-jdbc), não serve mais de placeholder aqui.
+registerAdapter("odbc", (config) => new InMemoryAdapter(config));
 
 // Isolate the SQLite cache and dev keyring to a tmp dir so tests don't pollute
 // $XDG_DATA_HOME. Must run BEFORE importing the backend module (which opens the
@@ -42,14 +45,14 @@ async function rpc<P>(method: string, params?: P, url = DEFAULT_URL): Promise<Js
 test("smoke: add connection → introspect → list relations → run query → completion", async () => {
   const server = startServer(TEST_PORT);
   try {
-// 1. add connection. Dialeto `jdbc-generic` resolve para InMemoryAdapter
+// 1. add connection. Dialeto `odbc` resolve para InMemoryAdapter
     // no registry default — assim smoke cobre pipeline JSON-RPC completo sem
     // exigir Postgres local. Para testar PG real, veja adapters-pg.
     const add = await rpc("connection.add", {
       config: {
         id: "smoke",
         label: "Smoke",
-        dialect: "jdbc-generic",
+        dialect: "odbc",
         endpoint: "memory://local",
         user: "anon",
       },
@@ -97,7 +100,7 @@ test("smoke: add connection → introspect → list relations → run query → 
       config: {
         id: "smoke-test",
         label: "Smoke Test",
-        dialect: "jdbc-generic",
+        dialect: "odbc",
         endpoint: "memory://local",
         user: "anon",
       },
@@ -128,7 +131,7 @@ test("row editability: query.analyzeEditability resolves real PK, row.update val
       config: {
         id: "edit-demo",
         label: "Edit Demo",
-        dialect: "jdbc-generic",
+        dialect: "odbc",
         endpoint: "memory://local",
         user: "anon",
       },
@@ -245,7 +248,7 @@ test("persistence: connections survive server restart", async () => {
         config: {
           id: "persisted",
           label: "Persisted",
-          dialect: "jdbc-generic",
+          dialect: "odbc",
           endpoint: "memory://local",
           user: "anon",
         },
