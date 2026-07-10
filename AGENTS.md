@@ -38,7 +38,7 @@ services/jvm-sidecar             Kotlin/Gradle + Calcite: /health, /scope/resolv
 - **Lint:** `pnpm -r lint` (ESLint 9 flat config em `eslint.config.js`)
 - **Test:** `pnpm -r test` (Node `--test`, sem jest/vitest)
 - **Full verify:** `pnpm verify`  →  typecheck && lint && test
-- **Install:** `pnpm install`  (esbuild é aprovado em `pnpm-workspace.yaml#onlyBuiltDependencies`)
+- **Install:** `pnpm install`  (esbuild é aprovado em `pnpm-workspace.yaml#allowBuilds`)
 - **Frontend dev (Vite standalone):** `pnpm dev:frontend`  (\>porta 1420)
 - **Backend dev (HTTP JSON-RPC):** `pnpm dev:backend`  (\>porta 41920)
 - **Tauri dev (full desktop):** `pnpm dev:tauri`  (spawns backend + Vite together)
