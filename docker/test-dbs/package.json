@@ -1,0 +1,23 @@
+{
+  "name": "@omni-sql/test-dbs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "docker compose up -d",
+    "stop": "docker compose down -v",
+    "restart": "docker compose down -v && docker compose up -d",
+    "test": "node --test --import ./smoke-test.ts",
+    "test:pg": "node --test --import ./smoke-test.ts -- pg",
+    "test:mysql": "node --test --import ./smoke-test.ts -- mysql",
+    "test:mssql": "node --test --import ./smoke-test.ts -- mssql",
+    "test:oracle": "node --test --import ./smoke-test.ts -- oracle"
+  },
+  "dependencies": {
+    "@omni-sql/adapters-core": "workspace:*",
+    "@omni-sql/adapters-pg": "workspace:*",
+    "@omni-sql/adapters-mysql": "workspace:*",
+    "@omni-sql/adapters-mssql": "workspace:*",
+    "@omni-sql/adapters-oracle": "workspace:*",
+    "@omni-sql/ts-types": "workspace:*"
+  }
+}
