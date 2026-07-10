@@ -43,6 +43,12 @@ export interface Adapter {
 
   /** Execução de query para results grid. Delegates ao pool do adaptador. */
   runQuery(sql: string, limit: number): Promise<QueryResult>;
+  /**
+   * Cancela a query em andamento iniciada pela última chamada a `runQuery`,
+   * se houver. Best-effort: sem query rodando, é um no-op. Mecanismo é
+   * específico por dialeto (ex.: `pg_cancel_backend`, `KILL QUERY`, `.break()`).
+   */
+  cancelRunning?(): Promise<void>;
   /** Plano de execução (textual em Fase 5, visual em Fase 9). */
   explain(sql: string): Promise<ExplainResult>;
 
