@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class JdbcConnectionManagerTest {
     // H2 é dependência só de teste (não vira parte do jar do sidecar) — usamos
@@ -54,6 +55,60 @@ class JdbcConnectionManagerTest {
 
             assertEquals(listOf(listOf(1), listOf(2)), result.rows)
             assertEquals(true, result.rowsMoreAvailable)
+        } finally {
+            JdbcConnectionManager.close(connectionId)
+        }
+    }
+
+    @Test
+    fun `introspect discovers schema, table and columns via DatabaseMetaData`() {
+        val connectionId = "test-${System.nanoTime()}"
+        JdbcConnectionManager.connect(
+            connectionId = connectionId,
+            jarPath = h2JarPath,
+            driverClassName = "org.h2.Driver",
+            jdbcUrl = "jdbc:h2:mem:$connectionId;DB_CLOSE_DELAY=-1",
+            user = "sa",
+            password = "",
+        )
+        try {
+            JdbcConnectionManager.query(
+                connectionId,
+                "create table customer (cust_num int primary key, name varchar(50) not null)",
+                100,
+            )
+
+            // H2 também expõe INFORMATION_SCHEMA (às vezes mais de um schema de sistema,
+            // depende da versão) — só o PUBLIC (schema do usuário) interessa aqui.
+            assertTrue("PUBLIC" in JdbcConnectionManager.schemaNames(connectionId))
+
+            val schemas = JdbcConnectionManager.introspect(connectionId, schemaFilter = listOf("PUBLIC"))
+            assertEquals(listOf("PUBLIC"), schemas.map { it.name })
+            val table = schemas.single().tables.single { it.name == "CUSTOMER" }
+            assertEquals("table", table.kind)
+            val columnsByName = table.columns.associateBy { it.name }
+            assertEquals(true, columnsByName.getValue("CUST_NUM").isPrimaryKey)
+            assertEquals(false, columnsByName.getValue("NAME").isPrimaryKey)
+            assertEquals(false, columnsByName.getValue("NAME").nullable)
+        } finally {
+            JdbcConnectionManager.close(connectionId)
+        }
+    }
+
+    @Test
+    fun `introspect filters schemas via schemaFilter`() {
+        val connectionId = "test-${System.nanoTime()}"
+        JdbcConnectionManager.connect(
+            connectionId = connectionId,
+            jarPath = h2JarPath,
+            driverClassName = "org.h2.Driver",
+            jdbcUrl = "jdbc:h2:mem:$connectionId;DB_CLOSE_DELAY=-1",
+            user = "sa",
+            password = "",
+        )
+        try {
+            val schemas = JdbcConnectionManager.introspect(connectionId, schemaFilter = listOf("no-such-schema"))
+            assertEquals(emptyList(), schemas)
         } finally {
             JdbcConnectionManager.close(connectionId)
         }
