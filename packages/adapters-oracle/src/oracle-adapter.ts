@@ -1,16 +1,15 @@
 import oracledb, { type Pool } from "oracledb";
 import type {
   ConnectionConfig,
-  Database,
   ExplainResult,
   FunctionDef,
   IndexInfo,
   QueryResult,
   Relation,
-  Schema,
 } from "@omni-sql/ts-types";
 import { oracleDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaConnection,
   introspectSchemas,
@@ -30,25 +29,19 @@ import {
  *
  * O motor de autocomplete nunca viu isto — só consome a interface `Adapter`.
  */
-export class OracleAdapter implements Adapter {
-  readonly id: string;
+export class OracleAdapter extends CachedAdapter implements Adapter {
   readonly dialect = "oracle" as const;
 
   private readonly connectString: string;
   private readonly user: string;
   private readonly password: string;
   private poolPromise: Promise<Pool> | null = null;
-  private schemasCache: Schema[] = [];
-  private relationsBySchema = new Map<string, Relation[]>();
-  private functionsBySchema = new Map<string, FunctionDef[]>();
-  private readonly schemaFilter?: readonly string[];
 
   constructor(config: ConnectionConfig, password?: string) {
-    this.id = config.id;
+    super(config);
     this.connectString = config.endpoint;
     this.user = config.user;
     this.password = password ?? "";
-    this.schemaFilter = config.schemas;
   }
 
   private getPool(): Promise<Pool> {
@@ -92,29 +85,6 @@ export class OracleAdapter implements Adapter {
     }
   }
 
-  async introspect(): Promise<Database> {
-    const pool = await this.getPool();
-    const conn = await pool.getConnection();
-    try {
-      const schemas = await introspectSchemas(conn, this.schemaFilter);
-      this.schemasCache = schemas.map(([, name]) => ({ database: "oracle", name }));
-      this.relationsBySchema.clear();
-      this.functionsBySchema.clear();
-      for (const [, schemaName, rels] of schemas) {
-        this.relationsBySchema.set(schemaName, [...rels]);
-        const fns = await listFunctionsPerSchema(conn, schemaName);
-        this.functionsBySchema.set(schemaName, fns);
-      }
-      return {
-        connectionId: this.id,
-        name: "oracle",
-        schemas: this.schemasCache,
-      };
-    } finally {
-      await conn.close();
-    }
-  }
-
   async listAvailableSchemas(): Promise<readonly string[]> {
     const pool = await this.getPool();
     const conn = await pool.getConnection();
@@ -125,20 +95,28 @@ export class OracleAdapter implements Adapter {
     }
   }
 
-  listSchemas(): readonly Schema[] {
-    return this.schemasCache;
+  protected databaseName(): string {
+    return "oracle";
   }
-  listTables(schema: string): readonly Relation[] {
-    return this.relationsBySchema.get(schema) ?? [];
+
+  protected async introspectSchemas(): Promise<readonly (readonly [unknown, string, readonly Relation[]])[]> {
+    const pool = await this.getPool();
+    const conn = await pool.getConnection();
+    try {
+      return await introspectSchemas(conn, this.schemaFilter);
+    } finally {
+      await conn.close();
+    }
   }
-  listColumns(schema: string, table: string): Relation["columns"] {
-    const rels = this.relationsBySchema.get(schema);
-    if (!rels) return [];
-    const rel = rels.find((r) => r.name === table);
-    return rel ? rel.columns : [];
-  }
-  listFunctions(schema: string): readonly FunctionDef[] {
-    return this.functionsBySchema.get(schema) ?? [];
+
+  protected async listFunctionsForSchema(schema: string): Promise<readonly FunctionDef[]> {
+    const pool = await this.getPool();
+    const conn = await pool.getConnection();
+    try {
+      return await listFunctionsPerSchema(conn, schema);
+    } finally {
+      await conn.close();
+    }
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
@@ -213,4 +191,3 @@ export class OracleAdapter implements Adapter {
     return oracleDescriptor;
   }
 }
-

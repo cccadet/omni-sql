@@ -3,11 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import type { ConnectionConfig, Relation, Database, FunctionDef } from "@omni-sql/ts-types";
 import type { Adapter } from "@omni-sql/adapters-core";
-import {
-  bootstrapDefaultRegistry,
-  registerAdapter,
-  resolveAdapter,
-} from "@omni-sql/adapters-core";
+import { registerAdapter, resolveAdapter } from "@omni-sql/adapters-core";
 import { PostgresAdapter } from "@omni-sql/adapters-pg";
 import { OracleAdapter } from "@omni-sql/adapters-oracle";
 import { MysqlAdapter } from "@omni-sql/adapters-mysql";
@@ -80,9 +76,8 @@ const sessions = new Map<string, Session>();
 
 // ─────────────────────────── Registry bootstrap
 
-// Fase 0: tudo via in-memory; Fase 2 troca `postgres` por adaptador real,
-// Fase 4 adiciona `oracle` (demais dialetos seguem em-memory por ora).
-bootstrapDefaultRegistry();
+// Registro dos adaptadores reais suportados. Dialeto não registrado lança
+// erro em resolveAdapter (não há mais fallback in-memory em produção).
 registerAdapter("postgres", (config, password) => new PostgresAdapter(config, password));
 registerAdapter("oracle", (config, password) => new OracleAdapter(config, password));
 registerAdapter("mysql", (config, password) => new MysqlAdapter(config, password));
