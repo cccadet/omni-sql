@@ -17,6 +17,9 @@
   "dependencies": {
     "@napi-rs/keyring": "^1.3.0",
     "@omni-sql/adapters-core": "workspace:*",
+    "@omni-sql/adapters-mariadb": "workspace:*",
+    "@omni-sql/adapters-mssql": "workspace:*",
+    "@omni-sql/adapters-mysql": "workspace:*",
     "@omni-sql/adapters-oracle": "workspace:*",
     "@omni-sql/adapters-pg": "workspace:*",
     "@omni-sql/autocomplete-engine": "workspace:*",

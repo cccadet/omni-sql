@@ -9,7 +9,11 @@ autocomplete (no LLM in v1). See `PROJECT_PLAN.md` for the full roadmap.
 - **Backend:** Node (TypeScript) — HTTP JSON-RPC — `packages/backend`
 - **Parser/Validator (Fase 3):** JVM sidecar (Kotlin) com Apache Calcite — colunas de CTE via `/scope/resolve` ✅; `CalciteSchemaAdapter` com schema/tipos reais TODO
 - **Cache:** SQLite embutido (`node:sqlite` builtin, Node 22+) — `packages/metadata-cache`
-- **Oracle:** thin mode por default (sem instant client) — TODO Fase 4
+- **Oracle:** thin mode por default (sem instant client) — real desde Fase 4
+- **MySQL/MariaDB:** driver `mysql2/promise` compartilhado (protocolo de fio
+  compatível) — Fase 4
+- **SQL Server:** driver `mssql`/Tedious, `SET SHOWPLAN_XML` numa transaction
+  própria no lugar de `EXPLAIN` — Fase 4
 - **MongoDB:** deferido para v2
 
 ## Monorepo (pnpm workspaces)
@@ -20,6 +24,10 @@ packages/ts-types                Modelo unificado + contratos
 packages/dialect-descriptors     Descritores por dialeto (lexer consome)
 packages/adapters-core           Interface Adapter + InMemoryAdapter
 packages/adapters-pg             Adaptador PostgreSQL real (driver `pg`)
+packages/adapters-mysql          Adaptador MySQL real (driver `mysql2/promise`)
+packages/adapters-mariadb        Adaptador MariaDB real (driver `mysql2/promise`)
+packages/adapters-mssql          Adaptador SQL Server real (driver `mssql`/Tedious)
+packages/adapters-oracle         Adaptador Oracle real (driver `oracledb` thin mode)
 packages/autocomplete-engine     Lexer tier1 + provider de autocomplete
 packages/metadata-cache          Cache SQLite (`node:sqlite` builtin) + last_synced_at
 packages/backend                 Node HTTP JSON-RPC (handlers + protocol)

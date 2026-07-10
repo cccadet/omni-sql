@@ -10,13 +10,46 @@
   }
   let { open, editing = null, onClose, onSaved }: Props = $props();
 
-  type Mode = "postgres" | "oracle" | "demo";
+  type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "demo";
 
+  const DEFAULT_PORTS: Record<Exclude<Mode, "demo">, string> = {
+    postgres: "5432",
+    oracle: "1521",
+    mysql: "3306",
+    mariadb: "3306",
+    sqlserver: "1433",
+  };
+  const DEFAULT_DATABASES: Record<Exclude<Mode, "demo">, string> = {
+    postgres: "postgres",
+    oracle: "orcl",
+    mysql: "app",
+    mariadb: "app",
+    sqlserver: "master",
+  };
+  const DEFAULT_USERS: Record<Exclude<Mode, "demo">, string> = {
+    postgres: "postgres",
+    oracle: "system",
+    mysql: "root",
+    mariadb: "root",
+    sqlserver: "sa",
+  };
+
+  const KNOWN_DIALECTS = new Set<Mode>(["postgres", "oracle", "mysql", "mariadb", "sqlserver"]);
+
+  function isRealDialect(m: Mode): m is Exclude<Mode, "demo"> {
+    return m !== "demo";
+  }
+  function isKnownDialect(d: string): d is Exclude<Mode, "demo"> {
+    return KNOWN_DIALECTS.has(d as Mode);
+  }
   function defaultPortFor(m: Mode): string {
-    return m === "oracle" ? "1521" : "5432";
+    return isRealDialect(m) ? DEFAULT_PORTS[m] : "5432";
   }
   function defaultDatabaseFor(m: Mode): string {
-    return m === "oracle" ? "orcl" : "postgres";
+    return isRealDialect(m) ? DEFAULT_DATABASES[m] : "postgres";
+  }
+  function defaultUserFor(m: Mode): string {
+    return isRealDialect(m) ? DEFAULT_USERS[m] : "postgres";
   }
 
   let mode = $state<Mode>("postgres");
@@ -38,7 +71,7 @@
   $effect(() => {
     if (open) {
       const editingDialect = editing?.dialect;
-      const isKnown = editingDialect === "postgres" || editingDialect === "oracle";
+      const isKnown = editingDialect !== undefined && isKnownDialect(editingDialect);
       mode = isKnown ? editingDialect : "demo";
       label = editing?.label ?? "";
       id = editing?.id ?? "";
@@ -76,14 +109,18 @@
     return { host: h ?? "", port: p ?? defaultPort, database: db ?? "postgres" };
   }
 
+  const ALL_MODES: Mode[] = ["postgres", "oracle", "mysql", "mariadb", "sqlserver"];
+
   function onModeChange(e: Event): void {
     const next = (e.currentTarget as HTMLSelectElement).value as Mode;
-    const isDefaultPort = port === "" || port === defaultPortFor("postgres") || port === defaultPortFor("oracle");
-    const isDefaultDatabase = database === "" || database === defaultDatabaseFor("postgres") || database === defaultDatabaseFor("oracle");
+    const isDefaultPort = port === "" || ALL_MODES.some((m) => port === defaultPortFor(m));
+    const isDefaultDatabase = database === "" || ALL_MODES.some((m) => database === defaultDatabaseFor(m));
+    const isDefaultUser = user === "" || ALL_MODES.some((m) => user === defaultUserFor(m));
     mode = next;
     if (next === "demo") return;
     if (isDefaultPort) port = defaultPortFor(next);
     if (isDefaultDatabase) database = defaultDatabaseFor(next);
+    if (isDefaultUser) user = defaultUserFor(next);
   }
 
   function buildEndpoint(): string {
@@ -207,6 +244,9 @@
         <span>Tipo</span>
         <select value={mode} onchange={onModeChange} disabled={busy}>
           <option value="postgres">PostgreSQL</option>
+          <option value="mysql">MySQL</option>
+          <option value="mariadb">MariaDB</option>
+          <option value="sqlserver">SQL Server</option>
           <option value="oracle">Oracle</option>
           <option value="demo">Demo (in-memory)</option>
         </select>
@@ -217,7 +257,7 @@
         <input type="text" bind:value={label} placeholder="Minha conexão" disabled={busy} required />
       </label>
 
-      {#if mode === "postgres" || mode === "oracle"}
+      {#if isRealDialect(mode)}
         <div class="row">
           <label class="grow">
             <span>Host</span>
@@ -236,7 +276,7 @@
 
         <label>
           <span>Usuário</span>
-          <input type="text" bind:value={user} placeholder={mode === "oracle" ? "system" : "postgres"} disabled={busy} required />
+          <input type="text" bind:value={user} placeholder={defaultUserFor(mode)} disabled={busy} required />
         </label>
 
         <label>
@@ -293,14 +333,14 @@
       {/if}
 
       <div class="actions">
-        {#if mode === "postgres" || mode === "oracle"}
+        {#if isRealDialect(mode)}
           <button type="button" onclick={onTest} disabled={busy || !host || !user}>
             {busy ? "Testando…" : "Testar conexão"}
           </button>
         {/if}
         <div class="spacer"></div>
         <button type="button" class="secondary" onclick={onClose} disabled={busy}>Cancelar</button>
-        <button type="submit" disabled={busy || ((mode === "postgres" || mode === "oracle") && (!host || !user))}>
+        <button type="submit" disabled={busy || (isRealDialect(mode) && (!host || !user))}>
           {busy ? "Salvando…" : "Salvar"}
         </button>
       </div>

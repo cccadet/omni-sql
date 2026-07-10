@@ -128,6 +128,7 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         send(res, 200, errorResponse(rpc.id, -32601, e.message));
         return;
       }
+      console.error(`[omni-sql] ${rpc.method} failed:`, e);
       send(res, 200, errorResponse(rpc.id, -32000, (e as Error).message, (e as Error).stack));
     }
   });

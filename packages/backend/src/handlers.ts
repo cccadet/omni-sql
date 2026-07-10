@@ -10,6 +10,9 @@ import {
 } from "@omni-sql/adapters-core";
 import { PostgresAdapter, pgAdapterFactory } from "@omni-sql/adapters-pg";
 import { OracleAdapter, oracleAdapterFactory } from "@omni-sql/adapters-oracle";
+import { MysqlAdapter, mysqlAdapterFactory } from "@omni-sql/adapters-mysql";
+import { MariadbAdapter, mariadbAdapterFactory } from "@omni-sql/adapters-mariadb";
+import { MssqlAdapter, mssqlAdapterFactory } from "@omni-sql/adapters-mssql";
 import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
   autocompleteTier1,
@@ -83,6 +86,9 @@ const sessions = new Map<string, Session>();
 bootstrapDefaultRegistry();
 registerAdapter("postgres", pgAdapterFactory);
 registerAdapter("oracle", oracleAdapterFactory);
+registerAdapter("mysql", mysqlAdapterFactory);
+registerAdapter("mariadb", mariadbAdapterFactory);
+registerAdapter("sqlserver", mssqlAdapterFactory);
 
 // ─────────────────────────── Adapter construction
 
@@ -92,6 +98,15 @@ function createAdapter(config: ConnectionConfig, password?: string): Adapter {
   }
   if (config.dialect === "oracle") {
     return new OracleAdapter(config, password);
+  }
+  if (config.dialect === "mysql") {
+    return new MysqlAdapter(config, password);
+  }
+  if (config.dialect === "mariadb") {
+    return new MariadbAdapter(config, password);
+  }
+  if (config.dialect === "sqlserver") {
+    return new MssqlAdapter(config, password);
   }
   return resolveAdapter(config);
 }

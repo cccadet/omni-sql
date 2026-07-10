@@ -38,11 +38,10 @@ packages/metadata-cache        Cache SQLite (`node:sqlite` builtin) + last_synce
 packages/autocomplete-engine   Lexer tier1 + provider de autocomplete
 packages/backend               Node HTTP JSON-RPC (handlers + protocol + Adapter registry)
 services/jvm-sidecar           Kotlin/Gradle + Calcite: /health, /scope/resolve (colunas de CTE) — porta 41921
-# Fases subsequentes:
-packages/adapters-mysql        (Fase 4)
-packages/adapters-mariadb      (Fase 4)
-packages/adapters-mssql        (Fase 4)
-packages/adapters-oracle       (Fase 4)
+packages/adapters-mysql        Adaptador MySQL real (driver `mysql2/promise`): information_schema, EXPLAIN FORMAT=JSON
+packages/adapters-mariadb      Adaptador MariaDB real (mesmo driver `mysql2`, protocolo de fio compatível)
+packages/adapters-mssql        Adaptador SQL Server real (driver `mssql`/Tedious): INFORMATION_SCHEMA + sys.indexes, SHOWPLAN_XML
+packages/adapters-oracle       Adaptador Oracle real (driver `oracledb` thin mode): ALL_TAB_COLUMNS/ALL_CONSTRAINTS, EXPLAIN PLAN
 ```
 
 ## Fases
@@ -64,7 +63,19 @@ packages/adapters-oracle       (Fase 4)
   `packages/backend/src/sidecar-client.ts` chama o sidecar com timeout de
   250ms antes do tier1 síncrono; falha cai de volta pro tier1 puro.
   Subqueries correlacionadas (caso 8) seguem fora de escopo.
-- **F4 MySQL → MariaDB → SQL Server → Oracle.** Suíte 8/8 verde por banco.
+- **F4 MySQL → MariaDB → SQL Server → Oracle — adaptadores ✅, validação real ⏳:**
+  os quatro adaptadores existem completos (introspecção via `information_schema`/
+  dicionário de dados nativo, `runQuery`, `updateRow` parametrizado, `explain`,
+  `listIndexes`, `getDefinition`) e registrados em
+  `packages/backend/src/handlers.ts`. Ordem real de implementação não seguiu o
+  plano original (Oracle foi feito primeiro, fora de ordem; MySQL/MariaDB/SQL
+  Server vieram depois). MySQL/MariaDB reusam o driver `mysql2/promise`
+  (protocolo de fio compatível); SQL Server usa `mssql`/Tedious com
+  `SET SHOWPLAN_XML` isolado numa transaction própria (T-SQL não tem `EXPLAIN`).
+  Testes de smoke (construção + recusa de dial) verdes nos 4 pacotes; testes de
+  introspecção real ficam atrás de env vars (`MYSQL_TEST_CONNECTION_STRING` etc.)
+  e a suíte 8/8 do lexer contra instâncias reais via testcontainers ainda não
+  existe — isso segue como item de F9.
 - **F5 Funções com assinatura** (snippets Monaco, overloads separados) + `EXPLAIN` textual
   (`Adapter.explain` já retorna JSON; falta plugar Monaco e visual tree).
 - **F6 JDBC genérico no sidecar** (best-effort, featureFlags, classloader isolado).
@@ -89,7 +100,7 @@ packages/adapters-oracle       (Fase 4)
 2. ✅ Calcite — tolerant-vs-fragment do statement inteiro acabou não sendo necessário: o
    caso 7 (colunas de CTE) é resolvido parseando só o corpo de cada CTE isoladamente
    (ver `AGENTS.md`). Escopo aninhado (caso 8) continuaria precisando do spike original.
-3. ⏳ `oracledb` thin mode (validar em Fase 4).
+3. ✅ `oracledb` thin mode — `packages/adapters-oracle` real, sem instant client.
 
 ## Verificação pós-edição
 ```
