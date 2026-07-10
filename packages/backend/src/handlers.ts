@@ -8,6 +8,7 @@ import { PostgresAdapter } from "@omni-sql/adapters-pg";
 import { OracleAdapter } from "@omni-sql/adapters-oracle";
 import { MysqlAdapter } from "@omni-sql/adapters-mysql";
 import { MssqlAdapter } from "@omni-sql/adapters-mssql";
+import { JdbcAdapter } from "@omni-sql/adapters-jdbc";
 import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
   autocompleteTier1,
@@ -85,6 +86,7 @@ registerAdapter("oracle", (config, password) => new OracleAdapter(config, passwo
 registerAdapter("mysql", (config, password) => new MysqlAdapter(config, password));
 registerAdapter("mariadb", (config, password) => new MysqlAdapter(config, password));
 registerAdapter("sqlserver", (config, password) => new MssqlAdapter(config, password));
+registerAdapter("jdbc-generic", (config, password) => new JdbcAdapter(config, password));
 
 // ─────────────────────────── Adapter construction
 

@@ -6,7 +6,7 @@ import { InMemoryAdapter } from "./in-memory-adapter.ts";
 const cfg = (id: string): ConnectionConfig => ({
   id,
   label: "test",
-  dialect: "jdbc-generic",
+  dialect: "odbc",
   endpoint: "memory://local",
   user: "anon",
 });

@@ -17,6 +17,7 @@
   "dependencies": {
     "@napi-rs/keyring": "^1.3.0",
     "@omni-sql/adapters-core": "workspace:*",
+    "@omni-sql/adapters-jdbc": "workspace:*",
     "@omni-sql/adapters-mssql": "workspace:*",
     "@omni-sql/adapters-mysql": "workspace:*",
     "@omni-sql/adapters-oracle": "workspace:*",
