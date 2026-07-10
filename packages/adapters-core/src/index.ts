@@ -79,7 +79,7 @@ export interface TestResult {
 }
 
 /** Fábrica por dialeto. Backend resolve adaptador por `dialect`. */
-export type AdapterFactory = (config: ConnectionConfig) => Adapter;
+export type AdapterFactory = (config: ConnectionConfig, password?: string) => Adapter;
 
 export class AdapterError extends Error {
   readonly causeTag:

@@ -5,7 +5,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { MetadataCache } from "./index.ts";
 import type {
-  Column,
   ConnectionConfig,
   FunctionDef,
   Relation,

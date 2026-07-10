@@ -47,69 +47,34 @@ function slotOf(connectionId: string): string {
   return `connection:${connectionId}`;
 }
 
+async function withDevKeyring<T>(
+  path: string,
+  fn: (kr: DevKeyring) => T,
+): Promise<T> {
+  const kr = loadDevKeyring(path);
+  const result = fn(kr);
+  saveDevKeyring(path, kr);
+  return result;
+}
+
 // Lazy-loaded because @napi-rs/keyring may not be available in headless/test
 // environments and its import is a CommonJS module.
-type NativeEntry = new (service: string, slot: string) => {
+type NativeEntryCtor = new (service: string, slot: string) => {
   setPassword(password: string): Promise<void>;
   getPassword(): Promise<string | null>;
   deletePassword(): Promise<void>;
 };
 
-let nativeEntryCtor: NativeEntry | null = null;
+let nativeEntryCtor: NativeEntryCtor | null = null;
 
-async function getNativeEntry(
-  slot: string,
-): Promise<ReturnType<typeof makeKeyringEntry>> {
+async function getNativeEntryCtor(): Promise<NativeEntryCtor> {
   if (!nativeEntryCtor) {
     const pkg = (await import("@napi-rs/keyring")).default as unknown as {
-      Entry: new (service: string, slot: string) => {
-        setPassword(password: string): Promise<void>;
-        getPassword(): Promise<string | null>;
-        deletePassword(): Promise<void>;
-      };
+      Entry: NativeEntryCtor;
     };
     nativeEntryCtor = pkg.Entry;
   }
-  return makeKeyringEntry(new nativeEntryCtor(SERVICE, slot));
-}
-
-function makeKeyringEntry(entry: {
-  setPassword(password: string): Promise<void>;
-  getPassword(): Promise<string | null>;
-  deletePassword(): Promise<void>;
-}) {
-  return {
-    setPassword: (password: string) => entry.setPassword(password),
-    getPassword: async () => (await entry.getPassword()) ?? undefined,
-    deletePassword: () => entry.deletePassword(),
-  };
-}
-
-function makeDevEntry(path: string, slot: string) {
-  return {
-    setPassword: async (password: string) => {
-      const kr = loadDevKeyring(path);
-      kr.secrets[slot] = password;
-      saveDevKeyring(path, kr);
-    },
-    getPassword: async () => {
-      const kr = loadDevKeyring(path);
-      return kr.secrets[slot];
-    },
-    deletePassword: async () => {
-      const kr = loadDevKeyring(path);
-      delete kr.secrets[slot];
-      saveDevKeyring(path, kr);
-    },
-  };
-}
-
-async function openEntry(slot: string) {
-  const devPath = devKeyringPath();
-  if (devPath) {
-    return makeDevEntry(devPath, slot);
-  }
-  return getNativeEntry(slot);
+  return nativeEntryCtor;
 }
 
 /** Returns the keyring slot identifier for a connection config. */
@@ -122,7 +87,16 @@ export async function setPassword(
   config: Pick<ConnectionConfig, "id">,
   password: string,
 ): Promise<void> {
-  const entry = await openEntry(slotOf(config.id));
+  const slot = slotOf(config.id);
+  const devPath = devKeyringPath();
+  if (devPath) {
+    await withDevKeyring(devPath, (kr) => {
+      kr.secrets[slot] = password;
+    });
+    return;
+  }
+  const Entry = await getNativeEntryCtor();
+  const entry = new Entry(SERVICE, slot);
   await entry.setPassword(password);
 }
 
@@ -130,14 +104,29 @@ export async function setPassword(
 export async function getPassword(
   config: Pick<ConnectionConfig, "id">,
 ): Promise<string | undefined> {
-  const entry = await openEntry(slotOf(config.id));
-  return entry.getPassword();
+  const slot = slotOf(config.id);
+  const devPath = devKeyringPath();
+  if (devPath) {
+    return withDevKeyring(devPath, (kr) => kr.secrets[slot]);
+  }
+  const Entry = await getNativeEntryCtor();
+  const entry = new Entry(SERVICE, slot);
+  return (await entry.getPassword()) ?? undefined;
 }
 
 /** Deletes a password from the OS keyring (or dev fallback). */
 export async function deletePassword(
   config: Pick<ConnectionConfig, "id">,
 ): Promise<void> {
-  const entry = await openEntry(slotOf(config.id));
+  const slot = slotOf(config.id);
+  const devPath = devKeyringPath();
+  if (devPath) {
+    await withDevKeyring(devPath, (kr) => {
+      delete kr.secrets[slot];
+    });
+    return;
+  }
+  const Entry = await getNativeEntryCtor();
+  const entry = new Entry(SERVICE, slot);
   await entry.deletePassword();
 }

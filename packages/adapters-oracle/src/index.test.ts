@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OracleAdapter, oracleAdapterFactory } from "./index.ts";
+import { OracleAdapter } from "./index.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
 // Sem instância Oracle local: smoke só valida construção + recusa de dial.
@@ -28,8 +28,8 @@ test("OracleAdapter: constrói sem disparar conexão", () => {
   assert.deepEqual(a.listTables("BIDW"), []);
 });
 
-test("oracleAdapterFactory: produz instância Adapter", () => {
-  const a = oracleAdapterFactory(cfg());
+test("OracleAdapter: factory via construtor produz instância Adapter", () => {
+  const a = new OracleAdapter(cfg());
   assert.equal(a.dialect, "oracle");
 });
 

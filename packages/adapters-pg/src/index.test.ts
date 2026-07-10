@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PostgresAdapter, pgAdapterFactory } from "./index.ts";
+import { PostgresAdapter } from "./index.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
 // Sem docker/Postgres local: smoke só valida construção + dial refusal.
@@ -26,8 +26,8 @@ test("PostgresAdapter: constrói sem disparar conexão", () => {
   assert.deepEqual(a.listTables("public"), []);
 });
 
-test("pgAdapterFactory: produz instância Adapter", () => {
-  const a = pgAdapterFactory(cfg());
+test("PostgresAdapter: factory via construtor produz instância Adapter", () => {
+  const a = new PostgresAdapter(cfg());
   assert.equal(a.dialect, "postgres");
 });
 

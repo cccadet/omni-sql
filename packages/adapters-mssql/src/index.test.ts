@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MssqlAdapter, mssqlAdapterFactory } from "./index.ts";
+import { MssqlAdapter } from "./index.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
 // Sem docker/SQL Server local: smoke só valida construção + recusa de dial.
@@ -28,8 +28,8 @@ test("MssqlAdapter: constrói sem disparar conexão", () => {
   assert.deepEqual(a.listTables("dbo"), []);
 });
 
-test("mssqlAdapterFactory: produz instância Adapter", () => {
-  const a = mssqlAdapterFactory(cfg());
+test("MssqlAdapter: factory via construtor produz instância Adapter", () => {
+  const a = new MssqlAdapter(cfg());
   assert.equal(a.dialect, "sqlserver");
 });
 

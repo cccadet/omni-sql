@@ -267,7 +267,7 @@
                         class="expand"
                         title="Ver texto completo"
                         aria-label="Ver texto completo"
-                        onclick={() => openExpanded(result.columns[i].name, cell)}
+                        onclick={() => openExpanded(result.columns[i]?.name ?? "", cell)}
                       >⤢</button>
                     {:else}
                       {text}

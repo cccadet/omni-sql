@@ -354,19 +354,16 @@ export class MetadataCache {
     if (kind === "connection") return conn.lastSyncedAt;
     if (kind === "schema") return conn.schemas.get(name ?? "")?.lastSyncedAt;
     if (kind === "relation") {
-      const idx = (name ?? "").indexOf(".");
-      if (idx === -1) return undefined;
-      const schema = (name ?? "").slice(0, idx);
-      const table = (name ?? "").slice(idx + 1);
-      const rel = conn.schemas.get(schema)?.relations.get(table);
+      const [schema, ...rest] = (name ?? "").split(".");
+      if (!schema || rest.length === 0) return undefined;
+      const rel = conn.schemas.get(schema)?.relations.get(rest.join("."));
       return rel?.lastSyncedAt;
     }
     if (kind === "function") {
-      const idx = (name ?? "").indexOf(".");
-      if (idx === -1) return undefined;
-      const schema = (name ?? "").slice(0, idx);
-      const fn = (name ?? "").slice(idx + 1);
-      return conn.schemas.get(schema)?.functions.get(fn)?.lastSyncedAt;
+      const [schema, ...rest] = (name ?? "").split(".");
+      if (!schema || rest.length === 0) return undefined;
+      const fn = conn.schemas.get(schema)?.functions.get(rest.join("."));
+      return fn?.lastSyncedAt;
     }
     return undefined;
   }
