@@ -1,16 +1,15 @@
 import pg, { type Pool, type PoolClient } from "pg";
 import type {
   ConnectionConfig,
-  Database,
   ExplainResult,
   FunctionDef,
   IndexInfo,
   QueryResult,
   Relation,
-  Schema,
 } from "@omni-sql/ts-types";
 import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
   introspectSchemas,
@@ -29,22 +28,14 @@ import {
  * (`pg_proc`, `pg_namespace`, `pg_type`) para funções com overloads.
  *
  * O motor de autocomplete nunca viu isto — só consome a interface `Adapter`.
- * Em Fase 4 este pacote é o template para MySQL/MariaDB/SQLServer/Oracle.
  */
-export class PostgresAdapter implements Adapter {
-  readonly id: string;
+export class PostgresAdapter extends CachedAdapter implements Adapter {
   readonly dialect = "postgres" as const;
 
   private readonly pool: Pool;
-  private introspected: Database | null = null;
-  private schemasCache: Schema[] = [];
-  private relationsBySchema = new Map<string, Relation[]>();
-  private functionsBySchema = new Map<string, FunctionDef[]>();
-  private readonly schemaFilter?: readonly string[];
 
   constructor(config: ConnectionConfig, password?: string) {
-    this.id = config.id;
-    this.schemaFilter = config.schemas;
+    super(config);
     const conn = parseEndpoint(config.endpoint, config.user, password, config.options);
     this.pool = new pg.Pool({
       connectionString: conn.connectionString,
@@ -72,29 +63,6 @@ export class PostgresAdapter implements Adapter {
     }
   }
 
-  async introspect(): Promise<Database> {
-    const client = await this.pool.connect();
-    try {
-      const schemas = await introspectSchemas(client, this.schemaFilter);
-      this.schemasCache = schemas.map(([, name]) => ({ database: "postgres", name }));
-      this.relationsBySchema.clear();
-      this.functionsBySchema.clear();
-      for (const [, schemaName, rels] of schemas) {
-        this.relationsBySchema.set(schemaName, [...rels]);
-        const fns = await listFunctionsPerSchema(client, schemaName);
-        this.functionsBySchema.set(schemaName, fns);
-      }
-      this.introspected = {
-        connectionId: this.id,
-        name: "postgres",
-        schemas: this.schemasCache,
-      };
-      return this.introspected;
-    } finally {
-      client.release();
-    }
-  }
-
   async listAvailableSchemas(): Promise<readonly string[]> {
     const client = await this.pool.connect();
     try {
@@ -104,20 +72,26 @@ export class PostgresAdapter implements Adapter {
     }
   }
 
-  listSchemas(): readonly Schema[] {
-    return this.schemasCache;
+  protected databaseName(): string {
+    return "postgres";
   }
-  listTables(schema: string): readonly Relation[] {
-    return this.relationsBySchema.get(schema) ?? [];
+
+  protected async introspectSchemas(): Promise<readonly (readonly [unknown, string, readonly Relation[]])[]> {
+    const client = await this.pool.connect();
+    try {
+      return await introspectSchemas(client, this.schemaFilter);
+    } finally {
+      client.release();
+    }
   }
-  listColumns(schema: string, table: string): Relation["columns"] {
-    const rels = this.relationsBySchema.get(schema);
-    if (!rels) return [];
-    const rel = rels.find((r) => r.name === table);
-    return rel ? rel.columns : [];
-  }
-  listFunctions(schema: string): readonly FunctionDef[] {
-    return this.functionsBySchema.get(schema) ?? [];
+
+  protected async listFunctionsForSchema(schema: string): Promise<readonly FunctionDef[]> {
+    const client = await this.pool.connect();
+    try {
+      return await listFunctionsPerSchema(client, schema);
+    } finally {
+      client.release();
+    }
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {

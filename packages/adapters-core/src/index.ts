@@ -99,11 +99,8 @@ export class AdapterError extends Error {
   }
 }
 
-// Re-exports auxiliares para consumidores que precisem instanciar resultados
-// sintéticos (smoke tests, dev-shell) sem reimportar submódulos.
-export { InMemoryAdapter, type InMemorySchema } from "./in-memory.ts";
+export { CachedAdapter } from "./cached-adapter.ts";
 export {
-  bootstrapDefaultRegistry,
   registerAdapter,
   resolveAdapter,
 } from "./registry.ts";
