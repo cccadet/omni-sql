@@ -9,7 +9,7 @@ import type {
 import { jdbcGenericDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
-import { jdbcClose, jdbcConnect, jdbcQuery } from "./sidecar-client.ts";
+import { jdbcClose, jdbcConnect, jdbcIntrospect, jdbcListSchemas, jdbcQuery, type JdbcTableBody } from "./sidecar-client.ts";
 
 /**
  * Adaptador JDBC genérico (Fase 6). Não fala com o banco diretamente — o
@@ -22,11 +22,10 @@ import { jdbcClose, jdbcConnect, jdbcQuery } from "./sidecar-client.ts";
  * `config.endpoint` é a JDBC URL; `config.options.jarPath` e
  * `config.options.driverClassName` apontam o `.jar` e a classe `java.sql.Driver`.
  *
- * ponytail: introspecção de metadados (schemas/tabelas/colunas/funções) e
- * edição de célula ficam fora de escopo aqui — daria pra fazer via
- * `DatabaseMetaData` no sidecar (JDBC padrão, genérico entre drivers), mas é
- * trabalho novo ainda não pedido. O que já funciona: conectar, testar conexão
- * e rodar query livre (grade de resultados).
+ * Introspecção de schemas/tabelas/colunas usa `DatabaseMetaData` no sidecar
+ * (JDBC padrão, genérico entre drivers). ponytail: funções, índices, FKs e
+ * edição de célula ficam fora de escopo — `getFunctions`/`getImportedKeys`
+ * não são confiáveis entre drivers JDBC arbitrários.
  */
 export class JdbcAdapter extends CachedAdapter implements Adapter {
   readonly dialect = "jdbc-generic" as const;
@@ -83,7 +82,7 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
   }
 
   async listAvailableSchemas(): Promise<readonly string[]> {
-    return [];
+    return jdbcListSchemas(this.id);
   }
 
   protected databaseName(): string {
@@ -91,7 +90,8 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
   }
 
   protected async introspectSchemas(): Promise<readonly (readonly [unknown, string, readonly Relation[]])[]> {
-    return [];
+    const schemas = await jdbcIntrospect(this.id, this.schemaFilter);
+    return schemas.map((s, i) => [i, s.name, s.tables.map((t) => toRelation(s.name, t))] as const);
   }
 
   protected async listFunctionsForSchema(_schema: string): Promise<readonly FunctionDef[]> {
@@ -125,4 +125,21 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
   dialectDescriptor() {
     return jdbcGenericDescriptor;
   }
+}
+
+/** Sem `constraints`: FKs via `getImportedKeys` ficam fora de escopo (ver comentário de topo). */
+function toRelation(schema: string, table: JdbcTableBody): Relation {
+  return {
+    schema,
+    name: table.name,
+    kind: table.kind,
+    columns: table.columns.map((c) => ({
+      name: c.name,
+      dataType: c.dataType,
+      nullable: c.nullable,
+      isPrimaryKey: c.isPrimaryKey,
+      ordinalPosition: c.ordinalPosition,
+    })),
+    constraints: [],
+  };
 }
