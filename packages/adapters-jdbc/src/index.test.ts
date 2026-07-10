@@ -122,3 +122,57 @@ test("JdbcAdapter: explain/getDefinition/updateRow não são suportados", async 
   await assert.rejects(a.getDefinition("view", "s", "v"), /getDefinition não é suportado/);
   await assert.rejects(a.updateRow({ schema: null, table: "t", set: {}, where: {} }), /edição de célula não é suportada/);
 });
+
+test("JdbcAdapter: listAvailableSchemas repassa nomes do sidecar", async () => {
+  const restore = mockFetch((url) => {
+    assert.equal(url, "http://127.0.0.1:41921/jdbc/schemas");
+    return { ok: true, schemas: ["PUB", "sysprogress"] };
+  });
+  try {
+    const a = new JdbcAdapter(cfg());
+    assert.deepEqual(await a.listAvailableSchemas(), ["PUB", "sysprogress"]);
+  } finally {
+    restore();
+  }
+});
+
+test("JdbcAdapter: introspect() mapeia schemas/tabelas/colunas do sidecar pro shape de Database", async () => {
+  const restore = mockFetch((url) => {
+    assert.equal(url, "http://127.0.0.1:41921/jdbc/introspect");
+    return {
+      ok: true,
+      schemas: [
+        {
+          name: "PUB",
+          tables: [
+            {
+              name: "customer",
+              kind: "table",
+              columns: [
+                { name: "cust_num", dataType: "INTEGER", nullable: false, ordinalPosition: 1, isPrimaryKey: true },
+                { name: "name", dataType: "CHARACTER", nullable: true, ordinalPosition: 2, isPrimaryKey: false },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+  });
+  try {
+    const a = new JdbcAdapter(cfg());
+    const db = await a.introspect();
+    assert.deepEqual(db.schemas, [{ database: "jdbc-generic", name: "PUB" }]);
+    const tables = a.listTables("PUB");
+    assert.equal(tables.length, 1);
+    assert.equal(tables[0]?.name, "customer");
+    assert.equal(tables[0]?.kind, "table");
+    assert.deepEqual(tables[0]?.constraints, []);
+    assert.deepEqual(a.listColumns("PUB", "customer"), [
+      { name: "cust_num", dataType: "INTEGER", nullable: false, isPrimaryKey: true, ordinalPosition: 1 },
+      { name: "name", dataType: "CHARACTER", nullable: true, isPrimaryKey: false, ordinalPosition: 2 },
+    ]);
+    assert.deepEqual(a.listFunctions("PUB"), []);
+  } finally {
+    restore();
+  }
+});

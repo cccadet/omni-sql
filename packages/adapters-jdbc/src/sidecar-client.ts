@@ -19,6 +19,25 @@ interface JdbcQueryBody {
   readonly elapsedMs: number;
 }
 
+export interface JdbcColumnBody {
+  readonly name: string;
+  readonly dataType: string;
+  readonly nullable: boolean;
+  readonly ordinalPosition: number;
+  readonly isPrimaryKey: boolean;
+}
+
+export interface JdbcTableBody {
+  readonly name: string;
+  readonly kind: "table" | "view";
+  readonly columns: readonly JdbcColumnBody[];
+}
+
+export interface JdbcSchemaBody {
+  readonly name: string;
+  readonly tables: readonly JdbcTableBody[];
+}
+
 /**
  * Client HTTP fino pros endpoints `/jdbc/*` do sidecar JVM (ver
  * `services/jvm-sidecar/.../jdbc/JdbcConnectionManager.kt`) — ao contrário de
@@ -63,4 +82,19 @@ export async function jdbcQuery(connectionId: string, sql: string, limit: number
     rowsMoreAvailable: body.rowsMoreAvailable,
     elapsedMs: body.elapsedMs,
   };
+}
+
+export async function jdbcListSchemas(connectionId: string): Promise<readonly string[]> {
+  const body = (await callSidecar("/jdbc/schemas", { connectionId })) as unknown as { schemas: readonly string[] };
+  return body.schemas;
+}
+
+export async function jdbcIntrospect(
+  connectionId: string,
+  schemaFilter?: readonly string[],
+): Promise<readonly JdbcSchemaBody[]> {
+  const body = (await callSidecar("/jdbc/introspect", { connectionId, schemaFilter })) as unknown as {
+    schemas: readonly JdbcSchemaBody[];
+  };
+  return body.schemas;
 }

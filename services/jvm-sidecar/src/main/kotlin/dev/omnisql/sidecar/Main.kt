@@ -176,6 +176,44 @@ fun main() {
         }
     }
 
+    server.createContext("/jdbc/schemas") { exchange ->
+        handleJdbc(exchange) { body ->
+            val names = JdbcConnectionManager.schemaNames(body.getString("connectionId"))
+            JSONObject().put("ok", true).put("schemas", JSONArray(names))
+        }
+    }
+
+    server.createContext("/jdbc/introspect") { exchange ->
+        handleJdbc(exchange) { body ->
+            val schemaFilter = body.optJSONArray("schemaFilter")?.let { arr -> (0 until arr.length()).map { arr.getString(it) } }
+            val schemas = JdbcConnectionManager.introspect(body.getString("connectionId"), schemaFilter)
+            val schemasJson =
+                JSONArray(
+                    schemas.map { schema ->
+                        val tablesJson =
+                            JSONArray(
+                                schema.tables.map { table ->
+                                    val columnsJson =
+                                        JSONArray(
+                                            table.columns.map { c ->
+                                                JSONObject()
+                                                    .put("name", c.name)
+                                                    .put("dataType", c.dataType)
+                                                    .put("nullable", c.nullable)
+                                                    .put("ordinalPosition", c.ordinalPosition)
+                                                    .put("isPrimaryKey", c.isPrimaryKey)
+                                            },
+                                        )
+                                    JSONObject().put("name", table.name).put("kind", table.kind).put("columns", columnsJson)
+                                },
+                            )
+                        JSONObject().put("name", schema.name).put("tables", tablesJson)
+                    },
+                )
+            JSONObject().put("ok", true).put("schemas", schemasJson)
+        }
+    }
+
     server.createContext("/") { exchange ->
         val msg = "not found: ${exchange.requestURI}"
         val bytes = msg.toByteArray(Charsets.UTF_8)

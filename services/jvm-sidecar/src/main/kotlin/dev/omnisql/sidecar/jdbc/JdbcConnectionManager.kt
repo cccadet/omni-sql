@@ -3,6 +3,7 @@ package dev.omnisql.sidecar.jdbc
 import java.io.File
 import java.net.URLClassLoader
 import java.sql.Connection
+import java.sql.DatabaseMetaData
 import java.sql.Driver
 import java.sql.ResultSetMetaData
 import java.sql.SQLException
@@ -19,6 +20,19 @@ data class QueryResult(
     val rowsMoreAvailable: Boolean,
     val elapsedMs: Long,
 )
+
+/** Mesmo shape de `Column` (TS) — sem `foreignKeyTo`/`defaultValue`: `getImportedKeys` não é confiável entre drivers JDBC arbitrários. */
+data class JdbcColumn(
+    val name: String,
+    val dataType: String,
+    val nullable: Boolean,
+    val ordinalPosition: Int,
+    val isPrimaryKey: Boolean,
+)
+
+data class JdbcTable(val name: String, val kind: String, val columns: List<JdbcColumn>)
+
+data class JdbcSchema(val name: String, val tables: List<JdbcTable>)
 
 /**
  * Ponte JDBC genérica (Fase 6): carrega um driver de um `.jar` arbitrário
@@ -80,6 +94,78 @@ object JdbcConnectionManager {
 
     fun close(connectionId: String) {
         connections.remove(connectionId)?.let { closeQuietly(it) }
+    }
+
+    /** Nomes de schema, sem tabelas/colunas — usado pela UI pra escolher o que introspectar. */
+    fun schemaNames(connectionId: String): List<String> {
+        val handle = connections[connectionId] ?: throw JdbcError("unsupported", "no open connection: $connectionId")
+        try {
+            return discoverSchemas(handle.connection.metaData)
+        } catch (e: SQLException) {
+            throw toJdbcError(e)
+        }
+    }
+
+    /** Introspecção via `DatabaseMetaData` (JDBC padrão) — funciona genérico entre drivers, incluindo os sem suporte a `information_schema` (ex.: Progress OpenEdge). */
+    fun introspect(connectionId: String, schemaFilter: List<String>?): List<JdbcSchema> {
+        val handle = connections[connectionId] ?: throw JdbcError("unsupported", "no open connection: $connectionId")
+        try {
+            val meta = handle.connection.metaData
+            val allow = schemaFilter?.takeIf { it.isNotEmpty() }?.toSet()
+            return discoverSchemas(meta)
+                .filter { allow == null || it in allow }
+                .map { schema -> JdbcSchema(schema, tablesForSchema(meta, schema)) }
+        } catch (e: SQLException) {
+            throw toJdbcError(e)
+        }
+    }
+
+    /** Alguns drivers JDBC não expõem o conceito de schema (só catálogo) — cai pra um bucket único e passa `schemaPattern = null` nas chamadas de metadata seguintes. */
+    private const val DEFAULT_SCHEMA = "default"
+
+    private fun discoverSchemas(meta: DatabaseMetaData): List<String> {
+        val names = mutableListOf<String>()
+        meta.schemas.use { rs -> while (rs.next()) names.add(rs.getString("TABLE_SCHEM")) }
+        return names.ifEmpty { listOf(DEFAULT_SCHEMA) }
+    }
+
+    private fun tablesForSchema(meta: DatabaseMetaData, schema: String): List<JdbcTable> {
+        val schemaPattern = if (schema == DEFAULT_SCHEMA) null else schema
+        val tables = mutableListOf<Pair<String, String>>()
+        meta.getTables(null, schemaPattern, "%", arrayOf("TABLE", "VIEW")).use { rs ->
+            while (rs.next()) {
+                val kind = if (rs.getString("TABLE_TYPE") == "VIEW") "view" else "table"
+                tables.add(rs.getString("TABLE_NAME") to kind)
+            }
+        }
+        return tables.map { (name, kind) -> JdbcTable(name, kind, columnsForTable(meta, schemaPattern, name)) }
+    }
+
+    private fun columnsForTable(meta: DatabaseMetaData, schemaPattern: String?, table: String): List<JdbcColumn> {
+        // ponytail: getPrimaryKeys não é suportado por todo driver JDBC (ex.: pontes ODBC) —
+        // nunca deve derrubar a introspecção inteira por isto, só perde o flag de PK.
+        val pkNames =
+            runCatching {
+                val names = mutableSetOf<String>()
+                meta.getPrimaryKeys(null, schemaPattern, table).use { rs -> while (rs.next()) names.add(rs.getString("COLUMN_NAME")) }
+                names
+            }.getOrDefault(emptySet())
+        val columns = mutableListOf<JdbcColumn>()
+        meta.getColumns(null, schemaPattern, table, "%").use { rs ->
+            while (rs.next()) {
+                val name = rs.getString("COLUMN_NAME")
+                columns.add(
+                    JdbcColumn(
+                        name = name,
+                        dataType = rs.getString("TYPE_NAME") ?: "unknown",
+                        nullable = rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls,
+                        ordinalPosition = rs.getInt("ORDINAL_POSITION"),
+                        isPrimaryKey = name in pkNames,
+                    ),
+                )
+            }
+        }
+        return columns
     }
 
     fun query(connectionId: String, sql: String, limit: Int): QueryResult {
