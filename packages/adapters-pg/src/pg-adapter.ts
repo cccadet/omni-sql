@@ -33,6 +33,7 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
   readonly dialect = "postgres" as const;
 
   private readonly pool: Pool;
+  private runningPid: number | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -95,7 +96,24 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
-    return runQueryViaPool(this.pool, sql, limit);
+    try {
+      return await runQueryViaPool(this.pool, sql, limit, (pid) => {
+        this.runningPid = pid;
+      });
+    } finally {
+      this.runningPid = null;
+    }
+  }
+
+  /** Cancela via `pg_cancel_backend` numa conexão separada — a conexão que roda a query fica ocupada até o driver notar o cancelamento. */
+  async cancelRunning(): Promise<void> {
+    if (this.runningPid == null) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query("SELECT pg_cancel_backend($1)", [this.runningPid]);
+    } finally {
+      client.release();
+    }
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {

@@ -296,9 +296,20 @@ export async function runQueryViaPool(
   pool: Pool,
   sql: string,
   limit: number,
+  onThreadId?: (threadId: number) => void,
 ): Promise<QueryResult> {
   const t0 = Date.now();
-  const [rowsOrHeader, fields]: [unknown, FieldPacket[]] = await pool.query({ sql, rowsAsArray: true });
+  // Empresta uma conexão explícita (em vez de `pool.query`) para expor o
+  // `threadId` — é o que `KILL QUERY` precisa para cancelar de outra conexão.
+  const conn = await pool.getConnection();
+  onThreadId?.(conn.threadId);
+  let rowsOrHeader: unknown;
+  let fields: FieldPacket[];
+  try {
+    [rowsOrHeader, fields] = await conn.query({ sql, rowsAsArray: true });
+  } finally {
+    conn.release();
+  }
   const elapsedMs = Date.now() - t0;
 
   if (!Array.isArray(rowsOrHeader) || fields.length === 0) {
