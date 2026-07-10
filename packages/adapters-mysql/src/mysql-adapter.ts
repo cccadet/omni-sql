@@ -1,16 +1,15 @@
 import mysql, { type Pool, type PoolConnection, type RowDataPacket } from "mysql2/promise";
 import type {
   ConnectionConfig,
-  Database,
   ExplainResult,
   FunctionDef,
   IndexInfo,
   QueryResult,
   Relation,
-  Schema,
 } from "@omni-sql/ts-types";
 import { mysqlDescriptor, mariadbDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
   introspectSchemas,
@@ -31,20 +30,14 @@ import {
  * O motor de autocomplete nunca viu isto — só consome a interface `Adapter`.
  * O dialeto `mariadb` reusa este adaptador (mesmo protocolo de fio).
  */
-export class MysqlAdapter implements Adapter {
-  readonly id: string;
+export class MysqlAdapter extends CachedAdapter implements Adapter {
   readonly dialect: "mysql" | "mariadb";
 
   private readonly pool: Pool;
-  private schemasCache: Schema[] = [];
-  private relationsBySchema = new Map<string, Relation[]>();
-  private functionsBySchema = new Map<string, FunctionDef[]>();
-  private readonly schemaFilter?: readonly string[];
 
   constructor(config: ConnectionConfig, password?: string) {
-    this.id = config.id;
+    super(config);
     this.dialect = config.dialect === "mariadb" ? "mariadb" : "mysql";
-    this.schemaFilter = config.schemas;
     this.pool = mysql.createPool({
       ...parseEndpoint(config.endpoint, config.user, password, config.options),
       connectionLimit: 4,
@@ -70,29 +63,6 @@ export class MysqlAdapter implements Adapter {
     }
   }
 
-  async introspect(): Promise<Database> {
-    const conn = await this.pool.getConnection();
-    try {
-      const schemas = await introspectSchemas(conn, this.schemaFilter);
-      this.schemasCache = schemas.map(([, name]) => ({ database: name, name }));
-      this.relationsBySchema.clear();
-      this.functionsBySchema.clear();
-      for (const [, schemaName, rels] of schemas) {
-        this.relationsBySchema.set(schemaName, [...rels]);
-        const fns = await listFunctionsPerSchema(conn, schemaName);
-        this.functionsBySchema.set(schemaName, fns);
-      }
-    return {
-      connectionId: this.id,
-      name: this.dialect,
-      schemas: this.schemasCache,
-    };
-
-    } finally {
-      conn.release();
-    }
-  }
-
   async listAvailableSchemas(): Promise<readonly string[]> {
     const conn = await this.pool.getConnection();
     try {
@@ -102,20 +72,26 @@ export class MysqlAdapter implements Adapter {
     }
   }
 
-  listSchemas(): readonly Schema[] {
-    return this.schemasCache;
+  protected databaseName(): string {
+    return this.dialect;
   }
-  listTables(schema: string): readonly Relation[] {
-    return this.relationsBySchema.get(schema) ?? [];
+
+  protected async introspectSchemas(): Promise<readonly (readonly [unknown, string, readonly Relation[]])[]> {
+    const conn = await this.pool.getConnection();
+    try {
+      return await introspectSchemas(conn, this.schemaFilter);
+    } finally {
+      conn.release();
+    }
   }
-  listColumns(schema: string, table: string): Relation["columns"] {
-    const rels = this.relationsBySchema.get(schema);
-    if (!rels) return [];
-    const rel = rels.find((r) => r.name === table);
-    return rel ? rel.columns : [];
-  }
-  listFunctions(schema: string): readonly FunctionDef[] {
-    return this.functionsBySchema.get(schema) ?? [];
+
+  protected async listFunctionsForSchema(schema: string): Promise<readonly FunctionDef[]> {
+    const conn = await this.pool.getConnection();
+    try {
+      return await listFunctionsPerSchema(conn, schema);
+    } finally {
+      conn.release();
+    }
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {

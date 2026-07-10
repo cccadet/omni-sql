@@ -1,16 +1,15 @@
 import sql, { type ConnectionPool, type config as MssqlConfig } from "mssql";
 import type {
   ConnectionConfig,
-  Database,
   ExplainResult,
   FunctionDef,
   IndexInfo,
   QueryResult,
   Relation,
-  Schema,
 } from "@omni-sql/ts-types";
 import { sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
   introspectSchemas,
@@ -29,20 +28,14 @@ import {
  *
  * O motor de autocomplete nunca viu isto — só consome a interface `Adapter`.
  */
-export class MssqlAdapter implements Adapter {
-  readonly id: string;
+export class MssqlAdapter extends CachedAdapter implements Adapter {
   readonly dialect = "sqlserver" as const;
 
   private readonly poolConfig: MssqlConfig;
   private poolPromise: Promise<ConnectionPool> | null = null;
-  private schemasCache: Schema[] = [];
-  private relationsBySchema = new Map<string, Relation[]>();
-  private functionsBySchema = new Map<string, FunctionDef[]>();
-  private readonly schemaFilter?: readonly string[];
 
   constructor(config: ConnectionConfig, password?: string) {
-    this.id = config.id;
-    this.schemaFilter = config.schemas;
+    super(config);
     this.poolConfig = parseEndpoint(config.endpoint, config.user, password, config.options);
   }
 
@@ -87,43 +80,23 @@ export class MssqlAdapter implements Adapter {
     }
   }
 
-  async introspect(): Promise<Database> {
-    const pool = await this.getPool();
-    const schemas = await introspectSchemas(pool, this.schemaFilter);
-    this.schemasCache = schemas.map(([, name]) => ({ database: "sqlserver", name }));
-    this.relationsBySchema.clear();
-    this.functionsBySchema.clear();
-    for (const [, schemaName, rels] of schemas) {
-      this.relationsBySchema.set(schemaName, [...rels]);
-      const fns = await listFunctionsPerSchema(pool, schemaName);
-      this.functionsBySchema.set(schemaName, fns);
-    }
-    return {
-      connectionId: this.id,
-      name: "sqlserver",
-      schemas: this.schemasCache,
-    };
-  }
-
   async listAvailableSchemas(): Promise<readonly string[]> {
     const pool = await this.getPool();
     return listSchemaNames(pool);
   }
 
-  listSchemas(): readonly Schema[] {
-    return this.schemasCache;
+  protected databaseName(): string {
+    return "sqlserver";
   }
-  listTables(schema: string): readonly Relation[] {
-    return this.relationsBySchema.get(schema) ?? [];
+
+  protected async introspectSchemas(): Promise<readonly (readonly [unknown, string, readonly Relation[]])[]> {
+    const pool = await this.getPool();
+    return introspectSchemas(pool, this.schemaFilter);
   }
-  listColumns(schema: string, table: string): Relation["columns"] {
-    const rels = this.relationsBySchema.get(schema);
-    if (!rels) return [];
-    const rel = rels.find((r) => r.name === table);
-    return rel ? rel.columns : [];
-  }
-  listFunctions(schema: string): readonly FunctionDef[] {
-    return this.functionsBySchema.get(schema) ?? [];
+
+  protected async listFunctionsForSchema(schema: string): Promise<readonly FunctionDef[]> {
+    const pool = await this.getPool();
+    return listFunctionsPerSchema(pool, schema);
   }
 
   async runQuery(sqlText: string, limit: number): Promise<QueryResult> {
