@@ -10,7 +10,7 @@ import type {
   Schema,
 } from "@omni-sql/ts-types";
 import { sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, AdapterFactory, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
   introspectSchemas,
@@ -19,9 +19,6 @@ import {
   listSchemaNames,
   runQueryViaPool,
   updateRowViaPool,
-  type ColumnRow,
-  type FunctionRow,
-  type RelationRow,
 } from "./introspection.ts";
 
 /**
@@ -206,16 +203,5 @@ function parseEndpoint(
     ...(db ? { database: db } : {}),
   };
 }
-
-// Re-exports para consumidores que queiram reusar introspection helpers.
-export {
-  introspectSchemas,
-  listFunctionsPerSchema,
-  type ColumnRow,
-  type FunctionRow,
-  type RelationRow,
-};
-
-export const mssqlAdapterFactory: AdapterFactory = (config) => new MssqlAdapter(config);
 
 export type { ConnectionPool };

@@ -10,7 +10,7 @@ import type {
   Schema,
 } from "@omni-sql/ts-types";
 import { oracleDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, AdapterFactory, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaConnection,
   introspectSchemas,
@@ -19,10 +19,6 @@ import {
   listSchemaNames,
   runQueryViaConnection,
   updateRowViaConnection,
-  type ArgumentRow,
-  type ColumnRow,
-  type ConstraintRow,
-  type RelationRow,
 } from "./introspection.ts";
 
 /**
@@ -218,7 +214,3 @@ export class OracleAdapter implements Adapter {
   }
 }
 
-export const oracleAdapterFactory: AdapterFactory = (config) => new OracleAdapter(config);
-
-export type { ArgumentRow, ColumnRow, ConstraintRow, RelationRow };
-export { introspectSchemas, listFunctionsPerSchema };

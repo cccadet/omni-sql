@@ -38,8 +38,7 @@ packages/metadata-cache        Cache SQLite (`node:sqlite` builtin) + last_synce
 packages/autocomplete-engine   Lexer tier1 + provider de autocomplete
 packages/backend               Node HTTP JSON-RPC (handlers + protocol + Adapter registry)
 services/jvm-sidecar           Kotlin/Gradle + Calcite: /health, /scope/resolve (colunas de CTE) — porta 41921
-packages/adapters-mysql        Adaptador MySQL real (driver `mysql2/promise`): information_schema, EXPLAIN FORMAT=JSON
-packages/adapters-mariadb      Adaptador MariaDB real (mesmo driver `mysql2`, protocolo de fio compatível)
+packages/adapters-mysql        Adaptador MySQL/MariaDB real (driver `mysql2/promise`): information_schema, EXPLAIN FORMAT=JSON
 packages/adapters-mssql        Adaptador SQL Server real (driver `mssql`/Tedious): INFORMATION_SCHEMA + sys.indexes, SHOWPLAN_XML
 packages/adapters-oracle       Adaptador Oracle real (driver `oracledb` thin mode): ALL_TAB_COLUMNS/ALL_CONSTRAINTS, EXPLAIN PLAN
 ```
@@ -53,7 +52,7 @@ packages/adapters-oracle       Adaptador Oracle real (driver `oracledb` thin mod
   Backend integrado: introspecção persiste no cache, lookups via índice em memória.
 - **F2 PG + lexer tier1 ✅:** `packages/adapters-pg` real (driver `pg`, `information_schema`
   + `pg_catalog` para funções com overloads, pool 4 conns, server-side cursor,
-  `EXPLAIN (FORMAT JSON)`). Registrado em `registerAdapter("postgres", pgAdapterFactory)`.
+  `EXPLAIN (FORMAT JSON)`). Registrado em `registerAdapter("postgres", (config, password) => new PostgresAdapter(config, password))`.
   Lexer TS em `packages/autocomplete-engine` cobre 6 dos 8 casos da suíte (1-6 ✅,
   7-8 ficam `it.todo` para Fase 3 via sidecar).
 - **F3 Calcite (colunas de CTE) ✅:** `calcite-core` em `services/jvm-sidecar`,

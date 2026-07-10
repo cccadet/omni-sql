@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MysqlAdapter, mysqlAdapterFactory } from "./index.ts";
+import { MysqlAdapter } from "./index.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
 // Sem docker/MySQL local: smoke só valida construção + recusa de dial.
@@ -26,9 +26,15 @@ test("MysqlAdapter: constrói sem disparar conexão", () => {
   assert.deepEqual(a.listTables("app"), []);
 });
 
-test("mysqlAdapterFactory: produz instância Adapter", () => {
-  const a = mysqlAdapterFactory(cfg());
+test("MysqlAdapter: factory via construtor produz instância Adapter", () => {
+  const a = new MysqlAdapter(cfg());
   assert.equal(a.dialect, "mysql");
+});
+
+test("MysqlAdapter: dialecto mariadb usa descritor mariadb", () => {
+  const a = new MysqlAdapter({ ...cfg(), dialect: "mariadb" });
+  assert.equal(a.dialect, "mariadb");
+  assert.equal(a.dialectDescriptor().dialect, "mariadb");
 });
 
 test("test() retorna ok:false quando não consegue conectar", async () => {

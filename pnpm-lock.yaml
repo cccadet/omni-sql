@@ -82,21 +82,6 @@ importers:
         specifier: workspace:*
         version: link:../ts-types
 
-  packages/adapters-mariadb:
-    dependencies:
-      '@omni-sql/adapters-core':
-        specifier: workspace:*
-        version: link:../adapters-core
-      '@omni-sql/dialect-descriptors':
-        specifier: workspace:*
-        version: link:../dialect-descriptors
-      '@omni-sql/ts-types':
-        specifier: workspace:*
-        version: link:../ts-types
-      mysql2:
-        specifier: ^3.11.0
-        version: 3.22.6(@types/node@22.20.0)
-
   packages/adapters-mssql:
     dependencies:
       '@omni-sql/adapters-core':
@@ -186,9 +171,6 @@ importers:
       '@omni-sql/adapters-core':
         specifier: workspace:*
         version: link:../adapters-core
-      '@omni-sql/adapters-mariadb':
-        specifier: workspace:*
-        version: link:../adapters-mariadb
       '@omni-sql/adapters-mssql':
         specifier: workspace:*
         version: link:../adapters-mssql

@@ -8,10 +8,6 @@ import { InMemoryAdapter } from "./in-memory.ts";
  */
 const factories = new Map<ConnectionConfig["dialect"], AdapterFactory>();
 
-function register(dialect: ConnectionConfig["dialect"], factory: AdapterFactory): void {
-  factories.set(dialect, factory);
-}
-
 /** Fase 0: InMemoryAdapter responde por dialetos não implementados como fallback. */
 function inMemoryFactory(config: ConnectionConfig): Adapter {
   return new InMemoryAdapter(config);
@@ -21,9 +17,9 @@ export function registerAdapter(dialect: ConnectionConfig["dialect"], factory: A
   factories.set(dialect, factory);
 }
 
-export function resolveAdapter(config: ConnectionConfig): Adapter {
+export function resolveAdapter(config: ConnectionConfig, password?: string): Adapter {
   const factory = factories.get(config.dialect) ?? inMemoryFactory;
-  return factory(config);
+  return factory(config, password);
 }
 
 // Bootstrap default registry — Fase 0 só tem in-memory; fases subsequentes
@@ -33,7 +29,7 @@ export function bootstrapDefaultRegistry(): void {
     "postgres", "mysql", "mariadb", "sqlserver", "oracle", "jdbc-generic", "odbc",
   ] as const) {
     if (!factories.has(dialect)) {
-      register(dialect, inMemoryFactory);
+      registerAdapter(dialect, inMemoryFactory);
     }
   }
 }

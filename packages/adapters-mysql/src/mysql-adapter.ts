@@ -9,8 +9,8 @@ import type {
   Relation,
   Schema,
 } from "@omni-sql/ts-types";
-import { mysqlDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, AdapterFactory, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import { mysqlDescriptor, mariadbDescriptor } from "@omni-sql/dialect-descriptors";
+import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
   introspectSchemas,
@@ -19,9 +19,6 @@ import {
   listSchemaNames,
   runQueryViaPool,
   updateRowViaPool,
-  type ColumnRow,
-  type FunctionRow,
-  type RelationRow,
 } from "./introspection.ts";
 
 /**
@@ -32,11 +29,11 @@ import {
  * `referenced_table_*` direto).
  *
  * O motor de autocomplete nunca viu isto — só consome a interface `Adapter`.
- * Serve de template para `adapters-mariadb` (mesmo protocolo de fio).
+ * O dialeto `mariadb` reusa este adaptador (mesmo protocolo de fio).
  */
 export class MysqlAdapter implements Adapter {
   readonly id: string;
-  readonly dialect = "mysql" as const;
+  readonly dialect: "mysql" | "mariadb";
 
   private readonly pool: Pool;
   private schemasCache: Schema[] = [];
@@ -46,6 +43,7 @@ export class MysqlAdapter implements Adapter {
 
   constructor(config: ConnectionConfig, password?: string) {
     this.id = config.id;
+    this.dialect = config.dialect === "mariadb" ? "mariadb" : "mysql";
     this.schemaFilter = config.schemas;
     this.pool = mysql.createPool({
       ...parseEndpoint(config.endpoint, config.user, password, config.options),
@@ -84,11 +82,12 @@ export class MysqlAdapter implements Adapter {
         const fns = await listFunctionsPerSchema(conn, schemaName);
         this.functionsBySchema.set(schemaName, fns);
       }
-      return {
-        connectionId: this.id,
-        name: "mysql",
-        schemas: this.schemasCache,
-      };
+    return {
+      connectionId: this.id,
+      name: this.dialect,
+      schemas: this.schemasCache,
+    };
+
     } finally {
       conn.release();
     }
@@ -144,7 +143,7 @@ export class MysqlAdapter implements Adapter {
   }
 
   dialectDescriptor() {
-    return mysqlDescriptor;
+    return this.dialect === "mariadb" ? mariadbDescriptor : mysqlDescriptor;
   }
 }
 
@@ -180,16 +179,5 @@ function parseEndpoint(
     ...(password !== undefined && password.length > 0 ? { password } : {}),
   };
 }
-
-// Re-exports para consumidores que queiram reusar introspection helpers.
-export {
-  introspectSchemas,
-  listFunctionsPerSchema,
-  type ColumnRow,
-  type FunctionRow,
-  type RelationRow,
-};
-
-export const mysqlAdapterFactory: AdapterFactory = (config) => new MysqlAdapter(config);
 
 export type { Pool, PoolConnection };
