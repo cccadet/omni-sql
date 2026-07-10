@@ -24,8 +24,7 @@ packages/ts-types                Modelo unificado + contratos
 packages/dialect-descriptors     Descritores por dialeto (lexer consome)
 packages/adapters-core           Interface Adapter + InMemoryAdapter
 packages/adapters-pg             Adaptador PostgreSQL real (driver `pg`)
-packages/adapters-mysql          Adaptador MySQL real (driver `mysql2/promise`)
-packages/adapters-mariadb        Adaptador MariaDB real (driver `mysql2/promise`)
+packages/adapters-mysql          Adaptador MySQL/MariaDB real (driver `mysql2/promise`)
 packages/adapters-mssql          Adaptador SQL Server real (driver `mssql`/Tedious)
 packages/adapters-oracle         Adaptador Oracle real (driver `oracledb` thin mode)
 packages/autocomplete-engine     Lexer tier1 + provider de autocomplete

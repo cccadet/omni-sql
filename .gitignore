@@ -15,6 +15,7 @@ coverage
 
 # Agent / IDE local state
 .serena/
+.codebase-memory/
 
 # Tauri / Rust
 apps/desktop/src-tauri/target
