@@ -123,7 +123,11 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
     const pool = await this.getPool();
     const conn = await pool.getConnection();
     try {
-      return await runQueryViaConnection(conn, sql, limit);
+      // Oracle exige FROM DUAL para SELECTs sem cláusula FROM.
+      const normalized = sql.replace(/;?\s*$/, "");
+      const needsDual = /^\s*SELECT\b/i.test(normalized) && !/\bFROM\b/i.test(normalized);
+      const finalSql = needsDual ? `${normalized} FROM DUAL` : sql;
+      return await runQueryViaConnection(conn, finalSql, limit);
     } catch (e) {
       await conn.rollback().catch(() => undefined);
       throw e;

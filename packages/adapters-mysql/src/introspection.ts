@@ -39,6 +39,7 @@ export interface FunctionRow extends RowDataPacket {
   schema: string;
   name: string;
   ret_type: string;
+  routine_type: "FUNCTION" | "PROCEDURE";
 }
 
 export interface ParameterRow extends RowDataPacket {
@@ -117,9 +118,10 @@ ORDER BY c.table_schema, c.table_name, c.ordinal_position
 // MySQL não tem overload de função (uma assinatura por nome) — bem mais
 // simples que Postgres/Oracle, que precisam agrupar por (schema, name).
 const FUNCTIONS_SQL = `
-SELECT routine_schema AS \`schema\`, routine_name AS name, data_type AS ret_type
+SELECT routine_schema AS \`schema\`, routine_name AS name, data_type AS ret_type,
+       routine_type AS routine_type
 FROM information_schema.routines
-WHERE routine_schema = ? AND routine_type = 'FUNCTION'
+WHERE routine_schema = ? AND routine_type IN ('FUNCTION', 'PROCEDURE')
 ORDER BY routine_name
 `;
 
@@ -127,7 +129,7 @@ const PARAMETERS_SQL = `
 SELECT specific_name AS specific_name, parameter_name AS parameter_name,
        data_type AS data_type, parameter_mode AS parameter_mode, ordinal_position AS ordinal_position
 FROM information_schema.parameters
-WHERE specific_schema = ? AND routine_type = 'FUNCTION'
+WHERE specific_schema = ? AND routine_type IN ('FUNCTION', 'PROCEDURE')
 ORDER BY specific_name, ordinal_position
 `;
 
@@ -176,9 +178,16 @@ export async function getDefinitionViaPool(
     if (rows.length === 0) throw new Error(`view não encontrada: ${schema}.${name}`);
     return rows[0]!["Create View"];
   }
-  const [rows] = await pool.query<(RowDataPacket & { "Create Function": string })[]>(`SHOW CREATE FUNCTION ${ref}`);
-  if (rows.length === 0) throw new Error(`função não encontrada: ${schema}.${name}`);
-  return rows[0]!["Create Function"];
+  // Tenta FUNCTION primeiro; se não encontrar, tenta PROCEDURE.
+  try {
+    const [rows] = await pool.query<(RowDataPacket & { "Create Function": string })[]>(`SHOW CREATE FUNCTION ${ref}`);
+    if (rows.length > 0) return rows[0]!["Create Function"];
+  } catch {
+    // não é uma FUNCTION — tenta PROCEDURE abaixo
+  }
+  const [procRows] = await pool.query<(RowDataPacket & { "Create Procedure": string })[]>(`SHOW CREATE PROCEDURE ${ref}`);
+  if (procRows.length === 0) throw new Error(`função/procedure não encontrada: ${schema}.${name}`);
+  return procRows[0]!["Create Procedure"];
 }
 
 // ─────────────────────────── Introspection routines

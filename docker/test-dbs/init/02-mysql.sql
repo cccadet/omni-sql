@@ -87,11 +87,19 @@ SELECT
 FROM orders o
 JOIN customers c ON c.id = o.customer_id;
 
--- ── Stored Procedure ──
+-- ── Function ──
+
+-- MySQL 8.4 esconde o body de stored routines para non-super users.
+-- SHOW CREATE FUNCTION só retorna o body para o definer ou super-privilegiado.
+GRANT ALL PRIVILEGES ON *.* TO 'omni'@'%' WITH GRANT OPTION;
 
 DELIMITER //
-CREATE PROCEDURE get_customer_total(IN p_customer_id INT, OUT p_total DECIMAL(12,2))
+CREATE FUNCTION get_customer_total(p_customer_id INT)
+RETURNS DECIMAL(12,2)
+DETERMINISTIC
 BEGIN
-    SELECT COALESCE(SUM(total), 0) INTO p_total FROM orders WHERE customer_id = p_customer_id;
+    DECLARE v_total DECIMAL(12,2);
+    SELECT COALESCE(SUM(total), 0) INTO v_total FROM orders WHERE customer_id = p_customer_id;
+    RETURN v_total;
 END //
 DELIMITER ;
