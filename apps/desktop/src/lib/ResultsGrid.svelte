@@ -285,7 +285,18 @@
 
 {#if expanded}
   <div class="modal-overlay" onclick={closeExpanded} role="presentation">
-    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div
+      class="modal"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => {
+        if (e.key === "Escape") {
+          closeExpanded();
+        }
+      }}
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+    >
       <header class="modal-header">
         <span>{expanded.column}</span>
         <button class="modal-close" onclick={closeExpanded} aria-label="Fechar">✕</button>

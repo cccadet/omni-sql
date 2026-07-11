@@ -802,7 +802,18 @@
 
 {#if pendingVariables}
   <div class="variables-backdrop" onclick={onVariablesCancel} role="presentation">
-    <div class="variables-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div
+      class="variables-modal"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => {
+        if (e.key === "Escape") {
+          onVariablesCancel();
+        }
+      }}
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+    >
       <header class="variables-header">Preencha as variáveis</header>
       <form
         class="variables-body"
