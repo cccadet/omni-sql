@@ -97,13 +97,15 @@ FROM orders o
 JOIN customers c ON c.id = o.customer_id;
 GO
 
--- ── Stored Procedure ──
+-- ── Function ──
 
-CREATE PROCEDURE get_customer_total
-    @customer_id INT,
-    @total DECIMAL(12,2) OUTPUT
+GO
+CREATE FUNCTION get_customer_total(@customer_id INT)
+RETURNS DECIMAL(12,2)
 AS
 BEGIN
+    DECLARE @total DECIMAL(12,2);
     SELECT @total = COALESCE(SUM(total), 0) FROM orders WHERE customer_id = @customer_id;
+    RETURN @total;
 END;
 GO

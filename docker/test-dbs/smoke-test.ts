@@ -98,7 +98,7 @@ async function createAdapter(key: string, target: Target): Promise<Adapter> {
 
 // ── Helpers ──
 
-const SCHEMA_NAMES = ["public", "OMNI", "dbo"];
+const SCHEMA_NAMES = ["public", "OMNI", "dbo", "omni_test"];
 
 function findSchema(schemas: readonly Schema[]): Schema {
   const s = schemas.find((s) => SCHEMA_NAMES.includes(s.name));
