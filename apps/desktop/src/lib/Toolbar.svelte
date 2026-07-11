@@ -7,7 +7,7 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Play from "@lucide/svelte/icons/play";
-  import Loader2 from "@lucide/svelte/icons/loader-2";
+import CircleStop from "@lucide/svelte/icons/circle-stop";
   import Save from "@lucide/svelte/icons/save";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
@@ -19,6 +19,7 @@
     busyMsg: string | null;
     running: boolean;
     onRun?: () => void;
+    onCancelRun?: () => void;
     /** Não nulo quando há várias instruções na aba e nenhuma seleção — mostra o menu de escolha. */
     pendingRunCount?: number | null;
     onRunChoice?: (choice: "current" | "all") => void;
@@ -43,6 +44,7 @@
     busyMsg,
     running,
     onRun,
+    onCancelRun,
     pendingRunCount = null,
     onRunChoice,
     onRunChoiceCancel,
@@ -138,6 +140,13 @@
         <span class="dialect-icon" aria-hidden="true">{dialectIcon(activeConnection.dialect)}</span>
         <span class="meta-status" title={metaStatus.label}>{metaStatus.icon}</span>
       {/if}
+      <button
+        class="icon toggle"
+        class:active={sidebarOpen}
+        title="Objetos do banco"
+        aria-label="Alternar painel de objetos do banco"
+        onclick={onToggleSidebar}
+      ><PanelLeft size={15} /></button>
     </div>
   </div>
 
@@ -164,18 +173,20 @@
   <div class="group">
     <span class="group-label">Execução</span>
     <div class="group-controls">
-      <button
-        class="run"
-        title="Executar query (Ctrl/⌘+Enter)"
-        onclick={onRunClick}
-        disabled={running || !activeConnectionId}
-      >
-        {#if running}
-          <Loader2 size={14} class="spin" /> Executando…
-        {:else}
+      {#if running}
+        <button class="run cancel" title="Cancelar execução" onclick={onCancelRun}>
+          <CircleStop size={14} /> Cancelar
+        </button>
+      {:else}
+        <button
+          class="run"
+          title="Executar query (Ctrl/⌘+Enter)"
+          onclick={onRunClick}
+          disabled={!activeConnectionId}
+        >
           <Play size={14} /> Executar
-        {/if}
-      </button>
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -213,14 +224,6 @@
   {#if busyMsg}
     <span class="busy">{busyMsg}</span>
   {/if}
-
-  <button
-    class="icon toggle"
-    class:active={sidebarOpen}
-    title="Objetos do banco"
-    aria-label="Alternar painel de objetos do banco"
-    onclick={onToggleSidebar}
-  ><PanelLeft size={15} /></button>
 
   <button
     class="icon toggle"
@@ -321,6 +324,12 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+  button.run.cancel {
+    background: #a1260d;
+  }
+  button.run.cancel:hover {
+    background: #c42b0f;
   }
   .run-menu-backdrop {
     position: fixed;

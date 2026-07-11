@@ -82,6 +82,18 @@ importers:
         specifier: workspace:*
         version: link:../ts-types
 
+  packages/adapters-jdbc:
+    dependencies:
+      '@omni-sql/adapters-core':
+        specifier: workspace:*
+        version: link:../adapters-core
+      '@omni-sql/dialect-descriptors':
+        specifier: workspace:*
+        version: link:../dialect-descriptors
+      '@omni-sql/ts-types':
+        specifier: workspace:*
+        version: link:../ts-types
+
   packages/adapters-mssql:
     dependencies:
       '@omni-sql/adapters-core':
@@ -171,6 +183,9 @@ importers:
       '@omni-sql/adapters-core':
         specifier: workspace:*
         version: link:../adapters-core
+      '@omni-sql/adapters-jdbc':
+        specifier: workspace:*
+        version: link:../adapters-jdbc
       '@omni-sql/adapters-mssql':
         specifier: workspace:*
         version: link:../adapters-mssql
