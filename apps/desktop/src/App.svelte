@@ -393,6 +393,19 @@
     pendingRun = null;
   }
 
+  /**
+   * Pede ao backend para cancelar a query em andamento na conexão ativa.
+   * Não mexe em `tab.running` diretamente — `runSql` já limpa isso no
+   * `finally` quando a query cancelada rejeita.
+   */
+  function onCancelRun() {
+    const idx = activeIndex;
+    if (idx < 0) return;
+    const tab = tabs[idx]!;
+    if (!tab.connectionId) return;
+    void backend.call("query.cancel", { connectionId: tab.connectionId }).catch(() => undefined);
+  }
+
   async function onVariablesConfirm() {
     const pending = pendingVariables;
     pendingVariables = null;
@@ -698,6 +711,7 @@
     {busyMsg}
     running={tabs[activeIndex]?.running ?? false}
     onRun={onRun}
+    onCancelRun={onCancelRun}
     pendingRunCount={pendingRun?.statements.length ?? null}
     onRunChoice={onRunChoice}
     onRunChoiceCancel={onRunChoiceCancel}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ConnectionConfig } from "@omni-sql/ts-types";
   import { backend } from "./backend";
+  import { pickJarPath } from "./file-io";
 
   interface Props {
     open: boolean;
@@ -10,7 +11,7 @@
   }
   let { open, editing = null, onClose, onSaved }: Props = $props();
 
-  type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "demo";
+  type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "demo";
 
   const DEFAULT_PORTS: Record<Mode, string> = {
     postgres: "5432",
@@ -18,6 +19,7 @@
     mysql: "3306",
     mariadb: "3306",
     sqlserver: "1433",
+    "jdbc-generic": "",
     demo: "5432",
   };
   const DEFAULT_DATABASES: Record<Mode, string> = {
@@ -26,6 +28,7 @@
     mysql: "app",
     mariadb: "app",
     sqlserver: "master",
+    "jdbc-generic": "",
     demo: "postgres",
   };
   const DEFAULT_USERS: Record<Mode, string> = {
@@ -34,6 +37,7 @@
     mysql: "root",
     mariadb: "root",
     sqlserver: "sa",
+    "jdbc-generic": "",
     demo: "postgres",
   };
 
@@ -52,6 +56,9 @@
   let user = $state("");
   let password = $state("");
   let ssl = $state(false);
+  let jdbcUrl = $state("");
+  let jarPath = $state("");
+  let driverClassName = $state("");
   let busy = $state(false);
   let testResult = $state<{ ok: boolean; latencyMs: number; message?: string } | null>(null);
   let error = $state<string | null>(null);
@@ -63,7 +70,8 @@
     if (open) {
       const editingDialect = editing?.dialect;
       const isKnown = editingDialect !== undefined && isKnownDialect(editingDialect);
-      mode = isKnown ? editingDialect : "demo";
+      const isJdbcGeneric = editingDialect === "jdbc-generic";
+      mode = isKnown ? editingDialect : isJdbcGeneric ? "jdbc-generic" : "demo";
       label = editing?.label ?? "";
       id = editing?.id ?? "";
       user = editing?.user ?? "";
@@ -78,6 +86,15 @@
         host = "";
         port = "5432";
         database = "postgres";
+      }
+      if (isJdbcGeneric) {
+        jdbcUrl = editing?.endpoint ?? "";
+        jarPath = String(editing?.options?.jarPath ?? "");
+        driverClassName = String(editing?.options?.driverClassName ?? "");
+      } else {
+        jdbcUrl = "";
+        jarPath = "";
+        driverClassName = "";
       }
       testResult = null;
       error = null;
@@ -108,14 +125,38 @@
     const isDefaultDatabase = database === "" || ALL_MODES.some((m) => database === DEFAULT_DATABASES[m]);
     const isDefaultUser = user === "" || ALL_MODES.some((m) => user === DEFAULT_USERS[m]);
     mode = next;
-    if (next === "demo") return;
+    if (next === "demo" || next === "jdbc-generic") return;
     if (isDefaultPort) port = DEFAULT_PORTS[next];
     if (isDefaultDatabase) database = DEFAULT_DATABASES[next];
     if (isDefaultUser) user = DEFAULT_USERS[next];
   }
 
   function buildEndpoint(): string {
+    if (mode === "jdbc-generic") return jdbcUrl;
     return `${host}:${port}/${database}`;
+  }
+
+  function buildOptions(): ConnectionConfig["options"] {
+    if (mode === "jdbc-generic") return { jarPath, driverClassName };
+    return ssl ? { ssl: "require" } : undefined;
+  }
+
+  function defaultLabel(): string {
+    if (mode === "jdbc-generic") return jdbcUrl || "JDBC genérico";
+    return `${host}/${database}`;
+  }
+
+  function canConnect(): boolean {
+    if (mode === "jdbc-generic") {
+      return jdbcUrl.length > 0 && jarPath.length > 0 && driverClassName.length > 0 && user.length > 0;
+    }
+    return host.length > 0 && user.length > 0;
+  }
+
+  async function onPickJar(e: Event) {
+    e.preventDefault();
+    const picked = await pickJarPath();
+    if (picked) jarPath = picked;
   }
 
   function generateId(): string {
@@ -131,11 +172,11 @@
     try {
       const cfg: ConnectionConfig = {
         id: id || generateId(),
-        label: label || `${host}/${database}`,
+        label: label || defaultLabel(),
         dialect: mode,
         endpoint: buildEndpoint(),
         user,
-        options: ssl ? { ssl: "require" } : undefined,
+        options: buildOptions(),
       };
       testResult = await backend.call("connection.test", { config: cfg, password });
     } catch (e) {
@@ -159,11 +200,11 @@
     try {
       const cfg: ConnectionConfig = {
         id: id || generateId(),
-        label: label || `${host}/${database}`,
+        label: label || defaultLabel(),
         dialect: mode,
         endpoint: buildEndpoint(),
         user,
-        options: ssl ? { ssl: "require" } : undefined,
+        options: buildOptions(),
       };
       const res = await backend.call<{ schemas: string[] }>("connection.listSchemas", { config: cfg, password });
       availableSchemas = [...res.schemas];
@@ -195,11 +236,11 @@
             }
           : {
               id: id || generateId(),
-              label: label || `${host}/${database}`,
+              label: label || defaultLabel(),
               dialect: mode,
               endpoint: buildEndpoint(),
               user,
-              options: ssl ? { ssl: "require" } : undefined,
+              options: buildOptions(),
               schemas: selectedSchemas.size > 0 ? [...selectedSchemas] : undefined,
             };
       await backend.call("connection.add", { config: cfg, password });
@@ -239,6 +280,7 @@
           <option value="mariadb">MariaDB</option>
           <option value="sqlserver">SQL Server</option>
           <option value="oracle">Oracle</option>
+          <option value="jdbc-generic">JDBC genérico</option>
           <option value="demo">Demo (in-memory)</option>
         </select>
       </label>
@@ -248,7 +290,42 @@
         <input type="text" bind:value={label} placeholder="Minha conexão" disabled={busy} required />
       </label>
 
-      {#if mode !== "demo"}
+      {#if mode === "jdbc-generic"}
+        <label>
+          <span>JDBC URL</span>
+          <input type="text" bind:value={jdbcUrl} placeholder="jdbc:exemplo://host:porta/db" disabled={busy} required />
+        </label>
+
+        <label>
+          <span>Driver (.jar)</span>
+          <div class="row">
+            <input type="text" class="grow" bind:value={jarPath} placeholder="/caminho/para/driver.jar" disabled={busy} required />
+            <button type="button" class="secondary" onclick={onPickJar} disabled={busy}>Procurar…</button>
+          </div>
+        </label>
+
+        <label>
+          <span>Classe do driver</span>
+          <input type="text" bind:value={driverClassName} placeholder="com.exemplo.Driver" disabled={busy} required />
+        </label>
+
+        <label>
+          <span>Usuário</span>
+          <input type="text" bind:value={user} disabled={busy} required />
+        </label>
+
+        <label>
+          <span>Senha</span>
+          <input type="password" bind:value={password} placeholder="••••••" disabled={busy} />
+        </label>
+
+        <p class="hint">
+          Carrega o driver via sidecar JVM — rode <code>services/jvm-sidecar</code> antes de conectar. Autocomplete/introspecção
+          de schema ainda não é suportada para este dialeto; a grade de resultados funciona normalmente.
+        </p>
+      {/if}
+
+      {#if mode !== "demo" && mode !== "jdbc-generic"}
         <div class="row">
           <label class="grow">
             <span>Host</span>
@@ -287,7 +364,7 @@
               type="button"
               class="link"
               onclick={onLoadSchemasClick}
-              disabled={busy || schemasLoading || !host || !user}
+              disabled={busy || schemasLoading || !canConnect()}
             >{schemasLoading ? "Carregando…" : "Carregar schemas"}</button>
           </div>
           {#if availableSchemas === null}
@@ -325,13 +402,13 @@
 
       <div class="actions">
         {#if mode !== "demo"}
-          <button type="button" onclick={onTest} disabled={busy || !host || !user}>
+          <button type="button" onclick={onTest} disabled={busy || !canConnect()}>
             {busy ? "Testando…" : "Testar conexão"}
           </button>
         {/if}
         <div class="spacer"></div>
         <button type="button" class="secondary" onclick={onClose} disabled={busy}>Cancelar</button>
-        <button type="submit" disabled={busy || (mode !== "demo" && (!host || !user))}>
+        <button type="submit" disabled={busy || (mode !== "demo" && !canConnect())}>
           {busy ? "Salvando…" : "Salvar"}
         </button>
       </div>

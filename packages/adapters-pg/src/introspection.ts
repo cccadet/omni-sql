@@ -319,10 +319,15 @@ export async function runQueryViaPool(
   pool: Pool,
   sql: string,
   limit: number,
+  onPid?: (pid: number) => void,
 ): Promise<QueryResult> {
   const t0 = Date.now();
   // Use a named cursor on a borrowed client for server-side pagination.
   const client = await pool.connect();
+  // `processID` é o PID do backend Postgres desta conexão (setado pelo driver
+  // no handshake, não documentado no tipo `PoolClient` mas estável em runtime)
+  // — é a única forma de cancelar a query via `pg_cancel_backend` de outra conexão.
+  onPid?.((client as unknown as { processID: number }).processID);
   try {
     const cursorName = `omni_q_${Math.random().toString(36).slice(2)}`;
     try {

@@ -1,4 +1,4 @@
-import type { ConnectionPool } from "mssql";
+import type { ConnectionPool, Request } from "mssql";
 import type {
   Column,
   Constraint,
@@ -310,10 +310,12 @@ export async function runQueryViaPool(
   pool: ConnectionPool,
   sqlText: string,
   limit: number,
+  onRequest?: (request: Request) => void,
 ): Promise<QueryResult> {
   const t0 = Date.now();
   const request = pool.request();
   request.arrayRowMode = true;
+  onRequest?.(request);
   const result = await request.query<unknown[]>(sqlText);
   const elapsedMs = Date.now() - t0;
 
