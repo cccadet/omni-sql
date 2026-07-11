@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "docker/*"
 
 # pnpm v11+ usa allowBuilds (map true/false). Antes onlyBuiltDependencies,
 # removido no v11. Ver: https://pnpm.io/settings#allowbuilds
