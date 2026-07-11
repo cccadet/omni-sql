@@ -1,4 +1,4 @@
-import sql, { type ConnectionPool, type Request, type config as MssqlConfig } from "mssql";
+import sql, { type ConnectionPool, type config as MssqlConfig } from "mssql";
 import type {
   ConnectionConfig,
   ExplainResult,
@@ -33,7 +33,6 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
   private readonly poolConfig: MssqlConfig;
   private poolPromise: Promise<ConnectionPool> | null = null;
-  private runningRequest: Request | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -102,18 +101,7 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
   async runQuery(sqlText: string, limit: number): Promise<QueryResult> {
     const pool = await this.getPool();
-    try {
-      return await runQueryViaPool(pool, sqlText, limit, (request) => {
-        this.runningRequest = request;
-      });
-    } finally {
-      this.runningRequest = null;
-    }
-  }
-
-  /** `Request.cancel()` é suportado nativamente pelo driver `mssql` para abortar um request em andamento na mesma conexão. */
-  async cancelRunning(): Promise<void> {
-    this.runningRequest?.cancel();
+    return runQueryViaPool(pool, sqlText, limit);
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {
@@ -123,11 +111,10 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
   /**
    * T-SQL não tem `EXPLAIN` — `SET SHOWPLAN_XML ON` faz a sessão devolver o
-   * plano em vez de executar as instruções seguintes. Isola isso numa
-   * transaction própria (garante que ON/query/OFF rodam na mesma conexão
-   * física do pool) e dá rollback no final — a query nunca chega a executar
-   * de fato enquanto SHOWPLAN está ligado, mas o rollback cobre qualquer
-   * side effect residual da própria troca de modo da sessão.
+   * plano em vez de executar as instruções seguintes. Usa uma transaction
+   * própria para isolar ON/query/OFF e dá rollback. Depois do rollback,
+   * envia `SET SHOWPLAN_XML OFF` em batch separado para garantir que a
+   * sessão fica limpa antes de devolver a conexão ao pool.
    */
   async explain(sqlText: string): Promise<ExplainResult> {
     const pool = await this.getPool();
@@ -136,13 +123,18 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
     try {
       await new sql.Request(tx).batch("SET SHOWPLAN_XML ON");
       const planResult = await new sql.Request(tx).batch<Record<string, string>>(sqlText);
-      await new sql.Request(tx).batch("SET SHOWPLAN_XML OFF");
       await tx.rollback();
+      // SET SHOWPLAN_XML OFF em batch separado — SQL Server exige que SET
+      // SHOWPLAN seja o único statement no batch; o rollback isolou a
+      // transaction mas o estado session-level persiste.
+      await pool.request().batch("SET SHOWPLAN_XML OFF");
       const row = planResult.recordset?.[0];
       const xml = row ? (Object.values(row)[0] ?? "") : "";
       return { textual: xml, format: "xml", raw: planResult.recordset };
     } catch (e) {
       await tx.rollback().catch(() => undefined);
+      // Garante reset mesmo em caso de erro.
+      await pool.request().batch("SET SHOWPLAN_XML OFF").catch(() => undefined);
       throw e;
     }
   }

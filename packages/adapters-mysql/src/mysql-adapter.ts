@@ -34,7 +34,6 @@ export class MysqlAdapter extends CachedAdapter implements Adapter {
   readonly dialect: "mysql" | "mariadb";
 
   private readonly pool: Pool;
-  private runningThreadId: number | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -96,19 +95,7 @@ export class MysqlAdapter extends CachedAdapter implements Adapter {
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
-    try {
-      return await runQueryViaPool(this.pool, sql, limit, (threadId) => {
-        this.runningThreadId = threadId;
-      });
-    } finally {
-      this.runningThreadId = null;
-    }
-  }
-
-  /** `KILL QUERY` numa conexão separada — `threadId` é sempre um inteiro gerado pelo driver, nunca entrada de usuário, então a interpolação é segura. */
-  async cancelRunning(): Promise<void> {
-    if (this.runningThreadId == null) return;
-    await this.pool.query(`KILL QUERY ${this.runningThreadId}`);
+    return runQueryViaPool(this.pool, sql, limit);
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {
