@@ -164,8 +164,8 @@ export async function listIndexesViaConnection(
   schema: string,
   table: string,
 ): Promise<IndexInfo[]> {
-  const rows = await execRows<IndexRow>(conn, INDEXES_SQL, { schema, table_name: table });
-  const pkRows = await execRows<{ index_name: string }>(conn, PRIMARY_INDEX_NAMES_SQL, { schema, table_name: table });
+  const rows = await execRows<IndexRow>(conn, INDEXES_SQL, { schema: schema.toUpperCase(), table_name: table.toUpperCase() });
+  const pkRows = await execRows<{ index_name: string }>(conn, PRIMARY_INDEX_NAMES_SQL, { schema: schema.toUpperCase(), table_name: table.toUpperCase() });
   const pkNames = new Set(pkRows.map((r) => r.index_name));
   const byName = new Map<string, IndexRow[]>();
   for (const r of rows) {
@@ -191,7 +191,7 @@ export async function getDefinitionViaConnection(
     const rows = await execRows<{ text: string }>(
       conn,
       `SELECT text AS "text" FROM all_views WHERE owner = :schema AND view_name = :name`,
-      { schema, name },
+      { schema: schema.toUpperCase(), name: name.toUpperCase() },
     );
     if (rows.length === 0) throw new Error(`view não encontrada: ${schema}.${name}`);
     return `CREATE OR REPLACE VIEW ${quoteIdentifier(oracleDescriptor, schema)}.${quoteIdentifier(oracleDescriptor, name)} AS\n${rows[0]!.text}`;
@@ -199,7 +199,7 @@ export async function getDefinitionViaConnection(
   const rows = await execRows<{ text: string }>(
     conn,
     `SELECT text AS "text" FROM all_source WHERE owner = :schema AND name = :name AND type = 'FUNCTION' ORDER BY line`,
-    { schema, name },
+    { schema: schema.toUpperCase(), name: name.toUpperCase() },
   );
   if (rows.length === 0) throw new Error(`função não encontrada: ${schema}.${name}`);
   return rows.map((r) => r.text).join("");
@@ -259,7 +259,7 @@ export async function introspectSchemas(
       const columns: Column[] = rcols.map((c) => {
         const fk = fkByColumn.get(c.column_name);
         return {
-          name: c.column_name,
+          name: c.column_name.toLowerCase(),
           dataType: c.data_type,
           nullable: c.is_nullable === "Y",
           isPrimaryKey: pkCols.has(c.column_name),
@@ -269,8 +269,8 @@ export async function introspectSchemas(
             ? {
                 foreignKeyTo: {
                   schema: fk.r_owner!,
-                  table: fk.r_table_name!,
-                  column: fk.r_column_name!,
+                  table: fk.r_table_name!.toLowerCase(),
+                  column: fk.r_column_name!.toLowerCase(),
                 },
               }
             : {}),
@@ -279,24 +279,24 @@ export async function introspectSchemas(
 
       const relConstraints: Constraint[] = [];
       if (pkCols.size > 0) {
-        relConstraints.push({ name: "pk", kind: "primary", columns: [...pkCols] });
+        relConstraints.push({ name: "pk", kind: "primary", columns: [...pkCols].map((c) => c.toLowerCase()) });
       }
       for (const fk of fkRows) {
         relConstraints.push({
           name: fk.constraint_name,
           kind: "foreign",
-          columns: [fk.column_name],
+          columns: [fk.column_name.toLowerCase()],
           references: {
             schema: fk.r_owner!,
-            table: fk.r_table_name!,
-            column: fk.r_column_name!,
+            table: fk.r_table_name!.toLowerCase(),
+            column: fk.r_column_name!.toLowerCase(),
           },
         });
       }
 
       return {
         schema: schemaName,
-        name: r.table_name,
+        name: r.table_name.toLowerCase(),
         kind: r.table_type === "VIEW" ? "view" : "table",
         columns,
         constraints: relConstraints,
