@@ -238,7 +238,18 @@ import CircleStop from "@lucide/svelte/icons/circle-stop";
 
 {#if pendingRunCount}
   <div class="run-menu-backdrop" onclick={() => onRunChoiceCancel?.()} role="presentation">
-    <div class="run-menu" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div
+      class="run-menu"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => {
+        if (e.key === "Escape") {
+          onRunChoiceCancel?.();
+        }
+      }}
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+    >
       <header class="run-menu-header">Esta aba tem várias instruções</header>
       <div class="run-menu-body">
         <button

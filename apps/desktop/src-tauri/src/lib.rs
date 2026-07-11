@@ -22,6 +22,14 @@ fn read_text_file(path: String) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebKitGTK on some Wayland setups crashes during surface setup when the
+    // DMABuf renderer is active. Keep Wayland, but opt out of that renderer
+    // path unless the user already set an override.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![write_text_file, read_text_file])
@@ -41,11 +49,14 @@ pub fn run() {
             // Em tamanhos pequenos (barra de tarefas, título da janela) o texto
             // fica ilegível, então trocamos o ícone da janela em runtime por
             // uma versão simplificada, sem texto.
+            #[cfg(not(target_os = "linux"))]
             if let Some(window) = app.get_webview_window("main") {
                 let window_icon = tauri::image::Image::from_bytes(include_bytes!(
                     "../icons/icon-window.png"
                 ))?;
-                window.set_icon(window_icon)?;
+                if let Err(err) = window.set_icon(window_icon) {
+                    log::warn!("failed to set runtime window icon: {err}");
+                }
             }
 
             // Spawn Node backend as a sidecar: HTTP JSON-RPC on port 41920.
