@@ -34,10 +34,13 @@ docker compose ps
 node --test --import ./smoke-test.ts
 
 # Rodar em banco específico
-node --test --import ./smoke-test.ts -- pg
-node --test --import ./smoke-test.ts -- mysql
-node --test --import ./smoke-test.ts -- mssql
-node --test --import ./smoke-test.ts -- oracle
+node --test --test-name-pattern=PostgreSQL --import ./smoke-test.ts
+node --test --test-name-pattern=MySQL --import ./smoke-test.ts
+node --test --test-name-pattern='SQL Server' --import ./smoke-test.ts
+node --test --test-name-pattern='Oracle XE' --import ./smoke-test.ts
+
+# Pipeline completo
+OMNI_SQL_RUN_INTEGRATION=1 node --test --import ./integration-test.ts
 
 # Derrubar tudo
 docker compose down -v
