@@ -73,6 +73,30 @@ importers:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.20.0)
 
+  docker/test-dbs:
+    dependencies:
+      '@omni-sql/adapters-core':
+        specifier: workspace:*
+        version: link:../../packages/adapters-core
+      '@omni-sql/adapters-mssql':
+        specifier: workspace:*
+        version: link:../../packages/adapters-mssql
+      '@omni-sql/adapters-mysql':
+        specifier: workspace:*
+        version: link:../../packages/adapters-mysql
+      '@omni-sql/adapters-oracle':
+        specifier: workspace:*
+        version: link:../../packages/adapters-oracle
+      '@omni-sql/adapters-pg':
+        specifier: workspace:*
+        version: link:../../packages/adapters-pg
+      '@omni-sql/backend':
+        specifier: workspace:*
+        version: link:../../packages/backend
+      '@omni-sql/ts-types':
+        specifier: workspace:*
+        version: link:../../packages/ts-types
+
   packages/adapters-core:
     dependencies:
       '@omni-sql/dialect-descriptors':
