@@ -7,12 +7,14 @@
     "stop": "docker compose down -v",
     "restart": "docker compose down -v && docker compose up -d",
     "test": "node --test --import ./smoke-test.ts",
-    "test:pg": "node --test --import ./smoke-test.ts -- pg",
-    "test:mysql": "node --test --import ./smoke-test.ts -- mysql",
-    "test:mssql": "node --test --import ./smoke-test.ts -- mssql",
-    "test:oracle": "node --test --import ./smoke-test.ts -- oracle"
+    "test:integration": "OMNI_SQL_RUN_INTEGRATION=1 node --test --import ./integration-test.ts",
+    "test:pg": "node --test --test-name-pattern=PostgreSQL --import ./smoke-test.ts",
+    "test:mysql": "node --test --test-name-pattern=MySQL --import ./smoke-test.ts",
+    "test:mssql": "node --test --test-name-pattern='SQL Server' --import ./smoke-test.ts",
+    "test:oracle": "node --test --test-name-pattern='Oracle XE' --import ./smoke-test.ts"
   },
   "dependencies": {
+    "@omni-sql/backend": "workspace:*",
     "@omni-sql/adapters-core": "workspace:*",
     "@omni-sql/adapters-pg": "workspace:*",
     "@omni-sql/adapters-mysql": "workspace:*",

@@ -180,9 +180,12 @@ function metaSourceOf(session: Session, cteRelations: readonly Relation[] = []):
   return {
     dialect: dialectDescriptor(session.config.dialect),
     listRelations: (): readonly Relation[] => {
-      const out: Relation[] = [];
+      const out: Relation[] = [...cteRelations];
+      const cteNames = new Set(cteRelations.map((r) => r.name.toLowerCase()));
       for (const s of cache.listSchemas(session.config.id)) {
-        out.push(...cache.getTablesBySchema(session.config.id, s.name));
+        for (const rel of cache.getTablesBySchema(session.config.id, s.name)) {
+          if (!cteNames.has(rel.name.toLowerCase())) out.push(rel);
+        }
       }
       return out;
     },
