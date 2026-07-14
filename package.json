@@ -17,7 +17,8 @@
     "dev:frontend": "pnpm --filter desktop dev",
     "dev:backend": "pnpm --filter backend start",
     "dev:tauri": "pnpm --filter desktop dev:tauri",
-    "build:tauri": "pnpm --filter desktop build:tauri"
+    "build:tauri": "pnpm --filter desktop build:tauri",
+    "seed:test-connections": "tsx ./docker/test-dbs/register-connections.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
