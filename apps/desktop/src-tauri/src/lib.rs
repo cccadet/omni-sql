@@ -60,8 +60,8 @@ pub fn run() {
             }
 
             // Spawn Node backend as a sidecar: HTTP JSON-RPC on port 41920.
-            // In dev, pnpm install already ran from the repo root; we point
-            // node at packages/backend/src/index.ts (type-stripping on Node 22+).
+            // In dev, run the TypeScript backend through tsx. Some Linux Node
+            // builds expose Node 22 but are compiled without native TS support.
             let manifest_dir = env!("CARGO_MANIFEST_DIR");
             // monorepo root = apps/desktop/src-tauri/../..
             let workspace_root = std::path::Path::new(manifest_dir)
@@ -88,7 +88,9 @@ pub fn run() {
                 );
             } else {
                 let child = Command::new("node")
+                    .args(["--import", "tsx"])
                     .arg(&backend_entry)
+                    .current_dir(workspace_root)
                     .env("OMNI_SQL_PORT", "41920")
                     .stdin(Stdio::null())
                     .stdout(Stdio::inherit())

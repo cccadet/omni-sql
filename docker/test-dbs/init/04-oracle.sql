@@ -1,6 +1,11 @@
 -- Oracle: dados fictícios para smoke test do omni-sql
 -- Roda como APP_USER (OMNI) no gvenzl/oracle-xe
 
+-- O runner da imagem abre o seed no CDB raiz (XE), enquanto APP_USER vive no
+-- PDB XEPDB1. Selecionar ambos evita criar os objetos no container/schema SYS.
+ALTER SESSION SET CONTAINER = XEPDB1;
+ALTER SESSION SET CURRENT_SCHEMA = OMNI;
+
 -- ── Tabelas ──
 
 CREATE TABLE customers (

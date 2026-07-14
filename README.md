@@ -44,7 +44,9 @@ cd services\jvm-sidecar
 ```bash
 # Linux/macOS
 cd services/jvm-sidecar
-./bootstrap.sh   # só na primeira vez, gera o gradle wrapper
+ls -l bootstrap.sh gradlew
+chmod +x bootstrap.sh gradlew
+./bootstrap.sh    # only first time, generates Gradle wrapper
 ./gradlew jar
 ```
 
