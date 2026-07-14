@@ -41,6 +41,7 @@ services/jvm-sidecar           Kotlin/Gradle + Calcite: /health, /scope/resolve 
 packages/adapters-mysql        Adaptador MySQL/MariaDB real (driver `mysql2/promise`): information_schema, EXPLAIN FORMAT=JSON
 packages/adapters-mssql        Adaptador SQL Server real (driver `mssql`/Tedious): INFORMATION_SCHEMA + sys.indexes, SHOWPLAN_XML
 packages/adapters-oracle       Adaptador Oracle real (driver `oracledb` thin mode): ALL_TAB_COLUMNS/ALL_CONSTRAINTS, EXPLAIN PLAN
+packages/adapters-jdbc         Adaptador JDBC genérico via sidecar JVM: driver `.jar` dinâmico, query e DatabaseMetaData
 ```
 
 ## Fases
@@ -62,7 +63,7 @@ packages/adapters-oracle       Adaptador Oracle real (driver `oracledb` thin mod
   `packages/backend/src/sidecar-client.ts` chama o sidecar com timeout de
   250ms antes do tier1 síncrono; falha cai de volta pro tier1 puro.
   Subqueries correlacionadas (caso 8) seguem fora de escopo.
-- **F4 MySQL → MariaDB → SQL Server → Oracle — adaptadores ✅, validação real ⏳:**
+- **F4 MySQL → MariaDB → SQL Server → Oracle — adaptadores ✅, validação real ✅:**
   os quatro adaptadores existem completos (introspecção via `information_schema`/
   dicionário de dados nativo, `runQuery`, `updateRow` parametrizado, `explain`,
   `listIndexes`, `getDefinition`) e registrados em
@@ -71,17 +72,30 @@ packages/adapters-oracle       Adaptador Oracle real (driver `oracledb` thin mod
   Server vieram depois). MySQL/MariaDB reusam o driver `mysql2/promise`
   (protocolo de fio compatível); SQL Server usa `mssql`/Tedious com
   `SET SHOWPLAN_XML` isolado numa transaction própria (T-SQL não tem `EXPLAIN`).
-  Testes de smoke (construção + recusa de dial) verdes nos 4 pacotes; testes de
-  introspecção real ficam atrás de env vars (`MYSQL_TEST_CONNECTION_STRING` etc.)
-  e a suíte 8/8 do lexer contra instâncias reais via testcontainers ainda não
+  Testes unitários de smoke e um smoke/integration test Docker para os quatro
+  bancos estão implementados (`docker/test-dbs`), cobrindo conexão,
+  introspecção, queries, EXPLAIN, índices, definições e fechamento. Os testes
+  unitários de introspecção também podem usar env vars (`MYSQL_TEST_CONNECTION_STRING`
+  etc.). A suíte 8/8 do lexer contra instâncias reais via testcontainers ainda não
   existe — isso segue como item de F9.
 - **F5 Funções com assinatura** (snippets Monaco, overloads separados) + `EXPLAIN` textual
-  (`Adapter.explain` já retorna JSON; falta plugar Monaco e visual tree).
-- **F6 JDBC genérico no sidecar** (best-effort, featureFlags, classloader isolado).
+  (`Adapter.explain` já está implementado nos quatro adaptadores relacionais e
+  retorna JSON/texto conforme o dialeto; falta expor EXPLAIN no RPC/UI, além de
+  snippets e overloads separados no Monaco).
+- **F6 JDBC genérico ✅ (núcleo):** `packages/adapters-jdbc` + endpoints `/jdbc/*`
+  no sidecar JVM, carregamento dinâmico de `.jar`/classe de driver, conexão
+  persistente por `connectionId`, query limitada, schemas e introspecção via
+  `DatabaseMetaData`, com testes Kotlin e TypeScript. Funções, índices,
+  definições, EXPLAIN e edição de célula ficam fora do núcleo por não serem
+  portáveis entre drivers; faltam feature flags e hardening de isolamento para
+  uso de produção.
 - **F7 ODBC** (tentar `node-odbc` direto antes da bridge JDBC-ODBC).
-- **F9 Polimento:** P99<100ms com 10k tabelas, ordenação por relevância, ícones,
-  tratamento de erro 4 categorias, history/recall, tabs multi-resultado, `EXPLAIN VISUAL`,
-  suíte testcontainers (PG/MySQL/MariaDB/SQLServer/Oracle via `gvenzl/oracle-xe`).
+- **F9 Polimento — em andamento:** history/recall persistente, abas de query,
+  execução de uma ou várias instruções, variáveis `:nome`, edição inline via PK,
+  arquivos SQL e carregamento incremental já existem. Permanecem P99<100ms com
+  10k tabelas, ordenação por relevância, ícones, tratamento de erro em quatro
+  categorias, múltiplos resultados preservados, `EXPLAIN VISUAL` e suíte
+  testcontainers (PG/MySQL/MariaDB/SQLServer/Oracle via `gvenzl/oracle-xe`).
 
 ## Suíte 8 casos — parser de escopo
 1. `FROM`/`JOIN` → tabelas/views
@@ -105,6 +119,11 @@ packages/adapters-oracle       Adaptador Oracle real (driver `oracledb` thin mod
 ```
 pnpm -r typecheck && pnpm -r lint && pnpm test
 ```
+
+Estado verificado em 2026-07-14: typecheck, lint e `cargo check` passam. A
+suíte TypeScript passa até `packages/backend`, cujo script ainda tenta executar
+`.ts` diretamente com Node 22 e falha com `ERR_UNKNOWN_FILE_EXTENSION`; corrigir
+o runner (`tsx`/`--import`) é uma tarefa de manutenção separada.
 
 ## Riscos técnicos (em ordem)
 1. Parser de escopo tolerante (Fase 3) — onde se concentra o maior esforço de engenharia.

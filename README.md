@@ -107,7 +107,7 @@ cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml   # Rust shell
 Tauri Shell (Rust)
   ├─ Svelte 5 + Monaco Editor (frontend)
   └─ Node backend (TS) — JSON-RPC HTTP localhost:41920
-       ├─ Adapters: PostgreSQL ✅ | MySQL/MariaDB/SQLServer/Oracle ⏳ | JDBC/ODBC ⏳
+       ├─ Adapters: PostgreSQL/MySQL/MariaDB/SQLServer/Oracle ✅ | JDBC ✅ | ODBC ⏳
        ├─ Metadata cache: SQLite (node:sqlite builtin) com last_synced_at
        └─ Autocomplete engine: lexer tier1 ✅ | Calcite tier2 ✅ (colunas de CTE)
   └─ JVM sidecar (Kotlin, opcional) — HTTP localhost:41921
@@ -123,8 +123,11 @@ técnicos.
 - ✅ Fase 1: Cache SQLite + modelo unificado de metadados
 - ✅ Fase 2: Adaptador PostgreSQL real + lexer tier1 (casos 1-6)
 - ✅ Fase 3: Colunas de CTE via Apache Calcite (`/scope/resolve` no sidecar JVM)
-- ⏳ Fases 4-7: Demais bancos (MySQL, Oracle, SQL Server, JDBC, ODBC)
-- ⏳ Fase 9: Polimento transversal
+- ✅ Fase 4: Adaptadores MySQL/MariaDB, SQL Server e Oracle, com smoke/integration test Docker
+- ✅ Fase 6 (núcleo): Adaptador JDBC genérico via sidecar JVM e `DatabaseMetaData`
+- ⏳ Fase 5: snippets/overloads de funções e EXPLAIN integrado à UI
+- ⏳ Fase 7: Adaptador ODBC
+- ⏳ Fase 9: Polimento transversal (histórico, abas, variáveis e edição inline já disponíveis)
 
 ## Licença
 

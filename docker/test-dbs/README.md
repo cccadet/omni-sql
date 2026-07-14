@@ -113,6 +113,26 @@ O Oracle XE é o banco mais lento para inicializar. Aguarde o status
 docker compose ps oracle
 ```
 
+## Cadastrar conexões no Tauri
+
+Com o Tauri/backend já rodando, cadastre as quatro conexões de teste no
+backend persistente:
+
+```bash
+pnpm -w run seed:test-connections
+```
+
+Para cadastrar apenas alguns dialetos:
+
+```bash
+pnpm -w run seed:test-connections -- pg mysql
+```
+
+O script usa as credenciais padrão do `docker-compose.yml`. Elas podem ser
+substituídas por `OMNI_SQL_TEST_PG_PASSWORD`, `OMNI_SQL_TEST_MYSQL_PASSWORD`,
+`OMNI_SQL_TEST_MSSQL_PASSWORD` e `OMNI_SQL_TEST_ORACLE_PASSWORD`. Para outro
+endpoint do backend, use `OMNI_SQL_BACKEND_URL`.
+
 ## Teste de integração
 
 O teste de integração valida o fluxo de conexão persistida no backend, além
