@@ -16,6 +16,9 @@ coverage
 # Agent / IDE local state
 .serena/
 .codebase-memory/
+.headroom/
+.tokensave/
+node
 
 # Tauri / Rust
 apps/desktop/src-tauri/target
@@ -31,4 +34,3 @@ services/jvm-sidecar/out
 .DS_Store
 Thumbs.db
 .claude/.headroom_wrap_marker.json
-.tokensave/
