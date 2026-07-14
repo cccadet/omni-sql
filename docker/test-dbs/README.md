@@ -18,14 +18,154 @@ dados fictícios.
 
 ## Quick start
 
+Os testes são arquivos TypeScript executados pelo `tsx`. Isso é necessário
+principalmente no Node 22, que pode não aceitar `.ts` diretamente com
+`node --test`.
+
 ```bash
 cd docker/test-dbs
 
-# Instalar dependências (requer pnpm no root do monorepo)
+# Na raiz do monorepo, instalar dependências uma vez
+cd ../..
 pnpm install
+
+# Voltar para esta pasta
+cd docker/test-dbs
 
 # Subir todos os bancos
 docker compose up -d
+
+# Aguardar os healthchecks (~30-60s para Oracle)
+docker compose ps
+
+# Rodar smoke test em todos os bancos
+pnpm exec tsx --test ./smoke-test.ts
+
+# Derrubar tudo, incluindo os volumes e os dados de teste
+docker compose down -v
+```
+
+O comando deve mostrar quatro suites (`PostgreSQL`, `MySQL`, `SQL Server` e
+`Oracle XE`) e os testes individuais dentro de cada suite.
+
+## Testes por banco
+
+Os filtros abaixo executam apenas a suite do banco escolhido. Os containers
+correspondentes precisam estar ativos.
+
+### PostgreSQL
+
+```bash
+docker compose up -d postgres
+pnpm exec tsx --test --test-name-pattern=PostgreSQL ./smoke-test.ts
+```
+
+Configuração usada pelo teste:
+
+- Host/porta: `127.0.0.1:5432`
+- Banco: `omni_test`
+- Usuário/senha: `omni` / `omni`
+- Schema: `public`
+
+### MySQL
+
+```bash
+docker compose up -d mysql
+pnpm exec tsx --test --test-name-pattern=MySQL ./smoke-test.ts
+```
+
+Configuração usada pelo teste:
+
+- Host/porta: `127.0.0.1:3306`
+- Banco: `omni_test`
+- Usuário/senha: `omni` / `omni`
+
+### SQL Server
+
+```bash
+docker compose up -d mssql
+pnpm exec tsx --test --test-name-pattern='SQL Server' ./smoke-test.ts
+```
+
+Configuração usada pelo teste:
+
+- Host/porta: `127.0.0.1:1433`
+- Usuário/senha: `sa` / `Omni!2024`
+- Banco: `omni_test`
+
+### Oracle XE
+
+```bash
+docker compose up -d oracle
+pnpm exec tsx --test --test-name-pattern='Oracle XE' ./smoke-test.ts
+```
+
+Configuração usada pelo teste:
+
+- Host/porta: `127.0.0.1:1521`
+- Service: `XEPDB1`
+- Usuário/senha: `OMNI` / `omni`
+
+O Oracle XE é o banco mais lento para inicializar. Aguarde o status
+`healthy` antes de executar o teste:
+
+```bash
+docker compose ps oracle
+```
+
+## Teste de integração
+
+O teste de integração valida o fluxo de conexão persistida no backend, além
+dos adaptadores. Execute-o com todos os bancos disponíveis:
+
+```bash
+docker compose up -d
+OMNI_SQL_RUN_INTEGRATION=1 pnpm exec tsx --test ./integration-test.ts
+```
+
+## Diagnóstico
+
+Ver status e healthcheck dos bancos:
+
+```bash
+docker compose ps
+```
+
+Ver logs de um banco:
+
+```bash
+docker compose logs postgres
+docker compose logs mysql
+docker compose logs mssql
+docker compose logs oracle
+```
+
+Se um banco já tiver sido inicializado com dados incorretos, recrie os
+volumes:
+
+```bash
+docker compose down -v
+docker compose up -d
+```
+
+As portas `5432`, `3306`, `1433` e `1521` precisam estar livres no host.
+
+<!--
+# Comandos antigos, mantidos apenas como referência:
+# node --test --import ./smoke-test.ts não registra os testes; --import trata
+# o arquivo como preload. No Node 22, node --test ./smoke-test.ts também não
+# carrega TypeScript sem suporte adicional.
+#
+# Pipeline completo:
+# OMNI_SQL_RUN_INTEGRATION=1 node --test --import ./integration-test.ts
+#
+# Derrubar tudo:
+# docker compose down -v
+-->
+
+<!--
+# O conteúdo abaixo era o quick start original e fica substituído pelos
+# comandos acima.
 
 # Aguardar healthcheck (~30-60s para Oracle)
 docker compose ps
@@ -44,7 +184,7 @@ OMNI_SQL_RUN_INTEGRATION=1 node --test --import ./integration-test.ts
 
 # Derrubar tudo
 docker compose down -v
-```
+-->
 
 ## Schema de teste
 

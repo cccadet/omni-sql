@@ -49,6 +49,26 @@ services:
       retries: 20
       start_period: 30s
 
+  mssql-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      mssql:
+        condition: service_healthy
+    entrypoint: ["/opt/mssql-tools18/bin/sqlcmd"]
+    command:
+      - "-S"
+      - "mssql"
+      - "-U"
+      - "sa"
+      - "-P"
+      - "Omni!2024"
+      - "-C"
+      - "-i"
+      - "/usr/config/init-script.sql"
+    volumes:
+      - ./init/03-mssql.sql:/usr/config/init-script.sql:ro
+    restart: "no"
+
   oracle:
     image: gvenzl/oracle-xe:21-slim
     environment:
@@ -58,7 +78,9 @@ services:
     ports:
       - "1521:1521"
     volumes:
-      - ./init/04-oracle.sql:/opt/oracle/scripts/startup/04-oracle.sql
+      # gvenzl/oracle-xe executa seeds de primeira inicialização neste
+      # diretório (e não em /opt/oracle/scripts/startup).
+      - ./init/04-oracle.sql:/container-entrypoint-initdb.d/04-oracle.sql
     healthcheck:
       test: ["CMD-SHELL", "healthcheck.sh"]
       interval: 10s
