@@ -181,21 +181,6 @@
     sanitizeTabConnections();
   }
 
-  async function ensureDemoConnection() {
-    if (connections.length === 0) {
-      busyMsg = "Criando conexão demo…";
-      const cfg = {
-        id: "demo",
-        label: "Demo (in-memory)",
-        dialect: "postgres" as const,
-        endpoint: "memory://local",
-        user: "anon",
-      };
-      await backend.call("connection.add", { config: cfg });
-      await loadConnections();
-    }
-  }
-
   async function loadSidebarData(connectionId: string | null) {
     if (!connectionId) return;
     sidebarLoading = true;
@@ -243,7 +228,10 @@
   async function onBoot() {
     try {
       await loadConnections();
-      await ensureDemoConnection();
+      if (connections.some((c) => c.id === "demo")) {
+        await backend.call("connection.remove", { connectionId: "demo" });
+        await loadConnections();
+      }
       assignDefaultConnections();
       await introspectActive();
     } catch (e) {
