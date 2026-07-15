@@ -9,6 +9,7 @@ import type {
   JsonRpcResponse,
   AddConnectionResult,
   RunQueryResult,
+  ExplainQueryResult,
   ListRelationsResult,
   CompletionResult,
   AnalyzeEditabilityResult,
@@ -84,7 +85,16 @@ test("smoke: add connection → introspect → list relations → run query → 
     assert.equal(qRes.rows.length, 1);
     assert.equal(qRes.rows[0]?.[0], 1);
 
-    // 5. completion: `FROM ` → tables
+    // 5. explain
+    const e = await rpc("query.explain", {
+      connectionId: "smoke",
+      sql: "SELECT 1",
+    });
+    const eRes = e.result as ExplainQueryResult;
+    assert.equal(eRes.format, "text");
+    assert.ok(eRes.textual.includes("SELECT 1"));
+
+    // 6. completion: `FROM ` → tables
     const c = await rpc("completion.get", {
       connectionId: "smoke",
       sql: "SELECT 1 FROM ",
@@ -95,7 +105,7 @@ test("smoke: add connection → introspect → list relations → run query → 
     assert.ok(labels.includes("users"));
     assert.ok(labels.includes("orders"));
 
-    // 6. test connection (demo/in-memory always succeeds)
+    // 7. test connection (demo/in-memory always succeeds)
     const test = await rpc("connection.test", {
       config: {
         id: "smoke-test",
@@ -108,7 +118,7 @@ test("smoke: add connection → introspect → list relations → run query → 
     const testRes = test.result as { ok: boolean; latencyMs: number };
     assert.equal(testRes.ok, true);
 
-    // 7. unknown method returns JSON-RPC error (not HTTP 500)
+    // 8. unknown method returns JSON-RPC error (not HTTP 500)
     const bad = await rpc("nonexistent.method");
     assert.ok(bad.error);
     assert.equal(bad.error.code, -32601);

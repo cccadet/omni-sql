@@ -37,6 +37,8 @@ import type {
   RunQueryResult,
   CancelQueryParams,
   CancelQueryResult,
+  ExplainQueryParams,
+  ExplainQueryResult,
   AnalyzeEditabilityParams,
   AnalyzeEditabilityResult,
   UpdateRowParams,
@@ -297,6 +299,12 @@ export const handlers: RpcRouter = {
     if (!s.adapter.cancelRunning) return { cancelled: false };
     await s.adapter.cancelRunning();
     return { cancelled: true };
+  },
+
+  async "query.explain"({ connectionId, sql }: ExplainQueryParams): Promise<ExplainQueryResult> {
+    const s = requireSession(connectionId);
+    await s.adapter.connect();
+    return s.adapter.explain(sql);
   },
 
   async "query.analyzeEditability"({

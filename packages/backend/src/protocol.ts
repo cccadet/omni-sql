@@ -6,6 +6,7 @@ import type {
   FunctionDef,
   IndexInfo,
   ObjectDefinitionKind,
+  ExplainResult,
 } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 
@@ -75,6 +76,12 @@ export interface CancelQueryParams {
 export interface CancelQueryResult {
   cancelled: boolean;
 }
+
+export interface ExplainQueryParams {
+  connectionId: string;
+  sql: string;
+}
+export type ExplainQueryResult = ExplainResult;
 
 export interface AnalyzeEditabilityParams {
   connectionId: string;
@@ -172,6 +179,7 @@ export interface RpcRouter {
   "connection.listSchemas": (p: ListSchemasParams) => Promise<ListSchemasResult>;
   "query.run": (p: RunQueryParams) => Promise<RunQueryResult>;
   "query.cancel": (p: CancelQueryParams) => Promise<CancelQueryResult>;
+  "query.explain": (p: ExplainQueryParams) => Promise<ExplainQueryResult>;
   "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;
   "row.update": (p: UpdateRowParams) => Promise<UpdateRowResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;

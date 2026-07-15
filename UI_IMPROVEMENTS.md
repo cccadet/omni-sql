@@ -167,3 +167,34 @@ Se quiser, no próximo passo monto um plano de implementação detalhado para a 
 6. **Painel ligeiramente maior**: largura aumentada de `340px` para `380px` para acomodar a barra de filtros sem truncar labels.
 
 **Nota:** `pnpm -r typecheck` e `pnpm -r lint` passam. Nenhum contrato backend ou prop de `App.svelte` foi alterado — a feature é 100% client-side no componente de histórico.
+
+---
+
+## Implementação Fase 5 ✅ (2026-07-15)
+
+**Arquivos alterados/criados:**
+
+| Arquivo | Mudança |
+|---|---|
+| `packages/backend/src/protocol.ts` | Adicionado `ExplainQueryParams`/`ExplainQueryResult` e rota `query.explain` no `RpcRouter` |
+| `packages/backend/src/handlers.ts` | Handler `query.explain` chamando `adapter.explain(sql)` |
+| `packages/backend/src/index.ts` | Adicionado `query.explain` no `dispatch` switch |
+| `packages/backend/test/smoke.test.ts` | Smoke test cobre `query.explain` |
+| `apps/desktop/src/lib/ResultsGrid.svelte` | Abas Dados / Mensagens / Plano + renderização do explain |
+| `apps/desktop/src/lib/Editor.svelte` | Desabilita `autoClosingBrackets`/`autoClosingQuotes` no Monaco para evitar interferência no paste de aspas |
+| `apps/desktop/src/App.svelte` | Estado `explainResult`/`explainError`/`explainLoading` por aba e função `onExplain` |
+
+**Funcionalidades entregues:**
+
+1. **RPC `query.explain`**: endpoint JSON-RPC tipado que recebe `connectionId` + `sql` e devolve `ExplainResult` (textual/format/raw). Exposto nos quatro adaptadores relacionais (Postgres, MySQL/MariaDB, SQL Server, Oracle) e validado pelo smoke test in-memory.
+
+2. **Abas de resultados**: o painel inferior deixou de ser único e agora mostra tabs:
+   - **Dados** — grade de resultados existente (sort, seleção, edição inline, load-more).
+   - **Mensagens** — erro da query (texto vermelho) ou mensagem de sucesso com linhas/colunas/tempo/rowsAffected.
+   - **Plano** — resultado do `EXPLAIN` da última query executada. Carregado sob demanda ao clicar na aba; JSON é formatado com `JSON.stringify(..., null, 2)` e text/XML são exibidos em `<pre>`.
+
+3. **Navegação automática entre abas**: nova query executada com sucesso abre na aba Dados; erro de execução abre na aba Mensagens.
+
+4. **Correção do paste de aspas simples**: desabilitou `autoClosingBrackets` e `autoClosingQuotes` no Monaco, evitando que o editor insira aspas de fechamento automaticamente quando o usuário cola ou digita aspas simples (causa comum de conteúdo “sumir” ou parecer duplicado em webviews do Tauri).
+
+**Nota:** `pnpm verify` passa (typecheck + lint + test). A aba Plano é carregada sob demanda para não adicionar overhead de uma segunda chamada ao banco em toda execução.
