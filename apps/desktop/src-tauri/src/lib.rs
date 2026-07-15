@@ -30,6 +30,15 @@ pub fn run() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
+    // Alguns drivers Mesa/Wayland falham ao criar o contexto EGL/ZINK
+    // ("failed to choose pdev", "failed to create dri2 screen") e deixam a
+    // janela em branco. Em dev, forçar rendering por software evita esse
+    // problema em ambientes virtuais/headless sem afetar releases.
+    #[cfg(all(target_os = "linux", debug_assertions))]
+    if std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none() {
+        std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![write_text_file, read_text_file])
