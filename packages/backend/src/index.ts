@@ -55,6 +55,8 @@ async function dispatch(method: string, params: unknown): Promise<unknown> {
       return handlers["query.run"](params as never);
     case "query.cancel":
       return handlers["query.cancel"](params as never);
+    case "query.explain":
+      return handlers["query.explain"](params as never);
     case "query.analyzeEditability":
       return handlers["query.analyzeEditability"](params as never);
     case "row.update":

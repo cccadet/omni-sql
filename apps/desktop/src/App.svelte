@@ -10,7 +10,7 @@
   import FormatSettings from "./lib/FormatSettings.svelte";
   import { backend, type ConnectionEntry, type RelationInfo } from "./lib/backend";
   import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
-  import type { QueryResult, ConnectionConfig, RowEditability, FunctionDef } from "@omni-sql/ts-types";
+  import type { QueryResult, ConnectionConfig, RowEditability, FunctionDef, ExplainResult } from "@omni-sql/ts-types";
   import type { Suggestion } from "@omni-sql/autocomplete-engine";
   import { splitStatements, statementAt, type SqlStatement } from "./lib/sql-statements";
   import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
@@ -38,6 +38,10 @@
     editability: RowEditability | null;
     /** Instrução efetivamente executada por último (usado por "carregar mais"). */
     lastRunSql: string | null;
+    /** Resultado do EXPLAIN da última query executada. */
+    explainResult: ExplainResult | null;
+    explainError: string | null;
+    explainLoading: boolean;
   }
 
   interface PersistedTab {
@@ -86,6 +90,9 @@
       running: false,
       editability: null,
       lastRunSql: null,
+      explainResult: null,
+      explainError: null,
+      explainLoading: false,
     };
   }
 
@@ -280,6 +287,8 @@
     tab.running = true;
     tab.error = null;
     tab.editability = null;
+    tab.explainResult = null;
+    tab.explainError = null;
     tab.lastRunSql = sql;
     const startedAt = Date.now();
     try {
@@ -438,6 +447,24 @@
       set: edit.set,
       where: edit.where,
     });
+  }
+
+  async function onExplain() {
+    const tab = tabs[activeIndex];
+    if (!tab?.connectionId || !tab.lastRunSql) return;
+    tab.explainLoading = true;
+    tab.explainError = null;
+    try {
+      tab.explainResult = await backend.call<ExplainResult>("query.explain", {
+        connectionId: tab.connectionId,
+        sql: tab.lastRunSql,
+      });
+    } catch (e) {
+      tab.explainError = (e as Error).message;
+      tab.explainResult = null;
+    } finally {
+      tab.explainLoading = false;
+    }
   }
 
   function onLimitChange(newLimit: number) {
@@ -795,8 +822,12 @@
         error={tabs[activeIndex]!.error}
         running={tabs[activeIndex]!.running}
         editability={tabs[activeIndex]!.editability}
+        explainResult={tabs[activeIndex]!.explainResult}
+        explainError={tabs[activeIndex]!.explainError}
+        explainLoading={tabs[activeIndex]!.explainLoading}
         onLoadMore={onLoadMore}
         onCellEdit={onCellEdit}
+        onExplain={onExplain}
       />
     </section>
 
