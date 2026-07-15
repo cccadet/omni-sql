@@ -17,6 +17,7 @@
     formatterSettings: FormatterSettings;
     onAutocomplete?: (cursor: number) => Promise<Suggestion[]>;
     onRun?: () => void;
+    onCursorChange?: (position: { line: number; column: number }) => void;
   }
   let {
     value = $bindable(),
@@ -25,6 +26,7 @@
     formatterSettings,
     onAutocomplete,
     onRun,
+    onCursorChange,
   }: Props = $props();
 
   let container: HTMLDivElement;
@@ -136,6 +138,10 @@
 
     editor.onDidChangeModelContent(() => {
       value = editor!.getValue();
+    });
+
+    editor.onDidChangeCursorPosition((e) => {
+      onCursorChange?.({ line: e.position.lineNumber, column: e.position.column });
     });
 
     editor.onKeyDown(onKeyDown);

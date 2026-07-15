@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { backend, type RelationInfo } from "./backend";
+  import { backend, type RelationInfo, type ConnectionEntry } from "./backend";
   import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
   import { typeIcon } from "./type-icons.svelte";
+  import DialectIcon from "./DialectIcon.svelte";
   import DatabaseIcon from "@lucide/svelte/icons/database";
   import Table2 from "@lucide/svelte/icons/table-2";
   import Eye from "@lucide/svelte/icons/eye";
@@ -20,11 +21,26 @@
     functions: FunctionDef[];
     loading: boolean;
     connectionId: string | null;
+    connection: ConnectionEntry | null;
     onInsert?: (text: string) => void;
     onRefresh?: () => void;
     onOpenInNewTab?: (title: string, sql: string) => void;
   }
-  let { relations, functions, loading, connectionId, onInsert, onRefresh, onOpenInNewTab }: Props = $props();
+  let { relations, functions, loading, connectionId, connection, onInsert, onRefresh, onOpenInNewTab }: Props = $props();
+
+  const dialectLabels: Record<string, string> = {
+    postgres: "PostgreSQL",
+    mysql: "MySQL",
+    mariadb: "MariaDB",
+    sqlserver: "SQL Server",
+    oracle: "Oracle",
+    "jdbc-generic": "JDBC",
+    odbc: "ODBC",
+  };
+
+  function dialectLabel(dialect: string): string {
+    return dialectLabels[dialect] ?? dialect;
+  }
 
   interface SchemaGroup {
     name: string;
@@ -293,7 +309,17 @@
 
 <aside class="sidebar" style={`width: ${width}px`}>
   <div class="sidebar-header">
-    <span>Objetos</span>
+    {#if connection}
+      <div class="connection-chip" title={`${connection.label} · ${dialectLabel(connection.dialect)}`}>
+        <DialectIcon dialect={connection.dialect} size={13} />
+        <span class="connection-label">{connection.label}</span>
+        <span class="connection-status" class:synced={connection.lastSyncedAt}>
+          {connection.lastSyncedAt ? "conectado" : "não sincronizado"}
+        </span>
+      </div>
+    {:else}
+      <span>Objetos</span>
+    {/if}
     <div class="header-actions">
       <button
         class="icon"
@@ -497,6 +523,40 @@
   .header-actions {
     display: flex;
     gap: 2px;
+  }
+  .connection-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: #ccc;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+  }
+  .connection-chip :global(.dialect-icon) {
+    flex-shrink: 0;
+  }
+  .connection-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    max-width: 110px;
+  }
+  .connection-status {
+    flex-shrink: 0;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #aaa;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .connection-status.synced {
+    background: rgba(137, 209, 133, 0.18);
+    color: #89d185;
   }
   .search-wrapper {
     position: relative;
