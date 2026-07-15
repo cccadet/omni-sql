@@ -20,6 +20,75 @@
 
   let expanded = $state<{ column: string; text: string } | null>(null);
 
+  // ─────────────────────────── Sort + seleção de linha (Fase 2)
+
+  type SortDirection = "asc" | "desc" | null;
+  let sortColumn = $state<string | null>(null);
+  let sortDirection = $state<SortDirection>(null);
+  let selectedRowIndex = $state<number | null>(null);
+
+  // Reset sort/seleção quando muda a query.
+  $effect(() => {
+    result;
+    sortColumn = null;
+    sortDirection = null;
+    selectedRowIndex = null;
+  });
+
+  const displayRows = $derived.by((): { row: unknown[]; originalIndex: number }[] => {
+    if (!result) return [];
+    const indexed = result.rows.map((row, originalIndex) => ({ row, originalIndex }));
+    if (!sortColumn || !sortDirection) return indexed;
+    const colIndex = result.columns.findIndex((c) => c.name === sortColumn);
+    if (colIndex < 0) return indexed;
+    const multiplier = sortDirection === "asc" ? 1 : -1;
+    return [...indexed].sort((a, b) => {
+      const av = a.row[colIndex];
+      const bv = b.row[colIndex];
+      // NULLs sempre por último, independente da direção.
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return 1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return (av - bv) * multiplier;
+      }
+      if (typeof av === "bigint" && typeof bv === "bigint") {
+        return Number(av - bv) * multiplier;
+      }
+      if (av instanceof Date && bv instanceof Date) {
+        return (av.getTime() - bv.getTime()) * multiplier;
+      }
+      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * multiplier;
+    });
+  });
+
+  function toggleSort(column: string) {
+    if (sortColumn !== column) {
+      sortColumn = column;
+      sortDirection = "asc";
+    } else if (sortDirection === "asc") {
+      sortDirection = "desc";
+    } else {
+      sortColumn = null;
+      sortDirection = null;
+    }
+  }
+
+  function selectRow(index: number | null) {
+    selectedRowIndex = index;
+  }
+
+  function onGridKeydown(e: KeyboardEvent) {
+    if (selectedRowIndex === null) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      selectRow(Math.min(selectedRowIndex + 1, displayRows.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      selectRow(Math.max(selectedRowIndex - 1, 0));
+    }
+  }
+
   function cellText(cell: unknown): string {
     if (cell === null) return "";
     if (typeof cell === "object") return JSON.stringify(cell);
@@ -155,7 +224,8 @@
 
 <svelte:window onkeydown={onOverlayKeydown} />
 
-<section class="results">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<section class="results" tabindex="-1" aria-label="Resultados da consulta" onkeydown={onGridKeydown}>
   <header class="results-header">
     <span>Resultados</span>
     {#if result}
@@ -194,25 +264,42 @@
           <tr>
             {#each result.columns as c}
               {@const TypeIcon = typeIcon(c.dataType)}
+              {@const active = sortColumn === c.name}
+              {@const dir = active ? sortDirection : null}
               <th
-                >{c.name}<span class="type" title={c.dataType}
-                  ><TypeIcon size={13} strokeWidth={2} /></span
-                ></th
+                class:sorted={active}
+                class:sort-asc={dir === "asc"}
+                class:sort-desc={dir === "desc"}
+                onclick={() => toggleSort(c.name)}
+                title={active ? `Ordenado ${dir === "asc" ? "crescente" : "decrescente"} (clique para limpar)` : "Ordenar"}
               >
+                <span class="th-content">
+                  {c.name}
+                  <span class="type" title={c.dataType}
+                    ><TypeIcon size={13} strokeWidth={2} /></span
+                  >
+                  {#if dir}
+                    <span class="sort-indicator" aria-hidden="true">{dir === "asc" ? "▲" : "▼"}</span>
+                  {/if}
+                </span>
+              </th>
             {/each}
           </tr>
         </thead>
         <tbody>
-          {#each result.rows as row, rowIndex}
-            <tr>
+          {#each displayRows as { row, originalIndex }, rowIndex}
+            <tr
+              class:selected={selectedRowIndex === rowIndex}
+              onclick={() => selectRow(rowIndex)}
+            >
               {#each row as cell, i}
                 <td
                   class:editable={isCellEditable(i)}
-                  class:cell-error={errorFor(rowIndex, i) !== null}
-                  title={errorFor(rowIndex, i) ?? undefined}
-                  ondblclick={() => startEdit(rowIndex, i, cell)}
+                  class:cell-error={errorFor(originalIndex, i) !== null}
+                  title={errorFor(originalIndex, i) ?? undefined}
+                  ondblclick={() => startEdit(originalIndex, i, cell)}
                 >
-                  {#if isEditing(rowIndex, i)}
+                  {#if isEditing(originalIndex, i)}
                     <div class="cell-edit">
                       <input
                         class="cell-input"
@@ -236,7 +323,7 @@
                         onclick={cancelEdit}
                       ><X size={13} strokeWidth={2.5} /></button>
                     </div>
-                  {:else if isSaving(rowIndex, i)}
+                  {:else if isSaving(originalIndex, i)}
                     <span class="cell-saving">{cellText(cell)}</span>
                   {:else if cell === null}
                     <span class="null">NULL</span>
@@ -343,6 +430,21 @@
     font-weight: 600;
     position: sticky;
     top: 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  th:hover { background: #37373d; }
+  th.sorted { background: #3c3c42; }
+  th.sorted:hover { background: #45454c; }
+  .th-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .sort-indicator {
+    color: #9cdcfe;
+    font-size: 10px;
+    margin-left: 2px;
   }
   .type {
     display: inline-flex;
@@ -352,6 +454,10 @@
     vertical-align: middle;
   }
   td { color: #ccc; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: rgba(255, 255, 255, 0.04); }
+  tbody tr.selected td { background: rgba(0, 122, 204, 0.18); }
+  tbody tr.selected:hover td { background: rgba(0, 122, 204, 0.25); }
   .null { color: #569cd6; font-style: italic; }
   .empty { padding: 24px; color: #666; font-size: 13px; }
   .error { padding: 16px; color: #f48771; font-family: ui-monospace, monospace; }
