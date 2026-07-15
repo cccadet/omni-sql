@@ -1,13 +1,6 @@
 <script lang="ts">
   import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
-  import Hash from "@lucide/svelte/icons/hash";
-  import CaseSensitive from "@lucide/svelte/icons/case-sensitive";
-  import Calendar from "@lucide/svelte/icons/calendar";
-  import ToggleLeft from "@lucide/svelte/icons/toggle-left";
-  import Braces from "@lucide/svelte/icons/braces";
-  import Fingerprint from "@lucide/svelte/icons/fingerprint";
-  import Binary from "@lucide/svelte/icons/binary";
-  import CircleHelp from "@lucide/svelte/icons/circle-help";
+  import { typeIcon } from "./type-icons.svelte";
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
 
@@ -41,18 +34,6 @@
 
   function closeExpanded() {
     expanded = null;
-  }
-
-  function typeIcon(dataType: string) {
-    const t = dataType.toLowerCase();
-    if (/^oid:|unknown/.test(t)) return CircleHelp;
-    if (/uuid/.test(t)) return Fingerprint;
-    if (/bool/.test(t)) return ToggleLeft;
-    if (/json/.test(t)) return Braces;
-    if (/bytea|blob|raw|binary/.test(t)) return Binary;
-    if (/timestamp|^date|^time/.test(t)) return Calendar;
-    if (/int|number|numeric|real|double|float|decimal/.test(t)) return Hash;
-    return CaseSensitive;
   }
 
   function onOverlayKeydown(e: KeyboardEvent) {
