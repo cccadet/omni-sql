@@ -1,6 +1,7 @@
 <script lang="ts">
   import { backend, type RelationInfo } from "./backend";
   import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
+  import { typeIcon } from "./type-icons.svelte";
   import DatabaseIcon from "@lucide/svelte/icons/database";
   import Table2 from "@lucide/svelte/icons/table-2";
   import Eye from "@lucide/svelte/icons/eye";
@@ -10,6 +11,8 @@
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Link2 from "@lucide/svelte/icons/link-2";
   import CornerDownLeft from "@lucide/svelte/icons/corner-down-left";
+  import Search from "@lucide/svelte/icons/search";
+  import X from "@lucide/svelte/icons/x";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
 
   interface Props {
@@ -30,6 +33,14 @@
     functions: FunctionDef[];
   }
 
+  let searchQuery = $state("");
+  const searchInput = $state<{ el: HTMLInputElement | null }>({ el: null });
+
+  function matchesSearch(text: string, query: string): boolean {
+    if (!query) return true;
+    return text.toLowerCase().includes(query.toLowerCase());
+  }
+
   const groups = $derived.by(() => {
     const map = new Map<string, SchemaGroup>();
     function ensure(name: string): SchemaGroup {
@@ -47,7 +58,26 @@
     for (const f of functions) {
       ensure(f.schema).functions.push(f);
     }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+    const query = searchQuery.trim();
+    if (!query) return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+    const filtered: SchemaGroup[] = [];
+    for (const g of map.values()) {
+      const filteredTables = g.tables.filter((t) => {
+        if (matchesSearch(t.name, query)) return true;
+        return t.columns.some((c) => matchesSearch(c.name, query));
+      });
+      const filteredViews = g.views.filter((v) => {
+        if (matchesSearch(v.name, query)) return true;
+        return v.columns.some((c) => matchesSearch(c.name, query));
+      });
+      const filteredFunctions = g.functions.filter((f) => matchesSearch(f.name, query));
+      if (filteredTables.length > 0 || filteredViews.length > 0 || filteredFunctions.length > 0) {
+        filtered.push({ name: g.name, tables: filteredTables, views: filteredViews, functions: filteredFunctions });
+      }
+    }
+    return filtered.sort((a, b) => a.name.localeCompare(b.name));
   });
 
   function insertQualified(schema: string, name: string) {
@@ -73,9 +103,15 @@
   let resizing = $state(false);
 
   const expanded = new SvelteSet<string>();
+  const expandedBySearch = new SvelteSet<string>();
 
   function relationKey(schema: string, name: string) {
     return `${schema}.${name}`;
+  }
+
+  function isNodeExpanded(schema: string, name: string): boolean {
+    const key = relationKey(schema, name);
+    return expanded.has(key) || expandedBySearch.has(key);
   }
 
   function toggleExpand(schema: string, name: string, withIndexes: boolean) {
@@ -84,6 +120,7 @@
       expanded.delete(key);
     } else {
       expanded.add(key);
+      expandedBySearch.delete(key);
       if (withIndexes) void ensureIndexes(schema, name);
     }
   }
@@ -151,6 +188,27 @@
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  $effect(() => {
+    const query = searchQuery.trim();
+    if (!query) {
+      expandedBySearch.clear();
+      return;
+    }
+    expandedBySearch.clear();
+    for (const g of groups) {
+      const schemaKey = `schema:${g.name}`;
+      expandedBySearch.add(schemaKey);
+      for (const t of g.tables) {
+        const tableKey = relationKey(g.name, t.name);
+        expandedBySearch.add(tableKey);
+      }
+      for (const v of g.views) {
+        const viewKey = relationKey(g.name, v.name);
+        expandedBySearch.add(viewKey);
+      }
+    }
+  });
+
   function onResizeStart(e: PointerEvent) {
     e.preventDefault();
     resizing = true;
@@ -177,18 +235,22 @@
   }
 </script>
 
-{#snippet columnsSection(columns: RelationInfo["columns"])}
+{#snippet columnsSection(columns: RelationInfo["columns"], searchFilter?: string)}
   <div class="sub-header"><span>Colunas ({columns.length})</span></div>
   <ul class="columns">
     {#each columns as c (c.name)}
+      {@const matches = !searchFilter || matchesSearch(c.name, searchFilter) || matchesSearch(c.dataType, searchFilter)}
       <li
         class="column"
+        class:highlight={searchFilter && matches}
         title={`${c.name}: ${c.dataType}${c.nullable ? "" : " NOT NULL"}${c.foreignKeyTo ? ` — FK → ${c.foreignKeyTo.schema}.${c.foreignKeyTo.table}.${c.foreignKeyTo.column}` : ""}`}
       >
         {#if c.isPrimaryKey}
           <KeyRound size={10} class="pk" />
+          <span class="badge badge-pk">PK</span>
         {:else if c.foreignKeyTo}
           <Link2 size={10} class="fk" />
+          <span class="badge badge-fk">FK</span>
         {:else}
           <span class="col-dot"></span>
         {/if}
@@ -232,28 +294,47 @@
 <aside class="sidebar" style={`width: ${width}px`}>
   <div class="sidebar-header">
     <span>Objetos</span>
-    <button
-      class="icon"
-      title="Atualizar objetos do banco"
-      onclick={onRefresh}
-      disabled={loading}
-      aria-label="Atualizar"
-    ><RefreshCw size={13} class={loading ? "spin" : undefined} /></button>
+    <div class="header-actions">
+      <button
+        class="icon"
+        title="Atualizar objetos do banco"
+        onclick={onRefresh}
+        disabled={loading}
+        aria-label="Atualizar"
+      ><RefreshCw size={13} class={loading ? "spin" : undefined} /></button>
+    </div>
+  </div>
+  <div class="search-wrapper">
+    <Search size={12} class="search-icon" />
+    <input
+      class="search-input"
+      type="text"
+      placeholder="Buscar tabelas, colunas..."
+      bind:value={searchQuery}
+      bind:this={searchInput.el}
+    />
+    {#if searchQuery}
+      <button class="search-clear" onclick={() => { searchQuery = ""; searchInput.el?.focus(); }} aria-label="Limpar busca">
+        <X size={11} />
+      </button>
+    {/if}
   </div>
   <div class="sidebar-body">
     {#if groups.length === 0}
-      <p class="hint">{loading ? "Carregando..." : "Nenhum objeto disponível."}</p>
+      <p class="hint">{loading ? "Carregando..." : searchQuery ? "Nenhum resultado encontrado." : "Nenhum objeto disponível."}</p>
     {/if}
     {#if groups.length > 0}
       {#each groups as g (g.name)}
-        <details class="schema-group" open={groups.length <= 2}>
+        {@const schemaKey = `schema:${g.name}`}
+        {@const isSchemaOpen = searchQuery ? true : expandedBySearch.has(schemaKey)}
+        <details class="schema-group" open={isSchemaOpen}>
           <summary class="schema"><DatabaseIcon size={13} /> <span class="label">{g.name}</span></summary>
           {#if g.tables.length > 0}
-            <details>
+            <details open={searchQuery ? g.tables.length > 0 : undefined}>
               <summary class="kind">Tabelas ({g.tables.length})</summary>
               {#each g.tables as t (t.name)}
                 {@const key = relationKey(g.name, t.name)}
-                {@const isOpen = expanded.has(key)}
+                {@const isOpen = isNodeExpanded(g.name, t.name)}
                 <div
                   class="obj-row"
                   role="presentation"
@@ -281,18 +362,18 @@
                   ><CornerDownLeft size={11} /></button>
                 </div>
                 {#if isOpen}
-                  {@render columnsSection(t.columns)}
+                  {@render columnsSection(t.columns, searchQuery)}
                   {@render indexesSection(g.name, t.name)}
                 {/if}
               {/each}
             </details>
           {/if}
           {#if g.views.length > 0}
-            <details>
+            <details open={searchQuery ? g.views.length > 0 : undefined}>
               <summary class="kind">Views ({g.views.length})</summary>
               {#each g.views as v (v.name)}
                 {@const key = relationKey(g.name, v.name)}
-                {@const isOpen = expanded.has(key)}
+                {@const isOpen = isNodeExpanded(g.name, v.name)}
                 <div
                   class="obj-row"
                   role="presentation"
@@ -323,13 +404,13 @@
                   ><CornerDownLeft size={11} /></button>
                 </div>
                 {#if isOpen}
-                  {@render columnsSection(v.columns)}
+                  {@render columnsSection(v.columns, searchQuery)}
                 {/if}
               {/each}
             </details>
           {/if}
           {#if g.functions.length > 0}
-            <details>
+            <details open={searchQuery ? g.functions.length > 0 : undefined}>
               <summary class="kind">Funções ({g.functions.length})</summary>
               {#each g.functions as f (f.name)}
                 <div
@@ -413,6 +494,51 @@
     letter-spacing: 0.04em;
     flex-shrink: 0;
   }
+  .header-actions {
+    display: flex;
+    gap: 2px;
+  }
+  .search-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border-bottom: 1px solid #2a2a2a;
+    flex-shrink: 0;
+  }
+  .search-wrapper :global(.search-icon) {
+    position: absolute;
+    left: 16px;
+    color: #666;
+    pointer-events: none;
+  }
+  .search-input {
+    width: 100%;
+    padding: 5px 24px 5px 24px;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    color: #ccc;
+    font-size: 11px;
+    outline: none;
+  }
+  .search-input::placeholder { color: #666; }
+  .search-input:focus { border-color: #007acc; }
+  .search-clear {
+    position: absolute;
+    right: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .search-clear:hover { background: #3a3a3a; color: #ccc; }
   .sidebar-body {
     flex: 1;
     overflow-y: auto;
@@ -539,12 +665,33 @@
     font-size: 10.5px;
     min-width: 0;
   }
+  .column.highlight {
+    background: rgba(0, 122, 204, 0.15);
+    border-radius: 3px;
+  }
   .column :global(.pk) {
     flex-shrink: 0;
     color: #d4a72c;
   }
   .column :global(.fk) {
     flex-shrink: 0;
+    color: #6ea8fe;
+  }
+  .badge {
+    flex-shrink: 0;
+    padding: 0 4px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 14px;
+    text-transform: uppercase;
+  }
+  .badge-pk {
+    background: rgba(212, 167, 44, 0.2);
+    color: #d4a72c;
+  }
+  .badge-fk {
+    background: rgba(110, 168, 254, 0.2);
     color: #6ea8fe;
   }
   .col-dot {

@@ -11,6 +11,9 @@ export default defineConfig({
   resolve: {
     conditions: ["browser"],
   },
+  optimizeDeps: {
+    include: ["monaco-editor"],
+  },
   server: {
     port: frontendPort,
     strictPort: true,

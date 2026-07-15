@@ -3,23 +3,32 @@
   import * as monaco from "monaco-editor";
   import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
   import type { Suggestion } from "@omni-sql/autocomplete-engine";
+  import type { DialectId } from "@omni-sql/ts-types";
+  import {
+    formatSql,
+    type FormatterSettings,
+    parseKeybinding,
+  } from "./format-sql.ts";
 
   interface Props {
     value: string;
     fontFamily?: string;
+    dialect: DialectId;
+    formatterSettings: FormatterSettings;
     onAutocomplete?: (cursor: number) => Promise<Suggestion[]>;
     onRun?: () => void;
   }
   let {
     value = $bindable(),
     fontFamily = "ui-monospace, monospace",
+    dialect,
+    formatterSettings,
     onAutocomplete,
     onRun,
   }: Props = $props();
 
   let container: HTMLDivElement;
   let editor: monaco.editor.IStandaloneCodeEditor | null = null;
-  let dispose: (() => void) | null = null;
 
   export function insertAtCursor(text: string) {
     if (!editor) return;
@@ -53,14 +62,44 @@
     }
   }
 
+  function formatCurrentDocument() {
+    if (!editor) return;
+    const action = editor.getAction("editor.action.formatDocument");
+    void action?.run();
+  }
+
+  function matchesKeybinding(
+    keybinding: string,
+    e: monaco.IKeyboardEvent,
+  ): boolean {
+    const parsed = parseKeybinding(keybinding);
+    const expectedKey = parsed.key.toUpperCase();
+    const actualKey = e.browserEvent.key.toUpperCase();
+    if (actualKey !== expectedKey) return false;
+    const ctrl = e.ctrlKey || e.metaKey; // Cmd no mac conta como CtrlCmd no Monaco
+    if (parsed.ctrl !== ctrl) return false;
+    if (parsed.alt !== e.altKey) return false;
+    if (parsed.shift !== e.shiftKey) return false;
+    return true;
+  }
+
+  function onKeyDown(e: monaco.IKeyboardEvent) {
+    if (matchesKeybinding(formatterSettings.keybinding, e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      formatCurrentDocument();
+    }
+  }
+
   onMount(() => {
     monaco.languages.register({ id: "sql-omni", extensions: [".sql"] });
     const kw = [...postgresDescriptor.keywords];
     monaco.languages.setMonarchTokensProvider("sql-omni", {
       defaultToken: "",
+      ignoreCase: true,
       tokenizer: {
         root: [
-          [new RegExp(`\\b(?:${kw.join("|")})\\b`, "i"), "keyword"],
+          [new RegExp(`\\b(?:${kw.join("|")})\\b`), "keyword"],
           [/--.*$/, "comment"],
           [/\/\*/, "comment", "@comment"],
           [/'/, "string", "@string"],
@@ -99,11 +138,37 @@
       value = editor!.getValue();
     });
 
+    editor.onKeyDown(onKeyDown);
+
     editor.addAction({
       id: "omni-run-query",
       label: "Executar query",
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
       run: () => onRun?.(),
+    });
+
+    editor.addAction({
+      id: "omni-format-sql",
+      label: "Formatar SQL",
+      run: formatCurrentDocument,
+    });
+
+    monaco.languages.registerDocumentFormattingEditProvider("sql-omni", {
+      provideDocumentFormattingEdits(model) {
+        try {
+          const formatted = formatSql(model.getValue(), dialect, formatterSettings);
+          return [
+            {
+              range: model.getFullModelRange(),
+              text: formatted,
+            },
+          ];
+        } catch {
+          // Falha de formatação não quebra o editor — devolve nada e o Monaco
+          // mantém o documento como está.
+          return [];
+        }
+      },
     });
 
     monaco.languages.registerCompletionItemProvider("sql-omni", {

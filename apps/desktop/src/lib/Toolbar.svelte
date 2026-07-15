@@ -1,17 +1,20 @@
 <script lang="ts">
   import type { ConnectionEntry } from "./backend";
-  import { dialectIcon } from "./dialect-icons";
+  import DialectIcon from "./DialectIcon.svelte";
   import SidecarStatus from "./SidecarStatus.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Plus from "@lucide/svelte/icons/plus";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Play from "@lucide/svelte/icons/play";
-import CircleStop from "@lucide/svelte/icons/circle-stop";
+  import CircleStop from "@lucide/svelte/icons/circle-stop";
   import Save from "@lucide/svelte/icons/save";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import History from "@lucide/svelte/icons/history";
+  import Settings from "@lucide/svelte/icons/settings";
+  import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
+  import CircleDashed from "@lucide/svelte/icons/circle-dashed";
 
   interface Props {
     connections: ConnectionEntry[];
@@ -33,6 +36,7 @@ import CircleStop from "@lucide/svelte/icons/circle-stop";
     onLimitChange?: (limit: number) => void;
     onSave?: () => void;
     onOpen?: () => void;
+    onOpenFormatSettings?: () => void;
     sidebarOpen?: boolean;
     onToggleSidebar?: () => void;
     historyOpen?: boolean;
@@ -57,6 +61,7 @@ import CircleStop from "@lucide/svelte/icons/circle-stop";
     onLimitChange,
     onSave,
     onOpen,
+    onOpenFormatSettings,
     sidebarOpen = true,
     onToggleSidebar,
     historyOpen = false,
@@ -66,19 +71,19 @@ import CircleStop from "@lucide/svelte/icons/circle-stop";
   const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
 
   function formatMetaStatus(entry: ConnectionEntry | undefined): {
-    icon: string;
+    synced: boolean;
     label: string;
   } {
-    if (!entry) return { icon: "", label: "" };
+    if (!entry) return { synced: false, label: "" };
     if (entry.lastSyncedAt) {
       const d = new Date(entry.lastSyncedAt);
       return {
-        icon: "🟢",
+        synced: true,
         label: `Metadados sincronizados em ${d.toLocaleString()}`,
       };
     }
     return {
-      icon: "⚪",
+      synced: false,
       label: "Metadados ainda não lidos — autocomplete de tabelas indisponível",
     };
   }
@@ -137,8 +142,14 @@ import CircleStop from "@lucide/svelte/icons/circle-stop";
         {/each}
       </select>
       {#if activeConnection}
-        <span class="dialect-icon" aria-hidden="true">{dialectIcon(activeConnection.dialect)}</span>
-        <span class="meta-status" title={metaStatus.label}>{metaStatus.icon}</span>
+        <DialectIcon dialect={activeConnection.dialect} size={14} />
+        <span class="meta-status" title={metaStatus.label}>
+          {#if metaStatus.synced}
+            <CheckCircle2 size={13} class="meta-synced" />
+          {:else}
+            <CircleDashed size={13} class="meta-pending" />
+          {/if}
+        </span>
       {/if}
       <button
         class="icon toggle"
@@ -216,6 +227,7 @@ import CircleStop from "@lucide/svelte/icons/circle-stop";
     <div class="group-controls">
       <button class="icon labeled" title="Salvar aba (.sql) — Ctrl/⌘+S" onclick={onSave} aria-label="Salvar aba"><Save size={14} /> Salvar</button>
       <button class="icon labeled" title="Abrir arquivo .sql — Ctrl/⌘+O" onclick={onOpen} aria-label="Abrir arquivo"><FolderOpen size={14} /> Abrir</button>
+      <button class="icon" title="Configurar formatador SQL" onclick={onOpenFormatSettings} aria-label="Configurar formatador SQL"><Settings size={14} /></button>
     </div>
   </div>
 
@@ -416,15 +428,16 @@ import CircleStop from "@lucide/svelte/icons/circle-stop";
   button:disabled { opacity: 0.5; cursor: default; }
   .spacer { flex: 1; }
   .busy { color: #9cdcfe; }
-  .dialect-icon {
-    font-size: 14px;
-    line-height: 1;
-  }
   .meta-status {
-    font-size: 12px;
-    line-height: 1;
+    display: inline-flex;
+    align-items: center;
     cursor: default;
-    opacity: 0.9;
+  }
+  .meta-status :global(.meta-synced) {
+    color: #89d185;
+  }
+  .meta-status :global(.meta-pending) {
+    color: #666;
   }
   :global(.spin) {
     animation: toolbar-spin 1s linear infinite;

@@ -6,13 +6,18 @@
   import Sidebar from "./lib/Sidebar.svelte";
   import HistoryPanel, { type HistoryEntry } from "./lib/HistoryPanel.svelte";
   import ConnectionDialog from "./lib/ConnectionDialog.svelte";
+  import FormatSettings from "./lib/FormatSettings.svelte";
   import { backend, type ConnectionEntry, type RelationInfo } from "./lib/backend";
-  import { dialectIcon } from "./lib/dialect-icons";
   import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
   import type { QueryResult, ConnectionConfig, RowEditability, FunctionDef } from "@omni-sql/ts-types";
   import type { Suggestion } from "@omni-sql/autocomplete-engine";
   import { splitStatements, statementAt, type SqlStatement } from "./lib/sql-statements";
   import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
+  import {
+    loadFormatterSettings,
+    saveFormatterSettings,
+    type FormatterSettings,
+  } from "./lib/format-sql.ts";
 
   const SESSION_KEY = "omni-sql:session";
 
@@ -104,6 +109,9 @@
   const activeConnectionId = $derived(activeIndex >= 0 ? tabs[activeIndex]!.connectionId : null);
 
   let connections = $state<ConnectionEntry[]>([]);
+  const activeDialect = $derived(
+    connections.find((c) => c.id === activeConnectionId)?.dialect ?? "jdbc-generic",
+  );
   let busyMsg = $state<string | null>(null);
   let dialogOpen = $state(false);
   let editingConfig = $state<ConnectionConfig | null>(null);
@@ -122,6 +130,8 @@
 
   let queryHistory = $state<HistoryEntry[]>(loadHistory());
   let historyOpen = $state(false);
+  let formatterSettings = $state<FormatterSettings>(loadFormatterSettings());
+  let formatSettingsOpen = $state(false);
 
   const VARIABLES_KEY = "omni-sql:sqlVariables";
 
@@ -432,6 +442,16 @@
     tabs[activeIndex]!.queryLimit = newLimit;
   }
 
+  function onOpenFormatSettings() {
+    formatSettingsOpen = true;
+  }
+
+  function onSaveFormatSettings(settings: FormatterSettings) {
+    formatterSettings = settings;
+    saveFormatterSettings(settings);
+    formatSettingsOpen = false;
+  }
+
   function onToggleSidebar() {
     sidebarOpen = !sidebarOpen;
   }
@@ -712,6 +732,7 @@
     onLimitChange={onLimitChange}
     onSave={onSaveTab}
     onOpen={onOpenFile}
+    onOpenFormatSettings={onOpenFormatSettings}
     {sidebarOpen}
     onToggleSidebar={onToggleSidebar}
     {historyOpen}
@@ -723,11 +744,8 @@
       id: t.id,
       title: t.title,
       dirty: t.filePath != null && t.sql !== t.savedSql,
-      dialectIcon: t.connectionId
-        ? (() => {
-            const d = connections.find((c) => c.id === t.connectionId)?.dialect;
-            return d ? dialectIcon(d) : undefined;
-          })()
+      dialect: t.connectionId
+        ? connections.find((c) => c.id === t.connectionId)?.dialect
         : undefined,
     }))}
     {activeTabId}
@@ -755,6 +773,8 @@
         bind:this={editorRef}
         bind:value={tabs[activeIndex]!.sql}
         fontFamily={tabs[activeIndex]!.fontFamily}
+        dialect={activeDialect}
+        {formatterSettings}
         onAutocomplete={onAutocomplete}
         onRun={onRun}
       />
@@ -786,6 +806,14 @@
   onClose={() => (historyOpen = false)}
   onSelect={onSelectHistoryEntry}
   onClear={onClearHistory}
+/>
+
+<FormatSettings
+  open={formatSettingsOpen}
+  dialect={activeDialect}
+  settings={formatterSettings}
+  onClose={() => (formatSettingsOpen = false)}
+  onSave={onSaveFormatSettings}
 />
 
 {#if pendingVariables}
