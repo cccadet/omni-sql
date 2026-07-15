@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
+  import type { QueryResult, RowEditability, ExplainResult } from "@omni-sql/ts-types";
   import { typeIcon } from "./type-icons.svelte";
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
+  import Loader2 from "@lucide/svelte/icons/loader-2";
 
   interface Props {
     result: QueryResult | null;
@@ -10,11 +11,35 @@
     running: boolean;
     /** Null quando não analisado ainda, ou quando a query não é editável. */
     editability?: RowEditability | null;
+    explainResult?: ExplainResult | null;
+    explainError?: string | null;
+    explainLoading?: boolean;
     onLoadMore?: () => void;
     /** Grava uma célula via `row.update`. Deve lançar em caso de falha. */
     onCellEdit?: (edit: { set: Record<string, unknown>; where: Record<string, unknown> }) => Promise<void>;
+    onExplain?: () => void;
   }
-  let { result, error, running, editability = null, onLoadMore, onCellEdit }: Props = $props();
+  let {
+    result,
+    error,
+    running,
+    editability = null,
+    explainResult = null,
+    explainError = null,
+    explainLoading = false,
+    onLoadMore,
+    onCellEdit,
+    onExplain,
+  }: Props = $props();
+
+  type ResultTab = "data" | "messages" | "plan";
+  let activeTab = $state<ResultTab>("data");
+
+  // Nova query direciona para a aba de dados; erro direciona para mensagens.
+  $effect(() => {
+    if (error) activeTab = "messages";
+    else if (result) activeTab = "data";
+  });
 
   const MAX_CELL_CHARS = 200;
 
@@ -107,6 +132,21 @@
 
   function onOverlayKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") closeExpanded();
+  }
+
+  function setTab(tab: ResultTab) {
+    activeTab = tab;
+    if (tab === "plan" && !explainResult && !explainLoading && !explainError) {
+      onExplain?.();
+    }
+  }
+
+  function formatExplain(explain: ExplainResult | null): string {
+    if (!explain) return "";
+    if (explain.format === "json" && explain.raw) {
+      return JSON.stringify(explain.raw, null, 2);
+    }
+    return explain.textual;
   }
 
   // ─────────────────────────── Edição inline (duplo clique)
@@ -227,8 +267,30 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section class="results" tabindex="-1" aria-label="Resultados da consulta" onkeydown={onGridKeydown}>
   <header class="results-header">
-    <span>Resultados</span>
-    {#if result}
+    <div class="tabs" role="tablist" aria-label="Abas de resultados">
+      <button
+        class="tab"
+        class:active={activeTab === "data"}
+        onclick={() => setTab("data")}
+        role="tab"
+        aria-selected={activeTab === "data"}
+      >Dados</button>
+      <button
+        class="tab"
+        class:active={activeTab === "messages"}
+        onclick={() => setTab("messages")}
+        role="tab"
+        aria-selected={activeTab === "messages"}
+      >Mensagens</button>
+      <button
+        class="tab"
+        class:active={activeTab === "plan"}
+        onclick={() => setTab("plan")}
+        role="tab"
+        aria-selected={activeTab === "plan"}
+      >Plano</button>
+    </div>
+    {#if result && activeTab === "data"}
       <span class="meta">
         {result.rows.length} linha(s) · {result.columns.length} coluna(s)
         · {result.elapsedMs}ms
@@ -251,7 +313,41 @@
     {/if}
   </header>
 
-  {#if error}
+  {#if activeTab === "messages"}
+    <div class="messages" class:error-message={!!error}>
+      {#if error}
+        {error}
+      {:else if running && !result}
+        Executando…
+      {:else if result}
+        Query executada com sucesso.
+        <br />
+        {result.rows.length} linha(s) · {result.columns.length} coluna(s) · {result.elapsedMs}ms
+        {#if result.rowsAffected !== undefined}
+          <br />Linhas afetadas: {result.rowsAffected}
+        {/if}
+      {:else}
+        Pressione Ctrl/⌘+Enter para executar a query.
+      {/if}
+    </div>
+  {:else if activeTab === "plan"}
+    <div class="plan-panel">
+      {#if explainLoading}
+        <div class="empty"><span class="spin"><Loader2 size={14} /></span> Carregando plano de execução…</div>
+      {:else if explainError}
+        <div class="error">{explainError}</div>
+      {:else if explainResult}
+        <pre class="plan-body">{formatExplain(explainResult)}</pre>
+      {:else}
+        <div class="empty">
+          Plano não disponível.
+          {#if result}
+            <button class="link" onclick={() => onExplain?.()}>Carregar plano</button>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {:else if error}
     <div class="error">{error}</div>
   {:else if running && !result}
     <div class="empty">Executando…</div>
@@ -564,5 +660,68 @@
     white-space: pre-wrap;
     word-break: break-word;
     user-select: text;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+  }
+  .tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  .tab:hover { color: #ccc; }
+  .tab.active {
+    color: #9cdcfe;
+    border-bottom-color: #007acc;
+  }
+  .messages {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+    color: #6a9955;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+  .messages.error-message {
+    color: #f48771;
+  }
+  .plan-panel {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .plan-body {
+    flex: 1;
+    margin: 0;
+    padding: 12px;
+    overflow: auto;
+    color: #ccc;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    white-space: pre;
+    background: #1e1e1e;
+  }
+  .link {
+    background: none;
+    border: none;
+    color: #4fc1ff;
+    cursor: pointer;
+    font-size: inherit;
+    padding: 0;
+    text-decoration: underline;
+  }
+  .spin {
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 </style>

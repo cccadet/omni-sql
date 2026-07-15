@@ -134,6 +134,8 @@
       lineNumbers: "on",
       matchBrackets: "always",
       bracketPairColorization: { enabled: true },
+      autoClosingBrackets: "never",
+      autoClosingQuotes: "never",
     });
 
     editor.onDidChangeModelContent(() => {
