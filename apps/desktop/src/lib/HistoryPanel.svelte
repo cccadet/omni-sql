@@ -13,7 +13,7 @@
 </script>
 
 <script lang="ts">
-  import { dialectIcon } from "./dialect-icons";
+  import DialectIcon from "./DialectIcon.svelte";
   import type { ConnectionEntry } from "./backend";
   import X from "@lucide/svelte/icons/x";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -60,7 +60,7 @@
             <button class="entry" onclick={() => onSelect?.(entry)}>
               <div class="entry-meta">
                 {#if entry.dialect}
-                  <span class="dialect-icon" aria-hidden="true">{dialectIcon(entry.dialect as ConnectionEntry["dialect"])}</span>
+                  <DialectIcon dialect={entry.dialect} size={12} />
                 {/if}
                 <span class="conn">{entry.connectionLabel}</span>
                 <span class="status" class:ok={entry.ok} class:err={!entry.ok}>{entry.ok ? "✓" : "✗"}</span>
@@ -140,9 +140,6 @@
     gap: 6px;
     font-size: 10px;
     color: #999;
-  }
-  .dialect-icon {
-    font-size: 12px;
   }
   .conn {
     flex: 1;
