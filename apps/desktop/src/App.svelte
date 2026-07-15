@@ -4,6 +4,7 @@
   import Toolbar from "./lib/Toolbar.svelte";
   import TabBar from "./lib/TabBar.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
+  import StatusBar from "./lib/StatusBar.svelte";
   import HistoryPanel, { type HistoryEntry } from "./lib/HistoryPanel.svelte";
   import ConnectionDialog from "./lib/ConnectionDialog.svelte";
   import FormatSettings from "./lib/FormatSettings.svelte";
@@ -157,6 +158,8 @@
       }
     | undefined
   >();
+  let cursorPosition = $state<{ line: number; column: number } | null>(null);
+  const activeConnection = $derived(connections.find((c) => c.id === activeConnectionId) ?? null);
   let pendingRun = $state<{ tab: QueryTab; statements: SqlStatement[]; current: SqlStatement } | null>(
     null,
   );
@@ -460,6 +463,10 @@
     historyOpen = !historyOpen;
   }
 
+  function onCursorChange(position: { line: number; column: number }) {
+    cursorPosition = position;
+  }
+
   function onSidebarInsert(text: string) {
     editorRef?.insertAtCursor(text);
   }
@@ -761,6 +768,7 @@
       functions={activeConnectionId ? (sidebarCache[activeConnectionId]?.functions ?? []) : []}
       loading={sidebarLoading}
       connectionId={activeConnectionId}
+      connection={activeConnection}
       onInsert={onSidebarInsert}
       onRefresh={() => loadSidebarData(activeConnectionId)}
       onOpenInNewTab={onSidebarOpenInNewTab}
@@ -777,6 +785,7 @@
         {formatterSettings}
         onAutocomplete={onAutocomplete}
         onRun={onRun}
+        onCursorChange={onCursorChange}
       />
     </section>
 
@@ -790,6 +799,13 @@
         onCellEdit={onCellEdit}
       />
     </section>
+
+    <StatusBar
+      connection={activeConnection}
+      result={tabs[activeIndex]?.result ?? null}
+      {cursorPosition}
+      {busyMsg}
+    />
   {/if}
 </main>
 
@@ -870,21 +886,21 @@
   .app {
     display: grid;
     grid-template-columns: auto 1fr;
-    grid-template-rows: auto auto 1fr 1fr;
+    grid-template-rows: auto auto 1fr 1fr auto;
     height: 100%;
     width: 100%;
   }
   .app > :global(header.toolbar) { grid-column: 1 / -1; grid-row: 1; }
   .app > :global(div.tab-bar) { grid-column: 1 / -1; grid-row: 2; }
   .app > :global(aside.sidebar) { grid-column: 1; grid-row: 3 / span 2; }
-  .editor-pane, .results-pane {
+  .editor-pane, .results-pane, .app > :global(footer.status-bar) {
     grid-column: 2;
     min-height: 0;
     overflow: hidden;
-    border-top: 1px solid #2a2a2a;
   }
-  .editor-pane { grid-row: 3; }
-  .results-pane { grid-row: 4; }
+  .editor-pane { grid-row: 3; border-top: 1px solid #2a2a2a; }
+  .results-pane { grid-row: 4; border-top: 1px solid #2a2a2a; }
+  .app > :global(footer.status-bar) { grid-row: 5; }
 
   .variables-backdrop {
     position: fixed;

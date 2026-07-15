@@ -1,6 +1,7 @@
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tauri::menu::Menu;
 use tauri::Manager;
 
 struct BackendChild(Mutex<Option<Child>>);
@@ -65,6 +66,20 @@ pub fn run() {
                 ))?;
                 if let Err(err) = window.set_icon(window_icon) {
                     log::warn!("failed to set runtime window icon: {err}");
+                }
+            }
+
+            // Menu padrão com operações de edição (Cut/Copy/Paste/Select All).
+            // Sem isto, atalhos de clipboard como Ctrl+V podem não funcionar no
+            // webview do Tauri, especialmente em diálogos de formulário.
+            if let Some(window) = app.get_webview_window("main") {
+                match Menu::default(app.handle()) {
+                    Ok(menu) => {
+                        if let Err(err) = window.set_menu(menu) {
+                            log::warn!("failed to set window menu: {err}");
+                        }
+                    }
+                    Err(err) => log::warn!("failed to create default menu: {err}"),
                 }
             }
 

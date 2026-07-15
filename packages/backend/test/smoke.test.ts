@@ -15,8 +15,6 @@ import type {
 } from "../src/protocol.ts";
 import { InMemoryAdapter } from "./in-memory-adapter.ts";
 
-registerAdapter("jdbc-generic", (config) => new InMemoryAdapter(config));
-
 // Isolate the SQLite cache and dev keyring to a tmp dir so tests don't pollute
 // $XDG_DATA_HOME. Must run BEFORE importing the backend module (which opens the
 // cache and keyring at top).
@@ -25,6 +23,11 @@ process.env.OMNI_SQL_METADATA_DB = path.join(tmpDir, "metadata.db");
 process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
 
 const { startServer } = await import("../src/index.ts");
+
+// Sobrescreve o registro de produção (JdbcAdapter) para os smoke tests
+// usarem o adaptador in-memory. Deve rodar DEPOIS de importar o backend,
+// pois handlers.ts registra JdbcAdapter no load do módulo.
+registerAdapter("jdbc-generic", (config) => new InMemoryAdapter(config));
 
 const TEST_PORT = 14378;
 const DEFAULT_URL = `http://127.0.0.1:${TEST_PORT}/rpc`;
