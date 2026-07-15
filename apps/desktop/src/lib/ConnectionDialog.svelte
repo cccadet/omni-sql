@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ConnectionConfig } from "@omni-sql/ts-types";
+  import { untrack } from "svelte";
   import { backend } from "./backend";
   import { pickJarPath } from "./file-io";
 
@@ -102,7 +103,10 @@
       availableSchemas = null;
       selectedSchemas = new Set(editing?.schemas ?? []);
       if (isKnown && editing?.schemas && editing.schemas.length > 0) {
-        void loadSchemas();
+        // `loadSchemas` lê estados locais (user/host/port etc.); se for chamada
+        // diretamente no $effect, essas leituras viram dependências e o efeito
+        // re-executa a cada caractere digitado, resetando os campos.
+        untrack(() => loadSchemas());
       }
     }
   });
@@ -251,6 +255,11 @@
     }
   }
 
+  function autofocus(node: HTMLInputElement | HTMLSelectElement) {
+    node.focus();
+    return { destroy() {} };
+  }
+
   let mouseDownOnBackdrop = $state(false);
 
   function onBackdropMouseDown(e: MouseEvent) {
@@ -287,7 +296,7 @@
 
       <label>
         <span>Nome</span>
-        <input type="text" bind:value={label} placeholder="Minha conexão" disabled={busy} required />
+        <input type="text" bind:value={label} placeholder="Minha conexão" disabled={busy} required use:autofocus />
       </label>
 
       {#if mode === "jdbc-generic"}
