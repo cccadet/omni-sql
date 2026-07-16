@@ -28,6 +28,22 @@ export interface HistoryPanelProps {
   onClear: () => void;
 }
 
+function Highlight({ text, query }: { text: string; query: string }) {
+  const q = query.trim().toLowerCase();
+  if (!q) return <>{text}</>;
+  const idx = text.toLowerCase().indexOf(q);
+  if (idx < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark style={{ backgroundColor: "#264f78", color: "#ffffff", borderRadius: 2, padding: "0 2px" }}>
+        {text.slice(idx, idx + q.length)}
+      </mark>
+      {text.slice(idx + q.length)}
+    </>
+  );
+}
+
 export function HistoryPanel({ open, entries, onClose, onSelect, onClear }: HistoryPanelProps) {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "ok" | "err">("all");
@@ -183,7 +199,7 @@ export function HistoryPanel({ open, entries, onClose, onSelect, onClear }: Hist
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {(entry.sql.split("\n")[0] ?? "")}
+                  <Highlight text={entry.sql.split("\n")[0] ?? ""} query={searchText} />
                 </pre>
               </button>
             ))
