@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src", "src/**/*.svelte"],
+  "include": ["src"],
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
@@ -9,6 +9,7 @@
     "noEmit": true,
     "verbatimModuleSyntax": false,
     "allowImportingTsExtensions": true,
-    "types": ["svelte", "vite/client"]
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
   }
 }
