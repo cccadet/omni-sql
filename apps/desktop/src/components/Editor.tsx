@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
-import MonacoEditor from "@monaco-editor/react";
+import MonacoEditor, { type BeforeMount } from "@monaco-editor/react";
 import type * as monaco from "monaco-editor";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import type { DialectId } from "@omni-sql/ts-types";
@@ -9,11 +9,12 @@ import {
   configureAutocomplete,
   configureFormatter,
   createEditorActions,
-  getOmniThemeName,
   LANGUAGE_ID,
+  OMNISQL_DARK,
   registerOmniThemes,
   registerSqlLanguage,
 } from "../lib/monaco-config";
+import type { OMNISQL_LIGHT } from "../lib/monaco-config";
 
 export interface EditorHandle {
   insertAtCursor: (text: string) => void;
@@ -34,7 +35,7 @@ export interface EditorProps {
   onCursorChange?: (position: { line: number; column: number }) => void;
   onAutocomplete?: (cursor: number) => Promise<Suggestion[]>;
   dialect?: DialectId;
-  theme?: "vs" | "vs-dark" | "omni-sql-dark" | "omni-sql-light";
+  theme?: typeof OMNISQL_DARK | typeof OMNISQL_LIGHT;
   fontFamily?: string;
   formatterSettings?: FormatterSettings;
 }
@@ -49,7 +50,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     onCursorChange,
     onAutocomplete,
     dialect = "jdbc-generic",
-    theme = "vs-dark",
+    theme = OMNISQL_DARK,
     fontFamily = "ui-monospace, monospace",
     formatterSettings,
   },
@@ -124,18 +125,21 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
   useEffect(() => {
     if (monacoRef.current) {
-      monacoRef.current.editor.setTheme(getOmniThemeName(theme === "vs-dark"));
+      monacoRef.current.editor.setTheme(theme);
     }
   }, [theme]);
+
+  const handleBeforeMount = useCallback<BeforeMount>((monacoInstance) => {
+    registerSqlLanguage();
+    registerOmniThemes(monacoInstance);
+  }, []);
 
   const handleMount = useCallback(
     (editor: monaco.editor.IStandaloneCodeEditor, monacoInstance: typeof monaco) => {
       editorRef.current = editor;
       monacoRef.current = monacoInstance;
 
-      registerSqlLanguage();
-      registerOmniThemes(monacoInstance);
-      monacoInstance.editor.setTheme(getOmniThemeName(theme === "vs-dark"));
+      monacoInstance.editor.setTheme(theme);
       formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
 
       if (onAutocomplete) {
@@ -168,6 +172,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       theme={theme}
       value={value}
       onChange={(v) => onChange?.(v ?? "")}
+      beforeMount={handleBeforeMount}
       onMount={handleMount}
       options={{
         automaticLayout: true,

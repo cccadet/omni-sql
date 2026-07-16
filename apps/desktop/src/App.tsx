@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
-import { useTheme, useEditorMonacoTheme } from "./theme";
+import { useEditorMonacoTheme, type ThemeName } from "./theme";
 import { useSession } from "./hooks/useSession";
 import { useConnections } from "./hooks/useConnections";
 import { Toolbar } from "./components/Toolbar";
@@ -43,8 +43,12 @@ function saveHistory(entries: HistoryEntry[]) {
   }
 }
 
-export default function App() {
-  const { name, toggle } = useTheme();
+export interface AppProps {
+  themeName: ThemeName;
+  onToggleTheme: () => void;
+}
+
+export default function App({ themeName: name, onToggleTheme: toggle }: AppProps) {
   const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab } = useSession();
   const { connections, error: connectionsError, loadConnections } = useConnections();
   const editorRef = useRef<EditorHandle | null>(null);
@@ -400,7 +404,7 @@ export default function App() {
 
   const onClearHistory = useCallback(() => setHistory([]), []);
 
-  const monacoTheme = useEditorMonacoTheme();
+  const monacoTheme = useEditorMonacoTheme(name);
 
   const sidebarData = activeConnectionId ? sidebarCache[activeConnectionId] : undefined;
 
