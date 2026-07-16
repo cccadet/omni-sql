@@ -184,4 +184,37 @@ test("caso 7b: colunas das tabelas internas do CTE não vazam pro escopo externo
   assert.ok(!labels.includes("email"), "coluna de `users` (dentro do CTE) vazou pro escopo externo");
 });
 
+test("CTE injetada pelo tier2 sugere colunas no SELECT externo e não usa insertText qualificado", () => {
+  const meta = metaOf(postgresDescriptor);
+  const cte: Relation = {
+    schema: "",
+    name: "cte",
+    kind: "view",
+    columns: [
+      { name: "id", dataType: "integer", nullable: false, isPrimaryKey: false, ordinalPosition: 1 },
+      { name: "nome", dataType: "text", nullable: true, isPrimaryKey: false, ordinalPosition: 2 },
+    ],
+    constraints: [],
+  };
+  const metaWithCte: MetadataSource = {
+    ...meta,
+    listRelations: () => [...meta.listRelations(), cte],
+    resolveRelation: (ref: ScopeRef) => {
+      if (ref.schema == null && ref.table.toLowerCase() === "cte") return cte;
+      return meta.resolveRelation(ref);
+    },
+  };
+  const sql = "WITH cte AS (SELECT id, nome FROM users) SELECT  FROM cte";
+  const cursor = sql.indexOf("SELECT  FROM cte") + "SELECT ".length;
+  const out = autocompleteTier1(sql, cursor, metaWithCte);
+  const labels = out.map((s) => s.label);
+  assert.ok(labels.includes("id"), "coluna id da CTE ausente");
+  assert.ok(labels.includes("nome"), "coluna nome da CTE ausente");
+  assert.ok(!labels.includes("email"), "coluna da tabela real vazou para CTE");
+  const cteFrom = autocompleteTier1("WITH cte AS (SELECT id FROM users) SELECT * FROM ", 59, metaWithCte);
+  const cteItem = cteFrom.find((s) => s.label === "cte");
+  assert.ok(cteItem, "CTE não aparece na lista de relações do FROM");
+  assert.equal(cteItem!.insertText, undefined, "CTE não deve ter insertText qualificado (schema vazio)");
+});
+
 test.todo("caso 8: subqueries correlacionadas herdam escopo externo");

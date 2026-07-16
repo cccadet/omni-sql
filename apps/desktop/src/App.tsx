@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { useEditorMonacoTheme, type ThemeName } from "./theme";
-import { useSession } from "./hooks/useSession";
+import { useSession, makeTab } from "./hooks/useSession";
 import { useConnections } from "./hooks/useConnections";
 import { Toolbar } from "./components/Toolbar";
 import { TabBar } from "./components/TabBar";
@@ -404,6 +404,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const onClearHistory = useCallback(() => setHistory([]), []);
 
+  const onOpenInNewTab = useCallback(
+    (title: string, sql: string) => {
+      const newTab = makeTab({ title, sql, connectionId: activeConnectionId });
+      setTabs((prev) => [...prev, newTab]);
+      selectTab(newTab.id);
+    },
+    [activeConnectionId, setTabs, selectTab],
+  );
+
   const monacoTheme = useEditorMonacoTheme(name);
 
   const sidebarData = activeConnectionId ? sidebarCache[activeConnectionId] : undefined;
@@ -492,11 +501,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         <Sidebar
           open={sidebarOpen}
           connection={activeConnection}
+          connectionId={activeConnectionId}
           relations={sidebarData?.relations ?? []}
           functions={sidebarData?.functions ?? []}
           loading={sidebarLoading}
           onInsert={(text) => editorRef.current?.insertAtCursor(text)}
-          _onRefresh={() => loadSidebarData(activeConnectionId)}
+          onRefresh={() => loadSidebarData(activeConnectionId)}
+          onOpenInNewTab={onOpenInNewTab}
         />
       </aside>
 

@@ -240,16 +240,19 @@ export function configureFormatter(
 
 export function configureAutocomplete(
   monacoInstance: typeof monaco,
-  onAutocomplete: (cursor: number) => Promise<Suggestion[]>,
+  onAutocompleteRef: { current: (cursor: number) => Promise<Suggestion[]> | null },
 ) {
   monacoInstance.languages.registerCompletionItemProvider(LANGUAGE_ID, {
     triggerCharacters: [".", " "],
     async provideCompletionItems(model, position) {
       const cursor = model.getOffsetAt(position);
       const word = model.getWordUntilPosition(position);
+      const onAutocomplete = onAutocompleteRef.current;
       let suggestions: Suggestion[] = [];
       try {
-        suggestions = await onAutocomplete(cursor);
+        if (onAutocomplete) {
+          suggestions = await onAutocomplete(cursor);
+        }
       } catch {
         suggestions = [];
       }
