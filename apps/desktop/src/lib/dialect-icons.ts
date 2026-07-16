@@ -1,6 +1,7 @@
 import type { ConnectionEntry } from "./backend";
+import type { DialectId } from "@omni-sql/ts-types";
 
-export const DIALECT_ICONS: Record<ConnectionEntry["dialect"], string> = {
+export const DIALECT_ICONS: Record<DialectId, string> = {
   postgres: "🐘",
   mysql: "🐬",
   mariadb: "🦭",
@@ -10,6 +11,7 @@ export const DIALECT_ICONS: Record<ConnectionEntry["dialect"], string> = {
   odbc: "🔗",
 };
 
-export function dialectIcon(dialect: ConnectionEntry["dialect"]): string {
-  return DIALECT_ICONS[dialect] ?? "🗄️";
+export function dialectIcon(dialect: ConnectionEntry["dialect"] | string | undefined): string {
+  if (!dialect) return "🗄️";
+  return DIALECT_ICONS[dialect as DialectId] ?? "🗄️";
 }

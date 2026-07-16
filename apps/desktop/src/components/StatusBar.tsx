@@ -1,6 +1,14 @@
 import { Text, tokens } from "@fluentui/react-components";
+import {
+  PlugDisconnectedRegular,
+  PlugConnectedRegular,
+  ClockRegular,
+  DocumentRegular,
+  CursorRegular,
+} from "@fluentui/react-icons";
 import type { QueryResult } from "@omni-sql/ts-types";
 import type { ConnectionEntry } from "../lib/backend";
+import { dialectIcon } from "../lib/dialect-icons";
 
 export interface StatusBarProps {
   connection?: ConnectionEntry | null;
@@ -22,6 +30,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg }: Statu
 
   return (
     <footer
+      className="omni-status-bar"
       style={{
         display: "flex",
         alignItems: "center",
@@ -33,25 +42,36 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg }: Statu
         fontSize: 12,
       }}
     >
-      <Text size={200}>{connection?.label ?? "Sem conexão"}</Text>
+      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {connection ? (
+          <PlugConnectedRegular fontSize={12} />
+        ) : (
+          <PlugDisconnectedRegular fontSize={12} />
+        )}
+        <Text size={200}>{connection?.label ?? "Sem conexão"}</Text>
+      </span>
       {connection && (
-        <Text size={200} style={{ opacity: 0.85 }}>
+        <Text size={200} style={{ opacity: 0.85, display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 12 }}>{dialectIcon(connection.dialect)}</span>
           {dialectLabels[connection.dialect] ?? connection.dialect}
         </Text>
       )}
       {busyMsg && (
-        <Text size={200} style={{ color: tokens.colorPaletteYellowForeground1 }}>
+        <Text size={200} style={{ color: tokens.colorPaletteYellowForeground1, display: "flex", alignItems: "center", gap: 4 }}>
+          <ClockRegular fontSize={12} />
           {busyMsg}
         </Text>
       )}
       <div style={{ flex: 1 }} />
       {result && (
-        <Text size={200}>
+        <Text size={200} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <DocumentRegular fontSize={12} />
           {result.rows.length} linha(s) · {result.columns.length} coluna(s) · {result.elapsedMs}ms
         </Text>
       )}
       {cursorPosition && (
-        <Text size={200}>
+        <Text size={200} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <CursorRegular fontSize={12} />
           Ln {cursorPosition.line}, Col {cursorPosition.column}
         </Text>
       )}

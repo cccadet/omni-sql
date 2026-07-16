@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useImperativeHandle, useRef } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import MonacoEditor from "@monaco-editor/react";
 import type * as monaco from "monaco-editor";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
@@ -9,7 +9,9 @@ import {
   configureAutocomplete,
   configureFormatter,
   createEditorActions,
+  getOmniThemeName,
   LANGUAGE_ID,
+  registerOmniThemes,
   registerSqlLanguage,
 } from "../lib/monaco-config";
 
@@ -32,7 +34,7 @@ export interface EditorProps {
   onCursorChange?: (position: { line: number; column: number }) => void;
   onAutocomplete?: (cursor: number) => Promise<Suggestion[]>;
   dialect?: DialectId;
-  theme?: "vs" | "vs-dark";
+  theme?: "vs" | "vs-dark" | "omni-sql-dark" | "omni-sql-light";
   fontFamily?: string;
   formatterSettings?: FormatterSettings;
 }
@@ -120,12 +122,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     formatterRef.current?.formatCurrentDocument(editor);
   }, []);
 
+  useEffect(() => {
+    if (monacoRef.current) {
+      monacoRef.current.editor.setTheme(getOmniThemeName(theme === "vs-dark"));
+    }
+  }, [theme]);
+
   const handleMount = useCallback(
     (editor: monaco.editor.IStandaloneCodeEditor, monacoInstance: typeof monaco) => {
       editorRef.current = editor;
       monacoRef.current = monacoInstance;
 
       registerSqlLanguage();
+      registerOmniThemes(monacoInstance);
+      monacoInstance.editor.setTheme(getOmniThemeName(theme === "vs-dark"));
       formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
 
       if (onAutocomplete) {
@@ -148,7 +158,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
       });
     },
-    [dialect, formatterSettings, onAutocomplete, onRun, onRunAll, onSave, onCursorChange, handleFormat],
+    [dialect, formatterSettings, onAutocomplete, onRun, onRunAll, onSave, onCursorChange, handleFormat, theme],
   );
 
   return (

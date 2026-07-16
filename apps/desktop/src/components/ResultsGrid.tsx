@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -15,6 +15,10 @@ import {
   ChevronRightRegular,
   DismissRegular,
   EditRegular,
+  FilterRegular,
+  TableRegular,
+  ChatRegular,
+  WrenchRegular,
 } from "@fluentui/react-icons";
 import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
 
@@ -36,34 +40,68 @@ function escapeCsv(value: unknown): string {
   return s;
 }
 
+function compareValues(a: unknown, b: unknown): number {
+  if (a === b) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  if (typeof a === "bigint" && typeof b === "bigint") return a < b ? -1 : 1;
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  return String(a).localeCompare(String(b), undefined, { numeric: true });
+}
+
 export function ResultsGrid({ result, error, planText, editability, onCellEdit }: ResultsGridProps) {
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan">("data");
   const [globalFilter, setGlobalFilter] = useState("");
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [sortColumn, setSortColumn] = useState<string | undefined>(undefined);
   const [sortDirection, setSortDirection] = useState<"ascending" | "descending">("ascending");
   const [page, setPage] = useState(0);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number; value: string } | null>(null);
+  const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
 
   const rows = useMemo(() => result?.rows ?? [], [result?.rows]);
 
+  // Reset sort/filters/selection on new result
+  useEffect(() => {
+    setSortColumn(undefined);
+    setColumnFilters({});
+    setPage(0);
+    setSelectedRow(null);
+    if (error) {
+      setActiveTab("messages");
+    } else if (result) {
+      setActiveTab("data");
+    }
+  }, [result?.columns, error]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const filteredRows = useMemo(() => {
+    let list = rows;
     const term = globalFilter.trim().toLowerCase();
-    if (!term) return rows;
-    return rows.filter((row) => row.some((cell) => String(cell ?? "").toLowerCase().includes(term)));
-  }, [rows, globalFilter]);
+    if (term) {
+      list = list.filter((row) => row.some((cell) => String(cell ?? "").toLowerCase().includes(term)));
+    }
+    if (result && Object.keys(columnFilters).length > 0) {
+      list = list.filter((row) =>
+        result.columns.every((col, idx) => {
+          const filter = columnFilters[col.name]?.trim().toLowerCase();
+          if (!filter) return true;
+          const value = row[idx];
+          if (filter === "null") return value == null;
+          return String(value ?? "").toLowerCase().includes(filter);
+        }),
+      );
+    }
+    return list;
+  }, [rows, globalFilter, columnFilters, result]);
 
   const sortedRows = useMemo(() => {
     if (!sortColumn || !result) return filteredRows;
     const colIndex = result.columns.findIndex((c) => c.name === sortColumn);
     if (colIndex < 0) return filteredRows;
     const dir = sortDirection === "ascending" ? 1 : -1;
-    return [...filteredRows].sort((a, b) => {
-      const av = a[colIndex] ?? "";
-      const bv = b[colIndex] ?? "";
-      if (av === bv) return 0;
-      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
-      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir;
-    });
+    return [...filteredRows].sort((a, b) => compareValues(a[colIndex], b[colIndex]) * dir);
   }, [filteredRows, sortColumn, sortDirection, result]);
 
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
@@ -130,8 +168,25 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
     [result?.columns, editability],
   );
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (activeTab !== "data" || pageRows.length === 0) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedRow((r) => (r == null ? 0 : Math.min(pageRows.length - 1, r + 1)));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedRow((r) => (r == null ? 0 : Math.max(0, r - 1)));
+      }
+    }
+    const el = gridRef.current;
+    el?.addEventListener("keydown", onKey);
+    return () => el?.removeEventListener("keydown", onKey);
+  }, [activeTab, pageRows.length]);
+
   return (
     <Card
+      className="omni-results-grid"
       style={{
         height: "100%",
         borderRadius: 0,
@@ -140,6 +195,8 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
         flexDirection: "column",
         padding: 0,
       }}
+      tabIndex={0}
+      ref={gridRef}
     >
       <div
         style={{
@@ -156,9 +213,9 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
           selectedValue={activeTab}
           onTabSelect={(_, data) => setActiveTab(data.value as "data" | "messages" | "plan")}
         >
-          <Tab value="data">Dados</Tab>
-          <Tab value="messages">Mensagens</Tab>
-          {planText && <Tab value="plan">Plano</Tab>}
+          <Tab value="data" icon={<TableRegular fontSize={12} />}>Dados</Tab>
+          <Tab value="messages" icon={<ChatRegular fontSize={12} />}>Mensagens</Tab>
+          {planText && <Tab value="plan" icon={<WrenchRegular fontSize={12} />}>Plano</Tab>}
         </TabList>
         {activeTab === "data" && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" }}>
@@ -184,7 +241,9 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
               style={{ minWidth: 160, maxWidth: 240 }}
             />
             <Tooltip content="Exportar CSV" relationship="label">
-              <Button icon={<ArrowDownloadRegular />} onClick={handleExportCsv} disabled={!result || rows.length === 0} />
+              <Button icon={<ArrowDownloadRegular />} onClick={handleExportCsv} disabled={!result || rows.length === 0}>
+                Exportar
+              </Button>
             </Tooltip>
           </div>
         )}
@@ -220,24 +279,64 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
                           whiteSpace: "nowrap",
                           cursor: "pointer",
                           fontWeight: 600,
+                          verticalAlign: "top",
                         }}
                       >
                         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           {col.name}
                           {col.editable && (
-                            <EditRegular
-                              style={{ fontSize: 12, color: tokens.colorNeutralForeground2 }}
-                            />
+                            <EditRegular style={{ fontSize: 12, color: tokens.colorNeutralForeground2 }} />
                           )}
                           {sortColumn === col.name && (sortDirection === "ascending" ? " ▲" : " ▼")}
                         </span>
+                        <div
+                          style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <FilterRegular style={{ fontSize: 10, color: tokens.colorNeutralForeground3 }} />
+                          <input
+                            type="text"
+                            value={columnFilters[col.name] ?? ""}
+                            onChange={(e) => {
+                              setColumnFilters((prev) => ({ ...prev, [col.name]: e.target.value }));
+                              setPage(0);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setColumnFilters((prev) => ({ ...prev, [col.name]: "" }));
+                              }
+                            }}
+                            placeholder="filtrar..."
+                            style={{
+                              width: "100%",
+                              minWidth: 60,
+                              padding: "2px 4px",
+                              fontSize: 11,
+                              border: `1px solid ${columnFilters[col.name] ? tokens.colorBrandStroke1 : tokens.colorNeutralStroke1}`,
+                              borderRadius: 3,
+                              background: tokens.colorNeutralBackground1,
+                              color: tokens.colorNeutralForeground1,
+                            }}
+                          />
+                        </div>
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {pageRows.map((row, rowIndex) => (
-                    <tr key={rowIndex}>
+                    <tr
+                      key={rowIndex}
+                      className={selectedRow === rowIndex ? "selected" : undefined}
+                      onClick={() => setSelectedRow(rowIndex)}
+                      style={{
+                        backgroundColor:
+                          selectedRow === rowIndex
+                            ? tokens.colorBrandBackground2
+                            : undefined,
+                        cursor: "pointer",
+                      }}
+                    >
                       {columns.map((col) => {
                         const cellValue = row[col.index];
                         const isEditing =
@@ -249,6 +348,11 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
                               padding: "4px 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
                               whiteSpace: "nowrap",
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedRow(rowIndex);
+                              if (col.editable) startEdit(rowIndex, col.index);
                             }}
                           >
                             {isEditing ? (
@@ -264,14 +368,7 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
                                 style={{ minWidth: 60 }}
                               />
                             ) : (
-                              <div
-                                onClick={() => startEdit(rowIndex, col.index)}
-                                style={{
-                                  whiteSpace: "nowrap",
-                                  cursor: col.editable ? "text" : "default",
-                                  padding: "2px 0",
-                                }}
-                              >
+                              <div style={{ whiteSpace: "nowrap", padding: "2px 0" }}>
                                 {String(cellValue ?? "")}
                               </div>
                             )}
