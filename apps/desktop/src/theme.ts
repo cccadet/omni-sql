@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createLightTheme, createDarkTheme, type Theme } from "@fluentui/react-components";
+import { OMNISQL_DARK, OMNISQL_LIGHT } from "./lib/monaco-config";
 
 const THEME_KEY = "omni-sql:theme";
 
@@ -28,7 +29,7 @@ const OMNI_BRAND = {
 const omniLightBase = createLightTheme(OMNI_BRAND);
 const omniDarkBase = createDarkTheme(OMNI_BRAND);
 
-/** Tema claro omni-sql. Janela clara, editor escuro. */
+/** Tema claro omni-sql. */
 export const omniLightTheme: Theme = {
   ...omniLightBase,
   colorNeutralBackground1: "#F6F6F6",
@@ -128,7 +129,7 @@ export function useThemeValue(): Theme {
   return useTheme().theme;
 }
 
-/** O editor Monaco sempre usa o tema escuro, inclusive no modo claro (identidade visual). */
-export function useEditorMonacoTheme(): "omni-sql-dark" | "omni-sql-dark" {
-  return "omni-sql-dark";
+/** Tema do Monaco Editor conforme o tema do app. */
+export function useEditorMonacoTheme(name: ThemeName): typeof OMNISQL_DARK | typeof OMNISQL_LIGHT {
+  return name === "dark" ? OMNISQL_DARK : OMNISQL_LIGHT;
 }

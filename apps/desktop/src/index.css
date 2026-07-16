@@ -6,6 +6,14 @@ body,
   font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
 body {
   background-color: var(--colorNeutralBackground1);
   color: var(--colorNeutralForeground1);
