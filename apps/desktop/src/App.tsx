@@ -13,8 +13,11 @@ import { StatusBar } from "./components/StatusBar";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
+import { VariablesDialog } from "./components/VariablesDialog";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
 import { backend, type ConnectionEntry, type RelationInfo } from "./lib/backend";
+import { splitStatements } from "./lib/sql-statements";
+import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import type { DialectId, FunctionDef, QueryResult, RowEditability } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
@@ -40,6 +43,14 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const [editability, setEditability] = useState<RowEditability | null>(null);
   const [planText, setPlanText] = useState<string | null>(null);
+  const [pendingRun, setPendingRun] = useState<{
+    sqls: string[];
+    label: string;
+    runAll: boolean;
+  } | null>(null);
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  const [variableNames, setVariableNames] = useState<string[]>([]);
+  const [runAfterVariables, setRunAfterVariables] = useState<{ sqls: string[]; label: string } | null>(null);
 
   useEffect(() => {
     void loadConnections();
@@ -171,33 +182,93 @@ export default function App() {
     setHistory((prev) => [entry, ...prev].slice(0, 50));
   }, [connections]);
 
-  const handleRun = useCallback(() => {
-    if (!activeConnectionId || !activeTab) return;
-    setRunning(true);
-    setBusyMsg("Executando…");
-    setResult(null);
-    setEditability(null);
-    setPlanText(null);
-    const startedAt = Date.now();
-    backend
-      .call<QueryResult>("query.run", { connectionId: activeConnectionId, sql: activeTab.sql, limit: activeTab.queryLimit })
-      .then((res) => {
-        setResult(res);
+  const runSqlSequence = useCallback(
+    async (sqls: string[], label: string) => {
+      if (!activeConnectionId || !activeTab) return;
+      const variables = extractVariablesUnion(sqls);
+      if (variables.length > 0) {
+        setRunAfterVariables({ sqls, label });
+        setVariableNames(variables);
+        setVariablesOpen(true);
+        return;
+      }
+      setRunning(true);
+      setBusyMsg(label);
+      setResult(null);
+      setEditability(null);
+      setPlanText(null);
+      const startedAt = Date.now();
+      try {
+        const lastResult = await backend.call<QueryResult>("query.run", {
+          connectionId: activeConnectionId,
+          sql: sqls.join(";\n"),
+          limit: activeTab.queryLimit,
+        });
+        setResult(lastResult);
         pushHistory(activeTab, true, Date.now() - startedAt);
         void backend
-          .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: activeTab.sql })
+          .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: sqls.join(";\n") })
           .then(setEditability)
           .catch(() => setEditability(null));
-      })
-      .catch((e) => {
+      } catch (e) {
         updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) });
         pushHistory(activeTab, false, Date.now() - startedAt, e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
+      } finally {
         setRunning(false);
         setBusyMsg(null);
-      });
-  }, [activeConnectionId, activeTab, pushHistory, updateTab]);
+      }
+    },
+    [activeConnectionId, activeTab, pushHistory, updateTab],
+  );
+
+  const handleRun = useCallback(() => {
+    if (!activeConnectionId) return;
+    const target = editorRef.current?.getSelectionOrCurrent();
+    const sql = target?.sql ?? activeTab.sql;
+    const statements = splitStatements(sql);
+    if (statements.length > 1 && !target?.sql) {
+      setPendingRun({ sqls: statements.map((s) => s.text), label: "Executando…", runAll: false });
+      return;
+    }
+    const sqls = target?.sql ? [target.sql] : statements.map((s) => s.text);
+    if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
+    void runSqlSequence(sqls, "Executando…");
+  }, [activeConnectionId, activeTab.sql, runSqlSequence]);
+
+  const handleRunAll = useCallback(() => {
+    if (!activeConnectionId) return;
+    const sqls = editorRef.current?.getStatements().map((s) => s.text) ?? splitStatements(activeTab.sql).map((s) => s.text);
+    if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
+    void runSqlSequence(sqls, "Executando todas…");
+  }, [activeConnectionId, activeTab.sql, runSqlSequence]);
+
+  const handleRunChoice = useCallback(
+    (choice: "current" | "all") => {
+      if (!pendingRun) return;
+      if (choice === "current" && pendingRun.runAll === false) {
+        const current = editorRef.current?.getCurrentStatement();
+        const sqls = current ? [current.text] : [pendingRun.sqls[0]!];
+        void runSqlSequence(sqls, "Executando…");
+      } else {
+        void runSqlSequence(pendingRun.sqls, "Executando todas…");
+      }
+      setPendingRun(null);
+    },
+    [pendingRun, runSqlSequence],
+  );
+
+  const handleRunChoiceCancel = useCallback(() => setPendingRun(null), []);
+
+  const handleVariablesSubmit = useCallback(
+    (values: Record<string, string>) => {
+      setVariablesOpen(false);
+      if (!runAfterVariables) return;
+      const sqls = runAfterVariables.sqls.map((sql) => substituteVariables(sql, values));
+      void runSqlSequence(sqls, runAfterVariables.label);
+      setRunAfterVariables(null);
+    },
+    [runAfterVariables, runSqlSequence],
+  );
 
   const handleExplain = useCallback(() => {
     if (!activeConnectionId || !activeTab?.sql.trim()) return;
@@ -366,6 +437,9 @@ export default function App() {
           onRun={handleRun}
           onExplain={handleExplain}
           onCancelRun={() => {}}
+          onRunChoice={handleRunChoice}
+          onRunChoiceCancel={handleRunChoiceCancel}
+          pendingRunCount={pendingRun ? pendingRun.sqls.length : null}
           onLimitChange={(limit) => updateTab(activeTab.id, { queryLimit: limit })}
           onSave={onSaveTab}
           onOpen={onOpenFile}
@@ -409,6 +483,8 @@ export default function App() {
             value={activeTab.sql}
             onChange={(sql) => updateTabSql(activeTab.id, sql)}
             onRun={handleRun}
+            onRunAll={handleRunAll}
+            onSave={onSaveTab}
             onCursorChange={setCursorPosition}
             onAutocomplete={handleAutocomplete}
             dialect={activeDialect}
@@ -442,6 +518,16 @@ export default function App() {
       />
 
       <HistoryPanel open={historyOpen} entries={history} onClose={() => setHistoryOpen(false)} onSelect={onSelectHistory} onClear={onClearHistory} />
+
+      <VariablesDialog
+        open={variablesOpen}
+        variables={variableNames}
+        onClose={() => {
+          setVariablesOpen(false);
+          setRunAfterVariables(null);
+        }}
+        onSubmit={handleVariablesSubmit}
+      />
     </div>
   );
 }

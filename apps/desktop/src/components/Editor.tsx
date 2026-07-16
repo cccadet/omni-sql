@@ -4,6 +4,7 @@ import type * as monaco from "monaco-editor";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import type { DialectId } from "@omni-sql/ts-types";
 import { DEFAULT_FORMATTER_SETTINGS, type FormatterSettings } from "../lib/format-sql";
+import { splitStatements, statementAt, type SqlStatement } from "../lib/sql-statements";
 import {
   configureAutocomplete,
   configureFormatter,
@@ -14,13 +15,20 @@ import {
 
 export interface EditorHandle {
   insertAtCursor: (text: string) => void;
-  getRunTarget: () => { selectionText: string | null; cursorOffset: number };
+  getRunTarget: () => { selectionText: string | null; cursorOffset: number; currentStatement: SqlStatement | null };
+  getStatements: () => SqlStatement[];
+  getCurrentStatement: () => SqlStatement | null;
+  getAllText: () => string;
+  getSelectionOrCurrent: () => { sql: string; start: number };
+  formatDocument: () => void;
 }
 
 export interface EditorProps {
   value: string;
   onChange?: (value: string) => void;
   onRun?: () => void;
+  onRunAll?: () => void;
+  onSave?: () => void;
   onCursorChange?: (position: { line: number; column: number }) => void;
   onAutocomplete?: (cursor: number) => Promise<Suggestion[]>;
   dialect?: DialectId;
@@ -34,6 +42,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     value,
     onChange,
     onRun,
+    onRunAll,
+    onSave,
     onCursorChange,
     onAutocomplete,
     dialect = "jdbc-generic",
@@ -60,13 +70,45 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       },
       getRunTarget: () => {
         const editor = editorRef.current;
-        if (!editor) return { selectionText: null, cursorOffset: 0 };
+        if (!editor) return { selectionText: null, cursorOffset: 0, currentStatement: null };
         const model = editor.getModel();
         const sel = editor.getSelection();
         const position = editor.getPosition();
         const cursorOffset = model && position ? model.getOffsetAt(position) : 0;
         const selectionText = model && sel && !sel.isEmpty() ? model.getValueInRange(sel) : null;
-        return { selectionText, cursorOffset };
+        const currentStatement = model ? statementAt(splitStatements(model.getValue()), cursorOffset) ?? null : null;
+        return { selectionText, cursorOffset, currentStatement };
+      },
+      getStatements: () => {
+        const editor = editorRef.current;
+        const model = editor?.getModel();
+        return model ? splitStatements(model.getValue()) : [];
+      },
+      getCurrentStatement: () => {
+        const editor = editorRef.current;
+        const model = editor?.getModel();
+        const position = editor?.getPosition();
+        if (!model || !position) return null;
+        return statementAt(splitStatements(model.getValue()), model.getOffsetAt(position)) ?? null;
+      },
+      getAllText: () => editorRef.current?.getModel()?.getValue() ?? "",
+      getSelectionOrCurrent: () => {
+        const editor = editorRef.current;
+        const model = editor?.getModel();
+        const sel = editor?.getSelection();
+        if (!model) return { sql: "", start: 0 };
+        if (sel && !sel.isEmpty()) {
+          return { sql: model.getValueInRange(sel), start: model.getOffsetAt(sel.getStartPosition()) };
+        }
+        const position = editor?.getPosition();
+        const offset = position ? model.getOffsetAt(position) : 0;
+        const stmt = statementAt(splitStatements(model.getValue()), offset);
+        return stmt ? { sql: stmt.text, start: stmt.start } : { sql: model.getValue(), start: 0 };
+      },
+      formatDocument: () => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        formatterRef.current?.formatCurrentDocument(editor);
       },
     }),
     [],
@@ -90,14 +132,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         configureAutocomplete(monacoInstance, onAutocomplete);
       }
 
-      createEditorActions(monacoInstance, editor, onRun, handleFormat);
+      const settings = formatterSettings ?? DEFAULT_FORMATTER_SETTINGS;
+
+      createEditorActions(monacoInstance, editor, onRun, onRunAll, onSave, handleFormat, settings);
 
       editor.onDidChangeCursorPosition((e) => {
         onCursorChange?.({ line: e.position.lineNumber, column: e.position.column });
       });
 
       editor.onKeyDown((e) => {
-        const settings = formatterSettings ?? DEFAULT_FORMATTER_SETTINGS;
         if (settings.keybinding && formatterRef.current?.matchesKeybinding(settings.keybinding, e)) {
           e.preventDefault();
           e.stopPropagation();
@@ -105,7 +148,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
       });
     },
-    [dialect, formatterSettings, onAutocomplete, onRun, onCursorChange, handleFormat],
+    [dialect, formatterSettings, onAutocomplete, onRun, onRunAll, onSave, onCursorChange, handleFormat],
   );
 
   return (
