@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Tab, TabList, tokens } from "@fluentui/react-components";
 import { AddRegular, DismissRegular } from "@fluentui/react-icons";
+import { dialectIcon } from "../lib/dialect-icons";
 
 export interface TabItem {
   id: string;
@@ -81,10 +82,14 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
                   setEditingId(tab.id);
                   setEditingValue(tab.title);
                 }}
-                style={{ display: "flex", alignItems: "center", gap: 4 }}
+                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}
               >
-                {tab.dialect && <span>{tab.dialect}</span>}
-                <span>{tab.title}</span>
+                {tab.dialect && (
+                  <span title={tab.dialect} style={{ fontSize: 12, lineHeight: 1 }}>
+                    {dialectIcon(tab.dialect)}
+                  </span>
+                )}
+                <span style={{ fontWeight: 500 }}>{tab.title}</span>
                 {tab.dirty && (
                   <span style={{ color: tokens.colorPaletteYellowForeground1, fontSize: 8 }}>●</span>
                 )}

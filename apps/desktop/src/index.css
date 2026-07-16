@@ -1,0 +1,255 @@
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+body {
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  overflow: hidden;
+}
+
+/* Brand-aware buttons */
+.fui-Button {
+  border-radius: 4px;
+}
+
+.fui-Button.fui-Button--appearance-primary {
+  background-color: var(--colorBrandBackground);
+  color: var(--colorNeutralForegroundOnBrand);
+}
+
+.fui-Button.fui-Button--appearance-primary:hover {
+  background-color: var(--colorBrandBackgroundHover);
+}
+
+.fui-Button.fui-Button--appearance-primary:active {
+  background-color: var(--colorBrandBackgroundPressed);
+}
+
+.fui-Button.fui-Button--appearance-subtle:hover,
+.fui-Button.fui-Button--appearance-transparent:hover {
+  color: var(--colorBrandForeground1);
+}
+
+.fui-Button.fui-Button--appearance-subtle:hover .fui-Button__icon,
+.fui-Button.fui-Button--appearance-transparent:hover .fui-Button__icon {
+  color: var(--colorBrandForeground1);
+}
+
+/* Global focus ring in brand gold */
+*:focus-visible {
+  outline-color: var(--colorBrandStroke1) !important;
+}
+
+/* Native selects/combos should follow the theme instead of forcing white */
+select,
+.fui-Combobox__input,
+.fui-Dropdown__button {
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  border-color: var(--colorNeutralStroke1);
+}
+
+select option {
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+}
+
+/* Toolbar compactness */
+.omni-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  min-height: 44px;
+  background: var(--colorNeutralBackground2);
+  border-bottom: 1px solid var(--colorNeutralStroke1);
+}
+
+.omni-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-right: 1px solid var(--colorNeutralStroke2);
+}
+
+.omni-toolbar-group:last-of-type {
+  border-right: none;
+}
+
+.omni-toolbar-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--colorNeutralForeground3);
+  margin-bottom: 2px;
+  line-height: 1;
+}
+
+.omni-toolbar-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+/* Sidebar tree polish */
+.omni-sidebar-tree {
+  font-size: 12px;
+}
+
+.omni-sidebar-tree .obj-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 0;
+}
+
+.omni-sidebar-tree .obj-row:hover {
+  background-color: var(--colorNeutralBackground3);
+  border-radius: 4px;
+}
+
+.omni-sidebar-tree .obj-row .fui-Button {
+  color: var(--colorNeutralForeground2);
+}
+
+.omni-sidebar-tree .obj-row:hover .fui-Button,
+.omni-sidebar-tree .obj-row:hover .obj-icon {
+  color: var(--colorBrandForeground1);
+}
+
+.omni-sidebar-tree .obj-icon {
+  flex-shrink: 0;
+  color: var(--colorNeutralForeground2);
+}
+
+.omni-sidebar-tree .obj-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omni-sidebar-tree .badge {
+  font-size: 9px;
+  padding: 0 3px;
+  border-radius: 3px;
+  margin-left: 2px;
+}
+
+.omni-sidebar-tree .badge-pk {
+  background: var(--colorPaletteDarkOrangeBackground1);
+  color: var(--colorPaletteDarkOrangeForeground1);
+}
+
+.omni-sidebar-tree .badge-fk {
+  background: var(--colorPaletteBlueBackground1);
+  color: var(--colorPaletteBlueForeground2);
+}
+
+.omni-sidebar-tree .col-name {
+  margin-left: 2px;
+}
+
+.omni-sidebar-tree .col-type {
+  color: var(--colorNeutralForeground3);
+  margin-left: 4px;
+}
+
+.omni-sidebar-tree .columns {
+  margin-left: 18px;
+  border-left: 1px solid var(--colorNeutralStroke2);
+  padding-left: 6px;
+}
+
+.omni-sidebar-tree .columns .column {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 0;
+}
+
+/* Connection chip */
+.omni-connection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--colorNeutralBackground3);
+  font-size: 12px;
+}
+
+.omni-connection-chip.synced {
+  outline: 1px solid var(--colorBrandStroke1);
+}
+
+.omni-connection-chip .status {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--colorNeutralForeground3);
+}
+
+.omni-connection-chip .status.synced {
+  color: var(--colorBrandForeground1);
+}
+
+/* Tab bar */
+.omni-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 0;
+  border-bottom: 1px solid var(--colorNeutralStroke1);
+  background: var(--colorNeutralBackground1);
+}
+
+/* Results grid */
+.omni-results-grid table {
+  font-size: 12px;
+}
+
+.omni-results-grid th {
+  font-weight: 600;
+}
+
+.omni-results-grid tr.selected td {
+  background-color: var(--colorBrandBackground1);
+}
+
+/* Status bar */
+.omni-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--colorNeutralBackground2);
+  color: var(--colorNeutralForeground1);
+  border-top: 1px solid var(--colorNeutralStroke1);
+}
+
+/* Logo */
+.omni-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.omni-logo img {
+  height: 28px;
+  width: auto;
+  display: block;
+}
+
+.omni-logo .subtitle {
+  font-size: 11px;
+  opacity: 0.7;
+  font-weight: 400;
+}

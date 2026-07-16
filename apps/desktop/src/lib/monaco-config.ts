@@ -13,6 +13,69 @@ const LANGUAGE_ID = "sql-omni";
 
 export { LANGUAGE_ID };
 
+export const OMNISQL_DARK = "omni-sql-dark";
+export const OMNISQL_LIGHT = "omni-sql-light";
+
+export function registerOmniThemes(monacoInstance: typeof monaco): void {
+  monacoInstance.editor.defineTheme(OMNISQL_DARK, {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "keyword", foreground: "FECF78", fontStyle: "bold" },
+      { token: "keyword.uppercase", foreground: "FECF78", fontStyle: "bold" },
+      { token: "function", foreground: "FECF78" },
+      { token: "type", foreground: "E9C46A" },
+      { token: "number", foreground: "B388FF" },
+      { token: "string", foreground: "7EE787" },
+      { token: "string.sql", foreground: "7EE787" },
+      { token: "comment", foreground: "6A9955" },
+      { token: "operator", foreground: "E9C46A" },
+      { token: "identifier", foreground: "D4D4D4" },
+      { token: "table", foreground: "9CDCFE" },
+      { token: "column", foreground: "D4D4D4" },
+    ],
+    colors: {
+      "editor.background": "#1E1E1E",
+      "editor.lineHighlightBackground": "#2D2D2D",
+      "editorLineNumber.foreground": "#6E6E6E",
+      "editorLineNumber.activeForeground": "#CCCCCC",
+      "editor.selectionBackground": "#264F78",
+      "editor.inactiveSelectionBackground": "#3A3D41",
+    },
+  });
+
+  monacoInstance.editor.defineTheme(OMNISQL_LIGHT, {
+    base: "vs",
+    inherit: true,
+    rules: [
+      { token: "keyword", foreground: "D97706", fontStyle: "bold" },
+      { token: "keyword.uppercase", foreground: "D97706", fontStyle: "bold" },
+      { token: "function", foreground: "D97706" },
+      { token: "type", foreground: "B45309" },
+      { token: "number", foreground: "7C3AED" },
+      { token: "string", foreground: "047857" },
+      { token: "string.sql", foreground: "047857" },
+      { token: "comment", foreground: "2E7D32" },
+      { token: "operator", foreground: "B45309" },
+      { token: "identifier", foreground: "1F2937" },
+      { token: "table", foreground: "0369A1" },
+      { token: "column", foreground: "1F2937" },
+    ],
+    colors: {
+      "editor.background": "#FFFFFF",
+      "editor.lineHighlightBackground": "#F3F4F6",
+      "editorLineNumber.foreground": "#9CA3AF",
+      "editorLineNumber.activeForeground": "#4B5563",
+      "editor.selectionBackground": "#ADD6FF",
+      "editor.inactiveSelectionBackground": "#E5E5E5",
+    },
+  });
+}
+
+export function getOmniThemeName(isDark: boolean): string {
+  return isDark ? OMNISQL_DARK : OMNISQL_LIGHT;
+}
+
 export function mapKind(k: Suggestion["kind"]): monaco.languages.CompletionItemKind {
   switch (k) {
     case "table":
@@ -34,32 +97,76 @@ export function mapKind(k: Suggestion["kind"]): monaco.languages.CompletionItemK
   }
 }
 
+const COMMON_FUNCTIONS = [
+  "COUNT", "SUM", "AVG", "MIN", "MAX", "COALESCE", "NULLIF", "NVL", "DECODE",
+  "LENGTH", "SUBSTRING", "SUBSTR", "TRIM", "UPPER", "LOWER", "REPLACE",
+  "ROUND", "FLOOR", "CEIL", "ABS", "MOD", "POWER", "SQRT", "SIGN",
+  "CURRENT_DATE", "CURRENT_TIMESTAMP", "NOW", "SYSDATE", "GETDATE",
+  "TO_CHAR", "TO_DATE", "TO_NUMBER", "CAST", "CONVERT",
+  "EXTRACT", "DATE_PART", "DATE_TRUNC",
+  "ROW_NUMBER", "RANK", "DENSE_RANK", "LEAD", "LAG", "OVER",
+  "STRING_AGG", "GROUP_CONCAT", "LISTAGG",
+] as const;
+
 export function registerSqlLanguage(): void {
   if (monaco.languages.getLanguages().some((l) => l.id === LANGUAGE_ID)) {
     return;
   }
   monaco.languages.register({ id: LANGUAGE_ID, extensions: [".sql"] });
   const kw = [...postgresDescriptor.keywords];
+  const kwPattern = new RegExp(`\\b(?:${kw.join("|")})\\b`, "i");
+  const fnPattern = new RegExp(`\\b(?:${COMMON_FUNCTIONS.join("|")})\\b(?=\\s*\\()`, "i");
   monaco.languages.setMonarchTokensProvider(LANGUAGE_ID, {
     defaultToken: "",
     ignoreCase: true,
+    brackets: [
+      { open: "(", close: ")", token: "delimiter.parenthesis" },
+      { open: "[", close: "]", token: "delimiter.bracket" },
+      { open: "{", close: "}", token: "delimiter.brace" },
+    ],
+    keywords: kw,
+    functions: COMMON_FUNCTIONS,
+    operators: [
+      "+", "-", "*", "/", "%", "=", "!=", "<>", "<", ">", "<=", ">=",
+      "&&", "||", "::", "|", "&", "^", "~", "<<", ">>",
+    ],
     tokenizer: {
       root: [
-        [new RegExp(`\\b(?:${kw.join("|")})\\b`), "keyword"],
         [/--.*$/, "comment"],
         [/\/\*/, "comment", "@comment"],
         [/'/, "string", "@string"],
-        [/[a-zA-Z_][\w$]*/, "identifier"],
-        [/[0-9]+(\.[0-9]+)?/, "number"],
+        [/"/, "string.identifier", "@quotedIdentifier"],
+        [/`/, "string.identifier", "@backtickIdentifier"],
+        [/\[/, "string.identifier", "@bracketIdentifier"],
+        [fnPattern, "function"],
+        [kwPattern, "keyword"],
+        [/[+\-*/%=<>!&|^~:]+/, "operator"],
+        [/[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?/, "number"],
+        [/[a-zA-Z_][\w$@#]*/, "identifier"],
       ],
       string: [
         [/[^']+/, "string"],
         [/''/, "string"],
         [/'/, "string", "@pop"],
       ],
+      quotedIdentifier: [
+        [/[^"]+/, "string.identifier"],
+        [/""/, "string.identifier"],
+        [/"/, "string.identifier", "@pop"],
+      ],
+      backtickIdentifier: [
+        [/[^`]+/, "string.identifier"],
+        [/`/, "string.identifier", "@pop"],
+      ],
+      bracketIdentifier: [
+        [/[^\]]+/, "string.identifier"],
+        [/\]\]/, "string.identifier"],
+        [/\]/, "string.identifier", "@pop"],
+      ],
       comment: [
         [/[^*]+/, "comment"],
         [/\*\//, "comment", "@pop"],
+        [/./, "comment"],
       ],
     },
   });

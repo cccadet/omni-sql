@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
-import { useTheme } from "./hooks/useTheme";
+import { useTheme, useEditorMonacoTheme } from "./theme";
 import { useSession } from "./hooks/useSession";
 import { useConnections } from "./hooks/useConnections";
 import { Toolbar } from "./components/Toolbar";
@@ -400,7 +400,7 @@ export default function App() {
 
   const onClearHistory = useCallback(() => setHistory([]), []);
 
-  const monacoTheme = name === "light" ? "vs" : "vs-dark";
+  const monacoTheme = useEditorMonacoTheme();
 
   const sidebarData = activeConnectionId ? sidebarCache[activeConnectionId] : undefined;
 
@@ -414,6 +414,7 @@ export default function App() {
         background: tokens.colorNeutralBackground1,
         color: tokens.colorNeutralForeground1,
       }}
+      data-theme={name}
     >
       <header
         style={{
@@ -422,12 +423,19 @@ export default function App() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "8px 16px",
+          padding: "6px 16px",
           borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
           background: tokens.colorNeutralBackground1,
+          gap: 16,
         }}
       >
-        <Title1>omni-sql</Title1>
+        <div className="omni-logo">
+          <img src="/omni-sql.svg" alt="omni-sql" height={28} />
+          <div>
+            <Title1 style={{ fontSize: 18, lineHeight: 1 }}>omni-sql</Title1>
+            <span className="subtitle">One IDE for every database</span>
+          </div>
+        </div>
         <button
           type="button"
           onClick={toggle}
@@ -439,6 +447,7 @@ export default function App() {
             border: "none",
             color: tokens.colorNeutralForeground1,
             cursor: "pointer",
+            fontSize: 13,
           }}
         >
           {name === "dark" ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
@@ -469,6 +478,7 @@ export default function App() {
           onSave={onSaveTab}
           onOpen={onOpenFile}
           onOpenFormatSettings={() => setFormatSettingsOpen(true)}
+          sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onToggleHistory={() => setHistoryOpen((v) => !v)}
         />
