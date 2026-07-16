@@ -124,19 +124,19 @@ apps/desktop/
 
 ## 5. Fases de execução
 
-### Fase 0 — Setup do projeto React (estimativa: 1–2 dias)
+### Fase 0 — Setup do projeto React (estimativa: 1–2 dias) ✅
 
-- [ ] Criar branch `feat/react-fluent-migration`.
-- [ ] Remover dependências Svelte do `apps/desktop/package.json`.
-- [ ] Adicionar dependências React + Fluent UI:
+- [x] Criar branch `feat/react-fluent-migration`.
+- [x] Remover dependências Svelte do `apps/desktop/package.json`.
+- [x] Adicionar dependências React + Fluent UI:
   - `react`, `react-dom`, `@types/react`, `@types/react-dom`
   - `@fluentui/react-components`
   - `@fluentui/react-icons`
   - `@fluentui/react-hooks` (se necessário)
-- [ ] Reconfigurar Vite para React (`@vitejs/plugin-react`).
-- [ ] Reconfigurar ESLint/TypeScript para React.
-- [ ] Criar `main.tsx` e `App.tsx` mínimos.
-- [ ] Validar build: `pnpm -r typecheck` e `pnpm -r lint`.
+- [x] Reconfigurar Vite para React (`@vitejs/plugin-react`).
+- [x] Reconfigurar ESLint/TypeScript para React.
+- [x] Criar `main.tsx` e `App.tsx` mínimos.
+- [x] Validar build: `pnpm -r typecheck` e `pnpm -r lint`.
 
 ### Fase 1 — Fundação de tema e layout (estimativa: 2–3 dias)
 
@@ -219,8 +219,13 @@ apps/desktop/
 
 Use esta seção para registrar progresso, decisões e mudanças ao longo da migração.
 
-### YYYY-MM-DD — [Título da atualização]
-- [Descreva o que foi feito, decisões tomadas, problemas encontrados.]
+### 2026-07-16 — Fase 0 concluída
+- Criada branch `feat/react-fluent-migration` e substituído o frontend Svelte pelo setup React + Fluent UI React v9.
+- `apps/desktop/package.json` agora usa `react`, `react-dom`, `@fluentui/react-components`, `@fluentui/react-icons` e `@monaco-editor/react`.
+- Vite reconfigurado com `@vitejs/plugin-react`; TypeScript com `jsx: "react-jsx"`; ESLint com `eslint-plugin-react-hooks` (também adicionado como devDep no root para todos os workspaces compartilharem o config).
+- Criados `src/main.tsx`, `src/App.tsx` e `src/theme.ts` com `FluentProvider`, toggle claro/escuro e persistência em `localStorage`.
+- Componentes Svelte removidos de `src/` (arquivos utilitários TypeScript puros mantidos em `src/lib/`).
+- `pnpm -r typecheck` e `pnpm -r lint` passam. `pnpm -r test` passa em todos os workspaces exceto `docker/test-dbs`, que requer bancos de dados Docker rodando.
 
 ---
 
