@@ -1,16 +1,22 @@
 import "./index.css";
 import "./monaco-environment";
-import { StrictMode } from "react";
+import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { FluentProvider, createCSSRuleFromTheme } from "@fluentui/react-components";
 import App from "./App";
-import { useThemeValue } from "./theme";
+import { useTheme } from "./theme";
 
 export function ThemedApp() {
-  const theme = useThemeValue();
+  const { theme, name, toggle } = useTheme();
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", name);
+    document.documentElement.style.colorScheme = name;
+  }, [name]);
+
   return (
-    <FluentProvider theme={theme}>
-      <App />
+    <FluentProvider theme={theme} data-theme={name}>
+      <App themeName={name} onToggleTheme={toggle} />
       <style>{createCSSRuleFromTheme("body", theme)}</style>
     </FluentProvider>
   );
