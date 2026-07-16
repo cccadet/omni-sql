@@ -96,13 +96,17 @@ pub fn run() {
 
             log::info!("Starting backend sidecar: {}", backend_entry.display());
 
-            // Se já existe um backend respondendo nessa porta (ex.: sobrou de
-            // um hot-reload do `cargo tauri dev` que matou o processo pai sem
-            // dar tempo do `WindowEvent::Destroyed` rodar), reaproveita em vez
-            // de tentar subir um segundo — evita o `EADDRINUSE` em cascata.
+            // Spawn Node backend as a sidecar: HTTP JSON-RPC on port 41920.
+            // In dev, run the TypeScript backend through tsx. Some Linux Node
+            // builds expose Node 22 but are compiled without native TS support.
+            //
+            // O boot da janela não espera o backend ficar pronto: o frontend já
+            // tem retry (fetchWithRetry). Aqui só fazemos um check rápido de
+            // porta (50ms) para reaproveitar um processo sobrevivente de
+            // hot-reload, sem atrasar o setup.
             let backend_already_running = std::net::TcpStream::connect_timeout(
                 &"127.0.0.1:41920".parse().unwrap(),
-                Duration::from_millis(200),
+                Duration::from_millis(50),
             )
             .is_ok();
 
@@ -125,26 +129,27 @@ pub fn run() {
                         e
                     })?;
 
-                // Wait a moment for the backend to bind to 127.0.0.1:41920.
-                let deadline = Instant::now() + Duration::from_secs(5);
-                while Instant::now() < deadline {
-                    if std::net::TcpStream::connect_timeout(
-                        &"127.0.0.1:41920".parse().unwrap(),
-                        Duration::from_millis(100),
-                    )
-                    .is_ok()
-                    {
-                        log::info!("backend sidecar is listening on 127.0.0.1:41920");
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                if Instant::now() >= deadline {
-                    log::warn!("backend sidecar did not become reachable in 5s");
-                }
-
                 let state: tauri::State<'_, BackendChild> = app.state();
                 *state.0.lock().unwrap() = Some(child);
+
+                // Checagem de prontidão roda numa thread separada: só serve
+                // pra log de diagnóstico, nunca atrasa o boot da janela.
+                std::thread::spawn(|| {
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while Instant::now() < deadline {
+                        if std::net::TcpStream::connect_timeout(
+                            &"127.0.0.1:41920".parse().unwrap(),
+                            Duration::from_millis(100),
+                        )
+                        .is_ok()
+                        {
+                            log::info!("backend sidecar is listening on 127.0.0.1:41920");
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    log::warn!("backend sidecar did not become reachable in 5s");
+                });
             }
 
             // Sidecar JVM (Fase 3, opcional): spawn assíncrono, nunca bloqueia o
@@ -162,13 +167,14 @@ pub fn run() {
             // mata de verdade. Gere/atualize o jar com `./gradlew jar`.
             let sidecar_dir = workspace_root.join("services/jvm-sidecar");
             let sidecar_jar = sidecar_dir.join("build/libs/omni-sql-sidecar.jar");
-            // Mesma lógica de reaproveitamento do backend Node: se já tem
-            // algo respondendo em 41921 (sobra de um hot-reload anterior),
-            // não tenta subir outro — é exatamente o que gerava o
-            // `BindException: Address already in use` reportado.
+            // O JVM sidecar é opcional (tier2). Para não atrasar o boot da
+            // janela, fazemos um check rápido de porta (50ms) só para
+            // reaproveitar um processo sobrevivente de hot-reload. Se não
+            // houver, subimos o jar sem esperar resposta; o frontend já trata
+            // timeout/falha do sidecar como fallback para tier1.
             let sidecar_already_running = std::net::TcpStream::connect_timeout(
                 &"127.0.0.1:41921".parse().unwrap(),
-                Duration::from_millis(200),
+                Duration::from_millis(50),
             )
             .is_ok();
 

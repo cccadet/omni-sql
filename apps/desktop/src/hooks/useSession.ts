@@ -17,7 +17,7 @@ function makeId() {
   return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function makeTab(partial?: Partial<QueryTab>): QueryTab {
+export function makeTab(partial?: Partial<QueryTab>): QueryTab {
   return {
     id: partial?.id ?? makeId(),
     title: partial?.title ?? "Query",

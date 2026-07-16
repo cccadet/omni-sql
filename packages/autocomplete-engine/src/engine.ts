@@ -73,7 +73,7 @@ export function autocompleteTier1(
         // Schema já digitado pelo usuário (`ctx.qualifier`) não deve ser
         // repetido; do contrário, qualifica para produzir SQL executável
         // em schemas fora do search_path padrão.
-        insertText: ctx.qualifier || r.schema === "public" ? undefined : `${r.schema}.${r.name}`,
+        insertText: ctx.qualifier || r.schema === "public" || r.schema === "" ? undefined : `${r.schema}.${r.name}`,
         relevance: 90,
       }))
       .filter((s) => !partial || s.label.toLowerCase().startsWith(partial.toLowerCase()));
