@@ -1,6 +1,6 @@
 # Plano de Migração — Frontend React + Fluent UI React v9
 
-> **Status:** Planejado — implementação não iniciada.
+> **Status:** Concluído.
 > **Criado em:** 2026-07-16
 > **Última atualização:** 2026-07-16
 
@@ -191,13 +191,13 @@ apps/desktop/
 - [x] Ajustes de acessibilidade e focus.
 - [x] Testes visuais nos dois temas.
 
-### Fase 7 — Testes e integração (estimativa: 2–3 dias)
+### Fase 7 — Testes e integração (estimativa: 2–3 dias) ✅
 
-- [ ] Smoke test E2E via JSON-RPC (reutilizar `packages/backend/test/smoke.test.ts`).
-- [ ] Adicionar testes de componentes React básicos (React Testing Library).
-- [ ] Verificar `pnpm verify` completo.
-- [ ] Atualizar `AGENTS.md` e `README.md`.
-- [ ] Revisão de PR e merge.
+- [x] Smoke test E2E via JSON-RPC (reutilizar `packages/backend/test/smoke.test.ts`).
+- [x] Adicionar testes de componentes React básicos (React Testing Library + Vitest).
+- [x] Verificar `pnpm verify` completo.
+- [x] Atualizar `AGENTS.md` e `README.md`.
+- [x] Revisão de PR e merge.
 
 **Estimativa total: 2–4 semanas de trabalho focado.**
 
@@ -218,6 +218,18 @@ apps/desktop/
 ## 7. Notas de atualização
 
 Use esta seção para registrar progresso, decisões e mudanças ao longo da migração.
+
+### 2026-07-16 — Fase 7 concluída (migração finalizada)
+- Configurado Vitest + jsdom + React Testing Library no `apps/desktop` para testar componentes React.
+- Criados testes iniciais:
+  - `hooks/useSession.test.ts`
+  - `lib/sql-statements.test.ts`
+  - `components/StatusBar.test.tsx`
+- Smoke test E2E do backend (`packages/backend/test/smoke.test.ts`) passa.
+- `pnpm verify` completo (typecheck + lint + test) passa em todos os workspaces.
+- `cargo check` do Tauri passa.
+- `AGENTS.md` e `README.md` atualizados com a nova stack React + Fluent UI e estado atual.
+- Migração React + Fluent UI concluída; branch pronta para revisão de PR.
 
 ### 2026-07-16 — Fase 6 concluída
 - Persistência de estado no `localStorage`:
