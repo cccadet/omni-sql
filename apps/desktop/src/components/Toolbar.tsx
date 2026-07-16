@@ -14,6 +14,7 @@ import {
   ArrowSyncRegular,
   CheckmarkCircleRegular,
   CircleRegular,
+  WrenchRegular,
 } from "@fluentui/react-icons";
 import type { ConnectionEntry } from "../lib/backend";
 
@@ -30,6 +31,7 @@ export interface ToolbarProps {
   onRefreshMetadata?: () => void;
   onSelectConnection?: (id: string) => void;
   onRun?: () => void;
+  onExplain?: () => void;
   onCancelRun?: () => void;
   onRunChoice?: (choice: "current" | "all") => void;
   onRunChoiceCancel?: () => void;
@@ -57,6 +59,7 @@ export function Toolbar({
   onRefreshMetadata,
   onSelectConnection,
   onRun,
+  onExplain,
   onCancelRun,
   onRunChoice,
   onRunChoiceCancel,
@@ -123,6 +126,10 @@ export function Toolbar({
           Executar
         </ToolbarButton>
       )}
+
+      <ToolbarButton icon={<WrenchRegular />} onClick={onExplain} disabled={!activeConnectionId || running} aria-label="Explicar query">
+        EXPLAIN
+      </ToolbarButton>
 
       <select
         aria-label="Limite de linhas"
