@@ -198,3 +198,29 @@ Se quiser, no próximo passo monto um plano de implementação detalhado para a 
 4. **Correção do paste de aspas simples**: desabilitou `autoClosingBrackets` e `autoClosingQuotes` no Monaco, evitando que o editor insira aspas de fechamento automaticamente quando o usuário cola ou digita aspas simples (causa comum de conteúdo “sumir” ou parecer duplicado em webviews do Tauri).
 
 **Nota:** `pnpm verify` passa (typecheck + lint + test). A aba Plano é carregada sob demanda para não adicionar overhead de uma segunda chamada ao banco em toda execução.
+
+---
+
+## Implementação Fase 6 ✅ (2026-07-15)
+
+**Arquivos alterados:**
+
+| Arquivo | Mudança |
+|---|---|
+| `apps/desktop/src/lib/ResultsGrid.svelte` | Filtros por coluna no grid + estilos de filtro ativo |
+| `apps/desktop/src/lib/Editor.svelte` | Minimap e glyph margin ativados no Monaco |
+| `apps/desktop/src/lib/Toolbar.svelte` | Grupo "Execução" levemente destacado + transições |
+| `apps/desktop/src/lib/Sidebar.svelte` | Transições suaves em hover, expand/collapse e ações |
+
+**Funcionalidades entregues:**
+
+1. **Filtros por coluna no grid**: cada cabeçalho ganhou um input "filtrar..." para filtrar client-side o resultset já carregado. A busca é case-insensitive; digitar `null` filtra apenas valores `NULL`. Filtros combinam com sort e preservam o `originalIndex` para edição inline. Colunas com filtro ativo ganham destaque azulado no header. `Esc` limpa o filtro da coluna; nova query limpa todos os filtros.
+
+2. **Minimap e bookmarks no editor**: Monaco agora exibe minimap à direita (`showSlider: mouseover`) e margem de glyphs (`glyphMargin: true`), permitindo futura marcação de breakpoints/bookmarks sem mudança de código.
+
+3. **Polish visual / transições**:
+   - Toolbar: grupo "Execução" deslocado 6px para a esquerda e botão `Executar` com padding maior, reforçando o CTA primário.
+   - ResultsGrid: transições suaves em hover/seleção de linha e nas abas Dados/Mensagens/Plano.
+   - Sidebar: transições em summary, objetos, botões de ação e ícones de rotação do chevron.
+
+**Nota:** `pnpm verify` passa (typecheck + lint + test) e `cargo check` passa. Procedures/triggers/sequences na árvore continuam fora do escopo desta fase — exigem introspection backend em todos os adaptadores e foram mantidos na lista de polish futuro.

@@ -51,18 +51,39 @@
   let sortColumn = $state<string | null>(null);
   let sortDirection = $state<SortDirection>(null);
   let selectedRowIndex = $state<number | null>(null);
+  let columnFilters = $state<Record<string, string>>({});
 
-  // Reset sort/seleção quando muda a query.
+  // Reset sort/seleção/filtros quando muda a query.
   $effect(() => {
     result;
     sortColumn = null;
     sortDirection = null;
     selectedRowIndex = null;
+    columnFilters = {};
+  });
+
+  function cellMatchesFilter(cell: unknown, filter: string): boolean {
+    if (!filter) return true;
+    const text = cellText(cell).toLowerCase();
+    const q = filter.toLowerCase();
+    if (q === "null") return cell === null;
+    if (cell === null) return false;
+    return text.includes(q);
+  }
+
+  const filteredRows = $derived.by((): { row: unknown[]; originalIndex: number }[] => {
+    if (!result) return [];
+    const activeFilters = result.columns
+      .map((c, i) => ({ colIndex: i, name: c.name, query: columnFilters[c.name]?.trim() ?? "" }))
+      .filter((f) => f.query.length > 0);
+    return result.rows
+      .map((row, originalIndex) => ({ row, originalIndex }))
+      .filter(({ row }) => activeFilters.every((f) => cellMatchesFilter(row[f.colIndex], f.query)));
   });
 
   const displayRows = $derived.by((): { row: unknown[]; originalIndex: number }[] => {
     if (!result) return [];
-    const indexed = result.rows.map((row, originalIndex) => ({ row, originalIndex }));
+    const indexed = filteredRows;
     if (!sortColumn || !sortDirection) return indexed;
     const colIndex = result.columns.findIndex((c) => c.name === sortColumn);
     if (colIndex < 0) return indexed;
@@ -362,22 +383,47 @@
               {@const TypeIcon = typeIcon(c.dataType)}
               {@const active = sortColumn === c.name}
               {@const dir = active ? sortDirection : null}
+              {@const hasFilter = (columnFilters[c.name]?.trim().length ?? 0) > 0}
               <th
                 class:sorted={active}
                 class:sort-asc={dir === "asc"}
                 class:sort-desc={dir === "desc"}
-                onclick={() => toggleSort(c.name)}
-                title={active ? `Ordenado ${dir === "asc" ? "crescente" : "decrescente"} (clique para limpar)` : "Ordenar"}
+                class:has-filter={hasFilter}
               >
-                <span class="th-content">
-                  {c.name}
-                  <span class="type" title={c.dataType}
-                    ><TypeIcon size={13} strokeWidth={2} /></span
-                  >
-                  {#if dir}
-                    <span class="sort-indicator" aria-hidden="true">{dir === "asc" ? "▲" : "▼"}</span>
-                  {/if}
-                </span>
+                <button
+                  type="button"
+                  class="th-sort-btn"
+                  onclick={() => toggleSort(c.name)}
+                  title={active ? `Ordenado ${dir === "asc" ? "crescente" : "decrescente"} (clique para limpar)` : "Ordenar"}
+                >
+                  <span class="th-content">
+                    {c.name}
+                    <span class="type" title={c.dataType}
+                      ><TypeIcon size={13} strokeWidth={2} /></span
+                    >
+                    {#if dir}
+                      <span class="sort-indicator" aria-hidden="true">{dir === "asc" ? "▲" : "▼"}</span>
+                    {/if}
+                  </span>
+                </button>
+                <input
+                  type="text"
+                  class="col-filter"
+                  placeholder="filtrar..."
+                  value={columnFilters[c.name] ?? ""}
+                  oninput={(e) => {
+                    columnFilters = { ...columnFilters, [c.name]: e.currentTarget.value };
+                  }}
+                  onclick={(e) => e.stopPropagation()}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === "Escape") {
+                      if (e.key === "Escape") {
+                        columnFilters = { ...columnFilters, [c.name]: "" };
+                      }
+                      (e.currentTarget as HTMLInputElement).blur();
+                    }
+                  }}
+                />
               </th>
             {/each}
           </tr>
@@ -526,17 +572,49 @@
     font-weight: 600;
     position: sticky;
     top: 0;
-    cursor: pointer;
     user-select: none;
+    vertical-align: top;
+    padding: 0;
   }
-  th:hover { background: #37373d; }
-  th.sorted { background: #3c3c42; }
-  th.sorted:hover { background: #45454c; }
+  th.has-filter { background: #2f3a45; }
+  th.has-filter.sorted { background: #3c4a55; }
+  .th-sort-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 4px 10px;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .th-sort-btn:hover { background: #37373d; }
+  th.has-filter .th-sort-btn:hover { background: #3f4c57; }
   .th-content {
     display: inline-flex;
     align-items: center;
     gap: 4px;
   }
+  .col-filter {
+    display: block;
+    width: calc(100% - 8px);
+    margin: 0 4px 3px;
+    padding: 2px 5px;
+    box-sizing: border-box;
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 3px;
+    color: #ccc;
+    font-size: 10px;
+    font-family: inherit;
+    outline: none;
+  }
+  .col-filter::placeholder { color: #555; }
+  .col-filter:focus { border-color: #007acc; background: #1e1e1e; }
+  th.has-filter .col-filter { border-color: #4a6a8a; }
   .sort-indicator {
     color: #9cdcfe;
     font-size: 10px;
@@ -550,10 +628,11 @@
     vertical-align: middle;
   }
   td { color: #ccc; }
-  tbody tr { cursor: pointer; }
+  tbody tr { cursor: pointer; transition: background-color 0.08s ease; }
   tbody tr:hover td { background: rgba(255, 255, 255, 0.04); }
   tbody tr.selected td { background: rgba(0, 122, 204, 0.18); }
   tbody tr.selected:hover td { background: rgba(0, 122, 204, 0.25); }
+  td { transition: background-color 0.08s ease; }
   .null { color: #569cd6; font-style: italic; }
   .empty { padding: 24px; color: #666; font-size: 13px; }
   .error { padding: 16px; color: #f48771; font-family: ui-monospace, monospace; }
@@ -673,6 +752,7 @@
     cursor: pointer;
     font-size: 12px;
     padding: 4px 8px;
+    transition: color 0.1s ease, border-bottom-color 0.1s ease;
   }
   .tab:hover { color: #ccc; }
   .tab.active {
