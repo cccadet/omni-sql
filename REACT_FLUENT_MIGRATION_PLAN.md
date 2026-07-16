@@ -147,13 +147,13 @@ apps/desktop/
   - `Toolbar`, `Sidebar`, `TabBar`, `Editor`, `ResultsGrid`, `StatusBar`.
 - [x] Validar visual nos dois temas.
 
-### Fase 2 — Monaco Editor + backend JSON-RPC (estimativa: 2–3 dias)
+### Fase 2 — Monaco Editor + backend JSON-RPC (estimativa: 2–3 dias) ✅
 
-- [ ] Integrar `@monaco-editor/react`.
-- [ ] Configurar tema do Monaco (`vs` no claro, `vs-dark` no escuro).
-- [ ] Portar configuração SQL do Monaco (tokenização, autocomplete, formatação).
-- [ ] Reconectar cliente JSON-RPC (`lib/backend.ts`).
-- [ ] Testar chamada `connection.list` no boot.
+- [x] Integrar `@monaco-editor/react`.
+- [x] Configurar tema do Monaco (`vs` no claro, `vs-dark` no escuro).
+- [x] Portar configuração SQL do Monaco (tokenização, autocomplete, formatação).
+- [x] Reconectar cliente JSON-RPC (`lib/backend.ts`).
+- [x] Testar chamada `connection.list` no boot.
 
 ### Fase 3 — Componentes principais (estimativa: 5–8 dias)
 
@@ -218,6 +218,14 @@ apps/desktop/
 ## 7. Notas de atualização
 
 Use esta seção para registrar progresso, decisões e mudanças ao longo da migração.
+
+### 2026-07-16 — Fase 2 concluída
+- `Editor.tsx` reescrito com `@monaco-editor/react`, usando `onMount` para registrar a linguagem customizada `sql-omni`, provedores de formatação (via `sql-formatter`) e autocomplete (placeholder para backend `completion.get`).
+- Criado `src/lib/monaco-config.ts` portando a configuração do Monaco do Svelte anterior.
+- Tema do Monaco sincronizado com tema Fluent (`vs` claro / `vs-dark` escuro); atalho de formatação (`Ctrl+Alt+L`) configurado.
+- `useConnections` agora chama realmente `backend.call("connection.list", {})` no boot; testado via cURL contra backend na porta 41920.
+- `vite.config.ts` ajustado com `manualChunks` para separar Monaco e Fluent em chunks próprios e `chunkSizeWarningLimit` para evitar warnings de bundle.
+- `pnpm -r typecheck`, `pnpm -r lint` e `pnpm --filter desktop build` passam.
 
 ### 2026-07-16 — Fase 1 concluída
 - Criados componentes placeholder em `src/components/` (`Toolbar`, `Sidebar`, `TabBar`, `Editor`, `ResultsGrid`, `StatusBar`) usando Fluent UI React v9.

@@ -3,9 +3,10 @@ import { Text, tokens } from "@fluentui/react-components";
 export interface StatusBarProps {
   connectionLabel?: string;
   message?: string;
+  cursorPosition?: { line: number; column: number } | null;
 }
 
-export function StatusBar({ connectionLabel, message }: StatusBarProps) {
+export function StatusBar({ connectionLabel, message, cursorPosition }: StatusBarProps) {
   return (
     <footer
       style={{
@@ -21,6 +22,11 @@ export function StatusBar({ connectionLabel, message }: StatusBarProps) {
       <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
         {message ?? "Pronto"}
       </Text>
+      {cursorPosition && (
+        <Text size={200} style={{ marginLeft: "auto" }}>
+          Ln {cursorPosition.line}, Col {cursorPosition.column}
+        </Text>
+      )}
     </footer>
   );
 }

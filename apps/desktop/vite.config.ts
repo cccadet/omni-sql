@@ -21,5 +21,14 @@ export default defineConfig({
   build: {
     target: "es2022",
     outDir: "dist",
+    chunkSizeWarningLimit: 5000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          monaco: ["monaco-editor"],
+          fluent: ["@fluentui/react-components", "@fluentui/react-icons"],
+        },
+      },
+    },
   },
 });
