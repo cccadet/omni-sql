@@ -6,7 +6,7 @@ autocomplete (no LLM in v1).
 ## O que é
 
 IDE desktop **local** (não é web app). Construída com Tauri: um binário nativo
-que empacota um shell Rust + frontend Svelte + Monaco Editor + backend Node.
+que empacota um shell Rust + frontend React + Fluent UI React v9 + Monaco Editor + backend Node.
 Suporta **Linux e Windows** (Tauri compila para ambos). Nada roda no navegador
 na versão final — o modo `dev:frontend` abre no browser só para conveniência
 durante o desenvolvimento.
@@ -105,7 +105,7 @@ cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml   # Rust shell
 
 ```
 Tauri Shell (Rust)
-  ├─ Svelte 5 + Monaco Editor (frontend)
+  ├─ React 19 + Fluent UI React v9 + Monaco Editor (frontend)
   └─ Node backend (TS) — JSON-RPC HTTP localhost:41920
        ├─ Adapters: PostgreSQL/MySQL/MariaDB/SQLServer/Oracle ✅ | JDBC ✅ | ODBC ⏳
        ├─ Metadata cache: SQLite (node:sqlite builtin) com last_synced_at
@@ -125,9 +125,11 @@ técnicos.
 - ✅ Fase 3: Colunas de CTE via Apache Calcite (`/scope/resolve` no sidecar JVM)
 - ✅ Fase 4: Adaptadores MySQL/MariaDB, SQL Server e Oracle, com smoke/integration test Docker
 - ✅ Fase 6 (núcleo): Adaptador JDBC genérico via sidecar JVM e `DatabaseMetaData`
-- ⏳ Fase 5: snippets/overloads de funções e EXPLAIN integrado à UI
+- ✅ Migração do frontend Svelte 5 → React 19 + Fluent UI React v9
+- ✅ EXPLAIN integrado à UI, variáveis `:nome`, execução current/all, histórico, edição inline
+- ⏳ Fase 5: snippets/overloads de funções
 - ⏳ Fase 7: Adaptador ODBC
-- ⏳ Fase 9: Polimento transversal (histórico, abas, variáveis e edição inline já disponíveis)
+- ⏳ Fase 9: Polimento transversal
 
 ## Licença
 

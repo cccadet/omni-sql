@@ -1,12 +1,11 @@
 import { defineConfig } from "vite";
-import { svelte } from "@sveltejs/vite-plugin-svelte";
+import react from "@vitejs/plugin-react";
 
-// Tauri expects a fixed port;rollable port. Quando a CLI estiver pronta,
-// `tauri dev` cuida de empacotar isto; em pnpm dev isolado, 1420 basta.
+// Tauri expects a fixed port; when running standalone via `pnpm dev`, 1420 is fine.
 const frontendPort = 1420;
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [react()],
   clearScreen: false,
   resolve: {
     conditions: ["browser"],
@@ -22,5 +21,14 @@ export default defineConfig({
   build: {
     target: "es2022",
     outDir: "dist",
+    chunkSizeWarningLimit: 5000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          monaco: ["monaco-editor"],
+          fluent: ["@fluentui/react-components", "@fluentui/react-icons"],
+        },
+      },
+    },
   },
 });
