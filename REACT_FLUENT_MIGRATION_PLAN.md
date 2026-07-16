@@ -155,15 +155,15 @@ apps/desktop/
 - [x] Reconectar cliente JSON-RPC (`lib/backend.ts`).
 - [x] Testar chamada `connection.list` no boot.
 
-### Fase 3 — Componentes principais (estimativa: 5–8 dias)
+### Fase 3 — Componentes principais (estimativa: 5–8 dias) ✅
 
-- [ ] `Toolbar`: conexões, execução, limite, salvar/abrir, formatação.
-- [ ] `Sidebar`: tree de schemas/tabelas/colunas com Fluent `Tree`.
-- [ ] `TabBar`: abas de query com `Tabs`.
-- [ ] `StatusBar`: informações de conexão, resultado e cursor.
-- [ ] `ConnectionDialog`: formulário por dialecto com Fluent form controls.
-- [ ] `FormatSettings`: configurações do formatador SQL.
-- [ ] `HistoryPanel`: drawer lateral com histórico de queries.
+- [x] `Toolbar`: conexões, execução, limite, salvar/abrir, formatação.
+- [x] `Sidebar`: tree de schemas/tabelas/colunas com Fluent `Tree`.
+- [x] `TabBar`: abas de query com `Tabs`.
+- [x] `StatusBar`: informações de conexão, resultado e cursor.
+- [x] `ConnectionDialog`: formulário por dialecto com Fluent form controls.
+- [x] `FormatSettings`: configurações do formatador SQL.
+- [x] `HistoryPanel`: drawer lateral com histórico de queries.
 
 ### Fase 4 — ResultsGrid e funcionalidades avançadas (estimativa: 4–6 dias)
 
@@ -218,6 +218,18 @@ apps/desktop/
 ## 7. Notas de atualização
 
 Use esta seção para registrar progresso, decisões e mudanças ao longo da migração.
+
+### 2026-07-16 — Fase 3 concluída
+- Componentes principais reescritos em React + Fluent UI:
+  - `Toolbar` com seleção de conexão, execução, limite, salvar/abrir e toggle de sidebar/histórico.
+  - `Sidebar` com árvore customizada de schemas → tabelas/views/funções e busca.
+  - `TabBar` com indicador de dirty, ícone de dialecto e rename por duplo-clique.
+  - `StatusBar` com conexão, resultado e posição do cursor.
+  - `ConnectionDialog` com formulário por dialecto, teste de conexão e seleção de schemas.
+  - `FormatSettings` com preview ao vivo do `sql-formatter`.
+  - `HistoryPanel` drawer com busca e filtros por conexão/status.
+- `App.tsx` integra todos os componentes, gerencia estado de sessão, conexões, histórico e já executa queries via `query.run`.
+- `pnpm -r typecheck`, `pnpm -r lint` e `pnpm --filter desktop build` passam.
 
 ### 2026-07-16 — Fase 2 concluída
 - `Editor.tsx` reescrito com `@monaco-editor/react`, usando `onMount` para registrar a linguagem customizada `sql-omni`, provedores de formatação (via `sql-formatter`) e autocomplete (placeholder para backend `completion.get`).
