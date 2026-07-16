@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Tab, TabList, tokens } from "@fluentui/react-components";
 import { AddRegular, DismissRegular } from "@fluentui/react-icons";
-import { dialectIcon } from "../lib/dialect-icons";
+import { DialectIcon } from "./DialectIcon";
 
 export interface TabItem {
   id: string;
@@ -76,35 +76,41 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
                 style={{ width: 120, font: "inherit" }}
               />
             ) : (
-              <span
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  setEditingId(tab.id);
-                  setEditingValue(tab.title);
-                }}
+              <div
                 style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}
               >
-                {tab.dialect && (
-                  <span title={tab.dialect} style={{ fontSize: 12, lineHeight: 1 }}>
-                    {dialectIcon(tab.dialect)}
+                <span
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingId(tab.id);
+                    setEditingValue(tab.title);
+                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, overflow: "hidden" }}
+                >
+                  {tab.dialect && (
+                    <span title={tab.dialect} style={{ fontSize: 12, lineHeight: 1, display: "flex" }}>
+                      <DialectIcon dialect={tab.dialect} size={12} />
+                    </span>
+                  )}
+                  <span style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {tab.title}
                   </span>
-                )}
-                <span style={{ fontWeight: 500 }}>{tab.title}</span>
-                {tab.dirty && (
-                  <span style={{ color: tokens.colorPaletteYellowForeground1, fontSize: 8 }}>●</span>
-                )}
-              </span>
+                  {tab.dirty && (
+                    <span style={{ color: tokens.colorPaletteYellowForeground1, fontSize: 8 }}>●</span>
+                  )}
+                </span>
+                <Button
+                  icon={<DismissRegular />}
+                  appearance="transparent"
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose?.(tab.id);
+                  }}
+                  aria-label="Fechar aba"
+                />
+              </div>
             )}
-            <Button
-              icon={<DismissRegular />}
-              appearance="transparent"
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose?.(tab.id);
-              }}
-              aria-label="Fechar aba"
-            />
           </Tab>
         ))}
       </TabList>
