@@ -130,7 +130,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   }, [theme]);
 
   const handleBeforeMount = useCallback<BeforeMount>((monacoInstance) => {
-    registerSqlLanguage();
+    registerSqlLanguage(monacoInstance);
     registerOmniThemes(monacoInstance);
   }, []);
 
