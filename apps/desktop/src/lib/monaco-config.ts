@@ -108,15 +108,37 @@ const COMMON_FUNCTIONS = [
   "STRING_AGG", "GROUP_CONCAT", "LISTAGG",
 ] as const;
 
-export function registerSqlLanguage(): void {
-  if (monaco.languages.getLanguages().some((l) => l.id === LANGUAGE_ID)) {
+export function registerSqlLanguage(monacoInstance: typeof monaco): void {
+  if (monacoInstance.languages.getLanguages().some((l) => l.id === LANGUAGE_ID)) {
     return;
   }
-  monaco.languages.register({ id: LANGUAGE_ID, extensions: [".sql"] });
+  monacoInstance.languages.register({ id: LANGUAGE_ID, extensions: [".sql"] });
+  monacoInstance.languages.setLanguageConfiguration(LANGUAGE_ID, {
+    comments: { lineComment: "--", blockComment: ["/*", "*/"] },
+    brackets: [
+      ["(", ")"],
+      ["[", "]"],
+      ["{", "}"],
+    ],
+    autoClosingPairs: [
+      { open: "(", close: ")" },
+      { open: "[", close: "]" },
+      { open: "{", close: "}" },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+    ],
+    surroundingPairs: [
+      { open: "(", close: ")" },
+      { open: "[", close: "]" },
+      { open: "{", close: "}" },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+    ],
+  });
   const kw = [...postgresDescriptor.keywords];
   const kwPattern = new RegExp(`\\b(?:${kw.join("|")})\\b`, "i");
   const fnPattern = new RegExp(`\\b(?:${COMMON_FUNCTIONS.join("|")})\\b(?=\\s*\\()`, "i");
-  monaco.languages.setMonarchTokensProvider(LANGUAGE_ID, {
+  monacoInstance.languages.setMonarchTokensProvider(LANGUAGE_ID, {
     defaultToken: "",
     ignoreCase: true,
     brackets: [
