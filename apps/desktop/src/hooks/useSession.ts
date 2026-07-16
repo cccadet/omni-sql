@@ -4,6 +4,7 @@ export interface QueryTab {
   id: string;
   title: string;
   sql: string;
+  connectionId: string | null;
 }
 
 function makeId() {
@@ -11,13 +12,13 @@ function makeId() {
 }
 
 export function useSession() {
-  const [tabs, setTabs] = useState<QueryTab[]>([{ id: makeId(), title: "Query 1", sql: "SELECT 1" }]);
+  const [tabs, setTabs] = useState<QueryTab[]>([{ id: makeId(), title: "Query 1", sql: "SELECT 1", connectionId: null }]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0]!.id);
   const [counter, setCounter] = useState(1);
 
   const addTab = useCallback(() => {
     setCounter((c) => c + 1);
-    const newTab: QueryTab = { id: makeId(), title: `Query ${counter + 1}`, sql: "SELECT 1" };
+    const newTab: QueryTab = { id: makeId(), title: `Query ${counter + 1}`, sql: "SELECT 1", connectionId: null };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.id);
   }, [counter]);
@@ -27,7 +28,7 @@ export function useSession() {
       setTabs((prev) => {
         const next = prev.filter((t) => t.id !== id);
         if (next.length === 0) {
-          const fresh: QueryTab = { id: makeId(), title: "Query 1", sql: "SELECT 1" };
+          const fresh: QueryTab = { id: makeId(), title: "Query 1", sql: "SELECT 1", connectionId: null };
           next.push(fresh);
           setActiveTabId(fresh.id);
         } else if (activeTabId === id) {
