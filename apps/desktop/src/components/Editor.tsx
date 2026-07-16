@@ -59,6 +59,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof monaco | null>(null);
   const formatterRef = useRef<ReturnType<typeof configureFormatter> | null>(null);
+  const autocompleteRef = useRef<((cursor: number) => Promise<Suggestion[]>) | null>(onAutocomplete ?? null);
+
+  useEffect(() => {
+    autocompleteRef.current = onAutocomplete ?? null;
+  }, [onAutocomplete]);
 
   useImperativeHandle(
     ref,
@@ -142,9 +147,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       monacoInstance.editor.setTheme(theme);
       formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
 
-      if (onAutocomplete) {
-        configureAutocomplete(monacoInstance, onAutocomplete);
-      }
+      configureAutocomplete(monacoInstance, autocompleteRef);
 
       const settings = formatterSettings ?? DEFAULT_FORMATTER_SETTINGS;
 
@@ -162,7 +165,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
       });
     },
-    [dialect, formatterSettings, onAutocomplete, onRun, onRunAll, onSave, onCursorChange, handleFormat, theme],
+    [dialect, formatterSettings, onRun, onRunAll, onSave, onCursorChange, handleFormat, theme],
   );
 
   return (
