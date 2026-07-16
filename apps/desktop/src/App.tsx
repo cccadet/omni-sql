@@ -22,6 +22,27 @@ import type { DialectId, FunctionDef, QueryResult, RowEditability } from "@omni-
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 
+const HISTORY_KEY = "omni-sql:history";
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as HistoryEntry[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(entries: HistoryEntry[]) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, 200)));
+  } catch {
+    // localStorage indisponível/cheio
+  }
+}
+
 export default function App() {
   const { name, toggle } = useTheme();
   const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab } = useSession();
@@ -34,7 +55,7 @@ export default function App() {
   const [sidebarCache, setSidebarCache] = useState<Record<string, { relations: RelationInfo[]; functions: FunctionDef[] }>>({});
   const [sidebarLoading, setSidebarLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
   const [formatSettingsOpen, setFormatSettingsOpen] = useState(false);
   const [formatterSettings, setFormatterSettings] = useState<FormatterSettings>(loadFormatterSettings);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number } | null>(null);
@@ -61,6 +82,10 @@ export default function App() {
       setBusyMsg(`Falha ao carregar conexões: ${connectionsError}`);
     }
   }, [connectionsError]);
+
+  useEffect(() => {
+    saveHistory(history);
+  }, [history]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   const activeConnectionId = activeTab?.connectionId ?? null;
