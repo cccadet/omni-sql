@@ -138,14 +138,14 @@ apps/desktop/
 - [x] Criar `main.tsx` e `App.tsx` mínimos.
 - [x] Validar build: `pnpm -r typecheck` e `pnpm -r lint`.
 
-### Fase 1 — Fundação de tema e layout (estimativa: 2–3 dias)
+### Fase 1 — Fundação de tema e layout (estimativa: 2–3 dias) ✅
 
-- [ ] Configurar `FluentProvider` com `webLightTheme` e `webDarkTheme`.
-- [ ] Criar toggle de tema claro/escuro + persistência (`localStorage`).
-- [ ] Criar layout base em grid CSS equivalente ao atual.
-- [ ] Criar componentes vazios/placeholder:
+- [x] Configurar `FluentProvider` com `webLightTheme` e `webDarkTheme`.
+- [x] Criar toggle de tema claro/escuro + persistência (`localStorage`).
+- [x] Criar layout base em grid CSS equivalente ao atual.
+- [x] Criar componentes vazios/placeholder:
   - `Toolbar`, `Sidebar`, `TabBar`, `Editor`, `ResultsGrid`, `StatusBar`.
-- [ ] Validar visual nos dois temas.
+- [x] Validar visual nos dois temas.
 
 ### Fase 2 — Monaco Editor + backend JSON-RPC (estimativa: 2–3 dias)
 
@@ -218,6 +218,13 @@ apps/desktop/
 ## 7. Notas de atualização
 
 Use esta seção para registrar progresso, decisões e mudanças ao longo da migração.
+
+### 2026-07-16 — Fase 1 concluída
+- Criados componentes placeholder em `src/components/` (`Toolbar`, `Sidebar`, `TabBar`, `Editor`, `ResultsGrid`, `StatusBar`) usando Fluent UI React v9.
+- Criados hooks iniciais em `src/hooks/` (`useTheme`, `useSession`, `useConnections`).
+- `App.tsx` replicou o layout em grid CSS do frontend Svelte anterior (toolbar, tab bar, sidebar, editor, results, status bar).
+- Adicionado script `build` no `apps/desktop/package.json` (`vite build`); build de produção passa.
+- `pnpm -r typecheck`, `pnpm -r lint` e `pnpm --filter desktop build` passam.
 
 ### 2026-07-16 — Fase 0 concluída
 - Criada branch `feat/react-fluent-migration` e substituído o frontend Svelte pelo setup React + Fluent UI React v9.
