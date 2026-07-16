@@ -174,14 +174,14 @@ apps/desktop/
 - [x] Indicador de "mais linhas disponíveis".
 - [x] Painel de EXPLAIN via `query.explain`.
 
-### Fase 5 — Editor avançado e execução (estimativa: 3–5 dias)
+### Fase 5 — Editor avançado e execução (estimativa: 3–5 dias) ✅
 
-- [ ] Reimplementar split de statements SQL.
-- [ ] Reimplementar variáveis `:nome` com modal.
-- [ ] Reimplementar execução de instrução atual vs. todas.
-- [ ] Reimplementar atalhos de teclado (Ctrl+Enter, Ctrl+S, etc.).
-- [ ] Reimplementar autocomplete via backend.
-- [ ] Reimplementar formatação SQL com `sql-formatter`.
+- [x] Reimplementar split de statements SQL.
+- [x] Reimplementar variáveis `:nome` com modal.
+- [x] Reimplementar execução de instrução atual vs. todas.
+- [x] Reimplementar atalhos de teclado (Ctrl+Enter, Ctrl+S, etc.).
+- [x] Reimplementar autocomplete via backend.
+- [x] Reimplementar formatação SQL com `sql-formatter`.
 
 ### Fase 6 — Persistência, sessão e polimento (estimativa: 2–3 dias)
 
@@ -218,6 +218,17 @@ apps/desktop/
 ## 7. Notas de atualização
 
 Use esta seção para registrar progresso, decisões e mudanças ao longo da migração.
+
+### 2026-07-16 — Fase 5 concluída
+- `Editor.tsx` e `App.tsx` ganharam execução avançada:
+  - `splitStatements` para dividir SQL em instruções (`;` respeitando strings, comentários e dollar-quoting).
+  - `Ctrl+Enter` executa a instrução sob o cursor (ou seleção); `Ctrl+Shift+Enter` executa todas as instruções.
+  - Quando há múltiplas instruções e nenhuma seleção, surge modal de escolha "instrução atual" / "todas".
+  - Variáveis `:nome` são extraídas (`sql-variables.ts`) e um modal pede os valores antes da execução; substituição vira literais de texto SQL.
+  - `Ctrl+S` salva a aba ativa; `Ctrl+Alt+L` formata o documento via `sql-formatter`.
+  - Autocomplete do Monaco já integrado a `completion.get` do backend.
+- Criado `VariablesDialog.tsx` para input dos binds.
+- `pnpm -r typecheck`, `pnpm -r lint` e `pnpm --filter desktop build` passam.
 
 ### 2026-07-16 — Fase 4 concluída
 - `ResultsGrid` reescrito com funcionalidades avançadas:
