@@ -21,7 +21,7 @@ import {
   EyeRegular,
   NumberSymbolRegular,
 } from "@fluentui/react-icons";
-import { dialectIcon } from "../lib/dialect-icons";
+import { DialectIcon } from "./DialectIcon";
 import { typeIcon } from "../lib/type-icon";
 import type { ConnectionEntry, RelationInfo } from "../lib/backend";
 import type { FunctionDef } from "@omni-sql/ts-types";
@@ -150,7 +150,7 @@ export function Sidebar({
       >
         {connection ? (
           <div className={`omni-connection-chip ${connection.lastSyncedAt ? "synced" : ""}`}>
-            <span title={connection.dialect}>{dialectIcon(connection.dialect)}</span>
+            <DialectIcon dialect={connection.dialect} size={14} />
             <span className="connection-label" style={{ fontWeight: 600 }}>{connection.label}</span>
             <span className={`status ${connection.lastSyncedAt ? "synced" : ""}`}>
               {connection.lastSyncedAt ? "conectado" : "não sincronizado"}

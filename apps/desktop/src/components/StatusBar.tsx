@@ -8,7 +8,7 @@ import {
 } from "@fluentui/react-icons";
 import type { QueryResult } from "@omni-sql/ts-types";
 import type { ConnectionEntry } from "../lib/backend";
-import { dialectIcon } from "../lib/dialect-icons";
+import { DialectIcon } from "./DialectIcon";
 
 export interface StatusBarProps {
   connection?: ConnectionEntry | null;
@@ -52,7 +52,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg }: Statu
       </span>
       {connection && (
         <Text size={200} style={{ opacity: 0.85, display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ fontSize: 12 }}>{dialectIcon(connection.dialect)}</span>
+          <DialectIcon dialect={connection.dialect} size={12} />
           {dialectLabels[connection.dialect] ?? connection.dialect}
         </Text>
       )}

@@ -18,7 +18,8 @@ import {
   WrenchRegular,
   MoreVerticalRegular,
 } from "@fluentui/react-icons";
-import { dialectIcon } from "../lib/dialect-icons";
+import { DialectIcon } from "./DialectIcon";
+import { SidecarStatus } from "./SidecarStatus";
 import type { ConnectionEntry } from "../lib/backend";
 
 export interface ToolbarProps {
@@ -120,17 +121,18 @@ export function Toolbar({
               ))}
             </select>
             {activeConnection && (
-              <span title={activeConnection.dialect} style={{ fontSize: 14, lineHeight: 1 }}>
-                {dialectIcon(activeConnection.dialect)}
+              <span title={activeConnection.dialect}>
+                <DialectIcon dialect={activeConnection.dialect} size={14} />
               </span>
             )}
             <span title={metaStatus.label}>
               {metaStatus.synced ? (
-                <CheckmarkCircleRegular style={{ color: tokens.colorPaletteGreenForeground1, fontSize: 14 }} />
+                <CheckmarkCircleRegular style={{ color: tokens.colorBrandForeground1, fontSize: 18 }} />
               ) : (
                 <CircleRegular style={{ color: tokens.colorNeutralForeground3, fontSize: 14 }} />
               )}
             </span>
+            <SidecarStatus />
           </div>
         </div>
       </div>
