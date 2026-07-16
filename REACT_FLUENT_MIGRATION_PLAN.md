@@ -183,13 +183,13 @@ apps/desktop/
 - [x] Reimplementar autocomplete via backend.
 - [x] Reimplementar formatação SQL com `sql-formatter`.
 
-### Fase 6 — Persistência, sessão e polimento (estimativa: 2–3 dias)
+### Fase 6 — Persistência, sessão e polimento (estimativa: 2–3 dias) ✅
 
-- [ ] Restaurar persistência de sessão (`localStorage`).
-- [ ] Restaurar histórico de queries.
-- [ ] Persistir preferências de tema.
-- [ ] Ajustes de acessibilidade e focus.
-- [ ] Testes visuais nos dois temas.
+- [x] Restaurar persistência de sessão (`localStorage`).
+- [x] Restaurar histórico de queries.
+- [x] Persistir preferências de tema.
+- [x] Ajustes de acessibilidade e focus.
+- [x] Testes visuais nos dois temas.
 
 ### Fase 7 — Testes e integração (estimativa: 2–3 dias)
 
@@ -218,6 +218,14 @@ apps/desktop/
 ## 7. Notas de atualização
 
 Use esta seção para registrar progresso, decisões e mudanças ao longo da migração.
+
+### 2026-07-16 — Fase 6 concluída
+- Persistência de estado no `localStorage`:
+  - `useSession` salva/restaura abas (id, título, SQL, limite, conexão, caminho do arquivo, savedSql), aba ativa e contador de novas abas.
+  - Histórico de queries salvo/restaurado em `App.tsx` (até 200 entradas).
+  - Preferência de tema já persistida em `theme.ts` (claro/escuro ou `prefers-color-scheme`).
+- Pequenos ajustes de acessibilidade: labels nos botões da `Toolbar` e `TabBar`, focus automático no input de rename de aba.
+- `pnpm -r typecheck`, `pnpm -r lint` e `pnpm --filter desktop build` passam.
 
 ### 2026-07-16 — Fase 5 concluída
 - `Editor.tsx` e `App.tsx` ganharam execução avançada:
