@@ -5,7 +5,7 @@ autocomplete (no LLM in v1). See `PROJECT_PLAN.md` for the full roadmap.
 
 ## Stack
 - **Shell:** Tauri (Rust) — `apps/desktop/src-tauri`
-- **Frontend:** TypeScript + Svelte 5 + Monaco Editor — `apps/desktop/src`
+- **Frontend:** TypeScript + React 19 + Fluent UI React v9 + Monaco Editor — `apps/desktop/src`
 - **Backend:** Node (TypeScript) — HTTP JSON-RPC — `packages/backend`
 - **Parser/Validator (Fase 3):** JVM sidecar (Kotlin) com Apache Calcite — colunas de CTE via `/scope/resolve` ✅; `CalciteSchemaAdapter` com schema/tipos reais TODO
 - **Cache:** SQLite embutido (`node:sqlite` builtin, Node 22+) — `packages/metadata-cache`
@@ -18,7 +18,7 @@ autocomplete (no LLM in v1). See `PROJECT_PLAN.md` for the full roadmap.
 
 ## Monorepo (pnpm workspaces)
 ```
-apps/desktop                Tauri shell + Svelte + Monaco
+apps/desktop                Tauri shell + React + Fluent UI + Monaco
 apps/desktop/src-tauri      Rust shell (spawns Node backend sidecar)
 packages/ts-types                Modelo unificado + contratos
 packages/dialect-descriptors     Descritores por dialeto (lexer consome)
@@ -36,7 +36,7 @@ services/jvm-sidecar             Kotlin/Gradle + Calcite: /health, /scope/resolv
 ## Comandos
 - **Typecheck:** `pnpm -r typecheck`
 - **Lint:** `pnpm -r lint` (ESLint 9 flat config em `eslint.config.js`)
-- **Test:** `pnpm -r test` (Node `--test`, sem jest/vitest)
+- **Test:** `pnpm -r test` (Node `--test` no backend/pacotes; Vitest no `apps/desktop` por causa de jsdom + Fluent UI ESM)
 - **Full verify:** `pnpm verify`  →  typecheck && lint && test
 - **Install:** `pnpm install`  (esbuild é aprovado em `pnpm-workspace.yaml#allowBuilds`)
 - **Frontend dev (Vite standalone):** `pnpm dev:frontend`  (\>porta 1420)
@@ -49,13 +49,13 @@ services/jvm-sidecar             Kotlin/Gradle + Calcite: /health, /scope/resolv
   allowImportingTsExtensions, target ES2022, module ESNext, moduleResolution
   Bundler. Ver `tsconfig.base.json`.
 - **ESLint:** flat config (`eslint.config.js`), TypeScript-ESLint recommended.
-- **Svelte:** runes mode (5.x). Tudo o que é reativo declara com `$state`/`$props`/`$bindable`/`$effect`.
-- **Node tests:** `node --test --import ./path.test.ts` — sem runner externo.
+- **React:** functional components + hooks; React 19 sem experimental APIs.
+- **Node tests:** `node --test --import ./path.test.ts` — sem runner externo. O frontend `apps/desktop` usa Vitest (jsdom + Fluent UI ESM).
 - **Paths:** imports entre pacotes usam sempre `workspace:*` e a extensão `.ts`.
 - **Comunicação:** Tauri ↔ Node backend = JSON-RPC sobre HTTP localhost:41920.
   Contratos em `packages/backend/src/protocol.ts` (RpcRouter type-safe).
 
-## Estado atual (F0 ✅ + F1 ✅ + F2 ✅ + CI ✅ + Spike JVM ✅)
+## Estado atual (F0 ✅ + F1 ✅ + F2 ✅ + F3 ✅ + F4 ✅ + F5 ✅ + F6 ✅ + CI ✅ + Spike JVM ✅)
 - ✅ Toolchain local: Node 26, pnpm 11.10, rustup stable 1.96, tauri-cli 2.11.4.
 - ✅ Monorepo com 8 pacotes TS + 1 Tauri shell Rust + 1 spike Kotlin sidecar.
 - ✅ Lexer tier1 do autocomplete cobre casos 1-6 da suíte (8 casos planejados).
@@ -68,18 +68,24 @@ services/jvm-sidecar             Kotlin/Gradle + Calcite: /health, /scope/resolv
   porta 41921 — bootstrap via `bootstrap.sh` (baixa gradle-wrapper).
 - ✅ CI GitHub Actions: `pnpm verify` + `cargo check` com cache de crates.
 - ✅ `pnpm verify` green (0 erros, ~25 testes pass + 2 todo + 1 skip condicional).
-- ✅ UI de configuração de conexão: modal Svelte para host/porta/database/usuário/senha/SSL
-  e botões adicionar/editar/remover na toolbar (`apps/desktop/src/lib/ConnectionDialog.svelte`).
+- ✅ Migração do frontend de Svelte 5 para React 19 + Fluent UI React v9 completa:
+  `Toolbar`, `Sidebar`, `TabBar`, `Editor`, `ResultsGrid`, `StatusBar`,
+  `ConnectionDialog`, `FormatSettings`, `HistoryPanel`, `VariablesDialog`.
 - ✅ Keyring: backend Node usa `@napi-rs/keyring` (Windows/macOS/Linux) para senhas;
   fallback dev via arquivo quando `OMNI_SQL_DEV_KEYRING_FILE`/`OMNI_SQL_DEV_KEYRING=1`.
 - ✅ Persistência de conexões: lista de conexões é restaurada do SQLite no boot do backend,
   com senhas recuperadas do keyring e adaptadores reidratados automaticamente.
-- ✅ Formatter SQL no editor (`apps/desktop/src/lib/FormatSettings.svelte`): usa
+- ✅ Persistência de sessão no frontend: abas, histórico de queries e tema
+  salvos/restaurados do `localStorage`.
+- ✅ Formatter SQL no editor (`apps/desktop/src/components/FormatSettings.tsx`): usa
   `sql-formatter` com dialeto detectado pela conexão ativa, atalho padrão
   `Ctrl+Alt+L` (configurável) e persistência das preferências no `localStorage`.
-- ✅ Tela branca no Linux/Wayland (dev): causada por `structuredClone(settings)`
-  em `FormatSettings.svelte` recebendo um proxy reativo do Svelte 5 — corrigido
-  com `$state.snapshot(settings)`. Como medida preventiva, `lib.rs` também define
+- ✅ Editor avançado: split de statements, execução de instrução atual (`Ctrl+Enter`)
+  vs. todas (`Ctrl+Shift+Enter`), variáveis `:nome` com modal, autocomplete via
+  backend `completion.get`, atalhos `Ctrl+S` e `Ctrl+Alt+L`.
+- ✅ ResultsGrid avançado: ordenação, filtro global, paginação client-side, export
+  CSV, edição inline via PK, sub-abas Dados/Mensagens/Plano e EXPLAIN integrado.
+- ✅ Tela branca no Linux/Wayland (dev): medida preventiva em `lib.rs` define
   `LIBGL_ALWAYS_SOFTWARE=1` em builds de debug para evitar falhas EGL/ZINK
   (`failed to choose pdev`, `failed to create dri2 screen`) em ambientes
   virtuais/headless; não afeta releases.
