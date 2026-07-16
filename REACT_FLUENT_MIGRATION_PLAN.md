@@ -165,14 +165,14 @@ apps/desktop/
 - [x] `FormatSettings`: configurações do formatador SQL.
 - [x] `HistoryPanel`: drawer lateral com histórico de queries.
 
-### Fase 4 — ResultsGrid e funcionalidades avançadas (estimativa: 4–6 dias)
+### Fase 4 — ResultsGrid e funcionalidades avançadas (estimativa: 4–6 dias) ✅
 
-- [ ] Implementar `ResultsGrid` com Fluent UI `DataGrid`.
-- [ ] Ordenação, filtro por coluna, seleção de linha.
-- [ ] Edição inline de células via PK.
-- [ ] Sub-abas: Dados / Mensagens / Plano.
-- [ ] Botão "Carregar mais linhas".
-- [ ] Painel de EXPLAIN.
+- [x] Implementar `ResultsGrid` com tabela avançada (componentes base Fluent; DataGrid dinâmico evitado por API instável).
+- [x] Ordenação, filtro global e paginação client-side.
+- [x] Edição inline de células via PK (via `query.analyzeEditability` + `row.update`).
+- [x] Sub-abas: Dados / Mensagens / Plano.
+- [x] Indicador de "mais linhas disponíveis".
+- [x] Painel de EXPLAIN via `query.explain`.
 
 ### Fase 5 — Editor avançado e execução (estimativa: 3–5 dias)
 
@@ -218,6 +218,16 @@ apps/desktop/
 ## 7. Notas de atualização
 
 Use esta seção para registrar progresso, decisões e mudanças ao longo da migração.
+
+### 2026-07-16 — Fase 4 concluída
+- `ResultsGrid` reescrito com funcionalidades avançadas:
+  - Ordenação por coluna, filtro global de texto e paginação client-side (100 linhas/página).
+  - Exportação para CSV do resultado filtrado/ordenado.
+  - Edição inline de células quando a query for um SELECT simples editável (`query.analyzeEditability`) e a coluna mapear para uma coluna real; gravação via `row.update` usando PK.
+  - Sub-abas: Dados, Mensagens (linhas afetadas/retornadas, tempo, erro) e Plano (quando disponível).
+- `Toolbar` ganhou botão "EXPLAIN" que chama `query.explain` e exibe o plano textual na aba Plano.
+- `App.tsx` integra análise de editabilidade após execução com sucesso e mantém estado do plano por execução.
+- `pnpm -r typecheck`, `pnpm -r lint` e `pnpm --filter desktop build` passam.
 
 ### 2026-07-16 — Fase 3 concluída
 - Componentes principais reescritos em React + Fluent UI:

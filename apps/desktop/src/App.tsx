@@ -15,7 +15,7 @@ import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
 import { backend, type ConnectionEntry, type RelationInfo } from "./lib/backend";
-import type { DialectId, FunctionDef, QueryResult } from "@omni-sql/ts-types";
+import type { DialectId, FunctionDef, QueryResult, RowEditability } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 
@@ -38,6 +38,8 @@ export default function App() {
   const [busyMsg, setBusyMsg] = useState<string | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
+  const [editability, setEditability] = useState<RowEditability | null>(null);
+  const [planText, setPlanText] = useState<string | null>(null);
 
   useEffect(() => {
     void loadConnections();
@@ -174,12 +176,18 @@ export default function App() {
     setRunning(true);
     setBusyMsg("Executando…");
     setResult(null);
+    setEditability(null);
+    setPlanText(null);
     const startedAt = Date.now();
     backend
       .call<QueryResult>("query.run", { connectionId: activeConnectionId, sql: activeTab.sql, limit: activeTab.queryLimit })
       .then((res) => {
         setResult(res);
         pushHistory(activeTab, true, Date.now() - startedAt);
+        void backend
+          .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: activeTab.sql })
+          .then(setEditability)
+          .catch(() => setEditability(null));
       })
       .catch((e) => {
         updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) });
@@ -190,6 +198,52 @@ export default function App() {
         setBusyMsg(null);
       });
   }, [activeConnectionId, activeTab, pushHistory, updateTab]);
+
+  const handleExplain = useCallback(() => {
+    if (!activeConnectionId || !activeTab?.sql.trim()) return;
+    setBusyMsg("Explicando…");
+    setPlanText(null);
+    backend
+      .call<{ textual: string }>("query.explain", { connectionId: activeConnectionId, sql: activeTab.sql })
+      .then((res) => setPlanText(res.textual))
+      .catch((e) => updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) }))
+      .finally(() => setBusyMsg(null));
+  }, [activeConnectionId, activeTab, updateTab]);
+
+  const handleCellEdit = useCallback(
+    async (rowIndex: number, colIndex: number, value: unknown) => {
+      if (!activeConnectionId || !result || !editability?.editable) return;
+      const row = result.rows[rowIndex];
+      if (!row) return;
+      const editableColumn = editability.columns[colIndex];
+      if (!editableColumn || editableColumn.sourceColumn === null) return;
+      const sourceColumn = editableColumn.sourceColumn;
+      const pkValues: Record<string, unknown> = {};
+      for (const pk of editability.pkColumns) {
+        const pkColIndex = result.columns.findIndex((c) => c.name === pk);
+        if (pkColIndex < 0) return;
+        pkValues[pk] = row[pkColIndex];
+      }
+      try {
+        await backend.call("row.update", {
+          connectionId: activeConnectionId,
+          table: editability.table,
+          set: { [sourceColumn]: value },
+          where: pkValues,
+        });
+        setResult((prev) => {
+          if (!prev) return prev;
+          const nextRows = prev.rows.map((r, i) =>
+            i === rowIndex ? r.map((cell, j) => (j === colIndex ? value : cell)) : r,
+          );
+          return { ...prev, rows: nextRows };
+        });
+      } catch (e) {
+        updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+    [activeConnectionId, activeTab.id, editability, result, updateTab],
+  );
 
   const onSaveTab = useCallback(async () => {
     if (!activeTab.filePath) {
@@ -310,6 +364,7 @@ export default function App() {
           onRefreshMetadata={introspectActive}
           onSelectConnection={onSelectConnection}
           onRun={handleRun}
+          onExplain={handleExplain}
           onCancelRun={() => {}}
           onLimitChange={(limit) => updateTab(activeTab.id, { queryLimit: limit })}
           onSave={onSaveTab}
@@ -364,7 +419,7 @@ export default function App() {
       </section>
 
       <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid result={result} />
+        <ResultsGrid result={result} error={activeTab.error} planText={planText} editability={editability} onCellEdit={handleCellEdit} />
       </section>
 
       <div style={{ gridColumn: 2, gridRow: 5 }}>
