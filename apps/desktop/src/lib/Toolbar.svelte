@@ -295,6 +295,9 @@
     flex-direction: column;
     gap: 4px;
   }
+  .group:has(.run) {
+    margin-left: 6px;
+  }
   .group-label {
     font-size: 10px;
     text-transform: uppercase;
@@ -342,11 +345,13 @@
     border-radius: 4px;
     cursor: pointer;
     font-weight: 600;
+    transition: background-color 0.1s ease, transform 0.05s ease;
   }
   button.run {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    padding: 6px 14px;
   }
   button.run.cancel {
     background: #a1260d;
@@ -413,6 +418,7 @@
     line-height: 1;
     display: inline-flex;
     align-items: center;
+    transition: background-color 0.1s ease, border-color 0.1s ease;
   }
   button.icon.labeled {
     gap: 5px;

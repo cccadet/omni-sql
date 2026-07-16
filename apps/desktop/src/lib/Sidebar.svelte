@@ -622,6 +622,7 @@
     min-width: 0;
   }
   summary::-webkit-details-marker { display: none; }
+  summary { transition: background-color 0.08s ease; }
   summary:hover { background: #2a2a2a; }
   summary .label {
     overflow: hidden;
@@ -655,6 +656,7 @@
     border-radius: 3px;
     cursor: pointer;
   }
+  .obj { transition: background-color 0.08s ease; }
   .obj:hover { background: #2a2a2a; }
   .obj :global(.chev) {
     flex-shrink: 0;
@@ -683,6 +685,7 @@
     border-radius: 3px;
     cursor: pointer;
     opacity: 0;
+    transition: opacity 0.1s ease, background-color 0.08s ease, color 0.08s ease;
   }
   .obj-row:hover .obj-action,
   .obj-action:focus-visible {
@@ -793,6 +796,7 @@
     color: #aaa;
     border-radius: 3px;
     cursor: pointer;
+    transition: background-color 0.08s ease, color 0.08s ease;
   }
   button.icon:hover { background: #2a2a2a; }
   button.icon:disabled { opacity: 0.5; cursor: default; }
