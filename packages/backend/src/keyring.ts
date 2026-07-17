@@ -58,7 +58,8 @@ async function withDevKeyring<T>(
 }
 
 // Lazy-loaded because @napi-rs/keyring may not be available in headless/test
-// environments and its import is a CommonJS module.
+// environments and its import is a CommonJS module. Use AsyncEntry: Entry is
+// the synchronous API and can block the backend while talking to libsecret.
 type NativeEntryCtor = new (service: string, slot: string) => {
   setPassword(password: string): Promise<void>;
   getPassword(): Promise<string | null>;
@@ -70,9 +71,9 @@ let nativeEntryCtor: NativeEntryCtor | null = null;
 async function getNativeEntryCtor(): Promise<NativeEntryCtor> {
   if (!nativeEntryCtor) {
     const pkg = (await import("@napi-rs/keyring")).default as unknown as {
-      Entry: NativeEntryCtor;
+      AsyncEntry: NativeEntryCtor;
     };
-    nativeEntryCtor = pkg.Entry;
+    nativeEntryCtor = pkg.AsyncEntry;
   }
   return nativeEntryCtor;
 }
@@ -111,7 +112,8 @@ export async function getPassword(
   }
   const Entry = await getNativeEntryCtor();
   const entry = new Entry(SERVICE, slot);
-  return (await entry.getPassword()) ?? undefined;
+  const password = await entry.getPassword();
+  return typeof password === "string" ? password : undefined;
 }
 
 /** Deletes a password from the OS keyring (or dev fallback). */
