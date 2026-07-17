@@ -111,7 +111,10 @@ async function restoreConnections(): Promise<void> {
   }
 }
 
-void restoreConnections();
+// Requests can arrive immediately after the HTTP listener starts. Keep the
+// promise so connection.list/query handlers cannot race the restore and build
+// a second, password-less session.
+const connectionsRestored = restoreConnections();
 
 // ─────────────────────────── Helpers
 
@@ -208,6 +211,7 @@ function metaSourceOf(session: Session, cteRelations: readonly Relation[] = []):
 
 export const handlers: RpcRouter = {
   async "connection.add"({ config, password }: AddConnectionParams): Promise<AddConnectionResult> {
+    await connectionsRestored;
     const configWithSlot: ConnectionConfig = {
       ...config,
       passwordSlot: passwordSlotFor(config),
@@ -222,8 +226,12 @@ export const handlers: RpcRouter = {
     // credencial até o próximo restart do backend.
     const effectivePassword =
       password !== undefined && password.length > 0
-        ? password
+        ? await getPassword(configWithSlot).catch(() => undefined)
         : await getPassword(configWithSlot).catch(() => undefined);
+
+    if (password !== undefined && password.length > 0 && effectivePassword !== password) {
+      throw new Error(`senha não pôde ser recuperada do keyring para ${config.id}`);
+    }
 
     const previous = sessions.get(config.id);
     if (previous) await previous.adapter.close().catch(() => undefined);
@@ -235,6 +243,7 @@ export const handlers: RpcRouter = {
   },
 
   async "connection.list"(): Promise<ListConnectionsResult> {
+    await connectionsRestored;
     const configs = cache.listConnections().map((c) => ({
       id: c.id,
       label: c.label,
@@ -249,6 +258,7 @@ export const handlers: RpcRouter = {
   },
 
   async "connection.remove"({ connectionId }): Promise<{ ok: boolean }> {
+    await connectionsRestored;
     const s = sessions.get(connectionId);
     if (s) await s.adapter.close().catch(() => undefined);
     sessions.delete(connectionId);
@@ -258,6 +268,7 @@ export const handlers: RpcRouter = {
   },
 
   async "connection.test"({ config, password }: TestConnectionParams): Promise<TestConnectionResult> {
+    await connectionsRestored;
     const effectivePassword =
       password !== undefined && password.length > 0
         ? password
@@ -274,6 +285,7 @@ export const handlers: RpcRouter = {
   },
 
   async "connection.listSchemas"({ config, password }: ListSchemasParams): Promise<ListSchemasResult> {
+    await connectionsRestored;
     const effectivePassword =
       password !== undefined && password.length > 0
         ? password
@@ -289,12 +301,14 @@ export const handlers: RpcRouter = {
   },
 
   async "query.run"({ connectionId, sql, limit }: RunQueryParams): Promise<RunQueryResult> {
+    await connectionsRestored;
     const s = requireSession(connectionId);
     await s.adapter.connect();
     return s.adapter.runQuery(sql, limit ?? 1000);
   },
 
   async "query.cancel"({ connectionId }: CancelQueryParams): Promise<CancelQueryResult> {
+    await connectionsRestored;
     const s = requireSession(connectionId);
     if (!s.adapter.cancelRunning) return { cancelled: false };
     await s.adapter.cancelRunning();
@@ -302,6 +316,7 @@ export const handlers: RpcRouter = {
   },
 
   async "query.explain"({ connectionId, sql }: ExplainQueryParams): Promise<ExplainQueryResult> {
+    await connectionsRestored;
     const s = requireSession(connectionId);
     await s.adapter.connect();
     return s.adapter.explain(sql);
