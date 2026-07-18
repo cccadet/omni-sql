@@ -280,6 +280,16 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           .catch(() => setEditability(null));
       } catch (e) {
         updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) });
+        const executedSql = sqls.join(";\n");
+        if (executedSql === activeTab.sql) {
+          void backend
+            .call<{ diagnostics: SqlDiagnostic[] }>("query.diagnose", {
+              connectionId: activeConnectionId,
+              sql: executedSql,
+            })
+            .then((response) => setDiagnostics(response.diagnostics))
+            .catch(() => undefined);
+        }
         pushHistory(activeTab, false, Date.now() - startedAt, e instanceof Error ? e.message : String(e));
       } finally {
         setRunning(false);
