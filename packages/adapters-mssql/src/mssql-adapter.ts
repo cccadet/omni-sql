@@ -8,7 +8,7 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
@@ -137,6 +137,11 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
       await pool.request().batch("SET SHOWPLAN_XML OFF").catch(() => undefined);
       throw e;
     }
+  }
+
+  async validateQuery(sql: string) {
+    try { await this.explain(sql); return []; }
+    catch (e) { return [databaseDiagnostic(sql, e, this.dialect)] as const; }
   }
 
   async listIndexes(schema: string, table: string): Promise<readonly IndexInfo[]> {

@@ -5,6 +5,7 @@ import type {
   FunctionDef,
   IndexInfo,
   QueryResult,
+  SqlDiagnostic,
   Relation,
   Schema,
 } from "@omni-sql/ts-types";
@@ -51,6 +52,8 @@ export interface Adapter {
   cancelRunning?(): Promise<void>;
   /** Plano de execução (textual em Fase 5, visual em Fase 9). */
   explain(sql: string): Promise<ExplainResult>;
+  /** Validação best-effort sem executar a instrução. */
+  validateQuery?(sql: string): Promise<readonly SqlDiagnostic[]>;
 
   /** Índices de uma tabela — consulta ao vivo direto no dicionário de dados (não cacheada). */
   listIndexes(schema: string, table: string): Promise<readonly IndexInfo[]>;
@@ -103,6 +106,17 @@ export class AdapterError extends Error {
     this.name = "AdapterError";
     this.causeTag = causeTag;
   }
+}
+
+export function databaseDiagnostic(sql: string, error: unknown, dialect: ConnectionConfig["dialect"]): SqlDiagnostic {
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    severity: "error",
+    start: 0,
+    end: sql.length,
+    source: "database",
+    targetDialect: dialect,
+  };
 }
 
 export { CachedAdapter } from "./cached-adapter.ts";
