@@ -47,6 +47,51 @@ function transpileWithPolyglot(sql: string, source: DialectId, target: DialectId
   }
 }
 
+const POLYGLOT_SOURCE_DIALECTS: readonly DialectId[] = ["postgres", "mysql", "oracle", "sqlserver"];
+
+function isSyntaxErrorMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return /ora-00933|sql command not properly ended|syntax error|you have an error in your sql syntax|incorrect syntax(?: near| at)?|unclosed quotation mark/.test(normalized);
+}
+
+/**
+ * Suggest a conversion only when a database has rejected the complete query
+ * for syntax.  Trying every concrete source dialect avoids guessing from a
+ * short fragment; differing successful conversions are deliberately treated
+ * as ambiguous and produce no suggestion.
+ */
+export function diagnosePolyglotSyntaxError(
+  sql: string,
+  target: DialectId,
+  database: readonly SqlDiagnostic[],
+): SqlDiagnostic[] {
+  if (!sql.trim() || ![...POLYGLOT_SOURCE_DIALECTS, "mariadb" as const].includes(target) ||
+      !database.some((diagnostic) => diagnostic.source === "database" && isSyntaxErrorMessage(diagnostic.message))) {
+    return [];
+  }
+
+  const successful = POLYGLOT_SOURCE_DIALECTS
+    .filter((source) => source !== target)
+    .map((source) => ({ source, sql: transpileWithPolyglot(sql, source, target) }))
+    .filter((candidate): candidate is { source: DialectId; sql: string } => Boolean(candidate.sql?.trim()))
+    .filter((candidate) => candidate.sql.trim() !== sql.trim());
+  const outputs = new Set(successful.map((candidate) => candidate.sql.trim()));
+  if (successful.length === 0 || outputs.size !== 1) return [];
+
+  const candidate = successful[0]!;
+  return [{
+    message: `A sintaxe foi rejeitada pelo banco; possível conversão ${candidate.source} → ${target}.`,
+    severity: "info",
+    start: 0,
+    end: sql.length,
+    source: "polyglot",
+    sourceDialect: candidate.source,
+    targetDialect: target,
+    transpiledSql: candidate.sql,
+    transpileMessage: `Conversão Polyglot ${candidate.source} → ${target} baseada no statement completo.`,
+  }];
+}
+
 /**
  * Polyglot translates Oracle's SYSDATE correctly as a timestamp, but an
  * Oracle numeric date offset is still emitted as `timestamp +/- integer`.

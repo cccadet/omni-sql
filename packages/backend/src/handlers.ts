@@ -18,7 +18,7 @@ import {
 import { MetadataCache } from "@omni-sql/metadata-cache";
 
 import { resolveCteRelations, analyzeQueryEditability } from "./sidecar-client.ts";
-import { diagnoseDialectFunctions, mergeDiagnostics } from "./sql-diagnostics.ts";
+import { diagnoseDialectFunctions, diagnosePolyglotSyntaxError, mergeDiagnostics } from "./sql-diagnostics.ts";
 import {
   getPassword,
   setPassword,
@@ -331,7 +331,9 @@ export const handlers: RpcRouter = {
     if (!sql.trim() || !s.adapter.validateQuery) return { diagnostics: local };
     try {
       const database = await s.adapter.validateQuery(sql);
-      return { diagnostics: mergeDiagnostics(local, database) };
+      const polyglot = diagnosePolyglotSyntaxError(sql, s.config.dialect, database);
+      const merged = mergeDiagnostics(local, database);
+      return { diagnostics: [...merged, ...polyglot].sort((a, b) => a.start - b.start) };
     } catch {
       return { diagnostics: local };
     }
