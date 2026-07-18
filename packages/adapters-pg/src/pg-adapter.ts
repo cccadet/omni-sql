@@ -8,7 +8,7 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
@@ -114,6 +114,11 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
     } finally {
       client.release();
     }
+  }
+
+  async validateQuery(sql: string) {
+    try { await this.explain(sql); return []; }
+    catch (e) { return [databaseDiagnostic(sql, e, this.dialect)] as const; }
   }
 
   async listIndexes(schema: string, table: string): Promise<readonly IndexInfo[]> {

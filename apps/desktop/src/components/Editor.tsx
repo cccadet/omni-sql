@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 
 import MonacoEditor, { type BeforeMount } from "@monaco-editor/react";
 import type * as monaco from "monaco-editor";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
-import type { DialectId } from "@omni-sql/ts-types";
+import type { DialectId, SqlDiagnostic } from "@omni-sql/ts-types";
 import { DEFAULT_FORMATTER_SETTINGS, type FormatterSettings } from "../lib/format-sql";
 import { splitStatements, statementAt, type SqlStatement } from "../lib/sql-statements";
 import {
@@ -24,6 +24,7 @@ export interface EditorHandle {
   getAllText: () => string;
   getSelectionOrCurrent: () => { sql: string; start: number };
   formatDocument: () => void;
+  replaceTextRange: (start: number, end: number, text: string) => void;
 }
 
 export interface EditorProps {
@@ -38,6 +39,8 @@ export interface EditorProps {
   theme?: typeof OMNISQL_DARK | typeof OMNISQL_LIGHT;
   fontFamily?: string;
   formatterSettings?: FormatterSettings;
+  diagnostics?: readonly SqlDiagnostic[];
+  onApplyTranspiled?: (diagnostic: SqlDiagnostic) => void;
 }
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
@@ -53,6 +56,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     theme = OMNISQL_DARK,
     fontFamily = "ui-monospace, monospace",
     formatterSettings,
+    diagnostics = [],
+    onApplyTranspiled,
   },
   ref,
 ) {
@@ -60,10 +65,17 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const monacoRef = useRef<typeof monaco | null>(null);
   const formatterRef = useRef<ReturnType<typeof configureFormatter> | null>(null);
   const autocompleteRef = useRef<((cursor: number) => Promise<Suggestion[]>) | null>(onAutocomplete ?? null);
+  const diagnosticsRef = useRef<readonly SqlDiagnostic[]>(diagnostics);
+  const applyTranspiledRef = useRef<((diagnostic: SqlDiagnostic) => void) | undefined>(onApplyTranspiled);
 
   useEffect(() => {
     autocompleteRef.current = onAutocomplete ?? null;
   }, [onAutocomplete]);
+
+  useEffect(() => {
+    diagnosticsRef.current = diagnostics;
+    applyTranspiledRef.current = onApplyTranspiled;
+  }, [diagnostics, onApplyTranspiled]);
 
   useImperativeHandle(
     ref,
@@ -118,6 +130,21 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         if (!editor) return;
         formatterRef.current?.formatCurrentDocument(editor);
       },
+      replaceTextRange: (start, end, text) => {
+        const editor = editorRef.current;
+        const model = editor?.getModel();
+        if (!editor || !model) return;
+        editor.executeEdits("transpile-sql", [{
+          range: {
+            startLineNumber: model.getPositionAt(start).lineNumber,
+            startColumn: model.getPositionAt(start).column,
+            endLineNumber: model.getPositionAt(end).lineNumber,
+            endColumn: model.getPositionAt(end).column,
+          },
+          text,
+        }]);
+        editor.focus();
+      },
     }),
     [],
   );
@@ -134,6 +161,34 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     }
   }, [theme]);
 
+  useEffect(() => {
+    const monacoInstance = monacoRef.current;
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!monacoInstance || !model) return;
+    monacoInstance.editor.setModelMarkers(
+      model,
+      "omni-sql-diagnostics",
+      diagnostics.map((d) => {
+        const start = model.getPositionAt(Math.max(0, d.start));
+        const end = model.getPositionAt(Math.max(d.start + 1, d.end));
+        return {
+          startLineNumber: start.lineNumber,
+          startColumn: start.column,
+          endLineNumber: end.lineNumber,
+          endColumn: end.column,
+          message: d.transpileMessage ? `${d.message} ${d.transpileMessage}` : d.message,
+          severity: d.severity === "error"
+            ? monacoInstance.MarkerSeverity.Error
+            : d.severity === "warning"
+              ? monacoInstance.MarkerSeverity.Warning
+              : monacoInstance.MarkerSeverity.Info,
+          source: d.source,
+        };
+      }),
+    );
+  }, [diagnostics]);
+
   const handleBeforeMount = useCallback<BeforeMount>((monacoInstance) => {
     registerSqlLanguage(monacoInstance);
     registerOmniThemes(monacoInstance);
@@ -148,6 +203,58 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
 
       configureAutocomplete(monacoInstance, autocompleteRef);
+
+      monacoInstance.languages.registerHoverProvider(LANGUAGE_ID, {
+        provideHover(model, position) {
+          const offset = model.getOffsetAt(position);
+          const diagnostic = diagnosticsRef.current.find((d) => offset >= d.start && offset <= d.end);
+          if (!diagnostic) return null;
+          const contents: monaco.IMarkdownString[] = [
+            { value: `**${diagnostic.severity === "error" ? "Erro" : "Aviso"}**: ${diagnostic.message}` },
+          ];
+          if (diagnostic.transpileMessage) contents.push({ value: diagnostic.transpileMessage });
+          return { contents };
+        },
+      });
+
+      monacoInstance.languages.registerCodeActionProvider(LANGUAGE_ID, {
+        provideCodeActions(model, range) {
+          const start = model.getOffsetAt(range.getStartPosition());
+          const diagnostic = diagnosticsRef.current.find((item) =>
+            item.transpiledSql && start >= item.start && start <= item.end,
+          );
+          if (!diagnostic?.transpiledSql) return { actions: [], dispose: () => undefined };
+          return {
+            actions: [{
+              title: `⚡ Transpilar para ${diagnostic.targetDialect}`,
+              kind: "quickfix",
+              isPreferred: true,
+              diagnostics: [],
+              command: {
+                id: "omni-apply-transpile",
+                title: "Aplicar transpilation",
+                arguments: [diagnostic],
+              },
+            }],
+            dispose: () => undefined,
+          };
+        },
+      });
+      monacoInstance.editor.registerCommand("omni-apply-transpile", (_accessor, suppliedDiagnostic?: SqlDiagnostic) => {
+        const editor = editorRef.current;
+        const model = editor?.getModel();
+        const position = editor?.getPosition();
+        if (!model || !position) return;
+        if (suppliedDiagnostic) {
+          applyTranspiledRef.current?.(suppliedDiagnostic);
+          return;
+        }
+        const offset = model.getOffsetAt(position);
+        const diagnostic = diagnosticsRef.current.find((item) =>
+          item.transpiledSql && offset >= item.start && offset <= item.end,
+        );
+        if (diagnostic) applyTranspiledRef.current?.(diagnostic);
+      });
 
       const settings = formatterSettings ?? DEFAULT_FORMATTER_SETTINGS;
 
@@ -165,7 +272,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
       });
     },
-    [dialect, formatterSettings, onRun, onRunAll, onSave, onCursorChange, handleFormat, theme],
+    [dialect, formatterSettings, onRun, onRunAll, onSave, onCursorChange, handleFormat, theme, diagnostics, onApplyTranspiled],
   );
 
   return (
