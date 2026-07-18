@@ -15,7 +15,7 @@ import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
 import { VariablesDialog } from "./components/VariablesDialog";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
-import { backend, type ConnectionEntry, type RelationInfo } from "./lib/backend";
+import { backend, type ConnectionEntry, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import type { DialectId, FunctionDef, QueryResult, RowEditability } from "@omni-sql/ts-types";
@@ -76,6 +76,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variableNames, setVariableNames] = useState<string[]>([]);
   const [runAfterVariables, setRunAfterVariables] = useState<{ sqls: string[]; label: string } | null>(null);
+  const [diagnostics, setDiagnostics] = useState<SqlDiagnostic[]>([]);
 
   useEffect(() => {
     void loadConnections();
@@ -102,6 +103,28 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     () => connections.find((c) => c.id === activeConnectionId) ?? null,
     [connections, activeConnectionId],
   );
+
+  useEffect(() => {
+    setDiagnostics([]);
+    if (!activeConnectionId || !activeTab.sql.trim()) return;
+    const timer = window.setTimeout(() => {
+      const statement = editorRef.current?.getCurrentStatement();
+      const base = statement?.start ?? 0;
+      const sql = statement?.text ?? activeTab.sql;
+      void backend
+        .call<{ diagnostics: SqlDiagnostic[] }>("query.diagnose", {
+          connectionId: activeConnectionId,
+          sql,
+        })
+        .then((response) => setDiagnostics(response.diagnostics.map((diagnostic) => ({
+          ...diagnostic,
+          start: diagnostic.start + base,
+          end: diagnostic.end + base,
+        }))))
+        .catch(() => setDiagnostics([]));
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [activeConnectionId, activeTab.sql, cursorPosition]);
 
   const loadSidebarData = useCallback(async (connectionId: string | null) => {
     if (!connectionId) return;
@@ -194,6 +217,22 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     },
     [activeConnectionId, activeTab.sql],
   );
+
+  const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
+    if (!diagnostic.transpiledSql) return;
+    const statement = splitStatements(activeTab.sql).find(
+      (candidate) => diagnostic.start >= candidate.start && diagnostic.start < candidate.end,
+    );
+    if (!statement) return;
+    const confirmed = window.confirm(
+      `Transpilar ${diagnostic.sourceDialect ?? "origem desconhecida"} → ${diagnostic.targetDialect ?? activeDialect}?\n\n` +
+      `Original:\n${statement.text}\n\nResultado:\n${diagnostic.transpiledSql}`,
+    );
+    if (!confirmed) return;
+    editorRef.current?.replaceTextRange(statement.start, statement.end, diagnostic.transpiledSql);
+    updateTabSql(activeTab.id, editorRef.current?.getAllText() ?? activeTab.sql);
+    setDiagnostics((current) => current.filter((item) => item !== diagnostic));
+  }, [activeTab.id, activeTab.sql, updateTabSql]);
 
   const pushHistory = useCallback((tab: typeof activeTab, ok: boolean, elapsedMs: number, errorMessage?: string) => {
     const conn = connections.find((c) => c.id === tab.connectionId);
@@ -537,6 +576,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             onSave={onSaveTab}
             onCursorChange={setCursorPosition}
             onAutocomplete={handleAutocomplete}
+            diagnostics={diagnostics}
+            onApplyTranspiled={handleApplyTranspiled}
             dialect={activeDialect}
             theme={monacoTheme}
             formatterSettings={formatterSettings}

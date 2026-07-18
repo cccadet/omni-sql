@@ -203,3 +203,18 @@ export type QueryErrorCause =
   | "syntax"
   | "permission"
   | "unknown";
+
+export type DiagnosticSeverity = "error" | "warning" | "info";
+
+export interface SqlDiagnostic {
+  readonly message: string;
+  readonly severity: DiagnosticSeverity;
+  /** Character offsets in the submitted SQL statement. */
+  readonly start: number;
+  readonly end: number;
+  readonly source: "dialect" | "database" | "polyglot";
+  readonly sourceDialect?: DialectId;
+  readonly targetDialect?: DialectId;
+  readonly transpiledSql?: string;
+  readonly transpileMessage?: string;
+}

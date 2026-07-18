@@ -18,6 +18,7 @@ import {
 import { MetadataCache } from "@omni-sql/metadata-cache";
 
 import { resolveCteRelations, analyzeQueryEditability } from "./sidecar-client.ts";
+import { diagnoseDialectFunctions, mergeDiagnostics } from "./sql-diagnostics.ts";
 import {
   getPassword,
   setPassword,
@@ -39,6 +40,8 @@ import type {
   CancelQueryResult,
   ExplainQueryParams,
   ExplainQueryResult,
+  DiagnoseQueryParams,
+  DiagnoseQueryResult,
   AnalyzeEditabilityParams,
   AnalyzeEditabilityResult,
   UpdateRowParams,
@@ -320,6 +323,18 @@ export const handlers: RpcRouter = {
     const s = requireSession(connectionId);
     await s.adapter.connect();
     return s.adapter.explain(sql);
+  },
+
+  async "query.diagnose"({ connectionId, sql }: DiagnoseQueryParams): Promise<DiagnoseQueryResult> {
+    const s = requireSession(connectionId);
+    const local = diagnoseDialectFunctions(sql, s.config.dialect);
+    if (!sql.trim() || !s.adapter.validateQuery) return { diagnostics: local };
+    try {
+      const database = await s.adapter.validateQuery(sql);
+      return { diagnostics: mergeDiagnostics(local, database) };
+    } catch {
+      return { diagnostics: local };
+    }
   },
 
   async "query.analyzeEditability"({

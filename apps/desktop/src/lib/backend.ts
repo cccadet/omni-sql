@@ -3,6 +3,7 @@ import type {
   IndexInfo,
   ObjectDefinitionKind,
 } from "@omni-sql/ts-types";
+export type { SqlDiagnostic } from "@omni-sql/ts-types";
 
 export interface ConnectionEntry {
   id: string;
