@@ -2,7 +2,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::menu::Menu;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
@@ -11,6 +11,10 @@ const BACKEND_PORT: u16 = 41920;
 const SIDECAR_PORT: u16 = 41921;
 const SIDECAR_SERVICE: &str = "omni-sql-sidecar";
 const SIDECAR_PROTOCOL: &str = "http-json";
+const SIDECAR_STATUS_EVENT: &str = "sidecar-status";
+const SIDECAR_STATUS_CHECKING: &str = "checking";
+const SIDECAR_STATUS_READY: &str = "ready";
+const SIDECAR_STATUS_UNAVAILABLE: &str = "unavailable";
 
 fn ensure_port_is_free(port: u16, name: &str) -> Result<(), std::io::Error> {
     std::net::TcpListener::bind(("127.0.0.1", port)).map(|listener| drop(listener)).map_err(|err| {
@@ -67,10 +71,27 @@ fn json_string_field(body: &str, field: &str) -> Option<String> {
     Some(value.split('"').next()?.to_string())
 }
 
+fn backend_health_is_expected(status: u16, body: &str) -> bool {
+    status == 200 && json_string_field(body, "status").as_deref() == Some("ok")
+}
+
+fn backend_health_probe_error(status: u16, body: &str) -> String {
+    format!(
+        "unexpected /health response: HTTP {status}, status field {:?}",
+        json_string_field(body, "status")
+    )
+}
+
 fn sidecar_health_is_expected(body: &str) -> bool {
     json_string_field(body, "status").as_deref() == Some("ok")
         && json_string_field(body, "service").as_deref() == Some(SIDECAR_SERVICE)
         && json_string_field(body, "protocol").as_deref() == Some(SIDECAR_PROTOCOL)
+}
+
+fn emit_sidecar_status<R: tauri::Runtime>(app: &tauri::AppHandle<R>, status: &'static str) {
+    if let Err(err) = app.emit(SIDECAR_STATUS_EVENT, status) {
+        log::warn!("failed to emit {SIDECAR_STATUS_EVENT} ({status}): {err}");
+    }
 }
 
 // Leitura/escrita de abas salvas como `.sql`. O caminho vem sempre do diálogo
@@ -190,19 +211,54 @@ pub fn run() {
             *state.0.lock().unwrap() = Some(child);
 
             // Readiness remains asynchronous and checks the actual HTTP service.
-            std::thread::spawn(|| {
-                    let deadline = Instant::now() + Duration::from_secs(5);
-                    while Instant::now() < deadline {
-                        if let Ok((status, body)) = http_get(BACKEND_PORT, "/health") {
-                            if status == 200 && json_string_field(&body, "status").as_deref() == Some("ok") {
-                                log::info!("backend sidecar health check passed on 127.0.0.1:{BACKEND_PORT}");
-                            return;
+            // Keep the child in managed state so window teardown can still kill it;
+            // the readiness thread observes its exit through that same state.
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(30);
+                let mut last_probe_error = "no health probe completed".to_string();
+
+                while Instant::now() < deadline {
+                    {
+                        let state: tauri::State<'_, BackendChild> = app_handle.state();
+                        let mut guard = state.0.lock().unwrap();
+                        if let Some(child) = guard.as_mut() {
+                            match child.try_wait() {
+                                Ok(Some(status)) => {
+                                    log::warn!(
+                                        "backend sidecar exited before becoming ready with status {status}"
+                                    );
+                                    return;
+                                }
+                                Ok(None) => {}
+                                Err(err) => {
+                                    log::warn!("failed to check backend sidecar status: {err}");
+                                }
                             }
                         }
-                        std::thread::sleep(Duration::from_millis(100));
                     }
-                    log::warn!("backend sidecar did not become reachable in 5s");
-                });
+
+                    match http_get(BACKEND_PORT, "/health") {
+                        Ok((status, body)) if backend_health_is_expected(status, &body) =>
+                        {
+                            log::info!("backend sidecar health check passed on 127.0.0.1:{BACKEND_PORT}");
+                            return;
+                        }
+                        Ok((status, body)) => {
+                            last_probe_error = backend_health_probe_error(status, &body);
+                        }
+                        Err(err) => {
+                            last_probe_error = err;
+                        }
+                    }
+
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+
+                log::warn!(
+                    "backend sidecar did not become ready in 30s; last /health probe error: {last_probe_error}"
+                );
+            });
 
             // Sidecar JVM (Fase 3, opcional): spawn assíncrono, nunca bloqueia o
             // boot da janela. Ele expõe /scope/resolve para as colunas de CTE;
@@ -234,18 +290,22 @@ pub fn run() {
 
                         // HTTP health validation runs asynchronously and verifies
                         // identity, not merely that some process owns the port.
-                        std::thread::spawn(|| {
+                        let app_handle = app.handle().clone();
+                        emit_sidecar_status(&app_handle, SIDECAR_STATUS_CHECKING);
+                        std::thread::spawn(move || {
                             let deadline = Instant::now() + Duration::from_secs(30);
                             while Instant::now() < deadline {
                                 if let Ok((status, body)) = http_get(SIDECAR_PORT, "/health") {
                                     if status == 200 && sidecar_health_is_expected(&body) {
                                         log::info!("JVM sidecar health check passed on 127.0.0.1:{SIDECAR_PORT}");
+                                        emit_sidecar_status(&app_handle, SIDECAR_STATUS_READY);
                                     return;
                                     }
                                 }
                                 std::thread::sleep(Duration::from_millis(300));
                             }
                             log::warn!("JVM sidecar (tier2) failed its expected /health check in 30s — autocomplete segue em tier1");
+                            emit_sidecar_status(&app_handle, SIDECAR_STATUS_UNAVAILABLE);
                         });
                     }
                     Err(e) => {
@@ -281,4 +341,50 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidecar_health_requires_the_expected_identity() {
+        let expected = r#"{"status":"ok","service":"omni-sql-sidecar","protocol":"http-json"}"#;
+        assert!(sidecar_health_is_expected(expected));
+        assert!(!sidecar_health_is_expected(
+            r#"{"status":"ok","service":"other","protocol":"http-json"}"#
+        ));
+        assert!(!sidecar_health_is_expected(
+            r#"{"status":"ok","service":"omni-sql-sidecar","protocol":"other"}"#
+        ));
+    }
+
+    #[test]
+    fn backend_health_probe_reports_non_ready_responses() {
+        assert!(backend_health_is_expected(
+            200,
+            r#"{"status":"ok"}"#
+        ));
+        assert_eq!(
+            backend_health_probe_error(503, r#"{"status":"starting"}"#),
+            "unexpected /health response: HTTP 503, status field Some(\"starting\")"
+        );
+    }
+
+    #[test]
+    fn sidecar_status_event_contract_is_stable() {
+        assert_eq!(SIDECAR_STATUS_EVENT, "sidecar-status");
+        assert_eq!(
+            [
+                SIDECAR_STATUS_CHECKING,
+                SIDECAR_STATUS_READY,
+                SIDECAR_STATUS_UNAVAILABLE,
+            ],
+            ["checking", "ready", "unavailable"]
+        );
+        assert_eq!(
+            serde_json::to_string(SIDECAR_STATUS_READY).unwrap(),
+            r#""ready""#
+        );
+    }
 }
