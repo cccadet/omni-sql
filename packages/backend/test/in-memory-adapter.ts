@@ -63,6 +63,7 @@ export class InMemoryAdapter implements Adapter {
   readonly dialect: ConnectionConfig["dialect"];
   private connected = false;
   private readonly schemas: InMemorySchema[];
+  private readonly testResult: TestResult;
 
   constructor(
     config: ConnectionConfig,
@@ -71,6 +72,9 @@ export class InMemoryAdapter implements Adapter {
     this.id = config.id;
     this.dialect = config.dialect;
     this.schemas = schemas;
+    this.testResult = config.endpoint === "memory://unavailable"
+      ? { ok: false, latencyMs: 0, message: "database unavailable" }
+      : { ok: true, latencyMs: 0 };
   }
 
   async connect(): Promise<void> {
@@ -81,7 +85,7 @@ export class InMemoryAdapter implements Adapter {
   }
   async test(): Promise<TestResult> {
     this.connected = true;
-    return { ok: true, latencyMs: 0 };
+    return this.testResult;
   }
 
   async introspect(): Promise<Database> {

@@ -13,6 +13,7 @@ import type {
   ListRelationsResult,
   CompletionResult,
   AnalyzeEditabilityResult,
+  TestConnectionResult,
 } from "../src/protocol.ts";
 import { InMemoryAdapter } from "./in-memory-adapter.ts";
 
@@ -119,10 +120,31 @@ test("smoke: add connection → introspect → list relations → run query → 
         user: "anon",
       },
     });
-    const testRes = test.result as { ok: boolean; latencyMs: number };
+    const testRes = test.result as TestConnectionResult;
     assert.equal(testRes.ok, true);
 
-    // 8. unknown method returns JSON-RPC error (not HTTP 500)
+    // 8. status checks the already-restored session, without creating or
+    // closing another adapter.
+    const status = await rpc("connection.status", { connectionId: "smoke" });
+    assert.deepEqual(status.result, { ok: true, latencyMs: 0 });
+    const unavailable = await rpc("connection.add", {
+      config: {
+        id: "unavailable",
+        label: "Unavailable",
+        dialect: "jdbc-generic",
+        endpoint: "memory://unavailable",
+        user: "anon",
+      },
+    });
+    assert.equal((unavailable.result as AddConnectionResult).ok, true);
+    const failedStatus = await rpc("connection.status", { connectionId: "unavailable" });
+    assert.deepEqual(failedStatus.result, {
+      ok: false,
+      latencyMs: 0,
+      message: "database unavailable",
+    });
+
+    // 9. unknown method returns JSON-RPC error (not HTTP 500)
     const bad = await rpc("nonexistent.method");
     assert.ok(bad.error);
     assert.equal(bad.error.code, -32601);

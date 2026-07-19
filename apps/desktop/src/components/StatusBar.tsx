@@ -10,14 +10,17 @@ import type { QueryResult } from "@omni-sql/ts-types";
 import type { ConnectionEntry } from "../lib/backend";
 import { DialectIcon } from "./DialectIcon";
 
+export type ConnectionHealth = "unknown" | "verifying" | "online" | "offline";
+
 export interface StatusBarProps {
   connection?: ConnectionEntry | null;
   result?: QueryResult | null;
   cursorPosition?: { line: number; column: number } | null;
   busyMsg?: string | null;
+  health?: ConnectionHealth;
 }
 
-export function StatusBar({ connection, result, cursorPosition, busyMsg }: StatusBarProps) {
+export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown" }: StatusBarProps) {
   const dialectLabels: Record<string, string> = {
     postgres: "PostgreSQL",
     mysql: "MySQL",
@@ -27,6 +30,8 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg }: Statu
     "jdbc-generic": "JDBC",
     odbc: "ODBC",
   };
+  const healthLabel = !connection ? "Sem conexão" : health === "verifying" ? "Verifying…" : health === "online" ? "Online" : health === "offline" ? "Offline" : "Unknown";
+  const healthColor = health === "offline" ? tokens.colorPaletteRedForeground1 : health === "online" ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteYellowForeground1;
 
   return (
     <footer
@@ -43,13 +48,14 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg }: Statu
       }}
     >
       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        {connection ? (
+        {connection && health === "online" ? (
           <PlugConnectedRegular fontSize={12} />
         ) : (
           <PlugDisconnectedRegular fontSize={12} />
         )}
         <Text size={200}>{connection?.label ?? "Sem conexão"}</Text>
       </span>
+      {connection && <Text size={200} style={{ color: healthColor }}>{healthLabel}</Text>}
       {connection && (
         <Text size={200} style={{ opacity: 0.85, display: "flex", alignItems: "center", gap: 4 }}>
           <DialectIcon dialect={connection.dialect} size={12} />

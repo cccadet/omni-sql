@@ -64,6 +64,10 @@ export interface TestConnectionResult {
   message?: string;
 }
 
+export interface ConnectionStatusParams {
+  connectionId: string;
+}
+
 export interface RunQueryParams {
   connectionId: string;
   sql: string;
@@ -185,6 +189,7 @@ export interface RpcRouter {
   "connection.list": () => Promise<ListConnectionsResult>;
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
   "connection.test": (p: TestConnectionParams) => Promise<TestConnectionResult>;
+  "connection.status": (p: ConnectionStatusParams) => Promise<TestConnectionResult>;
   "connection.listSchemas": (p: ListSchemasParams) => Promise<ListSchemasResult>;
   "query.run": (p: RunQueryParams) => Promise<RunQueryResult>;
   "query.cancel": (p: CancelQueryParams) => Promise<CancelQueryResult>;
