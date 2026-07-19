@@ -37,7 +37,7 @@ test("JdbcAdapter: constrói sem disparar conexão", () => {
   assert.deepEqual(a.listSchemas(), []);
 });
 
-test("JdbcAdapter: connect() envia jarPath/driverClassName/jdbcUrl pro sidecar", async () => {
+test("JdbcAdapter: connect() envia um handle remoto opaco pro sidecar", async () => {
   let calledUrl = "";
   let calledBody: Record<string, unknown> = {};
   const restore = mockFetch((url, body) => {
@@ -49,11 +49,50 @@ test("JdbcAdapter: connect() envia jarPath/driverClassName/jdbcUrl pro sidecar",
     const a = new JdbcAdapter(cfg(), "secret");
     await a.connect();
     assert.equal(calledUrl, "http://127.0.0.1:41921/jdbc/connect");
-    assert.equal(calledBody.connectionId, "jdbc-test");
+    assert.equal(typeof calledBody.connectionId, "string");
+    assert.notEqual(calledBody.connectionId, "jdbc-test");
     assert.equal(calledBody.jarPath, "/tmp/driver.jar");
     assert.equal(calledBody.driverClassName, "com.example.Driver");
     assert.equal(calledBody.jdbcUrl, "jdbc:example://localhost:1234/db");
     assert.equal(calledBody.password, "secret");
+  } finally {
+    restore();
+  }
+});
+
+test("JdbcAdapter: connect() é idempotente e close() usa o mesmo handle", async () => {
+  const calls: { url: string; body: Record<string, unknown> }[] = [];
+  const restore = mockFetch((url, body) => {
+    calls.push({ url, body });
+    return { ok: true };
+  });
+  try {
+    const a = new JdbcAdapter(cfg());
+    await a.connect();
+    await a.connect();
+    await a.close();
+    await a.close();
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.url, "http://127.0.0.1:41921/jdbc/connect");
+    assert.equal(calls[1]?.url, "http://127.0.0.1:41921/jdbc/close");
+    assert.equal(calls[0]?.body.connectionId, calls[1]?.body.connectionId);
+    assert.notEqual(calls[0]?.body.connectionId, "jdbc-test");
+  } finally {
+    restore();
+  }
+});
+
+test("JdbcAdapter: instâncias com o mesmo config têm handles remotos distintos", async () => {
+  const handles: unknown[] = [];
+  const restore = mockFetch((_url, body) => {
+    handles.push(body.connectionId);
+    return { ok: true };
+  });
+  try {
+    await new JdbcAdapter(cfg()).connect();
+    await new JdbcAdapter(cfg()).connect();
+    assert.equal(handles.length, 2);
+    assert.notEqual(handles[0], handles[1]);
   } finally {
     restore();
   }

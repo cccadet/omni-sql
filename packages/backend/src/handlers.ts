@@ -82,6 +82,35 @@ interface Session {
 
 const sessions = new Map<string, Session>();
 
+const DEFAULT_QUERY_LIMIT = 1_000;
+const MAX_QUERY_LIMIT = 10_000;
+
+/** Validate untrusted JSON-RPC input before it reaches an adapter. */
+export function normalizeQueryLimit(limit: unknown): number {
+  if (limit === undefined) return DEFAULT_QUERY_LIMIT;
+  if (typeof limit !== "number" || !Number.isFinite(limit) || !Number.isInteger(limit) || limit <= 0) {
+    throw new Error("query.run limit must be a finite positive integer");
+  }
+  if (limit > MAX_QUERY_LIMIT) {
+    throw new Error(`query.run limit must be at most ${MAX_QUERY_LIMIT}`);
+  }
+  return limit;
+}
+
+/** Close backend-owned resources during process shutdown. Safe to call more than once. */
+let resourcesClosed = false;
+export async function closeBackendResources(): Promise<void> {
+  if (resourcesClosed) return;
+  resourcesClosed = true;
+  await Promise.allSettled(
+    [...sessions.values()].map(async ({ adapter }) => {
+      await adapter.close();
+    }),
+  );
+  sessions.clear();
+  cache.close();
+}
+
 // ─────────────────────────── Registry bootstrap
 
 // Registro dos adaptadores reais suportados. Dialeto não registrado lança
@@ -307,7 +336,7 @@ export const handlers: RpcRouter = {
     await connectionsRestored;
     const s = requireSession(connectionId);
     await s.adapter.connect();
-    return s.adapter.runQuery(sql, limit ?? 1000);
+    return s.adapter.runQuery(sql, normalizeQueryLimit(limit));
   },
 
   async "query.cancel"({ connectionId }: CancelQueryParams): Promise<CancelQueryResult> {

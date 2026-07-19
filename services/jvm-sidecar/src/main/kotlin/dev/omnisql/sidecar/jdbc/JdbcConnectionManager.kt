@@ -43,12 +43,13 @@ data class JdbcSchema(val name: String, val tables: List<JdbcTable>)
  * dinamicamente nunca apareceria nele. Chamar `driver.connect(url, props)`
  * direto evita esse problema por completo.
  *
- * Conexões abertas ficam num map em memória, chaveadas por `connectionId`
- * (o mesmo id usado pelo `ConnectionConfig` do lado Node) — o HTTP server do
- * sidecar é single-threaded (`server.executor = null` em `Main.kt`), então
- * não há necessidade de sincronização aqui.
+ * Conexões abertas ficam num map em memória, chaveadas por um handle opaco
+ * pertencente a uma instância de adaptador no Node. O HTTP server do sidecar é
+ * single-threaded (`server.executor = null` em `Main.kt`), então não há
+ * necessidade de sincronização aqui.
  */
 object JdbcConnectionManager {
+    const val MAX_QUERY_LIMIT = 10_000
     class JdbcError(val causeTag: String, message: String, val sqlState: String? = null) : Exception(message)
 
     private data class Handle(val connection: Connection, val classLoader: URLClassLoader)
@@ -68,33 +69,50 @@ object JdbcConnectionManager {
             throw JdbcError("driver-missing", "jar not found: $jarPath")
         }
         val classLoader = URLClassLoader(arrayOf(jarFile.toURI().toURL()), javaClass.classLoader)
-        val driver =
-            try {
-                Class.forName(driverClassName, true, classLoader).getDeclaredConstructor().newInstance() as Driver
-            } catch (e: ReflectiveOperationException) {
-                classLoader.close()
-                throw JdbcError("driver-missing", "could not load driver class $driverClassName from $jarPath: ${e.message}")
-            } catch (e: ClassCastException) {
-                classLoader.close()
-                throw JdbcError("driver-missing", "$driverClassName does not implement java.sql.Driver")
+        var connection: Connection? = null
+        var committed = false
+        try {
+            val driver =
+                try {
+                    Class.forName(driverClassName, true, classLoader).getDeclaredConstructor().newInstance() as Driver
+                } catch (e: ReflectiveOperationException) {
+                    throw JdbcError("driver-missing", "could not load driver class $driverClassName from $jarPath: ${e.message}")
+                } catch (e: ClassCastException) {
+                    throw JdbcError("driver-missing", "$driverClassName does not implement java.sql.Driver")
+                }
+            val props = Properties()
+            user?.let { props.setProperty("user", it) }
+            password?.let { props.setProperty("password", it) }
+            connection =
+                try {
+                    driver.connect(jdbcUrl, props) ?: throw JdbcError("unsupported", "driver rejected URL: $jdbcUrl")
+                } catch (e: SQLException) {
+                    throw toJdbcError(e)
+                }
+            connections.remove(connectionId)?.let { closeQuietly(it) }
+            connections[connectionId] = Handle(connection ?: error("driver returned no connection"), classLoader)
+            committed = true
+        } catch (e: Throwable) {
+            if (!committed) {
+                closeConnectionQuietly(connection)
+                closeClassLoaderQuietly(classLoader)
             }
-        val props = Properties()
-        user?.let { props.setProperty("user", it) }
-        password?.let { props.setProperty("password", it) }
-        val connection =
-            try {
-                driver.connect(jdbcUrl, props) ?: throw JdbcError("unsupported", "driver rejected URL: $jdbcUrl")
-            } catch (e: SQLException) {
-                classLoader.close()
-                throw toJdbcError(e)
-            }
-        connections.remove(connectionId)?.let { closeQuietly(it) }
-        connections[connectionId] = Handle(connection, classLoader)
+            throw e
+        }
     }
 
     fun close(connectionId: String) {
         connections.remove(connectionId)?.let { closeQuietly(it) }
     }
+
+    /** Closes every live JDBC resource; safe to call repeatedly during shutdown. */
+    fun closeAll() {
+        val handles = connections.values.toList()
+        connections.clear()
+        handles.forEach(::closeQuietly)
+    }
+
+    fun openHandleCount(): Int = connections.size
 
     /** Nomes de schema, sem tabelas/colunas — usado pela UI pra escolher o que introspectar. */
     fun schemaNames(connectionId: String): List<String> {
@@ -169,13 +187,17 @@ object JdbcConnectionManager {
     }
 
     fun query(connectionId: String, sql: String, limit: Int): QueryResult {
+        requireQueryLimit(limit)
         val handle = connections[connectionId] ?: throw JdbcError("unsupported", "no open connection: $connectionId")
         val startMs = System.currentTimeMillis()
         try {
             handle.connection.createStatement().use { stmt ->
                 // Best-effort: alguns drivers rejeitam setFetchSize (ou o ignoram);
                 // nunca deve derrubar a query por isto.
-                if (limit > 0) runCatching { stmt.fetchSize = limit + 1 }
+                runCatching { stmt.fetchSize = limit + 1 }
+                // Prefer the server/driver-side row cap where supported. The
+                // extra row is intentional: it preserves rowsMoreAvailable.
+                runCatching { stmt.maxRows = limit + 1 }
                 val hasResultSet = stmt.execute(sql)
                 if (!hasResultSet) {
                     return QueryResult(emptyList(), emptyList(), stmt.updateCount, false, System.currentTimeMillis() - startMs)
@@ -207,6 +229,12 @@ object JdbcConnectionManager {
         }
     }
 
+    fun requireQueryLimit(limit: Int) {
+        if (limit <= 0 || limit > MAX_QUERY_LIMIT) {
+            throw JdbcError("invalid-request", "query limit must be between 1 and $MAX_QUERY_LIMIT")
+        }
+    }
+
     private fun toJsonValue(value: Any?): Any? =
         when (value) {
             null, is Number, is Boolean, is String -> value
@@ -226,10 +254,21 @@ object JdbcConnectionManager {
     }
 
     private fun closeQuietly(handle: Handle) {
+        closeConnectionQuietly(handle.connection)
+        closeClassLoaderQuietly(handle.classLoader)
+    }
+
+    private fun closeConnectionQuietly(connection: Connection?) {
         try {
-            handle.connection.close()
-        } catch (_: SQLException) {
+            connection?.close()
+        } catch (_: Throwable) {
         }
-        handle.classLoader.close()
+    }
+
+    private fun closeClassLoaderQuietly(classLoader: URLClassLoader) {
+        try {
+            classLoader.close()
+        } catch (_: Throwable) {
+        }
     }
 }
