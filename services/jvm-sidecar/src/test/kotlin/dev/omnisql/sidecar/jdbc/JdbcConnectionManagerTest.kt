@@ -128,6 +128,7 @@ class JdbcConnectionManagerTest {
                 )
             }
         assertEquals("driver-missing", error.causeTag)
+        assertEquals(0, JdbcConnectionManager.openHandleCount())
     }
 
     @Test
@@ -144,5 +145,31 @@ class JdbcConnectionManagerTest {
                 )
             }
         assertEquals("driver-missing", error.causeTag)
+    }
+
+    @Test
+    fun `invalid query limits are rejected before JDBC execution`() {
+        assertFailsWith<JdbcConnectionManager.JdbcError> {
+            JdbcConnectionManager.query("not-open", "select 1", 0)
+        }.also { assertEquals("invalid-request", it.causeTag) }
+        assertFailsWith<JdbcConnectionManager.JdbcError> {
+            JdbcConnectionManager.query("not-open", "select 1", JdbcConnectionManager.MAX_QUERY_LIMIT + 1)
+        }.also { assertEquals("invalid-request", it.causeTag) }
+    }
+
+    @Test
+    fun `close and closeAll are idempotent and release all handles`() {
+        val first = "test-${System.nanoTime()}"
+        val second = "$first-2"
+        listOf(first, second).forEach { id ->
+            JdbcConnectionManager.connect(id, h2JarPath, "org.h2.Driver", "jdbc:h2:mem:$id", "sa", "")
+        }
+        assertEquals(2, JdbcConnectionManager.openHandleCount())
+
+        JdbcConnectionManager.close(first)
+        JdbcConnectionManager.close(first)
+        JdbcConnectionManager.closeAll()
+        JdbcConnectionManager.closeAll()
+        assertEquals(0, JdbcConnectionManager.openHandleCount())
     }
 }

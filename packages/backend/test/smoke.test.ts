@@ -28,7 +28,11 @@ const { startServer } = await import("../src/index.ts");
 // Sobrescreve o registro de produção (JdbcAdapter) para os smoke tests
 // usarem o adaptador in-memory. Deve rodar DEPOIS de importar o backend,
 // pois handlers.ts registra JdbcAdapter no load do módulo.
-registerAdapter("jdbc-generic", (config) => new InMemoryAdapter(config));
+let testAdapter: InMemoryAdapter | undefined;
+registerAdapter("jdbc-generic", (config) => {
+  testAdapter = new InMemoryAdapter(config);
+  return testAdapter;
+});
 
 const TEST_PORT = 14378;
 const DEFAULT_URL = `http://127.0.0.1:${TEST_PORT}/rpc`;
@@ -122,6 +126,30 @@ test("smoke: add connection → introspect → list relations → run query → 
     const bad = await rpc("nonexistent.method");
     assert.ok(bad.error);
     assert.equal(bad.error.code, -32601);
+  } finally {
+    server.close();
+  }
+});
+
+test("query.run validates and bounds the untrusted limit at the RPC boundary", async () => {
+  const port = 14381;
+  const url = `http://127.0.0.1:${port}/rpc`;
+  const server = startServer(port);
+  try {
+    await rpc("connection.add", {
+      config: { id: "limit-validation", label: "Limit validation", dialect: "jdbc-generic", endpoint: "memory://local", user: "anon" },
+    }, url);
+    const invalidLimits: unknown[] = [0, -1, 10_001, 1.5, "100", null];
+    for (const limit of invalidLimits) {
+      const response = await rpc("query.run", { connectionId: "limit-validation", sql: "SELECT 1", limit }, url);
+      assert.equal(response.error?.code, -32000);
+      assert.match(response.error?.message ?? "", /limit/);
+    }
+
+    await rpc("query.run", { connectionId: "limit-validation", sql: "SELECT 1" }, url);
+    assert.equal(testAdapter?.lastRunLimit, 1_000);
+    await rpc("query.run", { connectionId: "limit-validation", sql: "SELECT 1", limit: 10_000 }, url);
+    assert.equal(testAdapter?.lastRunLimit, 10_000);
   } finally {
     server.close();
   }

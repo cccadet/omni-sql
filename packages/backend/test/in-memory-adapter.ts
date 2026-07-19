@@ -125,8 +125,11 @@ export class InMemoryAdapter implements Adapter {
     return [];
   }
 
-  async runQuery(sql: string, _limit: number): Promise<QueryResult> {
+  lastRunLimit: number | undefined;
+
+  async runQuery(sql: string, limit: number): Promise<QueryResult> {
     this.assertConnected();
+    this.lastRunLimit = limit;
     const trimmed = sql.trim();
     if (/^select\s+\d+\s*;?\s*$/i.test(trimmed)) {
       const value = Number(trimmed.replace(/^select\s+/i, "").replace(/[;\s]+$/, ""));

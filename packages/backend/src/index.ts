@@ -5,9 +5,41 @@ import type {
   JsonRpcResponse,
   JsonRpcError,
 } from "./protocol.ts";
-import { handlers } from "./handlers.ts";
+import { closeBackendResources, handlers } from "./handlers.ts";
 
 const DEFAULT_PORT = Number(process.env.OMNI_SQL_PORT ?? 41920);
+const servers = new Set<ReturnType<typeof createServer>>();
+let shutdownStarted = false;
+
+async function gracefulShutdown(): Promise<void> {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  await Promise.all([...servers].map((server) => new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  })));
+  await closeBackendResources();
+}
+
+const onSigint = (): void => {
+  void gracefulShutdown().finally(() => process.exit(0));
+};
+const onSigterm = (): void => {
+  void gracefulShutdown().finally(() => process.exit(0));
+};
+
+function installShutdownHandlers(): void {
+  if (servers.size === 1) {
+    process.on("SIGINT", onSigint);
+    process.on("SIGTERM", onSigterm);
+  }
+}
+
+function removeShutdownHandlers(): void {
+  if (servers.size === 0) {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  }
+}
 
 // ─────────────────────────── JSON helpers
 
@@ -140,6 +172,12 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
   });
 
   server.listen(port, "127.0.0.1");
+  servers.add(server);
+  installShutdownHandlers();
+  server.once("close", () => {
+    servers.delete(server);
+    removeShutdownHandlers();
+  });
   console.log(`[omni-sql] backend HTTP listening on http://127.0.0.1:${port}/rpc`);
   return server;
 }
