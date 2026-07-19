@@ -32,6 +32,7 @@ import type {
   ListConnectionsResult,
   TestConnectionParams,
   TestConnectionResult,
+  ConnectionStatusParams,
   ListSchemasParams,
   ListSchemasResult,
   RunQueryParams,
@@ -313,6 +314,16 @@ export const handlers: RpcRouter = {
     } catch (e) {
       await adapter.close().catch(() => undefined);
       return { ok: false, latencyMs: 0, message: (e as Error).message };
+    }
+  },
+
+  async "connection.status"({ connectionId }: ConnectionStatusParams): Promise<TestConnectionResult> {
+    await connectionsRestored;
+    const s = requireSession(connectionId);
+    try {
+      return await s.adapter.test();
+    } catch (e) {
+      return { ok: false, latencyMs: 0, message: e instanceof Error ? e.message : String(e) };
     }
   },
 

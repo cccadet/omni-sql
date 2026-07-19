@@ -13,13 +13,9 @@ import {
   EditRegular,
   DeleteRegular,
   ArrowSyncRegular,
-  CheckmarkCircleRegular,
-  CircleRegular,
   WrenchRegular,
   MoreVerticalRegular,
 } from "@fluentui/react-icons";
-import { DialectIcon } from "./DialectIcon";
-import { SidecarStatus } from "./SidecarStatus";
 import type { ConnectionEntry } from "../lib/backend";
 
 export interface ToolbarProps {
@@ -51,15 +47,6 @@ export interface ToolbarProps {
 
 const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
 
-function formatMetaStatus(entry: ConnectionEntry | undefined): { synced: boolean; label: string } {
-  if (!entry) return { synced: false, label: "" };
-  if (entry.lastSyncedAt) {
-    const d = new Date(entry.lastSyncedAt);
-    return { synced: true, label: `Metadados sincronizados em ${d.toLocaleString()}` };
-  }
-  return { synced: false, label: "Metadados ainda não lidos — autocomplete de tabelas indisponível" };
-}
-
 export function Toolbar({
   connections,
   activeConnectionId,
@@ -86,9 +73,6 @@ export function Toolbar({
   onToggleSidebar,
   onToggleHistory,
 }: ToolbarProps) {
-  const activeConnection = connections.find((c) => c.id === activeConnectionId);
-  const metaStatus = formatMetaStatus(activeConnection);
-
   return (
     <FluentToolbar className="omni-toolbar" style={{ padding: "6px 12px", gap: 0, alignItems: "center" }}>
       <div className="omni-toolbar-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -120,19 +104,6 @@ export function Toolbar({
                 </option>
               ))}
             </select>
-            {activeConnection && (
-              <span title={activeConnection.dialect}>
-                <DialectIcon dialect={activeConnection.dialect} size={14} />
-              </span>
-            )}
-            <span title={metaStatus.label}>
-              {metaStatus.synced ? (
-                <CheckmarkCircleRegular style={{ color: tokens.colorBrandForeground1, fontSize: 18 }} />
-              ) : (
-                <CircleRegular style={{ color: tokens.colorNeutralForeground3, fontSize: 14 }} />
-              )}
-            </span>
-            <SidecarStatus />
           </div>
         </div>
       </div>

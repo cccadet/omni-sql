@@ -9,7 +9,7 @@ import { TabBar } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
-import { StatusBar } from "./components/StatusBar";
+import { StatusBar, type ConnectionHealth } from "./components/StatusBar";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
@@ -77,6 +77,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [variableNames, setVariableNames] = useState<string[]>([]);
   const [runAfterVariables, setRunAfterVariables] = useState<{ sqls: string[]; label: string } | null>(null);
   const [diagnostics, setDiagnostics] = useState<SqlDiagnostic[]>([]);
+  const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("unknown");
 
   useEffect(() => {
     void loadConnections();
@@ -103,6 +104,24 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     () => connections.find((c) => c.id === activeConnectionId) ?? null,
     [connections, activeConnectionId],
   );
+
+  useEffect(() => {
+    let current = true;
+    if (!activeConnectionId) {
+      setConnectionHealth("unknown");
+      return () => { current = false; };
+    }
+    setConnectionHealth("verifying");
+    void backend.call<{ status?: string; online?: boolean; ok?: boolean }>("connection.status", { connectionId: activeConnectionId })
+      .then((response) => {
+        if (!current) return;
+        setConnectionHealth(response.status === "offline" || response.online === false || response.ok === false ? "offline" : "online");
+      })
+      .catch(() => {
+        if (current) setConnectionHealth("offline");
+      });
+    return () => { current = false; };
+  }, [activeConnectionId]);
 
   useEffect(() => {
     setDiagnostics([]);
@@ -495,7 +514,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           <img src="/omni-sql.svg" alt="omni-sql" height={28} />
           <div>
             <Title1 style={{ fontSize: 18, lineHeight: 1 }}>omni-sql</Title1>
-            <span className="subtitle">One IDE for every database</span>
+            <span className="subtitle">    One IDE for every database</span>
           </div>
         </div>
         <button
@@ -557,6 +576,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onInsert={(text) => editorRef.current?.insertAtCursor(text)}
           onRefresh={() => loadSidebarData(activeConnectionId)}
           onOpenInNewTab={onOpenInNewTab}
+          health={connectionHealth}
         />
       </aside>
 
@@ -600,7 +620,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <div style={{ gridColumn: 2, gridRow: 5 }}>
-        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} />
+        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} />
       </div>
 
       <ConnectionDialog

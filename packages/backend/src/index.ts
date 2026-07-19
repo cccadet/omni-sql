@@ -83,6 +83,8 @@ async function dispatch(method: string, params: unknown): Promise<unknown> {
       return handlers["connection.remove"](params as never);
     case "connection.test":
       return handlers["connection.test"](params as never);
+    case "connection.status":
+      return handlers["connection.status"](params as never);
     case "query.run":
       return handlers["query.run"](params as never);
     case "query.cancel":

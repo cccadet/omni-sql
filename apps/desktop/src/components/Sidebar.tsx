@@ -20,11 +20,17 @@ import {
   TableRegular,
   EyeRegular,
   NumberSymbolRegular,
+  CheckmarkCircleRegular,
+  WarningRegular,
+  CircleRegular,
 } from "@fluentui/react-icons";
 import { DialectIcon } from "./DialectIcon";
+import { SidecarStatus } from "./SidecarStatus";
 import { typeIcon } from "../lib/type-icon";
 import { backend, type ConnectionEntry, type RelationInfo } from "../lib/backend";
 import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
+import type { ConnectionHealth } from "./StatusBar";
+import { formatLastSyncedAt, getMetadataFreshness } from "../lib/metadata-freshness";
 
 export interface SidebarProps {
   open?: boolean;
@@ -36,6 +42,7 @@ export interface SidebarProps {
   onInsert?: (text: string) => void;
   onRefresh?: () => void;
   onOpenInNewTab?: (title: string, sql: string) => void;
+  health?: ConnectionHealth;
 }
 
 interface SchemaGroup {
@@ -114,6 +121,7 @@ export function Sidebar({
   onInsert,
   onRefresh,
   onOpenInNewTab,
+  health = "unknown",
 }: SidebarProps) {
   const [search, setSearch] = useState("");
   const [width, setWidth] = useState(loadWidth);
@@ -252,6 +260,10 @@ export function Sidebar({
 
   const isSearching = !!search.trim();
   const insertQualified = (schema: string, name: string) => onInsert?.(`${schema}.${name}`);
+  const metadataFreshness = getMetadataFreshness(connection?.lastSyncedAt);
+  const metadataTimestamp = formatLastSyncedAt(connection?.lastSyncedAt);
+  const metadataTooltip = `${metadataFreshness === "today" ? "Metadados atualizados hoje" : metadataFreshness === "stale" ? "Metadados desatualizados" : "Metadados não sincronizados"}${metadataTimestamp ? ` · última sincronização: ${metadataTimestamp}` : ""}`;
+  const healthLabel = health === "online" ? "Online" : health === "offline" ? "Offline" : health === "verifying" ? "Verifying…" : "Unknown";
 
   return (
     <Card
@@ -280,10 +292,12 @@ export function Sidebar({
         {connection ? (
           <div className={`omni-connection-chip ${connection.lastSyncedAt ? "synced" : ""}`}>
             <DialectIcon dialect={connection.dialect} size={14} />
-            <span className="connection-label" style={{ fontWeight: 600 }}>{connection.label}</span>
-            <span className={`status ${connection.lastSyncedAt ? "synced" : ""}`}>
-              {connection.lastSyncedAt ? "conectado" : "não sincronizado"}
-            </span>
+            <div style={{ minWidth: 0 }}>
+              <div className="connection-label" style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{connection.label}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, color: health === "online" ? tokens.colorPaletteGreenForeground1 : health === "offline" ? tokens.colorPaletteRedForeground1 : tokens.colorNeutralForeground2, fontSize: 11 }}>
+                {healthLabel}
+              </div>
+            </div>
           </div>
         ) : (
           <Text weight="semibold" truncate>
@@ -292,6 +306,14 @@ export function Sidebar({
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
           {loading && <Spinner size="tiny" />}
+          {connection && (
+            <Tooltip content={metadataTooltip} relationship="description">
+              <span aria-label={metadataTooltip} style={{ display: "inline-flex", alignItems: "center", padding: 4 }}>
+                {metadataFreshness === "today" ? <CheckmarkCircleRegular fontSize={14} style={{ color: tokens.colorPaletteGreenForeground1 }} /> : metadataFreshness === "stale" ? <WarningRegular fontSize={14} style={{ color: tokens.colorPaletteYellowForeground1 }} /> : <CircleRegular fontSize={13} style={{ color: tokens.colorNeutralForeground3 }} />}
+              </span>
+            </Tooltip>
+          )}
+          <SidecarStatus />
           <Tooltip content="Atualizar objetos" relationship="label">
             <Button
               icon={<ArrowSyncRegular fontSize={12} />}
