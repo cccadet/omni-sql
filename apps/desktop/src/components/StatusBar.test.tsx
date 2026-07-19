@@ -37,3 +37,13 @@ test("StatusBar: shows no connection when empty", () => {
   render(<StatusBar />);
   assert.ok(screen.getByText("Sem conexão"));
 });
+
+test("StatusBar: makes offline database health explicit", () => {
+  render(<StatusBar connection={{ id: "c1", label: "Warehouse", dialect: "postgres", endpoint: "db", user: "u" }} health="offline" />);
+  assert.ok(screen.getByText("Offline"));
+});
+
+test("StatusBar: makes online database health explicit", () => {
+  render(<StatusBar connection={{ id: "c1", label: "Warehouse", dialect: "postgres", endpoint: "db", user: "u" }} health="online" />);
+  assert.ok(screen.getByText("Online"));
+});
