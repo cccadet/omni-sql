@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
 import { tokens } from "@fluentui/react-components";
+import { listen } from "@tauri-apps/api/event";
 
 type SidecarState = "checking" | "ready" | "unavailable";
 
-const HEALTH_URL = "http://127.0.0.1:41921/health";
-const CHECK_TIMEOUT_MS = 800;
-const POLL_INTERVAL_MS = 1500;
-const IDLE_POLL_INTERVAL_MS = 15000;
-const GIVE_UP_AFTER_MS = 20000;
+const SIDECAR_STATUS_EVENT = "sidecar-status";
 
 const LABEL: Record<SidecarState, string> = {
   checking: "Busca inteligente: iniciando em segundo plano…",
@@ -21,33 +18,29 @@ export function SidecarStatus() {
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const startedAt = Date.now();
+    let unlisten: (() => void) | null = null;
 
-    async function check() {
-      try {
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
-        const res = await fetch(HEALTH_URL, { signal: controller.signal });
-        clearTimeout(id);
-        if (res.ok) {
-          if (!cancelled) setState("ready");
-          return;
-        }
-      } catch {
-        // sidecar ainda não respondeu; segue tentando em background.
-      }
+    void listen<string>(SIDECAR_STATUS_EVENT, (event) => {
       if (cancelled) return;
-      const gaveUp = Date.now() - startedAt > GIVE_UP_AFTER_MS;
-      setState(gaveUp ? "unavailable" : "checking");
-      timer = setTimeout(check, gaveUp ? IDLE_POLL_INTERVAL_MS : POLL_INTERVAL_MS);
-    }
-
-    void check();
+      const status: SidecarState = event.payload === "checking" || event.payload === "ready" || event.payload === "unavailable"
+        ? event.payload
+        : "unavailable";
+      setState(status);
+    }).then((resolvedUnlisten) => {
+      if (cancelled) {
+        resolvedUnlisten();
+      } else {
+        // Keep the handle so cleanup also covers listeners that resolve early.
+        unlisten = resolvedUnlisten;
+      }
+    }).catch(() => {
+      // The web preview has no Tauri event bridge; it must never appear ready.
+      if (!cancelled) setState("unavailable");
+    });
 
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
+      unlisten?.();
     };
   }, [retryKey]);
 

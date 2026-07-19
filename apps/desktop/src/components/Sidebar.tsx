@@ -290,7 +290,10 @@ export function Sidebar({
         }}
       >
         {connection ? (
-          <div className={`omni-connection-chip ${connection.lastSyncedAt ? "synced" : ""}`}>
+          <div
+            className={`omni-connection-chip ${connection.lastSyncedAt ? "synced" : ""}`}
+            style={{ flex: "1 1 auto", minWidth: 0 }}
+          >
             <DialectIcon dialect={connection.dialect} size={14} />
             <div style={{ minWidth: 0 }}>
               <div className="connection-label" style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{connection.label}</div>
@@ -304,7 +307,7 @@ export function Sidebar({
             Objetos
           </Text>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
           {loading && <Spinner size="tiny" />}
           {connection && (
             <Tooltip content={metadataTooltip} relationship="description">
