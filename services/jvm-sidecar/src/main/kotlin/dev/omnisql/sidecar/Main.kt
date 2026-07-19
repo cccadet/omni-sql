@@ -7,6 +7,7 @@ import dev.omnisql.sidecar.jdbc.JdbcConnectionManager
 import dev.omnisql.sidecar.scope.ScopeResolver
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -26,11 +27,23 @@ fun main() {
     val pid = ProcessHandle.current().pid()
     val startMs = System.currentTimeMillis()
     val requestCount = AtomicLong(0)
+    val instanceId = UUID.randomUUID().toString()
 
     val server = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
     server.createContext("/health") { exchange ->
+        requestCount.incrementAndGet()
         val uptimeMs = System.currentTimeMillis() - startMs
-        val body = """{"status":"ok","pid":$pid,"uptimeMs":$uptimeMs,"requests":${requestCount.incrementAndGet()}}"""
+        val body =
+            JSONObject()
+                .put("status", "ok")
+                .put("service", "omni-sql-sidecar")
+                .put("protocol", "http-json")
+                .put("instanceId", instanceId)
+                .put("pid", pid)
+                .put("uptimeMs", uptimeMs)
+                .put("jdbcOpenHandles", JdbcConnectionManager.openHandleCount())
+                .put("metrics", JSONObject().put("requestsTotal", requestCount.get()).put("requestsFailed", requestFailures.get()))
+                .toString()
         val bytes = body.toByteArray(Charsets.UTF_8)
         exchange.responseHeaders.add("content-type", "application/json")
         // Sem isso, o fetch() do webview (origin http://localhost:1420 em dev,
@@ -43,6 +56,7 @@ fun main() {
     }
 
     server.createContext("/scope/resolve") { exchange ->
+        requestCount.incrementAndGet()
         try {
             if (exchange.requestMethod != "POST") {
                 exchange.sendResponseHeaders(405, -1)
@@ -64,6 +78,7 @@ fun main() {
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.write(bytes)
         } catch (e: Exception) {
+            requestFailures.incrementAndGet()
             // Best-effort: erro de parse/JSON malformado nunca deve derrubar
             // o sidecar nem virar 500 — o cliente (Node backend) trata
             // corpo vazio como "sem CTEs resolvidas" e segue em tier1 puro.
@@ -78,6 +93,7 @@ fun main() {
     }
 
     server.createContext("/query/editability") { exchange ->
+        requestCount.incrementAndGet()
         try {
             if (exchange.requestMethod != "POST") {
                 exchange.sendResponseHeaders(405, -1)
@@ -106,6 +122,7 @@ fun main() {
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.write(bytes)
         } catch (e: Exception) {
+            requestFailures.incrementAndGet()
             // Best-effort, mesmo espírito do /scope/resolve: qualquer falha
             // vira "não editável" em vez de 500 — o backend Node trata isso
             // como grade read-only, exatamente como seria sem esta feature.
@@ -130,6 +147,7 @@ fun main() {
     // ao usuário — por isso a resposta sempre tem `ok` e o corpo NUNCA é
     // "sucesso disfarçado".
     server.createContext("/jdbc/connect") { exchange ->
+        requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             JdbcConnectionManager.connect(
                 connectionId = body.getString("connectionId"),
@@ -144,12 +162,13 @@ fun main() {
     }
 
     server.createContext("/jdbc/query") { exchange ->
+        requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             val result =
                 JdbcConnectionManager.query(
                     connectionId = body.getString("connectionId"),
                     sql = body.getString("sql"),
-                    limit = body.optInt("limit", 0),
+                    limit = body.optInt("limit", 0).also { JdbcConnectionManager.requireQueryLimit(it) },
                 )
             val columnsJson =
                 JSONArray(
@@ -170,6 +189,7 @@ fun main() {
     }
 
     server.createContext("/jdbc/close") { exchange ->
+        requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             JdbcConnectionManager.close(body.getString("connectionId"))
             JSONObject().put("ok", true)
@@ -177,6 +197,7 @@ fun main() {
     }
 
     server.createContext("/jdbc/schemas") { exchange ->
+        requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             val names = JdbcConnectionManager.schemaNames(body.getString("connectionId"))
             JSONObject().put("ok", true).put("schemas", JSONArray(names))
@@ -184,6 +205,7 @@ fun main() {
     }
 
     server.createContext("/jdbc/introspect") { exchange ->
+        requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             val schemaFilter = body.optJSONArray("schemaFilter")?.let { arr -> (0 until arr.length()).map { arr.getString(it) } }
             val schemas = JdbcConnectionManager.introspect(body.getString("connectionId"), schemaFilter)
@@ -227,7 +249,11 @@ fun main() {
     val bootMs = System.currentTimeMillis() - startMs
     println("[omni-sql-sidecar] listening on http://127.0.0.1:$port/health (boot=${bootMs}ms pid=$pid)")
     Runtime.getRuntime().addShutdownHook(Thread {
-        server.stop(0)
+        try {
+            server.stop(0)
+        } finally {
+            JdbcConnectionManager.closeAll()
+        }
         println("[omni-sql-sidecar] shut down cleanly")
     })
 }
@@ -251,6 +277,9 @@ private fun handleJdbc(exchange: HttpExchange, handler: (JSONObject) -> JSONObje
         val response = handler(JSONObject(requestBody))
         writeJson(exchange, 200, response)
     } catch (e: JdbcConnectionManager.JdbcError) {
+        // Request counts are recorded at context entry; this response is a
+        // failed request from the sidecar's point of view.
+        requestFailures.incrementAndGet()
         val body =
             JSONObject()
                 .put("ok", false)
@@ -259,6 +288,7 @@ private fun handleJdbc(exchange: HttpExchange, handler: (JSONObject) -> JSONObje
                 .put("sqlState", e.sqlState ?: JSONObject.NULL)
         writeJson(exchange, 200, body)
     } catch (e: Exception) {
+        requestFailures.incrementAndGet()
         val body = JSONObject().put("ok", false).put("causeTag", "unknown").put("message", e.message ?: "internal error")
         writeJson(exchange, 200, body)
     } finally {
@@ -273,3 +303,5 @@ private fun writeJson(exchange: HttpExchange, status: Int, json: JSONObject) {
     exchange.sendResponseHeaders(status, bytes.size.toLong())
     exchange.responseBody.write(bytes)
 }
+
+private val requestFailures = AtomicLong(0)

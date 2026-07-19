@@ -7,6 +7,72 @@ use tauri::Manager;
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
 
+const BACKEND_PORT: u16 = 41920;
+const SIDECAR_PORT: u16 = 41921;
+const SIDECAR_SERVICE: &str = "omni-sql-sidecar";
+const SIDECAR_PROTOCOL: &str = "http-json";
+
+fn ensure_port_is_free(port: u16, name: &str) -> Result<(), std::io::Error> {
+    std::net::TcpListener::bind(("127.0.0.1", port)).map(|listener| drop(listener)).map_err(|err| {
+        std::io::Error::new(
+            err.kind(),
+            format!(
+                "cannot start {name}: 127.0.0.1:{port} is already in use or unavailable; refusing to reuse an unknown process ({err})"
+            ),
+        )
+    })
+}
+
+fn http_get(port: u16, path: &str) -> Result<(u16, String), String> {
+    use std::io::{Read, Write};
+
+    let mut stream = std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_millis(200),
+    )
+    .map_err(|err| err.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .map_err(|err| err.to_string())?;
+    stream
+        .write_all(
+            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
+        .map_err(|err| err.to_string())?;
+
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .map_err(|err| err.to_string())?;
+    let response = String::from_utf8_lossy(&response);
+    let (headers, body) = response
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| "health response has no HTTP header/body separator".to_string())?;
+    let status = headers
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .ok_or_else(|| "health response has no HTTP status".to_string())?
+        .parse::<u16>()
+        .map_err(|err| format!("invalid health HTTP status: {err}"))?;
+    Ok((status, body.to_string()))
+}
+
+fn json_string_field(body: &str, field: &str) -> Option<String> {
+    let marker = format!("\"{field}\"");
+    let value = body.split_once(&marker)?.1.trim_start();
+    let value = value.strip_prefix(':')?.trim_start();
+    let value = value.strip_prefix('"')?;
+    Some(value.split('"').next()?.to_string())
+}
+
+fn sidecar_health_is_expected(body: &str) -> bool {
+    json_string_field(body, "status").as_deref() == Some("ok")
+        && json_string_field(body, "service").as_deref() == Some(SIDECAR_SERVICE)
+        && json_string_field(body, "protocol").as_deref() == Some(SIDECAR_PROTOCOL)
+}
+
 // Leitura/escrita de abas salvas como `.sql`. O caminho vem sempre do diálogo
 // nativo (plugin `dialog`) ou de uma sessão restaurada, nunca de input livre
 // do usuário — por isso um comando de app simples (sem escopo declarado via
@@ -100,26 +166,17 @@ pub fn run() {
             // In dev, run the TypeScript backend through tsx. Some Linux Node
             // builds expose Node 22 but are compiled without native TS support.
             //
-            // O boot da janela não espera o backend ficar pronto: o frontend já
-            // tem retry (fetchWithRetry). Aqui só fazemos um check rápido de
-            // porta (50ms) para reaproveitar um processo sobrevivente de
-            // hot-reload, sem atrasar o setup.
-            let backend_already_running = std::net::TcpStream::connect_timeout(
-                &"127.0.0.1:41920".parse().unwrap(),
-                Duration::from_millis(50),
-            )
-            .is_ok();
+            // Never attach to a process inherited from a previous run. A port
+            // probe cannot establish ownership, so an occupied fixed port is a
+            // setup error instead of an invitation to reuse an unknown server.
+            ensure_port_is_free(BACKEND_PORT, "Node backend")?;
+            ensure_port_is_free(SIDECAR_PORT, "JVM sidecar")?;
 
-            if backend_already_running {
-                log::info!(
-                    "backend sidecar já está escutando em 127.0.0.1:41920 — reaproveitando processo existente"
-                );
-            } else {
-                let child = Command::new("node")
+            let child = Command::new("node")
                     .args(["--import", "tsx"])
                     .arg(&backend_entry)
                     .current_dir(workspace_root)
-                    .env("OMNI_SQL_PORT", "41920")
+                    .env("OMNI_SQL_PORT", BACKEND_PORT.to_string())
                     .stdin(Stdio::null())
                     .stdout(Stdio::inherit())
                     .stderr(Stdio::inherit())
@@ -129,34 +186,27 @@ pub fn run() {
                         e
                     })?;
 
-                let state: tauri::State<'_, BackendChild> = app.state();
-                *state.0.lock().unwrap() = Some(child);
+            let state: tauri::State<'_, BackendChild> = app.state();
+            *state.0.lock().unwrap() = Some(child);
 
-                // Checagem de prontidão roda numa thread separada: só serve
-                // pra log de diagnóstico, nunca atrasa o boot da janela.
-                std::thread::spawn(|| {
+            // Readiness remains asynchronous and checks the actual HTTP service.
+            std::thread::spawn(|| {
                     let deadline = Instant::now() + Duration::from_secs(5);
                     while Instant::now() < deadline {
-                        if std::net::TcpStream::connect_timeout(
-                            &"127.0.0.1:41920".parse().unwrap(),
-                            Duration::from_millis(100),
-                        )
-                        .is_ok()
-                        {
-                            log::info!("backend sidecar is listening on 127.0.0.1:41920");
+                        if let Ok((status, body)) = http_get(BACKEND_PORT, "/health") {
+                            if status == 200 && json_string_field(&body, "status").as_deref() == Some("ok") {
+                                log::info!("backend sidecar health check passed on 127.0.0.1:{BACKEND_PORT}");
                             return;
+                            }
                         }
                         std::thread::sleep(Duration::from_millis(100));
                     }
                     log::warn!("backend sidecar did not become reachable in 5s");
                 });
-            }
 
             // Sidecar JVM (Fase 3, opcional): spawn assíncrono, nunca bloqueia o
-            // boot da janela. Enquanto o parser tolerante (Calcite/ANTLR) não
-            // existe, este processo só serve /health; o autocomplete continua
-            // 100% tier1 (TS) até o endpoint /scope/resolve existir. Qualquer
-            // falha aqui é best-effort — nunca deve derrubar o app.
+            // boot da janela. Ele expõe /scope/resolve para as colunas de CTE;
+            // falhas continuam sendo tratadas pelo backend como fallback tier1.
             //
             // Roda o jar já compilado direto (`java -jar`), NUNCA via `gradlew
             // run`: o wrapper do Gradle sobe um Daemon que sobrevive à morte
@@ -167,26 +217,11 @@ pub fn run() {
             // mata de verdade. Gere/atualize o jar com `./gradlew jar`.
             let sidecar_dir = workspace_root.join("services/jvm-sidecar");
             let sidecar_jar = sidecar_dir.join("build/libs/omni-sql-sidecar.jar");
-            // O JVM sidecar é opcional (tier2). Para não atrasar o boot da
-            // janela, fazemos um check rápido de porta (50ms) só para
-            // reaproveitar um processo sobrevivente de hot-reload. Se não
-            // houver, subimos o jar sem esperar resposta; o frontend já trata
-            // timeout/falha do sidecar como fallback para tier1.
-            let sidecar_already_running = std::net::TcpStream::connect_timeout(
-                &"127.0.0.1:41921".parse().unwrap(),
-                Duration::from_millis(50),
-            )
-            .is_ok();
-
-            if sidecar_already_running {
-                log::info!(
-                    "JVM sidecar (tier2) já está escutando em 127.0.0.1:41921 — reaproveitando processo existente"
-                );
-            } else if sidecar_jar.exists() {
+            if sidecar_jar.exists() {
                 let mut cmd = Command::new("java");
                 cmd.arg("-jar").arg(&sidecar_jar);
                 cmd.current_dir(&sidecar_dir)
-                    .env("OMNI_SIDE_CAR_PORT", "41921")
+                    .env("OMNI_SIDE_CAR_PORT", SIDECAR_PORT.to_string())
                     .stdin(Stdio::null())
                     .stdout(Stdio::inherit())
                     .stderr(Stdio::inherit());
@@ -197,25 +232,20 @@ pub fn run() {
                         let sidecar_state: tauri::State<'_, SidecarChild> = app.state();
                         *sidecar_state.0.lock().unwrap() = Some(child);
 
-                        // Checagem de /health roda numa thread separada: só serve
-                        // pra log de diagnóstico, nunca atrasa o boot da janela.
+                        // HTTP health validation runs asynchronously and verifies
+                        // identity, not merely that some process owns the port.
                         std::thread::spawn(|| {
                             let deadline = Instant::now() + Duration::from_secs(30);
                             while Instant::now() < deadline {
-                                if std::net::TcpStream::connect_timeout(
-                                    &"127.0.0.1:41921".parse().unwrap(),
-                                    Duration::from_millis(200),
-                                )
-                                .is_ok()
-                                {
-                                    log::info!("JVM sidecar (tier2) is listening on 127.0.0.1:41921");
+                                if let Ok((status, body)) = http_get(SIDECAR_PORT, "/health") {
+                                    if status == 200 && sidecar_health_is_expected(&body) {
+                                        log::info!("JVM sidecar health check passed on 127.0.0.1:{SIDECAR_PORT}");
                                     return;
+                                    }
                                 }
                                 std::thread::sleep(Duration::from_millis(300));
                             }
-                            log::warn!(
-                                "JVM sidecar (tier2) did not become reachable in 30s — autocomplete segue em tier1"
-                            );
+                            log::warn!("JVM sidecar (tier2) failed its expected /health check in 30s — autocomplete segue em tier1");
                         });
                     }
                     Err(e) => {

@@ -6,6 +6,7 @@ import type {
   QueryResult,
   Relation,
 } from "@omni-sql/ts-types";
+import { randomUUID } from "node:crypto";
 import { jdbcGenericDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
@@ -35,6 +36,10 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
   private readonly jdbcUrl: string;
   private readonly user: string;
   private readonly password?: string;
+  /** Handle owned by this adapter instance, never the persisted connection id. */
+  private readonly remoteHandleId = randomUUID();
+  private connected = false;
+  private connecting?: Promise<void>;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -54,18 +59,33 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
   }
 
   async connect(): Promise<void> {
-    await jdbcConnect({
-      connectionId: this.id,
+    if (this.connected) return;
+    if (this.connecting) return this.connecting;
+    this.connecting = jdbcConnect({
+      connectionId: this.remoteHandleId,
       jarPath: this.jarPath,
       driverClassName: this.driverClassName,
       jdbcUrl: this.jdbcUrl,
       user: this.user,
       password: this.password,
+    }).then(() => {
+      this.connected = true;
     });
+    try {
+      await this.connecting;
+    } finally {
+      this.connecting = undefined;
+    }
   }
 
   async close(): Promise<void> {
-    await jdbcClose(this.id);
+    if (this.connecting) await this.connecting.catch(() => {});
+    if (!this.connected) return;
+    try {
+      await jdbcClose(this.remoteHandleId);
+    } finally {
+      this.connected = false;
+    }
   }
 
   /** Ao contrário do pool dos demais adaptadores, `connect()` aqui deixa uma `java.sql.Connection` viva no sidecar — fecha de novo no fim pra não vazar. */
@@ -82,7 +102,7 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
   }
 
   async listAvailableSchemas(): Promise<readonly string[]> {
-    return jdbcListSchemas(this.id);
+    return jdbcListSchemas(this.remoteHandleId);
   }
 
   protected databaseName(): string {
@@ -90,7 +110,7 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
   }
 
   protected async introspectSchemas(): Promise<readonly (readonly [unknown, string, readonly Relation[]])[]> {
-    const schemas = await jdbcIntrospect(this.id, this.schemaFilter);
+    const schemas = await jdbcIntrospect(this.remoteHandleId, this.schemaFilter);
     return schemas.map((s, i) => [i, s.name, s.tables.map((t) => toRelation(s.name, t))] as const);
   }
 
@@ -99,7 +119,7 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
-    return jdbcQuery(this.id, sql, limit);
+    return jdbcQuery(this.remoteHandleId, sql, limit);
   }
 
   async explain(_sql: string): Promise<ExplainResult> {
