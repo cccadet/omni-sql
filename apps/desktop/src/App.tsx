@@ -78,6 +78,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [runAfterVariables, setRunAfterVariables] = useState<{ sqls: string[]; label: string } | null>(null);
   const [diagnostics, setDiagnostics] = useState<SqlDiagnostic[]>([]);
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("unknown");
+  const connectionHealthCheckRef = useRef(0);
 
   useEffect(() => {
     void loadConnections();
@@ -107,6 +108,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   useEffect(() => {
     let current = true;
+    const checkId = ++connectionHealthCheckRef.current;
     if (!activeConnectionId) {
       setConnectionHealth("unknown");
       return () => { current = false; };
@@ -114,11 +116,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     setConnectionHealth("verifying");
     void backend.call<{ status?: string; online?: boolean; ok?: boolean }>("connection.status", { connectionId: activeConnectionId })
       .then((response) => {
-        if (!current) return;
+        if (!current || checkId !== connectionHealthCheckRef.current) return;
         setConnectionHealth(response.status === "offline" || response.online === false || response.ok === false ? "offline" : "online");
       })
       .catch(() => {
-        if (current) setConnectionHealth("offline");
+        if (current && checkId === connectionHealthCheckRef.current) setConnectionHealth("offline");
       });
     return () => { current = false; };
   }, [activeConnectionId]);
@@ -172,6 +174,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     setBusyMsg("Introspecção…");
     try {
       await backend.call("metadata.introspect", { connectionId: activeConnectionId });
+      ++connectionHealthCheckRef.current;
+      setConnectionHealth("online");
       await loadConnections();
       await loadSidebarData(activeConnectionId);
       updateTab(activeTab.id, { error: null });
@@ -292,6 +296,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           limit: activeTab.queryLimit,
         });
         setResult(lastResult);
+        ++connectionHealthCheckRef.current;
+        setConnectionHealth("online");
         pushHistory(activeTab, true, Date.now() - startedAt);
         void backend
           .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: sqls.join(";\n") })
