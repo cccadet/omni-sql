@@ -15,7 +15,7 @@ import {
   ChevronRightRegular,
   DismissRegular,
   EditRegular,
-  FilterRegular,
+  CalendarLtrRegular,
   TableRegular,
   ChatRegular,
   WrenchRegular,
@@ -50,10 +50,37 @@ function compareValues(a: unknown, b: unknown): number {
   return String(a).localeCompare(String(b), undefined, { numeric: true });
 }
 
+function columnTypeLabel(dataType: string): string {
+  const type = dataType.toLowerCase();
+  if (
+    type.includes("int") ||
+    type.includes("serial") ||
+    type.includes("number") ||
+    type.includes("decimal") ||
+    type.includes("numeric") ||
+    type.includes("float") ||
+    type.includes("double") ||
+    type.includes("real") ||
+    type.includes("money")
+  ) {
+    return "123";
+  }
+  if (type.includes("date") || type.includes("time") || type.includes("timestamp")) return "data";
+  if (type.includes("bool") || type.includes("bit")) return "T/F";
+  if (type.includes("json") || type.includes("xml") || type.includes("array") || type.includes("struct")) {
+    return "{}";
+  }
+  if (type.includes("uuid")) return "id";
+  if (type.includes("binary") || type.includes("blob") || type.includes("bytea")) return "bin";
+  if (type.includes("char") || type.includes("text") || type.includes("varchar") || type.includes("clob") || type.includes("string")) {
+    return "abc";
+  }
+  return "?";
+}
+
 export function ResultsGrid({ result, error, planText, editability, onCellEdit }: ResultsGridProps) {
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan">("data");
   const [globalFilter, setGlobalFilter] = useState("");
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [sortColumn, setSortColumn] = useState<string | undefined>(undefined);
   const [sortDirection, setSortDirection] = useState<"ascending" | "descending">("ascending");
   const [page, setPage] = useState(0);
@@ -66,7 +93,6 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
   // Reset sort/filters/selection on new result
   useEffect(() => {
     setSortColumn(undefined);
-    setColumnFilters({});
     setPage(0);
     setSelectedRow(null);
     if (error) {
@@ -82,19 +108,8 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
     if (term) {
       list = list.filter((row) => row.some((cell) => String(cell ?? "").toLowerCase().includes(term)));
     }
-    if (result && Object.keys(columnFilters).length > 0) {
-      list = list.filter((row) =>
-        result.columns.every((col, idx) => {
-          const filter = columnFilters[col.name]?.trim().toLowerCase();
-          if (!filter) return true;
-          const value = row[idx];
-          if (filter === "null") return value == null;
-          return String(value ?? "").toLowerCase().includes(filter);
-        }),
-      );
-    }
     return list;
-  }, [rows, globalFilter, columnFilters, result]);
+  }, [rows, globalFilter]);
 
   const sortedRows = useMemo(() => {
     if (!sortColumn || !result) return filteredRows;
@@ -162,6 +177,7 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
       result?.columns.map((col, index) => ({
         key: col.name,
         name: col.name,
+        dataType: col.dataType,
         index,
         editable: editability?.editable && editability.columns[index]?.sourceColumn != null,
       })) ?? [],
@@ -268,58 +284,48 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
                 <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
                   <tr>
                     {columns.map((col) => (
-                      <th
-                        key={col.key}
-                        onClick={() => handleSort(col.name)}
-                        style={{
-                          padding: "6px 10px",
-                          borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
-                          textAlign: "left",
-                          background: tokens.colorNeutralBackground3,
-                          whiteSpace: "nowrap",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                          verticalAlign: "top",
-                        }}
-                      >
-                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          {col.name}
-                          {col.editable && (
-                            <EditRegular style={{ fontSize: 12, color: tokens.colorNeutralForeground2 }} />
-                          )}
-                          {sortColumn === col.name && (sortDirection === "ascending" ? " ▲" : " ▼")}
-                        </span>
-                        <div
-                          style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <FilterRegular style={{ fontSize: 10, color: tokens.colorNeutralForeground3 }} />
-                          <input
-                            type="text"
-                            value={columnFilters[col.name] ?? ""}
-                            onChange={(e) => {
-                              setColumnFilters((prev) => ({ ...prev, [col.name]: e.target.value }));
-                              setPage(0);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                setColumnFilters((prev) => ({ ...prev, [col.name]: "" }));
-                              }
-                            }}
-                            placeholder="filtrar..."
+                      (() => {
+                        const typeLabel = columnTypeLabel(col.dataType);
+                        return (
+                          <th
+                            key={col.key}
+                            onClick={() => handleSort(col.name)}
+                            title={`Tipo: ${col.dataType}`}
                             style={{
-                              width: "100%",
-                              minWidth: 60,
-                              padding: "2px 4px",
-                              fontSize: 11,
-                              border: `1px solid ${columnFilters[col.name] ? tokens.colorBrandStroke1 : tokens.colorNeutralStroke1}`,
-                              borderRadius: 3,
-                              background: tokens.colorNeutralBackground1,
-                              color: tokens.colorNeutralForeground1,
+                              padding: "8px 10px",
+                              borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
+                              textAlign: "left",
+                              background: tokens.colorNeutralBackground3,
+                              whiteSpace: "nowrap",
+                              cursor: "pointer",
+                              fontWeight: 600,
+                              verticalAlign: "middle",
                             }}
-                          />
-                        </div>
-                      </th>
+                          >
+                            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span
+                                aria-hidden="true"
+                                style={{
+                                  color: tokens.colorPaletteYellowForeground1,
+                                  fontSize: typeLabel === "data" ? 14 : 10,
+                                  fontWeight: 700,
+                                  letterSpacing: "-0.02em",
+                                  lineHeight: 1,
+                                  minWidth: 24,
+                                  textAlign: "center",
+                                }}
+                              >
+                                {typeLabel === "data" ? <CalendarLtrRegular /> : typeLabel}
+                              </span>
+                              <span>{col.name}</span>
+                              {col.editable && (
+                                <EditRegular style={{ fontSize: 12, color: tokens.colorNeutralForeground2 }} />
+                              )}
+                              {sortColumn === col.name && (sortDirection === "ascending" ? " ▲" : " ▼")}
+                            </span>
+                          </th>
+                        );
+                      })()
                     ))}
                   </tr>
                 </thead>

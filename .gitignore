@@ -34,3 +34,5 @@ services/jvm-sidecar/out
 .DS_Store
 Thumbs.db
 .claude/.headroom_wrap_marker.json
+layout_transpilar.png
+layout2.png
