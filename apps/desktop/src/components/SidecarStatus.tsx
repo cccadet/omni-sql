@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { tokens } from "@fluentui/react-components";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 
 type SidecarState = "checking" | "ready" | "unavailable";
 
@@ -19,9 +20,11 @@ export function SidecarStatus() {
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
+    let receivedEvent = false;
 
     void listen<string>(SIDECAR_STATUS_EVENT, (event) => {
       if (cancelled) return;
+      receivedEvent = true;
       const status: SidecarState = event.payload === "checking" || event.payload === "ready" || event.payload === "unavailable"
         ? event.payload
         : "unavailable";
@@ -32,6 +35,19 @@ export function SidecarStatus() {
       } else {
         // Keep the handle so cleanup also covers listeners that resolve early.
         unlisten = resolvedUnlisten;
+
+        // The sidecar can become ready before React mounts. Read the persisted
+        // status only after the live listener has been installed, and do not
+        // overwrite a status received while the command was in flight.
+        void invoke<string>("get_sidecar_status").then((currentStatus) => {
+          if (cancelled || receivedEvent) return;
+          const status: SidecarState = currentStatus === "checking" || currentStatus === "ready" || currentStatus === "unavailable"
+            ? currentStatus
+            : "unavailable";
+          setState(status);
+        }).catch(() => {
+          if (!cancelled && !receivedEvent) setState("unavailable");
+        });
       }
     }).catch(() => {
       // The web preview has no Tauri event bridge; it must never appear ready.
