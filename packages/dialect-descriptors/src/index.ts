@@ -27,7 +27,7 @@ export interface DialectDescriptor {
 
 const ANSI_KEYWORDS = [
   "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "OUTER",
-  "ON", "AS", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "UNION",
+  "ON", "AS", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "FETCH", "FIRST", "ROWS", "ONLY", "UNION",
   "INSERT", "UPDATE", "DELETE", "WITH", "RECURSIVE", "AND", "OR", "NOT", "NULL",
   "IS", "IN", "BETWEEN", "LIKE", "CASE", "WHEN", "THEN", "ELSE", "END", "DISTINCT",
   "ALL", "ANY", "EXISTS", "TRUE", "FALSE", "ASC", "DESC", "CROSS", "USING",
