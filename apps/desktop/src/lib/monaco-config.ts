@@ -101,7 +101,7 @@ const COMMON_FUNCTIONS = [
   "COUNT", "SUM", "AVG", "MIN", "MAX", "COALESCE", "NULLIF", "NVL", "DECODE",
   "LENGTH", "SUBSTRING", "SUBSTR", "TRIM", "UPPER", "LOWER", "REPLACE",
   "ROUND", "FLOOR", "CEIL", "ABS", "MOD", "POWER", "SQRT", "SIGN",
-  "CURRENT_DATE", "CURRENT_TIMESTAMP", "NOW", "SYSDATE", "GETDATE",
+  "CURRENT_DATE", "CURRENT_TIMESTAMP", "NOW", "SYSDATE", "GETDATE", "DATE",
   "TO_CHAR", "TO_DATE", "TO_NUMBER", "CAST", "CONVERT",
   "EXTRACT", "DATE_PART", "DATE_TRUNC",
   "ROW_NUMBER", "RANK", "DENSE_RANK", "LEAD", "LAG", "OVER",
@@ -138,6 +138,8 @@ export function registerSqlLanguage(monacoInstance: typeof monaco): void {
   const kw = [...postgresDescriptor.keywords];
   const kwPattern = new RegExp(`\\b(?:${kw.join("|")})\\b`, "i");
   const fnPattern = new RegExp(`\\b(?:${COMMON_FUNCTIONS.join("|")})\\b(?=\\s*\\()`, "i");
+  const dateLiteralPattern = /\bDATE(?=\s*')/i;
+  const sysdatePattern = /\bSYSDATE\b/i;
   monacoInstance.languages.setMonarchTokensProvider(LANGUAGE_ID, {
     defaultToken: "",
     ignoreCase: true,
@@ -161,6 +163,8 @@ export function registerSqlLanguage(monacoInstance: typeof monaco): void {
         [/`/, "string.identifier", "@backtickIdentifier"],
         [/\[/, "string.identifier", "@bracketIdentifier"],
         [fnPattern, "function"],
+        [dateLiteralPattern, "keyword"],
+        [sysdatePattern, "function"],
         [kwPattern, "keyword"],
         [/[+\-*/%=<>!&|^~:]+/, "operator"],
         [/[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?/, "number"],
