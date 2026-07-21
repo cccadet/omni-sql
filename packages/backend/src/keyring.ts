@@ -38,9 +38,9 @@ function loadDevKeyring(path: string): DevKeyring {
   }
 }
 
-function saveDevKeyring(path: string, kr: DevKeyring): void {
-  fs.mkdirSync(path.split("/").slice(0, -1).join("/"), { recursive: true });
-  fs.writeFileSync(path, JSON.stringify(kr, null, 2), { mode: 0o600 });
+function saveDevKeyring(filePath: string, kr: DevKeyring): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(kr, null, 2), { mode: 0o600 });
 }
 
 function slotOf(connectionId: string): string {
@@ -48,13 +48,24 @@ function slotOf(connectionId: string): string {
 }
 
 async function withDevKeyring<T>(
-  path: string,
+  filePath: string,
   fn: (kr: DevKeyring) => T,
 ): Promise<T> {
-  const kr = loadDevKeyring(path);
+  const kr = loadDevKeyring(filePath);
   const result = fn(kr);
-  saveDevKeyring(path, kr);
+  saveDevKeyring(filePath, kr);
   return result;
+}
+
+function keyringFailure(operation: string, slot: string, backend: string, error: unknown): Error {
+  const reason = error instanceof Error ? error.message : String(error);
+  return new Error(`keyring ${operation} failed for slot ${slot} (${backend}): ${reason}`, {
+    cause: error,
+  });
+}
+
+function backendDescription(devPath: string | undefined): string {
+  return devPath ? `dev fallback at ${devPath}` : `OS keyring service ${SERVICE}`;
 }
 
 // Lazy-loaded because @napi-rs/keyring may not be available in headless/test
@@ -90,15 +101,19 @@ export async function setPassword(
 ): Promise<void> {
   const slot = slotOf(config.id);
   const devPath = devKeyringPath();
-  if (devPath) {
-    await withDevKeyring(devPath, (kr) => {
-      kr.secrets[slot] = password;
-    });
-    return;
+  try {
+    if (devPath) {
+      await withDevKeyring(devPath, (kr) => {
+        kr.secrets[slot] = password;
+      });
+      return;
+    }
+    const Entry = await getNativeEntryCtor();
+    const entry = new Entry(SERVICE, slot);
+    await entry.setPassword(password);
+  } catch (error) {
+    throw keyringFailure("set", slot, backendDescription(devPath), error);
   }
-  const Entry = await getNativeEntryCtor();
-  const entry = new Entry(SERVICE, slot);
-  await entry.setPassword(password);
 }
 
 /** Retrieves a password from the OS keyring (or dev fallback). */
@@ -107,13 +122,17 @@ export async function getPassword(
 ): Promise<string | undefined> {
   const slot = slotOf(config.id);
   const devPath = devKeyringPath();
-  if (devPath) {
-    return withDevKeyring(devPath, (kr) => kr.secrets[slot]);
+  try {
+    if (devPath) {
+      return await withDevKeyring(devPath, (kr) => kr.secrets[slot]);
+    }
+    const Entry = await getNativeEntryCtor();
+    const entry = new Entry(SERVICE, slot);
+    const password = await entry.getPassword();
+    return typeof password === "string" ? password : undefined;
+  } catch (error) {
+    throw keyringFailure("get", slot, backendDescription(devPath), error);
   }
-  const Entry = await getNativeEntryCtor();
-  const entry = new Entry(SERVICE, slot);
-  const password = await entry.getPassword();
-  return typeof password === "string" ? password : undefined;
 }
 
 /** Deletes a password from the OS keyring (or dev fallback). */
@@ -122,13 +141,17 @@ export async function deletePassword(
 ): Promise<void> {
   const slot = slotOf(config.id);
   const devPath = devKeyringPath();
-  if (devPath) {
-    await withDevKeyring(devPath, (kr) => {
-      delete kr.secrets[slot];
-    });
-    return;
+  try {
+    if (devPath) {
+      await withDevKeyring(devPath, (kr) => {
+        delete kr.secrets[slot];
+      });
+      return;
+    }
+    const Entry = await getNativeEntryCtor();
+    const entry = new Entry(SERVICE, slot);
+    await entry.deletePassword();
+  } catch (error) {
+    throw keyringFailure("delete", slot, backendDescription(devPath), error);
   }
-  const Entry = await getNativeEntryCtor();
-  const entry = new Entry(SERVICE, slot);
-  await entry.deletePassword();
 }

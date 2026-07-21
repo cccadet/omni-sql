@@ -270,6 +270,22 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
               <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder="Minha conexão" disabled={busy} required style={{ marginTop: 4 }} />
             </Label>
 
+            {editing && (
+              <Label>
+                ID interno
+                <Input
+                  value={id}
+                  readOnly
+                  disabled={busy}
+                  aria-describedby="connection-id-help"
+                  style={{ marginTop: 4 }}
+                />
+                <Text id="connection-id-help" size={200} style={{ color: tokens.colorNeutralForeground2 }}>
+                  Fixo para preservar as credenciais salvas.
+                </Text>
+              </Label>
+            )}
+
             {mode === "jdbc-generic" && (
               <>
                 <Label>

@@ -19,3 +19,30 @@ test("keyring: roundtrip set/get/delete", async () => {
   await deletePassword(cfg);
   assert.equal(await getPassword(cfg), undefined);
 });
+
+test("keyring: fallback creates platform-safe parent directories", async () => {
+  const nestedPath = path.join(tmpDir, "nested", "keyring.json");
+  process.env.OMNI_SQL_DEV_KEYRING_FILE = nestedPath;
+  const cfg = { id: "nested-keyring-test" };
+
+  await setPassword(cfg, "not-logged");
+  assert.equal(await getPassword(cfg), "not-logged");
+  assert.equal(fs.existsSync(nestedPath), true);
+  await deletePassword(cfg);
+  process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
+});
+
+test("keyring: fallback errors identify backend and slot without password", async () => {
+  const brokenPath = path.join(tmpDir, "broken-keyring.json");
+  process.env.OMNI_SQL_DEV_KEYRING_FILE = brokenPath;
+  fs.writeFileSync(brokenPath, "{ broken", "utf8");
+
+  await assert.rejects(getPassword({ id: "diagnostic-test" }), (error: unknown) => {
+    assert.match(String(error), /keyring get failed/);
+    assert.match(String(error), /connection:diagnostic-test/);
+    assert.match(String(error), /dev fallback at/);
+    assert.doesNotMatch(String(error), /not-logged/);
+    return true;
+  });
+  process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
+});

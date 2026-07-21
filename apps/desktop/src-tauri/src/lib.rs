@@ -6,6 +6,7 @@ use tauri::{Emitter, Manager};
 
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
+struct SidecarStatusState(Mutex<&'static str>);
 
 const BACKEND_PORT: u16 = 41920;
 const SIDECAR_PORT: u16 = 41921;
@@ -88,10 +89,27 @@ fn sidecar_health_is_expected(body: &str) -> bool {
         && json_string_field(body, "protocol").as_deref() == Some(SIDECAR_PROTOCOL)
 }
 
+fn sidecar_health_probe_error(status: u16, body: &str) -> String {
+    format!(
+        "unexpected /health response: HTTP {status}, status field {:?}, service field {:?}, protocol field {:?}",
+        json_string_field(body, "status"),
+        json_string_field(body, "service"),
+        json_string_field(body, "protocol"),
+    )
+}
+
 fn emit_sidecar_status<R: tauri::Runtime>(app: &tauri::AppHandle<R>, status: &'static str) {
+    let state: tauri::State<'_, SidecarStatusState> = app.state();
+    *state.0.lock().unwrap() = status;
+
     if let Err(err) = app.emit(SIDECAR_STATUS_EVENT, status) {
         log::warn!("failed to emit {SIDECAR_STATUS_EVENT} ({status}): {err}");
     }
+}
+
+#[tauri::command]
+fn get_sidecar_status(state: tauri::State<'_, SidecarStatusState>) -> String {
+    state.0.lock().unwrap().to_string()
 }
 
 // Leitura/escrita de abas salvas como `.sql`. O caminho vem sempre do diálogo
@@ -129,9 +147,14 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![write_text_file, read_text_file])
+        .invoke_handler(tauri::generate_handler![
+            write_text_file,
+            read_text_file,
+            get_sidecar_status
+        ])
         .manage(BackendChild(Mutex::new(None)))
         .manage(SidecarChild(Mutex::new(None)))
+        .manage(SidecarStatusState(Mutex::new(SIDECAR_STATUS_CHECKING)))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -294,17 +317,53 @@ pub fn run() {
                         emit_sidecar_status(&app_handle, SIDECAR_STATUS_CHECKING);
                         std::thread::spawn(move || {
                             let deadline = Instant::now() + Duration::from_secs(30);
+                            let mut last_probe_error = "no health probe completed".to_string();
+
                             while Instant::now() < deadline {
-                                if let Ok((status, body)) = http_get(SIDECAR_PORT, "/health") {
-                                    if status == 200 && sidecar_health_is_expected(&body) {
-                                        log::info!("JVM sidecar health check passed on 127.0.0.1:{SIDECAR_PORT}");
-                                        emit_sidecar_status(&app_handle, SIDECAR_STATUS_READY);
-                                    return;
+                                {
+                                    let state: tauri::State<'_, SidecarChild> = app_handle.state();
+                                    let mut guard = state.0.lock().unwrap();
+                                    if let Some(child) = guard.as_mut() {
+                                        match child.try_wait() {
+                                            Ok(Some(status)) => {
+                                                log::warn!(
+                                                    "JVM sidecar exited before becoming ready with status {status}; last /health probe error: {last_probe_error}"
+                                                );
+                                                emit_sidecar_status(
+                                                    &app_handle,
+                                                    SIDECAR_STATUS_UNAVAILABLE,
+                                                );
+                                                return;
+                                            }
+                                            Ok(None) => {}
+                                            Err(err) => {
+                                                log::warn!(
+                                                    "failed to check JVM sidecar status: {err}"
+                                                );
+                                            }
+                                        }
                                     }
                                 }
+
+                                match http_get(SIDECAR_PORT, "/health") {
+                                    Ok((status, body))
+                                        if status == 200 && sidecar_health_is_expected(&body) =>
+                                    {
+                                        log::info!("JVM sidecar health check passed on 127.0.0.1:{SIDECAR_PORT}");
+                                        emit_sidecar_status(&app_handle, SIDECAR_STATUS_READY);
+                                        return;
+                                    }
+                                    Ok((status, body)) => {
+                                        last_probe_error = sidecar_health_probe_error(status, &body);
+                                    }
+                                    Err(err) => {
+                                        last_probe_error = err;
+                                    }
+                                }
+
                                 std::thread::sleep(Duration::from_millis(300));
                             }
-                            log::warn!("JVM sidecar (tier2) failed its expected /health check in 30s — autocomplete segue em tier1");
+                            log::warn!("JVM sidecar (tier2) failed its expected /health check in 30s; last /health probe error: {last_probe_error} — autocomplete segue em tier1");
                             emit_sidecar_status(&app_handle, SIDECAR_STATUS_UNAVAILABLE);
                         });
                     }
@@ -361,13 +420,21 @@ mod tests {
 
     #[test]
     fn backend_health_probe_reports_non_ready_responses() {
-        assert!(backend_health_is_expected(
-            200,
-            r#"{"status":"ok"}"#
-        ));
+        assert!(backend_health_is_expected(200, r#"{"status":"ok"}"#));
         assert_eq!(
             backend_health_probe_error(503, r#"{"status":"starting"}"#),
             "unexpected /health response: HTTP 503, status field Some(\"starting\")"
+        );
+    }
+
+    #[test]
+    fn sidecar_health_probe_reports_http_status_and_identity() {
+        assert_eq!(
+            sidecar_health_probe_error(
+                503,
+                r#"{"status":"starting","service":"other","protocol":"other"}"#
+            ),
+            "unexpected /health response: HTTP 503, status field Some(\"starting\"), service field Some(\"other\"), protocol field Some(\"other\")"
         );
     }
 
@@ -386,5 +453,14 @@ mod tests {
             serde_json::to_string(SIDECAR_STATUS_READY).unwrap(),
             r#""ready""#
         );
+    }
+
+    #[test]
+    fn sidecar_status_state_starts_checking_and_is_thread_safe() {
+        let state = SidecarStatusState(Mutex::new(SIDECAR_STATUS_CHECKING));
+        assert_eq!(*state.0.lock().unwrap(), "checking");
+
+        *state.0.lock().unwrap() = SIDECAR_STATUS_READY;
+        assert_eq!(*state.0.lock().unwrap(), "ready");
     }
 }
