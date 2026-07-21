@@ -627,7 +627,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         <ResultsGrid result={result} error={activeTab.error} planText={planText} editability={editability} onCellEdit={handleCellEdit} />
       </section>
 
-      <div style={{ gridColumn: 2, gridRow: 5 }}>
+      <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
         <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} />
       </div>
 
