@@ -283,6 +283,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         setVariablesOpen(true);
         return;
       }
+      updateTab(activeTab.id, { error: null });
       setRunning(true);
       setBusyMsg(label);
       setResult(null);
@@ -296,6 +297,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           limit: activeTab.queryLimit,
         });
         setResult(lastResult);
+        updateTab(activeTab.id, { error: null });
         ++connectionHealthCheckRef.current;
         setConnectionHealth("online");
         pushHistory(activeTab, true, Date.now() - startedAt);
