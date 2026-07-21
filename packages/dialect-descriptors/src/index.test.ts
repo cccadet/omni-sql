@@ -8,6 +8,12 @@ test("postgres descriptor uses ANSI-style identifier quote", () => {
   assert.ok(postgresDescriptor.keywords.has("RETURNING"));
 });
 
+test("postgres descriptor includes ANSI pagination keywords", () => {
+  for (const keyword of ["FETCH", "FIRST", "ROWS", "ONLY"]) {
+    assert.ok(postgresDescriptor.keywords.has(keyword));
+  }
+});
+
 test("mssql supports square brackets and GO batch terminator", () => {
   assert.deepEqual([...sqlserverDescriptor.identifierQuoteChars], ["[", "]"]);
   assert.equal(sqlserverDescriptor.batchTerminator, "GO");
