@@ -127,12 +127,37 @@ registerAdapter("jdbc-generic", (config, password) => new JdbcAdapter(config, pa
 
 // ─────────────────────────── Boot: restore persisted connections
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function readStoredPassword(
+  config: Pick<ConnectionConfig, "id">,
+  context: string,
+): Promise<string | undefined> {
+  try {
+    return await getPassword(config);
+  } catch (error) {
+    console.warn(
+      `[omni-sql] keyring read failed while ${context} for connection ${config.id} ` +
+      `(slot ${passwordSlotFor(config)}); continuing without stored password: ${errorMessage(error)}`,
+    );
+    return undefined;
+  }
+}
+
 async function restoreConnections(): Promise<void> {
   for (const cfg of cache.listConnections()) {
-    const password = await getPassword(cfg).catch((e) => {
-      console.warn(`[omni-sql] keyring failed for ${cfg.id}: ${(e as Error).message}`);
-      return undefined;
-    });
+    let password: string | undefined;
+    try {
+      password = await getPassword(cfg);
+    } catch (error) {
+      console.warn(
+        `[omni-sql] skipped restore for connection ${cfg.id} ` +
+        `(slot ${passwordSlotFor(cfg)}): keyring read failed: ${errorMessage(error)}`,
+      );
+      continue;
+    }
     try {
       const configWithSlot = { ...cfg, passwordSlot: passwordSlotFor(cfg) };
       const adapter = resolveAdapter(configWithSlot, password);
@@ -257,10 +282,7 @@ export const handlers: RpcRouter = {
     // Editar uma conexão existente reenvia senha vazia (o diálogo nunca a
     // preenche de volta) — sem isto, a sessão recém-criada ficaria sem
     // credencial até o próximo restart do backend.
-    const effectivePassword =
-      password !== undefined && password.length > 0
-        ? await getPassword(configWithSlot).catch(() => undefined)
-        : await getPassword(configWithSlot).catch(() => undefined);
+    const effectivePassword = await readStoredPassword(configWithSlot, "adding connection");
 
     if (password !== undefined && password.length > 0 && effectivePassword !== password) {
       throw new Error(`senha não pôde ser recuperada do keyring para ${config.id}`);
@@ -305,7 +327,7 @@ export const handlers: RpcRouter = {
     const effectivePassword =
       password !== undefined && password.length > 0
         ? password
-        : await getPassword(config).catch(() => undefined);
+        : await readStoredPassword(config, "testing connection");
     const adapter = resolveAdapter(config, effectivePassword);
     try {
       const result = await adapter.test();
@@ -332,7 +354,7 @@ export const handlers: RpcRouter = {
     const effectivePassword =
       password !== undefined && password.length > 0
         ? password
-        : await getPassword(config).catch(() => undefined);
+        : await readStoredPassword(config, "listing schemas");
     const adapter = resolveAdapter(config, effectivePassword);
     try {
       await adapter.connect();
