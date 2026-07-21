@@ -60,9 +60,10 @@ interface TreeNodeProps {
   forceExpanded?: boolean;
   actions?: React.ReactNode;
   onContextMenu?: (e: React.MouseEvent) => void;
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
-function TreeNode({ label, icon, children, defaultExpanded = false, forceExpanded, actions, onContextMenu }: TreeNodeProps) {
+function TreeNode({ label, icon, children, defaultExpanded = false, forceExpanded, actions, onContextMenu, onExpandedChange }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const isExpanded = forceExpanded ?? expanded;
   const hasChildren = Boolean(children);
@@ -70,7 +71,12 @@ function TreeNode({ label, icon, children, defaultExpanded = false, forceExpande
     <div style={{ marginLeft: 10 }}>
       <div
         style={{ display: "flex", alignItems: "center", gap: 4, cursor: hasChildren ? "pointer" : "default", padding: "2px 0" }}
-        onClick={() => hasChildren && setExpanded((v) => !v)}
+        onClick={() => {
+          if (!hasChildren) return;
+          const nextExpanded = !isExpanded;
+          setExpanded(nextExpanded);
+          onExpandedChange?.(nextExpanded);
+        }}
         onContextMenu={onContextMenu}
       >
         {hasChildren ? (
@@ -396,6 +402,9 @@ export function Sidebar({
                             }
                             defaultExpanded={isSearching}
                             forceExpanded={isOpen || undefined}
+                            onExpandedChange={(nextExpanded) => {
+                              if (nextExpanded) void ensureIndexes(g.name, t.name);
+                            }}
                             actions={
                               <Tooltip content={`Inserir ${g.name}.${t.name}`} relationship="label">
                                 <Button
