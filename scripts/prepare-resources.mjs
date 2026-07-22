@@ -85,6 +85,9 @@ function hostTarget() {
   if (!target) fail(`unsupported host platform/arch '${process.platform}/${process.arch}'`);
   return target;
 }
+export function pnpmCommand(platform = process.platform) {
+  return platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
 function fail(message) { throw new Error(`[omni-sql] resource preparation failed: ${message}`); }
 function downloadAndVerify(item, destination) {
   if (!fs.existsSync(destination)) execFileSync(process.platform === "win32" ? "curl.exe" : "curl", ["--fail", "--location", "--retry", "3", "--output", destination, item.url], { stdio: "inherit" });
@@ -125,7 +128,7 @@ function stageJre(out, targetName, extracted) {
   if (java === "java") fs.chmodSync(path.join(destination, "bin/java"), 0o755);
 }
 function stageBackend(out) {
-  execFileSync("pnpm", ["--filter", "@omni-sql/backend", "build"], { cwd: root, stdio: "inherit" });
+  execFileSync(pnpmCommand(), ["--filter", "@omni-sql/backend", "build"], { cwd: root, stdio: "inherit" });
   const source = path.join(root, "packages/backend/dist"); const destination = path.join(out, "backend"); if (!fs.existsSync(path.join(source, "index.mjs"))) fail("backend build did not produce dist/index.mjs");
   fs.cpSync(source, destination, { recursive: true, dereference: true });
   const layout = JSON.parse(fs.readFileSync(path.join(source, "external-layout.json"), "utf8"));
