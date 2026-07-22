@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { extract, pnpmCommand, pnpmInvocation, runPnpm, stageNode } from "./prepare-resources.mjs";
+import { extract, gradleInvocation, pnpmCommand, pnpmInvocation, runGradle, runPnpm, stageNode } from "./prepare-resources.mjs";
 
 const script = fileURLToPath(new URL("./prepare-resources.mjs", import.meta.url));
 
@@ -47,6 +47,27 @@ test("preserves the direct pnpm execution on Unix", () => {
     args: ["--filter", "@omni-sql/backend", "build"],
     options: { cwd: "/repo" },
   });
+});
+
+test("executes gradlew.bat through ComSpec on Windows and preserves arguments", () => {
+  assert.deepEqual(
+    gradleInvocation(["jar", "--no-daemon"], "win32", { ComSpec: "cmd.exe" }),
+    { command: "cmd.exe", args: ["/d", "/s", "/c", "gradlew.bat", "jar", "--no-daemon"] },
+  );
+
+  let invocation;
+  runGradle(["jar", "--no-daemon"], { cwd: "/repo/services/jvm-sidecar" }, "win32", (command, args, options) => {
+    invocation = { command, args, options };
+  }, { ComSpec: "cmd.exe" });
+  assert.deepEqual(invocation, {
+    command: "cmd.exe",
+    args: ["/d", "/s", "/c", "gradlew.bat", "jar", "--no-daemon"],
+    options: { cwd: "/repo/services/jvm-sidecar" },
+  });
+});
+
+test("preserves ./gradlew on Unix", () => {
+  assert.deepEqual(gradleInvocation(["jar"], "linux"), { command: "./gradlew", args: ["jar"] });
 });
 
 test("converts Tauri Linux platform/arch environment to linux-x64", () => {
