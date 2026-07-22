@@ -1,6 +1,16 @@
-import { test, assert } from "vitest";
+import { afterEach, beforeEach, test, assert, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useSession } from "./useSession";
+
+beforeEach(() => {
+  window.localStorage.clear();
+  vi.stubGlobal("localStorage", window.localStorage);
+});
+
+afterEach(() => {
+  window.localStorage.clear();
+  vi.unstubAllGlobals();
+});
 
 test("useSession: starts with one tab and can add/close tabs", () => {
   const { result } = renderHook(() => useSession());
