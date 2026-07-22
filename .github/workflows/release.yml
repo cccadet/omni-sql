@@ -115,7 +115,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           printf '{"version":"%s"}\n' "$VERSION" > "$RUNNER_TEMP/tauri-version.json"
-          pnpm exec tauri build \
+          pnpm --filter desktop exec tauri build \
             --bundles "${{ matrix.bundles }}" \
             --config "$RUNNER_TEMP/tauri-version.json"
 

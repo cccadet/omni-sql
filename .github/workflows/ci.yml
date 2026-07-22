@@ -80,6 +80,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate SonarCloud token
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [[ -z "$SONAR_TOKEN" ]]; then
+            echo "SONAR_TOKEN repository secret is required for SonarCloud analysis." >&2
+            exit 1
+          fi
+
       - name: Cache SonarCloud packages
         uses: actions/cache@v4
         with:
