@@ -36,7 +36,20 @@ test("extracts Windows ZIPs with PowerShell paths instead of tar.exe", () => {
   assert.equal(command.file, "powershell.exe");
   assert.equal(command.args[0], "-NoLogo");
   assert.match(command.args[4], /Expand-Archive/);
-  assert.deepEqual(command.args.slice(-2), [archive, destination]);
+  assert.match(command.args[4], /-LiteralPath 'D:\\runner\\downloads\\node\.zip'/);
+  assert.match(command.args[4], new RegExp(`-DestinationPath '${destination.replaceAll("\\", "\\\\")}'`));
+  assert.equal(command.args.length, 5);
+  assert.equal(command.args[4].includes("$args"), false);
   assert.equal(command.args.includes("tar.exe"), false);
+  fs.rmSync(destination, { recursive: true, force: true });
+});
+
+test("escapes Windows paths when invoking PowerShell", () => {
+  const destination = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-extract-"));
+  const archive = "D:\\runner\\O'Reilly\\node.zip";
+  let command;
+  extract(archive, destination, "win32", (file, args) => { command = { file, args }; });
+  assert.equal(command.file, "powershell.exe");
+  assert.match(command.args[4], /-LiteralPath 'D:\\runner\\O''Reilly\\node\.zip'/);
   fs.rmSync(destination, { recursive: true, force: true });
 });
