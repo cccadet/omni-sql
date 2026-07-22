@@ -22,7 +22,7 @@ durante o desenvolvimento.
 | Java (JDK) | >= 21      | Apenas para o JVM sidecar (Fase 3+) |
 | Gradle     | >= 8       | Apenas para o JVM sidecar (Fase 3+) |
 
-**Linux:** `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev` (deps do Tauri).
+**Linux (Ubuntu 22.04):** `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libfuse2 xdg-utils file libayatana-appindicator3-dev` (dependências recomendadas do Tauri).
 
 **Windows:** instale o [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) e o [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
@@ -96,7 +96,7 @@ pnpm dev:backend    # http://localhost:41920/rpc (JSON-RPC)
 
 ## Build
 
-Gera um binário instalável (.deb/.rpm/.AppImage no Linux; .msi/.exe no Windows):
+Gera um binário instalável (.deb no Linux; .msi/.exe no Windows):
 
 ```bash
 pnpm build:tauri
@@ -111,8 +111,10 @@ Os artefatos ficam em `apps/desktop/src-tauri/target/release/bundle/`.
 ### Releases
 
 Push de uma tag no formato estrito `vX.Y.Z` dispara o workflow de release. Ele
-faz builds nativos para Windows x64 e Linux x64, publicando NSIS, AppImage/deb
-e `SHA256SUMS` em uma GitHub Release com notas geradas. O macOS fica como
+faz builds nativos para Windows x64 e Linux x64, publicando NSIS, deb
+e `SHA256SUMS` em uma GitHub Release com notas geradas. O AppImage foi removido
+do release principal e será reintroduzido após um job separado e validação.
+O macOS fica como
 requisito futuro e só será publicado após configurar signing e notarização.
 Não há updater configurado.
 

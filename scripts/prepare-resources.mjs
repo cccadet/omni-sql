@@ -97,7 +97,11 @@ export function extract(archive, destination, platform = process.platform, run =
     if (platform === "win32") {
       // tar.exe treats a drive-letter path as an archive/option fragment. Keep
       // native paths out of its argument parser and let PowerShell handle them.
-      run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force", archive, destination], { stdio: "inherit" });
+      // Arguments after a -Command string are not reliably exposed as $args by
+      // Windows PowerShell, so embed both paths as escaped PowerShell literals.
+      const quote = (value) => `'${value.replaceAll("'", "''")}'`;
+      const command = `Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(destination)} -Force`;
+      run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], { stdio: "inherit" });
     } else {
       run("unzip", ["-q", archive, "-d", destination], { stdio: "inherit" });
     }
