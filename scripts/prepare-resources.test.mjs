@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { extract } from "./prepare-resources.mjs";
+import { extract, stageNode } from "./prepare-resources.mjs";
 
 const script = fileURLToPath(new URL("./prepare-resources.mjs", import.meta.url));
 
@@ -52,4 +52,27 @@ test("escapes Windows paths when invoking PowerShell", () => {
   assert.equal(command.file, "powershell.exe");
   assert.match(command.args[4], /-LiteralPath 'D:\\runner\\O''Reilly\\node\.zip'/);
   fs.rmSync(destination, { recursive: true, force: true });
+});
+
+test("stages node.exe from the Windows ZIP directory tree", () => {
+  const extracted = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-node-extract-"));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-node-output-"));
+  const source = path.join(extracted, "node-v22.23.1-win-x64", "node.exe");
+  fs.mkdirSync(path.dirname(source), { recursive: true });
+  fs.writeFileSync(source, "windows node");
+
+  stageNode(out, "windows-x64", extracted);
+
+  assert.equal(fs.readFileSync(path.join(out, "runtime/node/node.exe"), "utf8"), "windows node");
+  fs.rmSync(extracted, { recursive: true, force: true });
+  fs.rmSync(out, { recursive: true, force: true });
+});
+
+test("fails when a Windows node.exe is absent from the extracted tree", () => {
+  const extracted = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-node-extract-"));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-node-output-"));
+
+  assert.throws(() => stageNode(out, "windows-x64", extracted), /Node archive has no node\.exe/);
+  fs.rmSync(extracted, { recursive: true, force: true });
+  fs.rmSync(out, { recursive: true, force: true });
 });

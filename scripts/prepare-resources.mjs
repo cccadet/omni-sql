@@ -109,9 +109,14 @@ export function extract(archive, destination, platform = process.platform, run =
   else run("tar", ["-xf", archive, "-C", destination], { stdio: "inherit" });
 }
 function firstDirectory(dir) { const entry = fs.readdirSync(dir, { withFileTypes: true }).find((item) => item.isDirectory()); return entry ? path.join(dir, entry.name) : dir; }
-function stageNode(out, targetName, extracted) {
-  const src = firstDirectory(extracted); const dir = path.join(out, "runtime/node"); fs.mkdirSync(dir, { recursive: true });
-  const binary = targetName.startsWith("windows") ? "node.exe" : "node"; const source = path.join(src, targetName.startsWith("windows") ? binary : "bin", binary); if (!fs.existsSync(source)) fail(`Node archive has no ${binary}`); fs.copyFileSync(source, path.join(dir, binary)); if (binary !== "node") return;
+export function stageNode(out, targetName, extracted) {
+  const dir = path.join(out, "runtime/node"); fs.mkdirSync(dir, { recursive: true });
+  const binary = targetName.startsWith("windows") ? "node.exe" : "node";
+  const source = targetName.startsWith("windows")
+    ? findFile(extracted, binary)
+    : path.join(firstDirectory(extracted), "bin", binary);
+  if (!source || !fs.existsSync(source)) fail(`Node archive has no ${binary}`);
+  fs.copyFileSync(source, path.join(dir, binary)); if (binary !== "node") return;
   fs.chmodSync(path.join(dir, binary), 0o755);
 }
 function stageJre(out, targetName, extracted) {
