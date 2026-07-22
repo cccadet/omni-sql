@@ -25,7 +25,7 @@ process.env.OMNI_SQL_METADATA_DB = path.join(tmpDir, "metadata.db");
 process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
 process.env.OMNI_SQL_AUTH_TOKEN = "smoke-auth-token";
 
-const { startServer } = await import("../src/index.ts");
+const { defaultAllowedOrigin, startServer } = await import("../src/index.ts");
 
 // Sobrescreve o registro de produção (JdbcAdapter) para os smoke tests
 // usarem o adaptador in-memory. Deve rodar DEPOIS de importar o backend,
@@ -89,6 +89,13 @@ test("backend: health and RPC reject missing or invalid auth, without wildcard C
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test("backend: release CORS origin follows the Tauri platform without wildcard", () => {
+  assert.equal(defaultAllowedOrigin("production", "win32"), "http://tauri.localhost");
+  assert.equal(defaultAllowedOrigin("production", "linux"), "tauri://localhost");
+  assert.equal(defaultAllowedOrigin("production", "darwin"), "tauri://localhost");
+  assert.notEqual(defaultAllowedOrigin("production", "win32"), "*");
 });
 
 test("smoke: add connection → introspect → list relations → run query → completion", async () => {

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { extract, pnpmCommand, stageNode } from "./prepare-resources.mjs";
+import { extract, pnpmCommand, pnpmInvocation, runPnpm, stageNode } from "./prepare-resources.mjs";
 
 const script = fileURLToPath(new URL("./prepare-resources.mjs", import.meta.url));
 
@@ -13,6 +13,40 @@ test("selects the Windows pnpm launcher", () => {
   assert.equal(pnpmCommand("win32"), "pnpm.cmd");
   assert.equal(pnpmCommand("linux"), "pnpm");
   assert.equal(pnpmCommand("darwin"), "pnpm");
+});
+
+test("builds a Windows pnpm invocation through ComSpec and preserves arguments", () => {
+  assert.deepEqual(
+    pnpmInvocation(["--filter", "@omni-sql/backend", "build"], "win32", { ComSpec: "C:\\Windows\\System32\\cmd.exe" }),
+    {
+      command: "C:\\Windows\\System32\\cmd.exe",
+      args: ["/d", "/s", "/c", "pnpm.cmd", "--filter", "@omni-sql/backend", "build"],
+    },
+  );
+});
+
+test("executes the constructed Windows pnpm invocation", () => {
+  let invocation;
+  runPnpm(["--filter", "@omni-sql/backend", "build"], { cwd: "/repo" }, "win32", (command, args, options) => {
+    invocation = { command, args, options };
+  }, { ComSpec: "cmd.exe" });
+  assert.deepEqual(invocation, {
+    command: "cmd.exe",
+    args: ["/d", "/s", "/c", "pnpm.cmd", "--filter", "@omni-sql/backend", "build"],
+    options: { cwd: "/repo" },
+  });
+});
+
+test("preserves the direct pnpm execution on Unix", () => {
+  let invocation;
+  runPnpm(["--filter", "@omni-sql/backend", "build"], { cwd: "/repo" }, "linux", (command, args, options) => {
+    invocation = { command, args, options };
+  });
+  assert.deepEqual(invocation, {
+    command: "pnpm",
+    args: ["--filter", "@omni-sql/backend", "build"],
+    options: { cwd: "/repo" },
+  });
 });
 
 test("converts Tauri Linux platform/arch environment to linux-x64", () => {

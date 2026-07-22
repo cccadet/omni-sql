@@ -11,8 +11,18 @@ import { timingSafeEqual } from "node:crypto";
 const DEFAULT_PORT = Number(process.env.OMNI_SQL_PORT ?? 41920);
 const AUTH_HEADER = "authorization";
 const AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
+export function defaultAllowedOrigin(
+  nodeEnv = process.env.NODE_ENV,
+  platform = process.platform,
+): string {
+  if (nodeEnv === "production") return platform === "win32" ? "http://tauri.localhost" : "tauri://localhost";
+  return "http://localhost:1420";
+}
+
 const ALLOWED_ORIGINS = new Set(
-  (process.env.OMNI_SQL_ALLOWED_ORIGIN ?? (process.env.NODE_ENV === "production" ? "tauri://localhost" : "http://localhost:1420"))
+  (process.env.NODE_ENV === "production"
+    ? defaultAllowedOrigin()
+    : (process.env.OMNI_SQL_ALLOWED_ORIGIN ?? defaultAllowedOrigin()))
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),

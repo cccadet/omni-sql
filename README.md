@@ -108,6 +108,12 @@ preservar caminhos absolutos com letra de unidade.
 
 Os artefatos ficam em `apps/desktop/src-tauri/target/release/bundle/`.
 
+### Preflight Windows x64
+
+O workflow manual/CI `Windows x64 preflight` também roda em PRs e em pushes
+para `main`. Ele prepara e valida os recursos, gera o instalador NSIS e publica
+somente um artifact temporário (não cria tag nem GitHub Release).
+
 ### Releases
 
 Push de uma tag no formato estrito `vX.Y.Z` dispara o workflow de release. Ele

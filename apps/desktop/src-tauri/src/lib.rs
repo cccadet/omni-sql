@@ -20,6 +20,14 @@ const SIDECAR_STATUS_EVENT: &str = "sidecar-status";
 const SIDECAR_STATUS_CHECKING: &str = "checking";
 const SIDECAR_STATUS_READY: &str = "ready";
 const SIDECAR_STATUS_UNAVAILABLE: &str = "unavailable";
+
+fn release_allowed_origin() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "http://tauri.localhost"
+    } else {
+        "tauri://localhost"
+    }
+}
 const CHILD_ENV_OVERRIDES: &[&str] = &[
     "NODE_OPTIONS",
     "NODE_PATH",
@@ -409,7 +417,7 @@ pub fn run() {
                     .env("OMNI_SQL_AUTH_TOKEN", &auth_token)
                     .env(
                         "OMNI_SQL_ALLOWED_ORIGIN",
-                        if cfg!(debug_assertions) { "http://localhost:1420" } else { "tauri://localhost" },
+                        if cfg!(debug_assertions) { "http://localhost:1420" } else { release_allowed_origin() },
                     )
                     .stdin(Stdio::null())
                     .stdout(Stdio::inherit())
@@ -672,6 +680,19 @@ mod tests {
         assert_eq!(LOCALHOST, "127.0.0.1");
         assert_eq!(BACKEND_PORT, 41920);
         assert_eq!(SIDECAR_PORT, 41921);
+    }
+
+    #[test]
+    fn release_origin_matches_the_tauri_webview_platform() {
+        assert_eq!(
+            release_allowed_origin(),
+            if cfg!(target_os = "windows") {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+        );
+        assert_ne!(release_allowed_origin(), "*");
     }
 
     #[test]
