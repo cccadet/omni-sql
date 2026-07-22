@@ -7,51 +7,54 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const resources = path.join(root, "apps/desktop/src-tauri/resources");
 const cache = path.join(root, ".cache/omni-sql-runtimes");
-const manifest = JSON.parse(fs.readFileSync(path.join(resources, "runtime-manifest.json"), "utf8"));
-const targets = Object.keys(manifest.targets);
-const cliTarget = process.argv.find((arg) => arg.startsWith("--target="))?.slice(9);
-const envTarget = tauriTarget();
-if (cliTarget && envTarget && cliTarget !== envTarget) {
-  fail(`--target=${cliTarget} does not match Tauri target '${envTarget}'`);
-}
-const requestedTarget = cliTarget ?? envTarget ?? hostTarget();
-const validateOnly = process.argv.includes("--validate");
-const host = hostTarget();
 
-if (requestedTarget !== host) {
-  fail(`--target=${requestedTarget} does not match host target '${host}'; release builds are native, so prepare resources on the target platform instead`);
-}
-const target = requestedTarget;
-if (!targets.includes(target)) fail(`unsupported target '${target}'; use ${targets.join(", ")}`);
-if (process.argv.includes("--print-target")) {
-  console.log(target);
-  process.exit(0);
-}
-const spec = manifest.targets[target];
-const output = resources;
+function main() {
+  const manifest = JSON.parse(fs.readFileSync(path.join(resources, "runtime-manifest.json"), "utf8"));
+  const targets = Object.keys(manifest.targets);
+  const cliTarget = process.argv.find((arg) => arg.startsWith("--target="))?.slice(9);
+  const envTarget = tauriTarget();
+  if (cliTarget && envTarget && cliTarget !== envTarget) {
+    fail(`--target=${cliTarget} does not match Tauri target '${envTarget}'`);
+  }
+  const requestedTarget = cliTarget ?? envTarget ?? hostTarget();
+  const validateOnly = process.argv.includes("--validate");
+  const host = hostTarget();
 
-if (validateOnly) {
+  if (requestedTarget !== host) {
+    fail(`--target=${requestedTarget} does not match host target '${host}'; release builds are native, so prepare resources on the target platform instead`);
+  }
+  const target = requestedTarget;
+  if (!targets.includes(target)) fail(`unsupported target '${target}'; use ${targets.join(", ")}`);
+  if (process.argv.includes("--print-target")) {
+    console.log(target);
+    return;
+  }
+  const spec = manifest.targets[target];
+  const output = resources;
+
+  if (validateOnly) {
+    validate(output, target);
+    console.log(`[omni-sql] resource validation passed: ${target}`);
+    return;
+  }
+
+  for (const generated of ["backend", "runtime/node", "runtime/jre", "sidecar", "licenses"]) fs.rmSync(path.join(output, generated), { recursive: true, force: true });
+  fs.mkdirSync(output, { recursive: true });
+  const downloads = path.join(cache, target);
+  fs.mkdirSync(downloads, { recursive: true });
+  for (const kind of ["node", "jre"]) {
+    const archive = path.join(downloads, spec[kind].file);
+    downloadAndVerify(spec[kind], archive);
+    extract(archive, path.join(downloads, `${kind}-extract`));
+  }
+  stageNode(output, target, path.join(downloads, "node-extract"));
+  stageJre(output, target, path.join(downloads, "jre-extract"));
+  stageBackend(output);
+  stageSidecar(output);
+  stageLicenses(output, downloads);
   validate(output, target);
-  console.log(`[omni-sql] resource validation passed: ${target}`);
-  process.exit(0);
+  console.log(`[omni-sql] prepared ${target} at ${path.relative(root, output)}`);
 }
-
-for (const generated of ["backend", "runtime/node", "runtime/jre", "sidecar", "licenses"]) fs.rmSync(path.join(output, generated), { recursive: true, force: true });
-fs.mkdirSync(output, { recursive: true });
-const downloads = path.join(cache, target);
-fs.mkdirSync(downloads, { recursive: true });
-for (const kind of ["node", "jre"]) {
-  const archive = path.join(downloads, spec[kind].file);
-  downloadAndVerify(spec[kind], archive);
-  extract(archive, path.join(downloads, `${kind}-extract`));
-}
-stageNode(output, target, path.join(downloads, "node-extract"));
-stageJre(output, target, path.join(downloads, "jre-extract"));
-stageBackend(output);
-stageSidecar(output);
-stageLicenses(output, downloads);
-validate(output, target);
-console.log(`[omni-sql] prepared ${target} at ${path.relative(root, output)}`);
 
 function normalizeTarget(platform, arch) {
   const normalizedPlatform = { win32: "windows", windows: "windows", darwin: "darwin", linux: "linux" }[platform];
@@ -88,10 +91,18 @@ function downloadAndVerify(item, destination) {
   const actual = crypto.createHash("sha256").update(fs.readFileSync(destination)).digest("hex");
   if (actual !== item.sha256) { fs.rmSync(destination, { force: true }); fail(`SHA-256 mismatch for ${item.file}: expected ${item.sha256}, got ${actual}`); }
 }
-function extract(archive, destination) {
+export function extract(archive, destination, platform = process.platform, run = execFileSync) {
   fs.rmSync(destination, { recursive: true, force: true }); fs.mkdirSync(destination, { recursive: true });
-  if (archive.endsWith(".zip")) execFileSync(process.platform === "win32" ? "tar.exe" : "unzip", process.platform === "win32" ? ["-xf", archive, "-C", destination] : ["-q", archive, "-d", destination], { stdio: "inherit" });
-  else execFileSync("tar", ["-xf", archive, "-C", destination], { stdio: "inherit" });
+  if (archive.endsWith(".zip")) {
+    if (platform === "win32") {
+      // tar.exe treats a drive-letter path as an archive/option fragment. Keep
+      // native paths out of its argument parser and let PowerShell handle them.
+      run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force", archive, destination], { stdio: "inherit" });
+    } else {
+      run("unzip", ["-q", archive, "-d", destination], { stdio: "inherit" });
+    }
+  }
+  else run("tar", ["-xf", archive, "-C", destination], { stdio: "inherit" });
 }
 function firstDirectory(dir) { const entry = fs.readdirSync(dir, { withFileTypes: true }).find((item) => item.isDirectory()); return entry ? path.join(dir, entry.name) : dir; }
 function stageNode(out, targetName, extracted) {
@@ -138,3 +149,5 @@ function stageLicenses(out, downloads) {
 }
 function findFile(dir, wanted) { for (const item of fs.readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, item.name); if (item.isFile() && item.name.toLowerCase() === wanted.toLowerCase()) return p; if (item.isDirectory()) { const found = findFile(p, wanted); if (found) return found; } } return undefined; }
 function validate(dir, targetName) { const binary = targetName.startsWith("windows") ? "node.exe" : "node"; const java = targetName.startsWith("windows") ? "java.exe" : "java"; for (const p of [path.join(dir, "backend/index.mjs"), path.join(dir, `runtime/node/${binary}`), path.join(dir, `runtime/jre/bin/${java}`), path.join(dir, "sidecar/omni-sql-sidecar.jar"), path.join(dir, "runtime-manifest.json"), path.join(dir, "licenses")]) if (!fs.existsSync(p)) fail(`missing required resource ${path.relative(dir, p)}`); }
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

@@ -102,6 +102,10 @@ Gera um binário instalável (.deb/.rpm/.AppImage no Linux; .msi/.exe no Windows
 pnpm build:tauri
 ```
 
+O build executa o `vite build` do desktop automaticamente antes do bundle do
+Tauri. No Windows, os ZIPs de runtime são extraídos pelo PowerShell para
+preservar caminhos absolutos com letra de unidade.
+
 Os artefatos ficam em `apps/desktop/src-tauri/target/release/bundle/`.
 
 ### Releases
