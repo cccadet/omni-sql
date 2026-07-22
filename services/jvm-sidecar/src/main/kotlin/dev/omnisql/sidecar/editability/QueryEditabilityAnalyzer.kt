@@ -52,14 +52,55 @@ object QueryEditabilityAnalyzer {
     private val PARSER_CONFIG: SqlParser.Config =
         SqlParser.config().withLex(Lex.JAVA).withConformance(SqlConformanceEnum.LENIENT)
     private val SET_OP_KINDS = setOf(SqlKind.UNION, SqlKind.INTERSECT, SqlKind.EXCEPT)
+    private val POSTGRES_DAY_INTERVAL =
+        Regex("\\bINTERVAL\\s+'(\\d+(?:\\.\\d+)?)\\s+days?'", RegexOption.IGNORE_CASE)
 
     fun analyze(sql: String): QueryEditability {
         return try {
-            val parsed = SqlParser.create(sql, PARSER_CONFIG).parseStmt()
+            val parserSql = normalizePostgresIntervals(sql).trimEnd().removeSuffix(";")
+            val parsed = SqlParser.create(parserSql, PARSER_CONFIG).parseStmt()
             analyzeNode(if (parsed is SqlOrderBy) parsed.query else parsed)
         } catch (e: Exception) {
             notEditable("Não foi possível analisar a consulta.")
         }
+    }
+
+    /**
+     * Calcite 1.37 has no PostgreSQL Lex/parser; its interval grammar expects
+     * `INTERVAL '1' DAY`, not PostgreSQL's `INTERVAL '1 days'`. Normalize only
+     * that unambiguous numeric day-literal form, and only outside string
+     * literals. This does not alter the SELECT shape or relax any editability
+     * checks.
+     */
+    private fun normalizePostgresIntervals(sql: String): String {
+        val matches = POSTGRES_DAY_INTERVAL.findAll(sql).toList()
+        if (matches.isEmpty()) return sql
+
+        val result = StringBuilder(sql.length)
+        var cursor = 0
+        for (match in matches) {
+            if (!isOutsideSingleQuotedLiteral(sql, match.range.first)) continue
+            result.append(sql, cursor, match.range.first)
+            result.append("INTERVAL '").append(match.groupValues[1]).append("' DAY")
+            cursor = match.range.last + 1
+        }
+        return if (cursor == 0) sql else result.append(sql, cursor, sql.length).toString()
+    }
+
+    private fun isOutsideSingleQuotedLiteral(sql: String, position: Int): Boolean {
+        var quoted = false
+        var i = 0
+        while (i < position) {
+            if (sql[i] == '\'') {
+                if (quoted && i + 1 < position && sql[i + 1] == '\'') {
+                    i += 2
+                    continue
+                }
+                quoted = !quoted
+            }
+            i++
+        }
+        return !quoted
     }
 
     private fun analyzeNode(node: SqlNode): QueryEditability {

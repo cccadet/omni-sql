@@ -36,3 +36,4 @@ Thumbs.db
 .claude/.headroom_wrap_marker.json
 layout_transpilar.png
 layout2.png
+apps/desktop/src-tauri/resultados.csv

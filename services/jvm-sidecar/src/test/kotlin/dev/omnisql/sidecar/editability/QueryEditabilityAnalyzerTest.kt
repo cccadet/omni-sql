@@ -22,6 +22,16 @@ class QueryEditabilityAnalyzerTest {
     }
 
     @Test
+    fun `postgresql current timestamp interval predicate is editable`() {
+        val r = QueryEditabilityAnalyzer.analyze(
+            "SELECT * FROM public.customers WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '1 days';",
+        )
+        assertTrue(r.editable, r.reason ?: "not editable")
+        assertTrue(r.selectStar)
+        assertEquals(EditableTable("public", "customers"), r.table)
+    }
+
+    @Test
     fun `aliased table is still resolved`() {
         val r = QueryEditabilityAnalyzer.analyze("select * from users u")
         assertTrue(r.editable)

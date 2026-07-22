@@ -304,7 +304,18 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         void backend
           .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: sqls.join(";\n") })
           .then(setEditability)
-          .catch(() => setEditability(null));
+          .catch((e: unknown) => {
+            const message = e instanceof Error ? e.message.trim() : "";
+            const safeMessage = message.length > 0 && message.length <= 120 && !message.includes("\r") && !message.includes("\n") ? `: ${message}` : "";
+            setEditability({
+              editable: false,
+              reason: `Não foi possível verificar a editabilidade${safeMessage}.`,
+              table: null,
+              pkColumns: [],
+              selectStar: false,
+              columns: [],
+            });
+          });
       } catch (e) {
         updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) });
         const executedSql = sqls.join(";\n");
@@ -391,9 +402,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       if (!activeConnectionId || !result || !editability?.editable) return;
       const row = result.rows[rowIndex];
       if (!row) return;
-      const editableColumn = editability.columns[colIndex];
-      if (!editableColumn || editableColumn.sourceColumn === null) return;
-      const sourceColumn = editableColumn.sourceColumn;
+      let sourceColumn: string | undefined;
+      if (editability.columns.length === 0) {
+        sourceColumn = result.columns[colIndex]?.name;
+      } else {
+        const editableColumn = editability.columns[colIndex];
+        if (!editableColumn || editableColumn.sourceColumn === null) return;
+        sourceColumn = editableColumn.sourceColumn;
+      }
+      if (!sourceColumn) return;
       const pkValues: Record<string, unknown> = {};
       for (const pk of editability.pkColumns) {
         const pkColIndex = result.columns.findIndex((c) => c.name === pk);
@@ -416,6 +433,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         });
       } catch (e) {
         updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) });
+        throw e;
       }
     },
     [activeConnectionId, activeTab.id, editability, result, updateTab],
