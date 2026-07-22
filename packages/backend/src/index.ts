@@ -6,8 +6,18 @@ import type {
   JsonRpcError,
 } from "./protocol.ts";
 import { closeBackendResources, handlers } from "./handlers.ts";
+import { timingSafeEqual } from "node:crypto";
 
 const DEFAULT_PORT = Number(process.env.OMNI_SQL_PORT ?? 41920);
+const AUTH_HEADER = "authorization";
+const AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
+const ALLOWED_ORIGINS = new Set(
+  (process.env.OMNI_SQL_ALLOWED_ORIGIN ?? (process.env.NODE_ENV === "production" ? "tauri://localhost" : "http://localhost:1420"))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+if (ALLOWED_ORIGINS.has("*")) throw new Error("OMNI_SQL_ALLOWED_ORIGIN cannot contain wildcard origin");
 const servers = new Set<ReturnType<typeof createServer>>();
 let shutdownStarted = false;
 
@@ -49,16 +59,30 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
+function send(res: ServerResponse, status: number, body: unknown, origin?: string): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, {
+  const headers: Record<string, string> = {
     "content-type": "application/json",
-    "content-length": Buffer.byteLength(payload),
-    "access-control-allow-origin": "*",
+    "content-length": String(Buffer.byteLength(payload)),
     "access-control-allow-methods": "POST, OPTIONS",
-    "access-control-allow-headers": "content-type",
-  });
+    "access-control-allow-headers": "content-type, authorization",
+    vary: "Origin",
+  };
+  if (origin && ALLOWED_ORIGINS.has(origin)) headers["access-control-allow-origin"] = origin;
+  res.writeHead(status, headers);
   res.end(payload);
+}
+
+function authorized(req: IncomingMessage): boolean {
+  const supplied = req.headers[AUTH_HEADER];
+  if (!AUTH_TOKEN || typeof supplied !== "string") return false;
+  const match = /^Bearer[ \t]+([^ \t]+)$/i.exec(supplied.trim());
+  if (!match) return false;
+  const token = match[1];
+  if (!token) return false;
+  const expected = Buffer.from(AUTH_TOKEN);
+  const actual = Buffer.from(token);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 function errorResponse(
@@ -130,46 +154,54 @@ class UnknownMethodError extends Error {
 export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof createServer> {
   const server = createServer(async (req, res) => {
     if (req.method === "OPTIONS") {
-      res.writeHead(204, {
-        "access-control-allow-origin": "*",
+      const headers: Record<string, string> = {
         "access-control-allow-methods": "POST, OPTIONS, GET",
-        "access-control-allow-headers": "content-type",
-      });
+        "access-control-allow-headers": "content-type, authorization",
+        vary: "Origin",
+      };
+      if (req.headers.origin && ALLOWED_ORIGINS.has(req.headers.origin)) {
+        headers["access-control-allow-origin"] = req.headers.origin;
+      }
+      res.writeHead(204, headers);
       res.end();
       return;
     }
+    if (!authorized(req)) {
+      send(res, 401, { error: "unauthorized" }, req.headers.origin);
+      return;
+    }
     if (req.url === "/health") {
-      send(res, 200, { status: "ok", port });
+      send(res, 200, { status: "ok", port }, req.headers.origin);
       return;
     }
     if (req.method !== "POST" || req.url !== "/rpc") {
-      send(res, 404, { error: "not found" });
+      send(res, 404, { error: "not found" }, req.headers.origin);
       return;
     }
     let raw: string;
     try {
       raw = await readBody(req);
     } catch (e) {
-      send(res, 400, errorResponse(null, -32700, "Parse error", String(e)));
+      send(res, 400, errorResponse(null, -32700, "Parse error", String(e)), req.headers.origin);
       return;
     }
     let rpc: JsonRpcRequest;
     try {
       rpc = JSON.parse(raw) as JsonRpcRequest;
     } catch (e) {
-      send(res, 400, errorResponse(null, -32700, "Parse error", String(e)));
+      send(res, 400, errorResponse(null, -32700, "Parse error", String(e)), req.headers.origin);
       return;
     }
     try {
       const result = await dispatch(rpc.method, rpc.params);
-      send(res, 200, { jsonrpc: "2.0", id: rpc.id, result } satisfies JsonRpcResponse);
+      send(res, 200, { jsonrpc: "2.0", id: rpc.id, result } satisfies JsonRpcResponse, req.headers.origin);
     } catch (e) {
       if (e instanceof UnknownMethodError) {
-        send(res, 200, errorResponse(rpc.id, -32601, e.message));
+        send(res, 200, errorResponse(rpc.id, -32601, e.message), req.headers.origin);
         return;
       }
       console.error(`[omni-sql] ${rpc.method} failed:`, e);
-      send(res, 200, errorResponse(rpc.id, -32000, (e as Error).message, (e as Error).stack));
+      send(res, 200, errorResponse(rpc.id, -32000, (e as Error).message, (e as Error).stack), req.headers.origin);
     }
   });
 

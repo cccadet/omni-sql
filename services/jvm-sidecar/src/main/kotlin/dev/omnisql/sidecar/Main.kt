@@ -28,9 +28,13 @@ fun main() {
     val startMs = System.currentTimeMillis()
     val requestCount = AtomicLong(0)
     val instanceId = UUID.randomUUID().toString()
+    // Fail closed when the sidecar was started without a token. The token is
+    // deliberately read once at boot, so it cannot change during the life of
+    // the process and is never included in a response or log message.
+    val authToken = System.getenv("OMNI_SQL_AUTH_TOKEN")?.takeIf { it.isNotEmpty() }
 
     val server = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
-    server.createContext("/health") { exchange ->
+    server.createAuthenticatedContext("/health", authToken) { exchange ->
         requestCount.incrementAndGet()
         val uptimeMs = System.currentTimeMillis() - startMs
         val body =
@@ -49,19 +53,19 @@ fun main() {
         // Sem isso, o fetch() do webview (origin http://localhost:1420 em dev,
         // tauri://localhost em produção) é bloqueado por CORS mesmo com a
         // resposta chegando — mesmo problema já resolvido no backend Node.
-        exchange.responseHeaders.add("access-control-allow-origin", "*")
+        addCorsHeaders(exchange)
         exchange.sendResponseHeaders(200, bytes.size.toLong())
         exchange.responseBody.write(bytes)
         exchange.close()
     }
 
-    server.createContext("/scope/resolve") { exchange ->
+    server.createAuthenticatedContext("/scope/resolve", authToken) { exchange ->
         requestCount.incrementAndGet()
         try {
             if (exchange.requestMethod != "POST") {
                 exchange.sendResponseHeaders(405, -1)
                 exchange.close()
-                return@createContext
+                return@createAuthenticatedContext
             }
             val requestBody = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
             val sql = JSONObject(requestBody).optString("sql", "")
@@ -74,7 +78,7 @@ fun main() {
                 )
             val bytes = JSONObject().put("ctes", ctesJson).toString().toByteArray(Charsets.UTF_8)
             exchange.responseHeaders.add("content-type", "application/json")
-            exchange.responseHeaders.add("access-control-allow-origin", "*")
+            addCorsHeaders(exchange)
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.write(bytes)
         } catch (e: Exception) {
@@ -84,7 +88,7 @@ fun main() {
             // corpo vazio como "sem CTEs resolvidas" e segue em tier1 puro.
             val bytes = """{"ctes":[]}""".toByteArray(Charsets.UTF_8)
             exchange.responseHeaders.add("content-type", "application/json")
-            exchange.responseHeaders.add("access-control-allow-origin", "*")
+            addCorsHeaders(exchange)
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.write(bytes)
         } finally {
@@ -92,13 +96,13 @@ fun main() {
         }
     }
 
-    server.createContext("/query/editability") { exchange ->
+    server.createAuthenticatedContext("/query/editability", authToken) { exchange ->
         requestCount.incrementAndGet()
         try {
             if (exchange.requestMethod != "POST") {
                 exchange.sendResponseHeaders(405, -1)
                 exchange.close()
-                return@createContext
+                return@createAuthenticatedContext
             }
             val requestBody = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
             val sql = JSONObject(requestBody).optString("sql", "")
@@ -118,7 +122,7 @@ fun main() {
                     .toString()
                     .toByteArray(Charsets.UTF_8)
             exchange.responseHeaders.add("content-type", "application/json")
-            exchange.responseHeaders.add("access-control-allow-origin", "*")
+            addCorsHeaders(exchange)
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.write(bytes)
         } catch (e: Exception) {
@@ -130,7 +134,7 @@ fun main() {
                 """{"editable":false,"reason":"internal error","table":null,"selectStar":false,"columns":[]}"""
                     .toByteArray(Charsets.UTF_8)
             exchange.responseHeaders.add("content-type", "application/json")
-            exchange.responseHeaders.add("access-control-allow-origin", "*")
+            addCorsHeaders(exchange)
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.write(bytes)
         } finally {
@@ -146,7 +150,7 @@ fun main() {
     // falham), aqui um erro é uma falha real de conexão/query e deve chegar
     // ao usuário — por isso a resposta sempre tem `ok` e o corpo NUNCA é
     // "sucesso disfarçado".
-    server.createContext("/jdbc/connect") { exchange ->
+    server.createAuthenticatedContext("/jdbc/connect", authToken) { exchange ->
         requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             JdbcConnectionManager.connect(
@@ -161,7 +165,7 @@ fun main() {
         }
     }
 
-    server.createContext("/jdbc/query") { exchange ->
+    server.createAuthenticatedContext("/jdbc/query", authToken) { exchange ->
         requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             val result =
@@ -188,7 +192,7 @@ fun main() {
         }
     }
 
-    server.createContext("/jdbc/close") { exchange ->
+    server.createAuthenticatedContext("/jdbc/close", authToken) { exchange ->
         requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             JdbcConnectionManager.close(body.getString("connectionId"))
@@ -196,7 +200,7 @@ fun main() {
         }
     }
 
-    server.createContext("/jdbc/schemas") { exchange ->
+    server.createAuthenticatedContext("/jdbc/schemas", authToken) { exchange ->
         requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             val names = JdbcConnectionManager.schemaNames(body.getString("connectionId"))
@@ -204,7 +208,7 @@ fun main() {
         }
     }
 
-    server.createContext("/jdbc/introspect") { exchange ->
+    server.createAuthenticatedContext("/jdbc/introspect", authToken) { exchange ->
         requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->
             val schemaFilter = body.optJSONArray("schemaFilter")?.let { arr -> (0 until arr.length()).map { arr.getString(it) } }
@@ -236,7 +240,7 @@ fun main() {
         }
     }
 
-    server.createContext("/") { exchange ->
+    server.createAuthenticatedContext("/", authToken) { exchange ->
         val msg = "not found: ${exchange.requestURI}"
         val bytes = msg.toByteArray(Charsets.UTF_8)
         exchange.sendResponseHeaders(404, bytes.size.toLong())
@@ -259,6 +263,42 @@ fun main() {
 }
 
 private fun JSONObject.optStringOrNull(key: String): String? = if (has(key) && !isNull(key)) getString(key) else null
+
+private fun HttpServer.createAuthenticatedContext(
+    path: String,
+    expectedToken: String?,
+    handler: (HttpExchange) -> Unit,
+) {
+    createContext(path) { exchange ->
+        if (!isAuthorized(exchange, expectedToken)) {
+            // Do not reveal whether the token was absent, malformed, or
+            // simply wrong. In particular, never echo the supplied token.
+            try {
+                writeJson(exchange, 401, JSONObject().put("error", "unauthorized"))
+            } finally {
+                exchange.close()
+            }
+        } else {
+            handler(exchange)
+        }
+    }
+}
+
+private fun isAuthorized(exchange: HttpExchange, expectedToken: String?): Boolean {
+    val suppliedToken = exchange.requestHeaders.getFirst("Authorization") ?: return false
+    if (expectedToken == null) return false
+    return AuthPolicy.acceptsAuthorization(expectedToken, suppliedToken)
+}
+
+/** CORS is opt-in and origin-bound; the old public wildcard is intentionally gone. */
+private fun addCorsHeaders(exchange: HttpExchange) {
+    val allowedOrigin = System.getenv("OMNI_SQL_ALLOWED_ORIGIN")?.takeIf { it.isNotEmpty() }
+    val requestOrigin = exchange.requestHeaders.getFirst("Origin")
+    if (allowedOrigin != null && requestOrigin == allowedOrigin) {
+        exchange.responseHeaders.add("access-control-allow-origin", allowedOrigin)
+        exchange.responseHeaders.add("vary", "Origin")
+    }
+}
 
 /**
  * Parseia o corpo JSON, chama [handler] e responde 200 com o JSON retornado.
@@ -299,7 +339,7 @@ private fun handleJdbc(exchange: HttpExchange, handler: (JSONObject) -> JSONObje
 private fun writeJson(exchange: HttpExchange, status: Int, json: JSONObject) {
     val bytes = json.toString().toByteArray(Charsets.UTF_8)
     exchange.responseHeaders.add("content-type", "application/json")
-    exchange.responseHeaders.add("access-control-allow-origin", "*")
+    addCorsHeaders(exchange)
     exchange.sendResponseHeaders(status, bytes.size.toLong())
     exchange.responseBody.write(bytes)
 }

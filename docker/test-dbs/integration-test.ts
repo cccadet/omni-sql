@@ -29,6 +29,7 @@ if (RUN_INTEGRATION) {
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "omni-integration-"));
 process.env.OMNI_SQL_METADATA_DB = path.join(tmpDir, "metadata.db");
 process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
+process.env.OMNI_SQL_AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN ?? "integration-auth-token";
 
 const { startServer } = await import("@omni-sql/backend");
 
@@ -37,12 +38,13 @@ const SIDECAR_SCOPE_URL = "http://127.0.0.1:41921/scope/resolve";
 
 async function canResolveCte(): Promise<boolean> {
   try {
-    const health = await fetch(SIDECAR_HEALTH_URL);
+    const authHeaders = { authorization: `Bearer ${process.env.OMNI_SQL_AUTH_TOKEN}` };
+    const health = await fetch(SIDECAR_HEALTH_URL, { headers: authHeaders });
     if (!health.ok) return false;
 
     const res = await fetch(SIDECAR_SCOPE_URL, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders },
       body: JSON.stringify({
         sql: "WITH cte AS (SELECT id, name FROM customers) SELECT * FROM cte",
       }),

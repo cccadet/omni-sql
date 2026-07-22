@@ -1,6 +1,7 @@
 import type { QueryResult } from "@omni-sql/ts-types";
 
-const SIDECAR_URL = process.env.OMNI_SQL_SIDECAR_URL ?? "http://127.0.0.1:41921";
+const SIDECAR_URL = validatedSidecarUrl();
+const AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
 
 export interface JdbcConnectParams {
   readonly connectionId: string;
@@ -49,7 +50,10 @@ async function callSidecar(path: string, body: unknown): Promise<Record<string, 
   try {
     res = await fetch(`${SIDECAR_URL}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(AUTH_TOKEN ? { authorization: `Bearer ${AUTH_TOKEN}` } : {}),
+      },
       body: JSON.stringify(body),
     });
   } catch (e) {
@@ -63,6 +67,18 @@ async function callSidecar(path: string, body: unknown): Promise<Record<string, 
     throw new Error(`[${parsed.causeTag}] ${parsed.message}`);
   }
   return parsed;
+}
+
+function validatedSidecarUrl(): string {
+  const value = process.env.NODE_ENV === "production"
+    ? "http://127.0.0.1:41921"
+    : (process.env.OMNI_SQL_SIDECAR_URL ?? "http://127.0.0.1:41921");
+  if (process.env.NODE_ENV !== "production") return value;
+  const url = new URL(value);
+  if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "::1"].includes(url.hostname)) {
+    throw new Error("OMNI_SQL_SIDECAR_URL must point to a local HTTP JVM sidecar in production");
+  }
+  return url.origin;
 }
 
 export async function jdbcConnect(params: JdbcConnectParams): Promise<void> {
