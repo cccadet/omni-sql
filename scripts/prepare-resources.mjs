@@ -88,6 +88,19 @@ function hostTarget() {
 export function pnpmCommand(platform = process.platform) {
   return platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
+export function pnpmInvocation(args = [], platform = process.platform, env = process.env) {
+  if (platform === "win32") {
+    return {
+      command: env.ComSpec ?? env.COMSPEC ?? "cmd.exe",
+      args: ["/d", "/s", "/c", pnpmCommand(platform), ...args],
+    };
+  }
+  return { command: pnpmCommand(platform), args };
+}
+export function runPnpm(args, options = {}, platform = process.platform, run = execFileSync, env = process.env) {
+  const invocation = pnpmInvocation(args, platform, env);
+  return run(invocation.command, invocation.args, options);
+}
 function fail(message) { throw new Error(`[omni-sql] resource preparation failed: ${message}`); }
 function downloadAndVerify(item, destination) {
   if (!fs.existsSync(destination)) execFileSync(process.platform === "win32" ? "curl.exe" : "curl", ["--fail", "--location", "--retry", "3", "--output", destination, item.url], { stdio: "inherit" });
@@ -128,7 +141,7 @@ function stageJre(out, targetName, extracted) {
   if (java === "java") fs.chmodSync(path.join(destination, "bin/java"), 0o755);
 }
 function stageBackend(out) {
-  execFileSync(pnpmCommand(), ["--filter", "@omni-sql/backend", "build"], { cwd: root, stdio: "inherit" });
+  runPnpm(["--filter", "@omni-sql/backend", "build"], { cwd: root, stdio: "inherit" });
   const source = path.join(root, "packages/backend/dist"); const destination = path.join(out, "backend"); if (!fs.existsSync(path.join(source, "index.mjs"))) fail("backend build did not produce dist/index.mjs");
   fs.cpSync(source, destination, { recursive: true, dereference: true });
   const layout = JSON.parse(fs.readFileSync(path.join(source, "external-layout.json"), "utf8"));
