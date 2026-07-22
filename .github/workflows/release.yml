@@ -152,7 +152,7 @@ jobs:
               exit 1
             fi
             cp "$file" "release-assets/$name"
-          done < <(find release-files -type f -print0 | sort -z)
+          done < <(find release-files -type f \( -name '*.deb' -o -name '*.exe' \) -print0 | sort -z)
 
       - name: Create SHA256SUMS
         working-directory: release-assets
