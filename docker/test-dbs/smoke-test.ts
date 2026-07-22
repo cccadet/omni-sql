@@ -116,10 +116,15 @@ const targets = Object.entries(TARGETS).filter(
   ([key]) => !filter || filter === key,
 );
 
+// The database smoke suite is intentionally opt-in. The workspace test command
+// must remain runnable without Docker; use `pnpm test:smoke` after starting the
+// containers to exercise the real databases.
+const RUN_INTEGRATION = process.env.OMNI_SQL_RUN_INTEGRATION === "1";
+
 // ── Suites de teste ──
 
 for (const [key, target] of targets) {
-  describe(target.label, () => {
+  describe(target.label, { skip: !RUN_INTEGRATION }, () => {
     let adapter: Adapter;
 
     it("connect", async () => {
