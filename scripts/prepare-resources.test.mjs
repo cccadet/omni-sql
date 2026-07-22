@@ -5,9 +5,15 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { extract, stageNode } from "./prepare-resources.mjs";
+import { extract, pnpmCommand, stageNode } from "./prepare-resources.mjs";
 
 const script = fileURLToPath(new URL("./prepare-resources.mjs", import.meta.url));
+
+test("selects the Windows pnpm launcher", () => {
+  assert.equal(pnpmCommand("win32"), "pnpm.cmd");
+  assert.equal(pnpmCommand("linux"), "pnpm");
+  assert.equal(pnpmCommand("darwin"), "pnpm");
+});
 
 test("converts Tauri Linux platform/arch environment to linux-x64", () => {
   const output = execFileSync(process.execPath, [script, "--print-target"], {
