@@ -28,8 +28,25 @@ function loadHistory(): HistoryEntry[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as HistoryEntry[];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // History used to contain execution metadata. Keep only its SQL when
+    // reading older sessions, while preserving a known success/failure value.
+    return parsed.flatMap((item, index) => {
+      if (typeof item === "string") {
+        return item.trim() ? [{ id: `hist-${index}-${Math.random().toString(36).slice(2)}`, sql: item }] : [];
+      }
+      if (!item || typeof item !== "object" || !("sql" in item) || typeof item.sql !== "string" || !item.sql.trim()) return [];
+      const record = item as { sql: string; ok?: unknown; status?: unknown };
+      const ok = typeof record.ok === "boolean"
+        ? record.ok
+        : record.status === "success" || record.status === "ok"
+          ? true
+          : record.status === "failure" || record.status === "error"
+            ? false
+            : undefined;
+      return [{ id: `hist-${index}-${Math.random().toString(36).slice(2)}`, sql: record.sql, ...(ok === undefined ? {} : { ok }) }];
+    });
   } catch {
     return [];
   }
@@ -37,7 +54,7 @@ function loadHistory(): HistoryEntry[] {
 
 function saveHistory(entries: HistoryEntry[]) {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, 200)));
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, 200).map((entry) => ({ sql: entry.sql, ...(entry.ok === undefined ? {} : { ok: entry.ok }) }))));
   } catch {
     // localStorage indisponível/cheio
   }
@@ -257,21 +274,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     setDiagnostics((current) => current.filter((item) => item !== diagnostic));
   }, [activeTab.id, activeTab.sql, updateTabSql]);
 
-  const pushHistory = useCallback((tab: typeof activeTab, ok: boolean, elapsedMs: number, errorMessage?: string) => {
-    const conn = connections.find((c) => c.id === tab.connectionId);
+  const pushHistory = useCallback((sql: string, ok: boolean) => {
     const entry: HistoryEntry = {
       id: `hist-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      sql: tab.sql,
-      connectionId: tab.connectionId,
-      connectionLabel: conn?.label ?? "?",
-      dialect: conn?.dialect ?? null,
-      ranAt: Date.now(),
+      sql,
       ok,
-      elapsedMs,
-      errorMessage,
     };
     setHistory((prev) => [entry, ...prev].slice(0, 50));
-  }, [connections]);
+  }, []);
 
   const runSqlSequence = useCallback(
     async (sqls: string[], label: string) => {
@@ -289,7 +299,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       setResult(null);
       setEditability(null);
       setPlanText(null);
-      const startedAt = Date.now();
       try {
         const lastResult = await backend.call<QueryResult>("query.run", {
           connectionId: activeConnectionId,
@@ -300,7 +309,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         updateTab(activeTab.id, { error: null });
         ++connectionHealthCheckRef.current;
         setConnectionHealth("online");
-        pushHistory(activeTab, true, Date.now() - startedAt);
+        pushHistory(sqls.join(";\n"), true);
         void backend
           .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: sqls.join(";\n") })
           .then(setEditability)
@@ -328,7 +337,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             .then((response) => setDiagnostics(response.diagnostics))
             .catch(() => undefined);
         }
-        pushHistory(activeTab, false, Date.now() - startedAt, e instanceof Error ? e.message : String(e));
+        pushHistory(executedSql, false);
       } finally {
         setRunning(false);
         setBusyMsg(null);
@@ -483,17 +492,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       setFormatSettingsOpen(false);
     },
     [],
-  );
-
-  const onSelectHistory = useCallback(
-    (entry: HistoryEntry) => {
-      updateTab(activeTab.id, { sql: entry.sql });
-      if (entry.connectionId && connections.some((c) => c.id === entry.connectionId)) {
-        updateTab(activeTab.id, { connectionId: entry.connectionId });
-      }
-      setHistoryOpen(false);
-    },
-    [activeTab.id, connections, updateTab],
   );
 
   const onClearHistory = useCallback(() => setHistory([]), []);
@@ -664,7 +662,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         onSave={onSaveFormatSettings}
       />
 
-      <HistoryPanel open={historyOpen} entries={history} onClose={() => setHistoryOpen(false)} onSelect={onSelectHistory} onClear={onClearHistory} />
+      <HistoryPanel open={historyOpen} entries={history} onClose={() => setHistoryOpen(false)} onClear={onClearHistory} />
 
       <VariablesDialog
         open={variablesOpen}

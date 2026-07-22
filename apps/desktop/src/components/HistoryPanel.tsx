@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -6,25 +6,19 @@ import {
   Text,
   tokens,
 } from "@fluentui/react-components";
-import { DismissRegular, DeleteRegular, SearchRegular } from "@fluentui/react-icons";
+import { ArrowLeftRegular, CopyRegular, DismissRegular, DeleteRegular, SearchRegular } from "@fluentui/react-icons";
 
 export interface HistoryEntry {
   id: string;
   sql: string;
-  connectionId: string | null;
-  connectionLabel: string;
-  dialect: string | null;
-  ranAt: number;
-  ok: boolean;
-  elapsedMs?: number;
-  errorMessage?: string;
+  /** Missing for older SQL-only entries. */
+  ok?: boolean;
 }
 
 export interface HistoryPanelProps {
   open: boolean;
   entries: HistoryEntry[];
   onClose: () => void;
-  onSelect: (entry: HistoryEntry) => void;
   onClear: () => void;
 }
 
@@ -44,38 +38,32 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-export function HistoryPanel({ open, entries, onClose, onSelect, onClear }: HistoryPanelProps) {
+export function HistoryPanel({ open, entries, onClose, onClear }: HistoryPanelProps) {
   const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "ok" | "err">("all");
-  const [connectionFilter, setConnectionFilter] = useState<string>("__all__");
+  const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const uniqueConnections = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const e of entries) {
-      const key = e.connectionId ?? e.connectionLabel;
-      if (!map.has(key)) map.set(key, e.connectionLabel);
-    }
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [entries]);
+  useEffect(() => {
+    if (!open) setSelectedEntry(null);
+  }, [open]);
 
   const filteredEntries = useMemo(() => {
     const q = searchText.trim().toLowerCase();
-    return entries.filter((e) => {
-      if (statusFilter === "ok" && !e.ok) return false;
-      if (statusFilter === "err" && e.ok) return false;
-      if (connectionFilter !== "__all__") {
-        const key = e.connectionId ?? e.connectionLabel;
-        if (key !== connectionFilter) return false;
-      }
-      if (q) {
-        const haystack = `${e.sql}\n${e.connectionLabel}\n${e.dialect ?? ""}`.toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [entries, statusFilter, connectionFilter, searchText]);
+    return entries.filter((e) => !q || e.sql.toLowerCase().includes(q));
+  }, [entries, searchText]);
 
   if (!open) return null;
+
+  const copySelected = async () => {
+    if (!selectedEntry) return;
+    try {
+      await navigator.clipboard.writeText(selectedEntry.sql);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   return (
     <div
@@ -113,13 +101,33 @@ export function HistoryPanel({ open, entries, onClose, onSelect, onClear }: Hist
             borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
           }}
         >
-          <Text weight="semibold">Histórico de queries</Text>
+          <Text weight="semibold">{selectedEntry ? "Detalhe da query" : "Histórico de queries"}</Text>
           <div style={{ display: "flex", gap: 4 }}>
-            <Button icon={<DeleteRegular />} appearance="subtle" size="small" onClick={onClear} disabled={entries.length === 0} aria-label="Limpar histórico" />
+            {!selectedEntry && <Button icon={<DeleteRegular />} appearance="subtle" size="small" onClick={onClear} disabled={entries.length === 0} aria-label="Limpar histórico" />}
             <Button icon={<DismissRegular />} appearance="subtle" size="small" onClick={onClose} aria-label="Fechar histórico" />
           </div>
         </div>
 
+        {selectedEntry ? (
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto" }}>
+            <Button appearance="subtle" icon={<ArrowLeftRegular />} onClick={() => setSelectedEntry(null)} style={{ alignSelf: "flex-start" }}>
+              Voltar ao histórico
+            </Button>
+            <pre
+              aria-label="Query selecionada"
+              tabIndex={0}
+              style={{ margin: 0, padding: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "ui-monospace, monospace", fontSize: 12, lineHeight: 1.5, background: tokens.colorNeutralBackground2, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }}
+            >
+              {selectedEntry.sql}
+            </pre>
+            <Button appearance="primary" icon={<CopyRegular />} onClick={() => void copySelected()}>
+              {copied ? "Copiada" : "Copiar query"}
+            </Button>
+            <Text size={200} style={{ color: tokens.colorNeutralForeground2 }} aria-live="polite">
+              A query copiada não altera a aba atual.
+            </Text>
+          </div>
+        ) : <>
         <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 8, borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>
           <Input
             placeholder="Buscar no histórico..."
@@ -128,32 +136,6 @@ export function HistoryPanel({ open, entries, onClose, onSelect, onClear }: Hist
             contentBefore={<SearchRegular />}
             style={{ width: "100%" }}
           />
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select
-              value={connectionFilter}
-              onChange={(e) => setConnectionFilter(e.target.value)}
-              style={{ flex: 1, padding: 4, borderRadius: 4, background: tokens.colorNeutralBackground1, color: tokens.colorNeutralForeground1 }}
-            >
-              <option value="__all__">Todas as conexões</option>
-              {uniqueConnections.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <div style={{ display: "flex", gap: 4 }}>
-              {(["all", "ok", "err"] as const).map((f) => (
-                <Button
-                  key={f}
-                  size="small"
-                  appearance={statusFilter === f ? "primary" : "subtle"}
-                  onClick={() => setStatusFilter(f)}
-                >
-                  {f === "all" ? "Todas" : f === "ok" ? "Sucesso" : "Erro"}
-                </Button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <div style={{ flex: 1, overflow: "auto", padding: 6 }}>
@@ -168,7 +150,7 @@ export function HistoryPanel({ open, entries, onClose, onSelect, onClear }: Hist
             filteredEntries.map((entry) => (
               <button
                 key={entry.id}
-                onClick={() => onSelect(entry)}
+                onClick={() => setSelectedEntry(entry)}
                 style={{
                   width: "100%",
                   textAlign: "left",
@@ -181,12 +163,20 @@ export function HistoryPanel({ open, entries, onClose, onSelect, onClear }: Hist
                   color: tokens.colorNeutralForeground1,
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: tokens.colorNeutralForeground2 }}>
-                  <span>{entry.connectionLabel}</span>
-                  <span style={{ color: entry.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
-                    {entry.ok ? "✓" : "✗"}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 10, color: tokens.colorNeutralForeground2 }}>
+                  <span>SQL executado</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {entry.ok !== undefined && (
+                      <span
+                        aria-label={entry.ok ? "Sucesso" : "Falha"}
+                        title={entry.ok ? "Sucesso" : "Falha"}
+                        style={{ color: entry.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1, fontWeight: 600 }}
+                      >
+                        {entry.ok ? "✓" : "✗"}
+                      </span>
+                    )}
+                    <span>{entry.sql.split("\n").length} linha(s)</span>
                   </span>
-                  <span>{new Date(entry.ranAt).toLocaleString()}</span>
                 </div>
                 <pre
                   style={{
@@ -205,6 +195,7 @@ export function HistoryPanel({ open, entries, onClose, onSelect, onClear }: Hist
             ))
           )}
         </div>
+        </>}
       </Card>
     </div>
   );
