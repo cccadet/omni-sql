@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "dev.omnisql",
   "build": {
-    "frontendDist": "../desktop/dist",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build"
+    "beforeBuildCommand": "pnpm -w prepare:resources && pnpm -w validate:resources && pnpm -w build"
   },
   "app": {
     "windows": [
@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob:; font-src 'self' data: blob:; worker-src 'self' blob:; child-src 'self' blob:; connect-src ipc: http://ipc.localhost http://127.0.0.1:41920 http://localhost:41920"
     }
   },
   "bundle": {
@@ -34,6 +34,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/**/*"
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"

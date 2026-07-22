@@ -276,6 +276,10 @@ importers:
       '@polyglot-sql/sdk':
         specifier: 0.6.1
         version: 0.6.1
+    devDependencies:
+      esbuild:
+        specifier: ^0.25.12
+        version: 0.25.12
 
   packages/dialect-descriptors:
     dependencies:

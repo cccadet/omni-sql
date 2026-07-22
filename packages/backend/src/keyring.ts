@@ -6,6 +6,7 @@ import type { ConnectionConfig } from "@omni-sql/ts-types";
 const SERVICE = "dev.omnisql";
 
 function devKeyringPath(): string | undefined {
+  if (process.env.NODE_ENV === "production") return undefined;
   if (process.env.OMNI_SQL_DEV_KEYRING_FILE) {
     return process.env.OMNI_SQL_DEV_KEYRING_FILE;
   }

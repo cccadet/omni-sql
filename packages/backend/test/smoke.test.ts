@@ -23,6 +23,7 @@ import { InMemoryAdapter } from "./in-memory-adapter.ts";
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "omni-backend-"));
 process.env.OMNI_SQL_METADATA_DB = path.join(tmpDir, "metadata.db");
 process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
+process.env.OMNI_SQL_AUTH_TOKEN = "smoke-auth-token";
 
 const { startServer } = await import("../src/index.ts");
 
@@ -37,16 +38,58 @@ registerAdapter("jdbc-generic", (config) => {
 
 const TEST_PORT = 14378;
 const DEFAULT_URL = `http://127.0.0.1:${TEST_PORT}/rpc`;
+const AUTH_HEADERS = { authorization: "Bearer smoke-auth-token" };
 
 async function rpc<P>(method: string, params?: P, url = DEFAULT_URL): Promise<JsonRpcResponse> {
   const req: JsonRpcRequest<P> = { jsonrpc: "2.0", id: 1, method, ...(params ? { params } : {}) };
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...AUTH_HEADERS },
     body: JSON.stringify(req),
   });
   return (await res.json()) as JsonRpcResponse;
 }
+
+test("backend: health and RPC reject missing or invalid auth, without wildcard CORS", async () => {
+  const server = startServer(TEST_PORT + 10);
+  try {
+    const denied = await fetch(`http://127.0.0.1:${TEST_PORT + 10}/health`);
+    assert.equal(denied.status, 401);
+    const legacyHeader = await fetch(`http://127.0.0.1:${TEST_PORT + 10}/health`, {
+      headers: { OMNI_SQL_AUTH_TOKEN: "smoke-auth-token" },
+    });
+    assert.equal(legacyHeader.status, 401);
+    const rpcDenied = await fetch(`http://127.0.0.1:${TEST_PORT + 10}/rpc`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer wrong" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "connection.list" }),
+    });
+    assert.equal(rpcDenied.status, 401);
+
+    const allowed = await fetch(`http://127.0.0.1:${TEST_PORT + 10}/health`, {
+      headers: { ...AUTH_HEADERS, origin: "http://localhost:1420" },
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.headers.get("access-control-allow-origin"), "http://localhost:1420");
+    assert.notEqual(allowed.headers.get("access-control-allow-origin"), "*");
+
+    const preflight = await fetch(`http://127.0.0.1:${TEST_PORT + 10}/rpc`, {
+      method: "OPTIONS",
+      headers: { origin: "http://localhost:1420", "access-control-request-headers": "authorization" },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), "http://localhost:1420");
+    assert.match(preflight.headers.get("access-control-allow-headers") ?? "", /authorization/i);
+
+    const disallowed = await fetch(`http://127.0.0.1:${TEST_PORT + 10}/health`, {
+      headers: { ...AUTH_HEADERS, origin: "https://untrusted.example" },
+    });
+    assert.equal(disallowed.status, 200);
+    assert.equal(disallowed.headers.get("access-control-allow-origin"), null);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 
 test("smoke: add connection → introspect → list relations → run query → completion", async () => {
   const server = startServer(TEST_PORT);

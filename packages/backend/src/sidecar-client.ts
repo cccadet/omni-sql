@@ -1,6 +1,7 @@
 import type { QueryEditability, Relation } from "@omni-sql/ts-types";
 
-const SIDECAR_URL = process.env.OMNI_SQL_SIDECAR_URL ?? "http://127.0.0.1:41921";
+const SIDECAR_URL = validatedSidecarUrl();
+const AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
 const TIMEOUT_MS = 250;
 // A análise de editabilidade pode disparar o carregamento inicial do Calcite.
 // Diferentemente do autocomplete, ela acontece após a query e pode esperar um pouco mais.
@@ -26,7 +27,7 @@ export async function resolveCteRelations(sql: string): Promise<Relation[]> {
   try {
     const res = await fetch(`${SIDECAR_URL}/scope/resolve`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: sidecarHeaders(),
       body: JSON.stringify({ sql }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -75,7 +76,7 @@ export async function analyzeQueryEditability(sql: string): Promise<QueryEditabi
   try {
     const res = await fetch(`${SIDECAR_URL}/query/editability`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: sidecarHeaders(),
       body: JSON.stringify({ sql }),
       signal: AbortSignal.timeout(EDITABILITY_TIMEOUT_MS),
     });
@@ -84,4 +85,23 @@ export async function analyzeQueryEditability(sql: string): Promise<QueryEditabi
   } catch {
     return NOT_EDITABLE;
   }
+}
+
+function sidecarHeaders(): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    ...(AUTH_TOKEN ? { authorization: `Bearer ${AUTH_TOKEN}` } : {}),
+  };
+}
+
+function validatedSidecarUrl(): string {
+  const value = process.env.NODE_ENV === "production"
+    ? "http://127.0.0.1:41921"
+    : (process.env.OMNI_SQL_SIDECAR_URL ?? "http://127.0.0.1:41921");
+  if (process.env.NODE_ENV !== "production") return value;
+  const url = new URL(value);
+  if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "::1"].includes(url.hostname)) {
+    throw new Error("OMNI_SQL_SIDECAR_URL must point to a local HTTP JVM sidecar in production");
+  }
+  return url.origin;
 }

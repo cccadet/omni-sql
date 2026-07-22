@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { JdbcAdapter } from "./index.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
+
+process.env.OMNI_SQL_AUTH_TOKEN = "jdbc-test-token";
+const { JdbcAdapter } = await import("./index.ts");
 
 const cfg = (options?: ConnectionConfig["options"]): ConnectionConfig => ({
   id: "jdbc-test",
@@ -12,11 +14,11 @@ const cfg = (options?: ConnectionConfig["options"]): ConnectionConfig => ({
   options: { jarPath: "/tmp/driver.jar", driverClassName: "com.example.Driver", ...options },
 });
 
-function mockFetch(handler: (url: string, body: Record<string, unknown>) => Record<string, unknown>) {
+function mockFetch(handler: (url: string, body: Record<string, unknown>, init?: RequestInit) => Record<string, unknown>) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    const responseBody = handler(String(input), body);
+    const responseBody = handler(String(input), body, init);
     return new Response(JSON.stringify(responseBody), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   return () => {
@@ -40,9 +42,11 @@ test("JdbcAdapter: constrói sem disparar conexão", () => {
 test("JdbcAdapter: connect() envia um handle remoto opaco pro sidecar", async () => {
   let calledUrl = "";
   let calledBody: Record<string, unknown> = {};
-  const restore = mockFetch((url, body) => {
+  let calledHeaders: Headers | undefined;
+  const restore = mockFetch((url, body, init) => {
     calledUrl = url;
     calledBody = body;
+    calledHeaders = new Headers(init?.headers);
     return { ok: true };
   });
   try {
@@ -55,6 +59,7 @@ test("JdbcAdapter: connect() envia um handle remoto opaco pro sidecar", async ()
     assert.equal(calledBody.driverClassName, "com.example.Driver");
     assert.equal(calledBody.jdbcUrl, "jdbc:example://localhost:1234/db");
     assert.equal(calledBody.password, "secret");
+    assert.equal(calledHeaders?.get("authorization"), "Bearer jdbc-test-token");
   } finally {
     restore();
   }
