@@ -1,0 +1,103 @@
+name: Windows x64 preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-preflight-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows x64 NSIS
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare resources
+        run: pnpm prepare:resources
+
+      - name: Validate resources
+        run: pnpm validate:resources
+
+      - name: Build Tauri NSIS installer
+        run: pnpm --filter desktop exec tauri build --target x86_64-pc-windows-msvc --bundles nsis
+
+      - name: Verify NSIS executable
+        shell: pwsh
+        run: |
+          $configPath = "apps/desktop/src-tauri/tauri.conf.json"
+          $config = Get-Content -Raw $configPath | ConvertFrom-Json
+          $productName = [string]$config.productName
+          $version = [string]$config.version
+          $nsisDir = Join-Path $PWD "apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+
+          if (-not (Test-Path $nsisDir)) {
+            throw "NSIS bundle directory was not generated: $nsisDir"
+          }
+
+          $expectedName = "{0}_{1}_x64-setup.exe" -f $productName, $version
+          $installer = Get-ChildItem -LiteralPath $nsisDir -Filter "*.exe" -File |
+            Where-Object { $_.Name -eq $expectedName }
+          if ($null -eq $installer) {
+            $found = (Get-ChildItem -LiteralPath $nsisDir -Filter "*.exe" -File | Select-Object -ExpandProperty Name) -join ", "
+            throw "Expected $expectedName was not found in $nsisDir. Found: $found"
+          }
+
+          $fileVersion = [string]$installer.VersionInfo.FileVersion
+          $binaryProductName = [string]$installer.VersionInfo.ProductName
+          if ($binaryProductName -ne $productName) {
+            throw "Installer ProductName '$binaryProductName' does not match '$productName'"
+          }
+          if (-not ($fileVersion -eq $version -or $fileVersion.StartsWith("$version."))) {
+            throw "Installer FileVersion '$fileVersion' does not match '$version'"
+          }
+
+          "Installer: $($installer.FullName)"
+          "ProductName: $binaryProductName"
+          "FileVersion: $fileVersion"
+
+      - name: Upload NSIS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-nsis-${{ github.sha }}
+          path: apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
