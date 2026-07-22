@@ -88,17 +88,26 @@ function hostTarget() {
 export function pnpmCommand(platform = process.platform) {
   return platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
+export function windowsCommandInvocation(command, args = [], env = process.env) {
+  return {
+    command: env.ComSpec ?? env.COMSPEC ?? "cmd.exe",
+    args: ["/d", "/s", "/c", command, ...args],
+  };
+}
 export function pnpmInvocation(args = [], platform = process.platform, env = process.env) {
-  if (platform === "win32") {
-    return {
-      command: env.ComSpec ?? env.COMSPEC ?? "cmd.exe",
-      args: ["/d", "/s", "/c", pnpmCommand(platform), ...args],
-    };
-  }
+  if (platform === "win32") return windowsCommandInvocation(pnpmCommand(platform), args, env);
   return { command: pnpmCommand(platform), args };
 }
 export function runPnpm(args, options = {}, platform = process.platform, run = execFileSync, env = process.env) {
   const invocation = pnpmInvocation(args, platform, env);
+  return run(invocation.command, invocation.args, options);
+}
+export function gradleInvocation(args = ["jar"], platform = process.platform, env = process.env) {
+  if (platform === "win32") return windowsCommandInvocation("gradlew.bat", args, env);
+  return { command: "./gradlew", args };
+}
+export function runGradle(args = ["jar"], options = {}, platform = process.platform, run = execFileSync, env = process.env) {
+  const invocation = gradleInvocation(args, platform, env);
   return run(invocation.command, invocation.args, options);
 }
 function fail(message) { throw new Error(`[omni-sql] resource preparation failed: ${message}`); }
@@ -165,7 +174,7 @@ function copyPackageTree(specifier, backendDir, destinationParent, parentSource)
   }
 }
 function stageSidecar(out) {
-  const cwd = path.join(root, "services/jvm-sidecar"); execFileSync(process.platform === "win32" ? "gradlew.bat" : "./gradlew", ["jar"], { cwd, stdio: "inherit" });
+  const cwd = path.join(root, "services/jvm-sidecar"); runGradle(["jar"], { cwd, stdio: "inherit" });
   const jar = path.join(cwd, "build/libs/omni-sql-sidecar.jar"); if (!fs.existsSync(jar)) fail(`missing sidecar JAR: ${jar}`); fs.mkdirSync(path.join(out, "sidecar"), { recursive: true }); fs.copyFileSync(jar, path.join(out, "sidecar/omni-sql-sidecar.jar"));
 }
 function stageLicenses(out, downloads) {
