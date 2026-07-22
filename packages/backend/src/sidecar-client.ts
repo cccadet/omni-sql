@@ -2,6 +2,9 @@ import type { QueryEditability, Relation } from "@omni-sql/ts-types";
 
 const SIDECAR_URL = process.env.OMNI_SQL_SIDECAR_URL ?? "http://127.0.0.1:41921";
 const TIMEOUT_MS = 250;
+// A análise de editabilidade pode disparar o carregamento inicial do Calcite.
+// Diferentemente do autocomplete, ela acontece após a query e pode esperar um pouco mais.
+const EDITABILITY_TIMEOUT_MS = 1_500;
 
 interface CteInfo {
   readonly name: string;
@@ -74,7 +77,7 @@ export async function analyzeQueryEditability(sql: string): Promise<QueryEditabi
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ sql }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(EDITABILITY_TIMEOUT_MS),
     });
     if (!res.ok) return NOT_EDITABLE;
     return (await res.json()) as QueryEditability;

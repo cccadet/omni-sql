@@ -27,7 +27,22 @@ export interface ResultsGridProps {
   error?: string | null;
   planText?: string | null;
   editability?: RowEditability | null;
+  /** Called when an edit is made. It must only update the parent's staged state. */
+  onStageCellEdit?: (rowIndex: number, colIndex: number, value: unknown) => void;
+  /** Controlled staged values. The indexes are indexes in the original result. */
+  stagedChanges?: readonly StagedCellEdit[];
+  onDiscardChanges?: () => void | Promise<void>;
+  onCommitChanges?: (changes: readonly StagedCellEdit[]) => void | Promise<void>;
+  commitPending?: () => void | Promise<void>;
+  committing?: boolean;
+  /** Kept for compatibility; it is now called only when applying all edits. */
   onCellEdit?: (rowIndex: number, colIndex: number, value: unknown) => Promise<void>;
+}
+
+export interface StagedCellEdit {
+  readonly rowIndex: number;
+  readonly colIndex: number;
+  readonly value: unknown;
 }
 
 const PAGE_SIZE = 100;
@@ -78,15 +93,31 @@ function columnTypeLabel(dataType: string): string {
   return "?";
 }
 
-export function ResultsGrid({ result, error, planText, editability, onCellEdit }: ResultsGridProps) {
+export function ResultsGrid({
+  result,
+  error,
+  planText,
+  editability,
+  onStageCellEdit,
+  stagedChanges,
+  onDiscardChanges,
+  onCommitChanges,
+  commitPending,
+  committing = false,
+  onCellEdit,
+}: ResultsGridProps) {
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan">("data");
   const [globalFilter, setGlobalFilter] = useState("");
   const [sortColumn, setSortColumn] = useState<string | undefined>(undefined);
   const [sortDirection, setSortDirection] = useState<"ascending" | "descending">("ascending");
   const [page, setPage] = useState(0);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number; value: string } | null>(null);
+  const [localChanges, setLocalChanges] = useState<StagedCellEdit[]>([]);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const previousResultRef = useRef<QueryResult | null | undefined>(result);
+  const applyingChangesRef = useRef(false);
+  const editFinalizedRef = useRef(false);
 
   const rows = useMemo(() => result?.rows ?? [], [result?.rows]);
 
@@ -102,28 +133,68 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
     }
   }, [result?.columns, error]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (previousResultRef.current !== result) {
+      previousResultRef.current = result;
+      // An optimistic row.update replaces the result while applying changes.
+      // Keep local changes until the apply operation has finished; externally
+      // controlled changes are intentionally left to the parent to clear.
+      if (!applyingChangesRef.current) setLocalChanges([]);
+    }
+  }, [result]);
+
+  const indexedRows = useMemo(() => rows.map((row, rowIndex) => ({ row, rowIndex })), [rows]);
+  const changes = useMemo(() => {
+    const merged = new Map<string, StagedCellEdit>();
+    for (const change of stagedChanges ?? []) merged.set(`${change.rowIndex}:${change.colIndex}`, change);
+    for (const change of localChanges) merged.set(`${change.rowIndex}:${change.colIndex}`, change);
+    return [...merged.values()];
+  }, [stagedChanges, localChanges]);
+  const changeByCell = useMemo(
+    () => new Map(changes.map((change) => [`${change.rowIndex}:${change.colIndex}`, change.value])),
+    [changes],
+  );
+
   const filteredRows = useMemo(() => {
-    let list = rows;
+    let list = indexedRows;
     const term = globalFilter.trim().toLowerCase();
     if (term) {
-      list = list.filter((row) => row.some((cell) => String(cell ?? "").toLowerCase().includes(term)));
+      list = list.filter(({ row, rowIndex }) =>
+        row.some((cell, colIndex) =>
+          String(changeByCell.get(`${rowIndex}:${colIndex}`) ?? cell ?? "").toLowerCase().includes(term),
+        ),
+      );
     }
     return list;
-  }, [rows, globalFilter]);
+  }, [indexedRows, globalFilter, changeByCell]);
 
   const sortedRows = useMemo(() => {
     if (!sortColumn || !result) return filteredRows;
     const colIndex = result.columns.findIndex((c) => c.name === sortColumn);
     if (colIndex < 0) return filteredRows;
     const dir = sortDirection === "ascending" ? 1 : -1;
-    return [...filteredRows].sort((a, b) => compareValues(a[colIndex], b[colIndex]) * dir);
-  }, [filteredRows, sortColumn, sortDirection, result]);
+    return [...filteredRows].sort((a, b) =>
+      compareValues(
+        changeByCell.get(`${a.rowIndex}:${colIndex}`) ?? a.row[colIndex],
+        changeByCell.get(`${b.rowIndex}:${colIndex}`) ?? b.row[colIndex],
+      ) * dir,
+    );
+  }, [filteredRows, sortColumn, sortDirection, result, changeByCell]);
 
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
     const start = page * PAGE_SIZE;
     return sortedRows.slice(start, start + PAGE_SIZE);
   }, [sortedRows, page]);
+
+  const stageEdit = useCallback((rowIndex: number, colIndex: number, value: unknown) => {
+    const change = { rowIndex, colIndex, value } satisfies StagedCellEdit;
+    setLocalChanges((current) => [
+      ...current.filter((item) => item.rowIndex !== rowIndex || item.colIndex !== colIndex),
+      change,
+    ]);
+    onStageCellEdit?.(rowIndex, colIndex, value);
+  }, [onStageCellEdit]);
 
   const handleSort = useCallback(
     (col: string) => {
@@ -141,7 +212,9 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
   const handleExportCsv = useCallback(() => {
     if (!result) return;
     const header = result.columns.map((c) => escapeCsv(c.name)).join(",");
-    const body = sortedRows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+    const body = sortedRows
+      .map(({ row, rowIndex }) => row.map((value, colIndex) => escapeCsv(changeByCell.get(`${rowIndex}:${colIndex}`) ?? value)).join(","))
+      .join("\n");
     const blob = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -149,28 +222,71 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
     a.download = "resultados.csv";
     a.click();
     URL.revokeObjectURL(url);
-  }, [result, sortedRows]);
+  }, [result, sortedRows, changeByCell]);
+
+  const isColumnEditable = useCallback((colIndex: number) => {
+    if (!editability?.editable) return false;
+    // An empty mapping is the sidecar's SELECT * marker: every result column
+    // is a direct source column in that case.
+    return editability.columns.length === 0 || editability.columns[colIndex]?.sourceColumn != null;
+  }, [editability]);
 
   const startEdit = useCallback(
     (rowIndex: number, colIndex: number) => {
-      if (!editability?.editable) return;
       const col = result?.columns[colIndex];
-      if (!col) return;
-      const editableColumn = editability.columns[colIndex];
-      if (!editableColumn || editableColumn.sourceColumn === null) return;
-      const value = pageRows[rowIndex]?.[colIndex];
-      setEditingCell({ row: rowIndex, col: colIndex, value: String(value ?? "") });
+      if (!col || !isColumnEditable(colIndex)) return;
+      const originalRowIndex = pageRows[rowIndex]?.rowIndex;
+      if (originalRowIndex === undefined) return;
+      const value = changeByCell.get(`${originalRowIndex}:${colIndex}`) ?? pageRows[rowIndex]?.row[colIndex];
+      editFinalizedRef.current = false;
+      setEditingCell({ row: originalRowIndex, col: colIndex, value: String(value ?? "") });
     },
-    [editability, pageRows, result?.columns],
+    [isColumnEditable, pageRows, result?.columns, changeByCell],
   );
 
   const commitEdit = useCallback(async () => {
-    if (!editingCell || !onCellEdit) return;
-    await onCellEdit(editingCell.row, editingCell.col, editingCell.value);
+    if (!editingCell || editFinalizedRef.current) return;
+    editFinalizedRef.current = true;
+    stageEdit(editingCell.row, editingCell.col, editingCell.value);
     setEditingCell(null);
-  }, [editingCell, onCellEdit]);
+  }, [editingCell, stageEdit]);
 
-  const cancelEdit = useCallback(() => setEditingCell(null), []);
+  const cancelEdit = useCallback(() => {
+    editFinalizedRef.current = true;
+    setEditingCell(null);
+  }, []);
+
+  const applyChanges = useCallback(async () => {
+    if (changes.length === 0 || committing || applyingChangesRef.current) return;
+    applyingChangesRef.current = true;
+    try {
+      if (onCommitChanges) {
+        await onCommitChanges(changes);
+      } else if (commitPending) {
+        await commitPending();
+      } else if (onCellEdit) {
+        for (const change of changes) {
+          await onCellEdit(change.rowIndex, change.colIndex, change.value);
+          setLocalChanges((current) =>
+            current.filter(
+              (item) =>
+                item.rowIndex !== change.rowIndex ||
+                item.colIndex !== change.colIndex ||
+                !Object.is(item.value, change.value),
+            ),
+          );
+        }
+      }
+      if (onCommitChanges || commitPending) setLocalChanges([]);
+    } finally {
+      applyingChangesRef.current = false;
+    }
+  }, [changes, committing, onCommitChanges, commitPending, onCellEdit]);
+
+  const discardChanges = useCallback(async () => {
+    setLocalChanges([]);
+    await onDiscardChanges?.();
+  }, [onDiscardChanges]);
 
   const columns = useMemo(
     () =>
@@ -179,9 +295,10 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
         name: col.name,
         dataType: col.dataType,
         index,
-        editable: editability?.editable && editability.columns[index]?.sourceColumn != null,
+        editable:
+          isColumnEditable(index),
       })) ?? [],
-    [result?.columns, editability],
+    [result?.columns, isColumnEditable],
   );
 
   useEffect(() => {
@@ -235,6 +352,11 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
         </TabList>
         {activeTab === "data" && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" }}>
+            {result && editability && !editability.editable && (
+              <Text role="status" aria-live="polite" size={200} style={{ color: tokens.colorNeutralForeground2, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4, padding: "4px 8px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={editability.reason ?? "Edição inline indisponível."}>
+                Edição inline indisponível{editability.reason ? `: ${editability.reason}` : "."}
+              </Text>
+            )}
             <Input
               placeholder="Filtrar linhas…"
               value={globalFilter}
@@ -256,6 +378,23 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
               }
               style={{ minWidth: 160, maxWidth: 240 }}
             />
+            {changes.length > 0 && (
+              <Button
+                appearance="subtle"
+                aria-label="Descartar alterações"
+                onClick={() => void discardChanges()}
+                disabled={committing}
+              >
+                Descartar
+              </Button>
+            )}
+            <Button
+              appearance="primary"
+              onClick={() => void applyChanges()}
+              disabled={changes.length === 0 || committing}
+            >
+              {committing ? "Aplicando…" : `Aplicar${changes.length ? ` ${changes.length}` : ""}`}
+            </Button>
             <Tooltip content="Exportar CSV" relationship="label">
               <Button icon={<ArrowDownloadRegular />} onClick={handleExportCsv} disabled={!result || rows.length === 0}>
                 Exportar
@@ -330,23 +469,24 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
                   </tr>
                 </thead>
                 <tbody>
-                  {pageRows.map((row, rowIndex) => (
+                  {pageRows.map(({ row, rowIndex: originalRowIndex }, displayRowIndex) => (
                     <tr
-                      key={rowIndex}
-                      className={selectedRow === rowIndex ? "selected" : undefined}
-                      onClick={() => setSelectedRow(rowIndex)}
+                      key={originalRowIndex}
+                      className={selectedRow === displayRowIndex ? "selected" : undefined}
+                      onClick={() => setSelectedRow(displayRowIndex)}
                       style={{
                         backgroundColor:
-                          selectedRow === rowIndex
+                          selectedRow === displayRowIndex
                             ? tokens.colorBrandBackground2
                             : undefined,
                         cursor: "pointer",
                       }}
                     >
                       {columns.map((col) => {
-                        const cellValue = row[col.index];
+                        const cellKey = `${originalRowIndex}:${col.index}`;
+                        const cellValue = changeByCell.get(cellKey) ?? row[col.index];
                         const isEditing =
-                          editingCell && editingCell.row === rowIndex && editingCell.col === col.index;
+                          editingCell && editingCell.row === originalRowIndex && editingCell.col === col.index;
                         return (
                           <td
                             key={col.key}
@@ -354,11 +494,17 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
                               padding: "4px 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
                               whiteSpace: "nowrap",
+                              color: selectedRow === displayRowIndex && !changeByCell.has(cellKey)
+                                ? tokens.colorNeutralForegroundOnBrand
+                                : tokens.colorNeutralForeground1,
                             }}
                             onClick={(e) => {
+                              // Input clicks must not bubble back into the cell
+                              // activation path and recreate/reset the editor.
+                              if ((e.target as HTMLElement).closest("input")) return;
                               e.stopPropagation();
-                              setSelectedRow(rowIndex);
-                              if (col.editable) startEdit(rowIndex, col.index);
+                              setSelectedRow(displayRowIndex);
+                              if (col.editable) startEdit(displayRowIndex, col.index);
                             }}
                           >
                             {isEditing ? (
@@ -368,13 +514,24 @@ export function ResultsGrid({ result, error, planText, editability, onCellEdit }
                                 onChange={(_, data) => setEditingCell({ ...editingCell, value: data.value })}
                                 onBlur={commitEdit}
                                 onKeyDown={(e) => {
+                                  e.stopPropagation();
                                   if (e.key === "Enter") void commitEdit();
                                   if (e.key === "Escape") cancelEdit();
                                 }}
                                 style={{ minWidth: 60 }}
                               />
                             ) : (
-                              <div style={{ whiteSpace: "nowrap", padding: "2px 0" }}>
+                              <div
+                                style={{
+                                  whiteSpace: "nowrap",
+                                  padding: "2px 0",
+                                  background: changeByCell.has(cellKey) ? tokens.colorPaletteYellowBackground2 : undefined,
+                                  color: changeByCell.has(cellKey)
+                                    ? tokens.colorNeutralForeground1
+                                    : undefined,
+                                  borderRadius: 2,
+                                }}
+                              >
                                 {String(cellValue ?? "")}
                               </div>
                             )}
