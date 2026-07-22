@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveCteRelations } from "./sidecar-client.ts";
+process.env.OMNI_SQL_AUTH_TOKEN = "sidecar-test-token";
+const { resolveCteRelations } = await import("./sidecar-client.ts");
 
 test("sidecar-client: sql sem WITH nem tenta chamar o sidecar", async () => {
   let called = false;
@@ -24,6 +25,7 @@ test("sidecar-client: mapeia resposta do sidecar para Relation[]", async () => {
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     assert.equal(String(input), "http://127.0.0.1:41921/scope/resolve");
     assert.equal(init?.method, "POST");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer sidecar-test-token");
     assert.equal(JSON.parse(String(init?.body)).sql, "with b1 as (select 1 as x) select from b1");
     return new Response(
       JSON.stringify({ ctes: [{ name: "b1", columns: ["x"] }] }),

@@ -18,7 +18,14 @@ coverage
 .codebase-memory/
 .headroom/
 .tokensave/
+.slim/deepwork/
 node
+.cache/omni-sql-runtimes/
+apps/desktop/src-tauri/resources/backend/
+apps/desktop/src-tauri/resources/runtime/node/
+apps/desktop/src-tauri/resources/runtime/jre/
+apps/desktop/src-tauri/resources/sidecar/
+apps/desktop/src-tauri/resources/licenses/
 
 # Tauri / Rust
 apps/desktop/src-tauri/target

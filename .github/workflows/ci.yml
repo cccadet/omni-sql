@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   verify-ts:
     name: pnpm verify (typecheck + lint + test)
@@ -26,6 +30,9 @@ jobs:
 
       - name: Verify
         run: pnpm verify
+
+      - name: Validate Oracle backend build
+        run: pnpm --filter @omni-sql/backend build:validate
 
   cargo-check:
     name: cargo check (Tauri shell)
@@ -55,3 +62,32 @@ jobs:
 
       - name: cargo check
         run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  sonarcloud:
+    name: SonarCloud analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Fork PRs cannot receive repository secrets. Keep the scan out of those
+    # runs rather than changing the workflow to pull untrusted code with a token.
+    if: >-
+      (github.event_name == 'push' &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

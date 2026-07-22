@@ -18,6 +18,8 @@
     "dev:backend": "pnpm --filter backend start",
     "dev:tauri": "pnpm --filter desktop dev:tauri",
     "build:tauri": "pnpm --filter desktop build:tauri",
+    "prepare:resources": "node ./scripts/prepare-resources.mjs",
+    "validate:resources": "node ./scripts/prepare-resources.mjs --validate",
     "seed:test-connections": "tsx ./docker/test-dbs/register-connections.ts"
   },
   "devDependencies": {

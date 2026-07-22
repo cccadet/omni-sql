@@ -1,24 +1,47 @@
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::menu::Menu;
 use tauri::{Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
 struct SidecarStatusState(Mutex<&'static str>);
+struct AuthToken(String);
 
 const BACKEND_PORT: u16 = 41920;
 const SIDECAR_PORT: u16 = 41921;
+const LOCALHOST: &str = "127.0.0.1";
 const SIDECAR_SERVICE: &str = "omni-sql-sidecar";
 const SIDECAR_PROTOCOL: &str = "http-json";
 const SIDECAR_STATUS_EVENT: &str = "sidecar-status";
 const SIDECAR_STATUS_CHECKING: &str = "checking";
 const SIDECAR_STATUS_READY: &str = "ready";
 const SIDECAR_STATUS_UNAVAILABLE: &str = "unavailable";
+const CHILD_ENV_OVERRIDES: &[&str] = &[
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "NODE_EXTRA_CA_CERTS",
+    "NODE_TLS_REJECT_UNAUTHORIZED",
+    "JAVA_TOOL_OPTIONS",
+    "_JAVA_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+    "CLASSPATH",
+    "LD_PRELOAD",
+    "DYLD_INSERT_LIBRARIES",
+    "OMNI_SQL_PORT",
+    "OMNI_SQL_AUTH_TOKEN",
+    "OMNI_SQL_ALLOWED_ORIGIN",
+    "OMNI_SQL_DEV_KEYRING",
+    "OMNI_SQL_DEV_KEYRING_FILE",
+    "OMNI_SQL_SIDECAR_URL",
+    "OMNI_SIDE_CAR_PORT",
+];
 
 fn ensure_port_is_free(port: u16, name: &str) -> Result<(), std::io::Error> {
-    std::net::TcpListener::bind(("127.0.0.1", port)).map(|listener| drop(listener)).map_err(|err| {
+    std::net::TcpListener::bind((LOCALHOST, port)).map(|listener| drop(listener)).map_err(|err| {
         std::io::Error::new(
             err.kind(),
             format!(
@@ -28,7 +51,7 @@ fn ensure_port_is_free(port: u16, name: &str) -> Result<(), std::io::Error> {
     })
 }
 
-fn http_get(port: u16, path: &str) -> Result<(u16, String), String> {
+fn http_get(port: u16, path: &str, auth_token: &str) -> Result<(u16, String), String> {
     use std::io::{Read, Write};
 
     let mut stream = std::net::TcpStream::connect_timeout(
@@ -41,7 +64,7 @@ fn http_get(port: u16, path: &str) -> Result<(u16, String), String> {
         .map_err(|err| err.to_string())?;
     stream
         .write_all(
-            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n")
+            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {auth_token}\r\nConnection: close\r\n\r\n")
                 .as_bytes(),
         )
         .map_err(|err| err.to_string())?;
@@ -62,6 +85,22 @@ fn http_get(port: u16, path: &str) -> Result<(u16, String), String> {
         .parse::<u16>()
         .map_err(|err| format!("invalid health HTTP status: {err}"))?;
     Ok((status, body.to_string()))
+}
+
+fn generate_auth_token() -> Result<String, String> {
+    // Hex keeps the value safe for both HTTP headers and child-process
+    // environments without relying on an encoding crate.
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|err| format!("failed to generate auth token: {err}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn clear_inherited_child_overrides(command: &mut Command) {
+    // Do not let the desktop environment control code loading, TLS, or the
+    // JVM command line of the processes it owns.
+    for variable in CHILD_ENV_OVERRIDES {
+        command.env_remove(variable);
+    }
 }
 
 fn json_string_field(body: &str, field: &str) -> Option<String> {
@@ -112,18 +151,163 @@ fn get_sidecar_status(state: tauri::State<'_, SidecarStatusState>) -> String {
     state.0.lock().unwrap().to_string()
 }
 
-// Leitura/escrita de abas salvas como `.sql`. O caminho vem sempre do diálogo
-// nativo (plugin `dialog`) ou de uma sessão restaurada, nunca de input livre
-// do usuário — por isso um comando de app simples (sem escopo declarado via
-// plugin `fs`) é suficiente aqui.
 #[tauri::command]
-fn write_text_file(path: String, contents: String) -> Result<(), String> {
-    std::fs::write(&path, contents).map_err(|e| e.to_string())
+fn get_auth_token(state: tauri::State<'_, AuthToken>) -> String {
+    state.0.clone()
+}
+
+fn selected_file_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    suggested_path: &str,
+    save: bool,
+) -> Result<PathBuf, String> {
+    // The webview path is only a hint. The capability used for I/O is always
+    // the path returned by the native picker, so invoke callers cannot turn
+    // these commands into arbitrary filesystem primitives.
+    let hint = PathBuf::from(suggested_path);
+    let mut dialog = app.dialog().file().add_filter("SQL files", &["sql"]);
+    if let Some(parent) = hint.parent().filter(|path| path.exists()) {
+        dialog = dialog.set_directory(parent);
+    }
+    if let Some(name) = hint.file_name().and_then(|name| name.to_str()) {
+        dialog = dialog.set_file_name(name);
+    }
+
+    let selected = if save {
+        dialog.blocking_save_file()
+    } else {
+        dialog.blocking_pick_file()
+    }
+    .ok_or_else(|| "file selection cancelled".to_string())?;
+
+    selected
+        .try_into()
+        .map_err(|err| format!("selected file is unavailable: {err}"))
 }
 
 #[tauri::command]
-fn read_text_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+fn write_text_file<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    path: String,
+    contents: String,
+) -> Result<(), String> {
+    let selected_path = selected_file_path(&app, &path, true)?;
+    std::fs::write(selected_path, contents).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_text_file<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String) -> Result<String, String> {
+    let selected_path = selected_file_path(&app, &path, false)?;
+    std::fs::read_to_string(selected_path).map_err(|e| e.to_string())
+}
+
+#[cfg(debug_assertions)]
+fn workspace_root() -> PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf()
+}
+
+#[cfg(debug_assertions)]
+fn backend_process_paths<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    let root = workspace_root();
+    Ok((
+        PathBuf::from("node"),
+        root.join("packages/backend/src/index.ts"),
+        root,
+    ))
+}
+
+#[cfg(not(debug_assertions))]
+fn backend_process_paths<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    let node = if cfg!(target_os = "windows") {
+        "resources/runtime/node/node.exe"
+    } else {
+        "resources/runtime/node/node"
+    };
+    Ok((
+        app.path()
+            .resolve(node, tauri::path::BaseDirectory::Resource)
+            .map_err(|err| format!("failed to resolve bundled Node runtime: {err}"))?,
+        app.path()
+            .resolve(
+                "resources/backend/index.mjs",
+                tauri::path::BaseDirectory::Resource,
+            )
+            .map_err(|err| format!("failed to resolve bundled backend: {err}"))?,
+        app.path()
+            .resolve("resources/backend", tauri::path::BaseDirectory::Resource)
+            .map_err(|err| format!("failed to resolve bundled backend directory: {err}"))?,
+    ))
+}
+
+#[cfg(debug_assertions)]
+fn sidecar_process_paths<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+) -> Result<(PathBuf, PathBuf), String> {
+    let dir = workspace_root().join("services/jvm-sidecar");
+    Ok((dir.join("build/libs/omni-sql-sidecar.jar"), dir))
+}
+
+#[cfg(not(debug_assertions))]
+fn sidecar_process_paths<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<(PathBuf, PathBuf), String> {
+    Ok((
+        app.path()
+            .resolve(
+                "resources/sidecar/omni-sql-sidecar.jar",
+                tauri::path::BaseDirectory::Resource,
+            )
+            .map_err(|err| format!("failed to resolve bundled JVM sidecar: {err}"))?,
+        app.path()
+            .resolve("resources/sidecar", tauri::path::BaseDirectory::Resource)
+            .map_err(|err| format!("failed to resolve bundled sidecar directory: {err}"))?,
+    ))
+}
+
+#[cfg(debug_assertions)]
+fn java_executable<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    Ok(PathBuf::from("java"))
+}
+
+#[cfg(all(not(debug_assertions), target_os = "windows"))]
+fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    app.path()
+        .resolve(
+            "resources/runtime/jre/bin/java.exe",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .map_err(|err| format!("failed to resolve bundled Java runtime: {err}"))
+}
+
+#[cfg(all(not(debug_assertions), target_os = "macos"))]
+fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    app.path()
+        .resolve(
+            "resources/runtime/jre/bin/java",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .map_err(|err| format!("failed to resolve bundled Java runtime: {err}"))
+}
+
+#[cfg(all(
+    not(debug_assertions),
+    not(any(target_os = "windows", target_os = "macos"))
+))]
+fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    app.path()
+        .resolve(
+            "resources/runtime/jre/bin/java",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .map_err(|err| format!("failed to resolve bundled Java runtime: {err}"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -145,17 +329,21 @@ pub fn run() {
         std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
     }
 
+    let auth_token = generate_auth_token().expect("failed to create per-run auth token");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             write_text_file,
             read_text_file,
-            get_sidecar_status
+            get_sidecar_status,
+            get_auth_token
         ])
+        .manage(AuthToken(auth_token.clone()))
         .manage(BackendChild(Mutex::new(None)))
         .manage(SidecarChild(Mutex::new(None)))
         .manage(SidecarStatusState(Mutex::new(SIDECAR_STATUS_CHECKING)))
-        .setup(|app| {
+        .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -196,16 +384,6 @@ pub fn run() {
             // Spawn Node backend as a sidecar: HTTP JSON-RPC on port 41920.
             // In dev, run the TypeScript backend through tsx. Some Linux Node
             // builds expose Node 22 but are compiled without native TS support.
-            let manifest_dir = env!("CARGO_MANIFEST_DIR");
-            // monorepo root = apps/desktop/src-tauri/../..
-            let workspace_root = std::path::Path::new(manifest_dir)
-                .ancestors()
-                .nth(3)
-                .unwrap_or_else(|| std::path::Path::new("."));
-            let backend_entry = workspace_root.join("packages/backend/src/index.ts");
-
-            log::info!("Starting backend sidecar: {}", backend_entry.display());
-
             // Spawn Node backend as a sidecar: HTTP JSON-RPC on port 41920.
             // In dev, run the TypeScript backend through tsx. Some Linux Node
             // builds expose Node 22 but are compiled without native TS support.
@@ -216,11 +394,23 @@ pub fn run() {
             ensure_port_is_free(BACKEND_PORT, "Node backend")?;
             ensure_port_is_free(SIDECAR_PORT, "JVM sidecar")?;
 
-            let child = Command::new("node")
-                    .args(["--import", "tsx"])
+            let (node_executable, backend_entry, backend_cwd) =
+                backend_process_paths(app.handle())?;
+            log::info!("Starting backend sidecar: {}", backend_entry.display());
+
+            let mut backend_command = Command::new(&node_executable);
+            clear_inherited_child_overrides(&mut backend_command);
+            #[cfg(debug_assertions)]
+            backend_command.args(["--import", "tsx"]);
+            let child = backend_command
                     .arg(&backend_entry)
-                    .current_dir(workspace_root)
+                    .current_dir(&backend_cwd)
                     .env("OMNI_SQL_PORT", BACKEND_PORT.to_string())
+                    .env("OMNI_SQL_AUTH_TOKEN", &auth_token)
+                    .env(
+                        "OMNI_SQL_ALLOWED_ORIGIN",
+                        if cfg!(debug_assertions) { "http://localhost:1420" } else { "tauri://localhost" },
+                    )
                     .stdin(Stdio::null())
                     .stdout(Stdio::inherit())
                     .stderr(Stdio::inherit())
@@ -237,6 +427,7 @@ pub fn run() {
             // Keep the child in managed state so window teardown can still kill it;
             // the readiness thread observes its exit through that same state.
             let app_handle = app.handle().clone();
+            let backend_auth_token = auth_token.clone();
             std::thread::spawn(move || {
                 let deadline = Instant::now() + Duration::from_secs(30);
                 let mut last_probe_error = "no health probe completed".to_string();
@@ -261,7 +452,7 @@ pub fn run() {
                         }
                     }
 
-                    match http_get(BACKEND_PORT, "/health") {
+                    match http_get(BACKEND_PORT, "/health", &backend_auth_token) {
                         Ok((status, body)) if backend_health_is_expected(status, &body) =>
                         {
                             log::info!("backend sidecar health check passed on 127.0.0.1:{BACKEND_PORT}");
@@ -294,13 +485,14 @@ pub fn run() {
             // trava a próxima subida com `BindException: Address already in
             // use`. `java -jar` é um processo comum, sem Daemon, que o kill
             // mata de verdade. Gere/atualize o jar com `./gradlew jar`.
-            let sidecar_dir = workspace_root.join("services/jvm-sidecar");
-            let sidecar_jar = sidecar_dir.join("build/libs/omni-sql-sidecar.jar");
+            let (sidecar_jar, sidecar_dir) = sidecar_process_paths(app.handle())?;
             if sidecar_jar.exists() {
-                let mut cmd = Command::new("java");
+                let mut cmd = Command::new(java_executable(app.handle())?);
+                clear_inherited_child_overrides(&mut cmd);
                 cmd.arg("-jar").arg(&sidecar_jar);
                 cmd.current_dir(&sidecar_dir)
                     .env("OMNI_SIDE_CAR_PORT", SIDECAR_PORT.to_string())
+                    .env("OMNI_SQL_AUTH_TOKEN", &auth_token)
                     .stdin(Stdio::null())
                     .stdout(Stdio::inherit())
                     .stderr(Stdio::inherit());
@@ -314,6 +506,7 @@ pub fn run() {
                         // HTTP health validation runs asynchronously and verifies
                         // identity, not merely that some process owns the port.
                         let app_handle = app.handle().clone();
+                        let sidecar_auth_token = auth_token.clone();
                         emit_sidecar_status(&app_handle, SIDECAR_STATUS_CHECKING);
                         std::thread::spawn(move || {
                             let deadline = Instant::now() + Duration::from_secs(30);
@@ -345,7 +538,7 @@ pub fn run() {
                                     }
                                 }
 
-                                match http_get(SIDECAR_PORT, "/health") {
+                                match http_get(SIDECAR_PORT, "/health", &sidecar_auth_token) {
                                     Ok((status, body))
                                         if status == 200 && sidecar_health_is_expected(&body) =>
                                     {
@@ -462,5 +655,59 @@ mod tests {
 
         *state.0.lock().unwrap() = SIDECAR_STATUS_READY;
         assert_eq!(*state.0.lock().unwrap(), "ready");
+    }
+
+    #[test]
+    fn auth_tokens_are_random_256_bit_hex_values() {
+        let first = generate_auth_token().unwrap();
+        let second = generate_auth_token().unwrap();
+
+        assert_eq!(first.len(), 64);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn sidecar_endpoints_are_loopback_only() {
+        assert_eq!(LOCALHOST, "127.0.0.1");
+        assert_eq!(BACKEND_PORT, 41920);
+        assert_eq!(SIDECAR_PORT, 41921);
+    }
+
+    #[test]
+    fn child_environment_cannot_override_runtime_security_settings() {
+        for variable in [
+            "NODE_OPTIONS",
+            "JAVA_TOOL_OPTIONS",
+            "LD_PRELOAD",
+            "OMNI_SQL_PORT",
+            "OMNI_SQL_AUTH_TOKEN",
+            "OMNI_SQL_ALLOWED_ORIGIN",
+            "OMNI_SIDE_CAR_PORT",
+        ] {
+            assert!(CHILD_ENV_OVERRIDES.contains(&variable));
+        }
+    }
+
+    #[test]
+    fn production_csp_allows_only_the_required_origins() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = config["app"]["security"]["csp"].as_str().unwrap();
+
+        assert_eq!(
+            csp,
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob:; font-src 'self' data: blob:; worker-src 'self' blob:; child-src 'self' blob:; connect-src ipc: http://ipc.localhost http://127.0.0.1:41920 http://localhost:41920"
+        );
+
+        let connect_src = csp
+            .split(';')
+            .find_map(|directive| directive.trim().strip_prefix("connect-src "))
+            .unwrap();
+        assert_eq!(
+            connect_src,
+            "ipc: http://ipc.localhost http://127.0.0.1:41920 http://localhost:41920"
+        );
+        assert!(!connect_src.contains("https:") && !connect_src.contains("ws:"));
     }
 }
