@@ -111,6 +111,54 @@ fn clear_inherited_child_overrides(command: &mut Command) {
     }
 }
 
+/// Resolve a `Stdio` for a sidecar child so its stdout/stderr reach a file
+/// the user can attach to a bug report. In debug builds we still inherit so
+/// the dev terminal keeps showing backend/sidecar output. In release builds
+/// (the Windows installer scenario) we redirect into the per-app log
+/// directory so "failed to fetch" from the frontend stops being silent.
+fn sidecar_log_stdio<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    file_name: &str,
+) -> Stdio {
+    #[cfg(debug_assertions)]
+    {
+        let _ = (app, file_name);
+        return Stdio::inherit();
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let dir = match app.path().app_log_dir() {
+            Ok(dir) => dir,
+            Err(err) => {
+                log::warn!("failed to resolve app log dir for sidecar logs: {err}");
+                return Stdio::inherit();
+            }
+        };
+        if let Err(err) = std::fs::create_dir_all(&dir) {
+            log::warn!(
+                "failed to create sidecar log dir {}: {err}",
+                dir.display()
+            );
+            return Stdio::inherit();
+        }
+        let path = dir.join(file_name);
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(file) => {
+                log::info!("sidecar stdio redirected to {}", path.display());
+                Stdio::from(file)
+            }
+            Err(err) => {
+                log::warn!("failed to open sidecar log {}: {err}", path.display());
+                Stdio::inherit()
+            }
+        }
+    }
+}
+
 fn json_string_field(body: &str, field: &str) -> Option<String> {
     let marker = format!("\"{field}\"");
     let value = body.split_once(&marker)?.1.trim_start();
@@ -352,13 +400,31 @@ pub fn run() {
         .manage(SidecarChild(Mutex::new(None)))
         .manage(SidecarStatusState(Mutex::new(SIDECAR_STATUS_CHECKING)))
         .setup(move |app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
+            // The log plugin is registered in both debug and release so that
+            // release/installer builds still leave a `omni-sql.log` on disk
+            // when something goes wrong. In dev the default stdout target is
+            // still active; in release we also add a rolling file target in
+            // the per-app log directory.
+            let log_plugin = {
+                #[cfg(not(debug_assertions))]
+                {
+                    tauri_plugin_log::Builder::new()
                         .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+                        .target(tauri_plugin_log::Target::new(
+                            tauri_plugin_log::TargetKind::LogDir {
+                                file_name: Some("omni-sql".to_string()),
+                            },
+                        ))
+                        .build()
+                }
+                #[cfg(debug_assertions)]
+                {
+                    tauri_plugin_log::Builder::new()
+                        .level(log::LevelFilter::Info)
+                        .build()
+                }
+            };
+            app.handle().plugin(log_plugin)?;
 
             // O ícone do bundle (tauri.conf.json `bundle.icon`) tem o texto
             // "Omni SQL" e é o que o Windows usa para o .exe/instalador/Explorer.
@@ -420,8 +486,8 @@ pub fn run() {
                         if cfg!(debug_assertions) { "http://localhost:1420" } else { release_allowed_origin() },
                     )
                     .stdin(Stdio::null())
-                    .stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit())
+                    .stdout(sidecar_log_stdio(app.handle(), "backend.log"))
+                    .stderr(sidecar_log_stdio(app.handle(), "backend.log"))
                     .spawn()
                     .map_err(|e| {
                         log::error!("failed to spawn Node backend: {e}");
@@ -502,8 +568,8 @@ pub fn run() {
                     .env("OMNI_SIDE_CAR_PORT", SIDECAR_PORT.to_string())
                     .env("OMNI_SQL_AUTH_TOKEN", &auth_token)
                     .stdin(Stdio::null())
-                    .stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit());
+                    .stdout(sidecar_log_stdio(app.handle(), "sidecar.log"))
+                    .stderr(sidecar_log_stdio(app.handle(), "sidecar.log"));
 
                 match cmd.spawn() {
                     Ok(child) => {
