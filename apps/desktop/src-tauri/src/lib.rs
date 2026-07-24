@@ -266,6 +266,30 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// On Windows, `tauri::path::PathResolver::resolve` can return paths with the
+/// `\\?\` extended-length prefix (Win32 `\\?\` verbatim path). `CreateProcessW`
+/// accepts it, but Node's argv handling (`realpathSync` during `runMain`)
+/// and the JVM's classloader treat `\\?\C:` as a malformed root, producing
+/// `EISDIR: lstat 'C:'` and `ClassNotFoundException` respectively. Strip the
+/// prefix before handing the path to a child process.
+#[allow(dead_code)] // only the Windows cfg branch is called by release path resolvers; debug Linux builds don't reach it
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let s = path.to_string_lossy();
+        return match s.strip_prefix(r"\\?\") {
+            Some(stripped) => PathBuf::from(stripped),
+            None => path,
+        };
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+    }
+    #[allow(unreachable_code)]
+    path
+}
+
 #[cfg(debug_assertions)]
 fn backend_process_paths<R: tauri::Runtime>(
     _app: &tauri::AppHandle<R>,
@@ -288,18 +312,24 @@ fn backend_process_paths<R: tauri::Runtime>(
         "resources/runtime/node/node"
     };
     Ok((
-        app.path()
-            .resolve(node, tauri::path::BaseDirectory::Resource)
-            .map_err(|err| format!("failed to resolve bundled Node runtime: {err}"))?,
-        app.path()
-            .resolve(
-                "resources/backend/index.mjs",
-                tauri::path::BaseDirectory::Resource,
-            )
-            .map_err(|err| format!("failed to resolve bundled backend: {err}"))?,
-        app.path()
-            .resolve("resources/backend", tauri::path::BaseDirectory::Resource)
-            .map_err(|err| format!("failed to resolve bundled backend directory: {err}"))?,
+        strip_verbatim_prefix(
+            app.path()
+                .resolve(node, tauri::path::BaseDirectory::Resource)
+                .map_err(|err| format!("failed to resolve bundled Node runtime: {err}"))?,
+        ),
+        strip_verbatim_prefix(
+            app.path()
+                .resolve(
+                    "resources/backend/index.mjs",
+                    tauri::path::BaseDirectory::Resource,
+                )
+                .map_err(|err| format!("failed to resolve bundled backend: {err}"))?,
+        ),
+        strip_verbatim_prefix(
+            app.path()
+                .resolve("resources/backend", tauri::path::BaseDirectory::Resource)
+                .map_err(|err| format!("failed to resolve bundled backend directory: {err}"))?,
+        ),
     ))
 }
 
@@ -316,15 +346,19 @@ fn sidecar_process_paths<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<(PathBuf, PathBuf), String> {
     Ok((
-        app.path()
-            .resolve(
-                "resources/sidecar/omni-sql-sidecar.jar",
-                tauri::path::BaseDirectory::Resource,
-            )
-            .map_err(|err| format!("failed to resolve bundled JVM sidecar: {err}"))?,
-        app.path()
-            .resolve("resources/sidecar", tauri::path::BaseDirectory::Resource)
-            .map_err(|err| format!("failed to resolve bundled sidecar directory: {err}"))?,
+        strip_verbatim_prefix(
+            app.path()
+                .resolve(
+                    "resources/sidecar/omni-sql-sidecar.jar",
+                    tauri::path::BaseDirectory::Resource,
+                )
+                .map_err(|err| format!("failed to resolve bundled JVM sidecar: {err}"))?,
+        ),
+        strip_verbatim_prefix(
+            app.path()
+                .resolve("resources/sidecar", tauri::path::BaseDirectory::Resource)
+                .map_err(|err| format!("failed to resolve bundled sidecar directory: {err}"))?,
+        ),
     ))
 }
 
@@ -335,12 +369,14 @@ fn java_executable<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) -> Result<Path
 
 #[cfg(all(not(debug_assertions), target_os = "windows"))]
 fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
-    app.path()
-        .resolve(
-            "resources/runtime/jre/bin/java.exe",
-            tauri::path::BaseDirectory::Resource,
-        )
-        .map_err(|err| format!("failed to resolve bundled Java runtime: {err}"))
+    strip_verbatim_prefix(
+        app.path()
+            .resolve(
+                "resources/runtime/jre/bin/java.exe",
+                tauri::path::BaseDirectory::Resource,
+            )
+            .map_err(|err| format!("failed to resolve bundled Java runtime: {err}"))?,
+    )
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
