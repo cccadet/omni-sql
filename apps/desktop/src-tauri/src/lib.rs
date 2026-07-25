@@ -369,14 +369,14 @@ fn java_executable<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) -> Result<Path
 
 #[cfg(all(not(debug_assertions), target_os = "windows"))]
 fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
-    strip_verbatim_prefix(
+    Ok(strip_verbatim_prefix(
         app.path()
             .resolve(
                 "resources/runtime/jre/bin/java.exe",
                 tauri::path::BaseDirectory::Resource,
             )
             .map_err(|err| format!("failed to resolve bundled Java runtime: {err}"))?,
-    )
+    ))
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
