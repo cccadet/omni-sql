@@ -44,3 +44,6 @@ Thumbs.db
 layout_transpilar.png
 layout2.png
 apps/desktop/src-tauri/resultados.csv
+.agents/
+.windsurf/
+skills-lock.json
