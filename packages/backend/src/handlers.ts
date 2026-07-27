@@ -242,6 +242,8 @@ function buildTableDdl(dialect: ConnectionConfig["dialect"], relation: Relation)
 function metaSourceOf(session: Session, cteRelations: readonly Relation[] = []): MetadataSource {
   return {
     dialect: dialectDescriptor(session.config.dialect),
+    listSchemas: (): readonly string[] =>
+      cache.listSchemas(session.config.id).map((schema) => schema.name),
     listRelations: (): readonly Relation[] => {
       const out: Relation[] = [...cteRelations];
       const cteNames = new Set(cteRelations.map((r) => r.name.toLowerCase()));

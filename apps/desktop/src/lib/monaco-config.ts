@@ -78,6 +78,8 @@ export function getOmniThemeName(isDark: boolean): string {
 
 export function mapKind(k: Suggestion["kind"]): monaco.languages.CompletionItemKind {
   switch (k) {
+    case "schema":
+      return monaco.languages.CompletionItemKind.Module;
     case "table":
       return monaco.languages.CompletionItemKind.Class;
     case "view":

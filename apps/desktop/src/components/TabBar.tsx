@@ -53,7 +53,6 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
       <TabList
         selectedValue={activeTabId ?? undefined}
         onTabSelect={(_, data) => onSelect?.(String(data.value))}
-        style={{ flex: 1 }}
       >
         {tabs.map((tab) => (
           <Tab key={tab.id} value={tab.id}>
