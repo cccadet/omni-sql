@@ -52,6 +52,7 @@ const COALESCE: FunctionDef = {
 function metaOf(dialect: DialectDescriptor): MetadataSource {
   return {
     dialect,
+    listSchemas: () => ["public"],
     listRelations: () => [USERS, ORDERS, USERS_VIEW],
     listFunctions: () => [COALESCE],
     resolveRelation: (ref: ScopeRef) => {
@@ -60,6 +61,22 @@ function metaOf(dialect: DialectDescriptor): MetadataSource {
     },
   };
 }
+
+test("FROM prefixa schemas antes de tabelas/views", () => {
+  const meta = metaOf(postgresDescriptor);
+  const relation: Relation = { ...USERS, name: "auto_table" };
+  const schemaMeta: MetadataSource = {
+    ...meta,
+    listSchemas: () => ["auto", "public"],
+    listRelations: () => [relation],
+  };
+  const sql = "SELECT 1 FROM auto";
+  const out = autocompleteTier1(sql, sql.length, schemaMeta);
+  assert.equal(out[0]?.kind, "schema");
+  assert.equal(out[0]?.label, "auto");
+  assert.equal(out[1]?.kind, "table");
+  assert.equal(out[1]?.label, "auto_table");
+});
 
 test("caso 1: cursor após FROM → sugere tabelas/views", () => {
   const meta = metaOf(postgresDescriptor);
