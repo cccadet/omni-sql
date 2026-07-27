@@ -5,6 +5,8 @@ import { resolveContext, type ResolvedContext, type ScopeRef } from "./context.t
 /** Origem de metadados (somente leitura) consumida pelo motor. */
 export interface MetadataSource {
   readonly dialect: DialectDescriptor;
+  /** Lista schemas disponíveis no cache. */
+  listSchemas(): readonly string[];
   /** Lista todas as relações (tabelas + views) dos schemas disponíveis. */
   listRelations(): readonly Relation[];
   /** Lista funções dos schemas disponíveis. */
@@ -14,6 +16,7 @@ export interface MetadataSource {
 }
 
 export type SuggestionKind =
+  | "schema"
   | "table"
   | "view"
   | "column"
@@ -54,7 +57,7 @@ export function autocompleteTier1(
   const dialect = meta.dialect;
   const ctx: ResolvedContext = resolveContext(input, cursor, dialect);
 
-  // Caso 1: cursor imediatamente após FROM/JOIN → tabelas/views. Um
+  // Caso 1: cursor imediatamente após FROM/JOIN → schemas + tabelas/views. Um
   // qualificador aqui é um schema (`ai.<cursor>`), não um alias.
   if (ctx.clause === "from" || ctx.clause === "join") {
     // Case-insensitive: identificadores não-citados são digitados em
@@ -65,7 +68,17 @@ export function autocompleteTier1(
       ? meta.listRelations().filter((r) => r.schema.toLowerCase() === qualifierLower)
       : meta.listRelations();
     const partial = ctx.cursorToken?.value ?? "";
-    return rels
+    const matchingSchemas = qualifierLower
+      ? []
+      : meta.listSchemas()
+        .filter((schema) => partial && schema.toLowerCase().startsWith(partial.toLowerCase()))
+        .map((schema) => ({
+          kind: "schema" as const,
+          label: schema,
+          detail: "schema",
+          relevance: 95,
+        }));
+    const matchingRelations = rels
       .map((r) => ({
         kind: r.kind === "view" ? ("view" as const) : ("table" as const),
         label: r.name,
@@ -77,6 +90,7 @@ export function autocompleteTier1(
         relevance: 90,
       }))
       .filter((s) => !partial || s.label.toLowerCase().startsWith(partial.toLowerCase()));
+    return [...matchingSchemas, ...matchingRelations];
   }
 
   // Caso 4: `alias.` → colunas do alias.
