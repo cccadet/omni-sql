@@ -33,6 +33,23 @@ export interface Suggestion {
   readonly relevance: number;
 }
 
+function qualifierBeforeCursor(ctx: ResolvedContext): string | null {
+  if (ctx.qualifier) return ctx.qualifier;
+  const tokens = ctx.prelude;
+  const last = tokens[tokens.length - 1];
+  const dot = tokens[tokens.length - 2];
+  const qualifier = tokens[tokens.length - 3];
+  if (
+    last?.type === "identifier" &&
+    dot?.type === "punct" &&
+    dot.value === "." &&
+    (qualifier?.type === "identifier" || qualifier?.type === "keyword")
+  ) {
+    return qualifier.value;
+  }
+  return null;
+}
+
 /**
  * Motor de autocomplete — tier1. Resolve contexto apenas com lexer e lookup
  * no cache (em memória). Casos que exigem Calcite (subqueries correlacionadas,
@@ -63,7 +80,8 @@ export function autocompleteTier1(
     // Case-insensitive: identificadores não-citados são digitados em
     // qualquer case pelo usuário, mas o schema cacheado reflete o folding
     // do dialeto (Postgres → minúsculas, Oracle → MAIÚSCULAS).
-    const qualifierLower = ctx.qualifier?.toLowerCase();
+    const qualifier = qualifierBeforeCursor(ctx);
+    const qualifierLower = qualifier?.toLowerCase();
     const rels = qualifierLower
       ? meta.listRelations().filter((r) => r.schema.toLowerCase() === qualifierLower)
       : meta.listRelations();
@@ -71,7 +89,7 @@ export function autocompleteTier1(
     const matchingSchemas = qualifierLower
       ? []
       : meta.listSchemas()
-        .filter((schema) => partial && schema.toLowerCase().startsWith(partial.toLowerCase()))
+        .filter((schema) => !partial || schema.toLowerCase().startsWith(partial.toLowerCase()))
         .map((schema) => ({
           kind: "schema" as const,
           label: schema,
@@ -86,7 +104,9 @@ export function autocompleteTier1(
         // Schema já digitado pelo usuário (`ctx.qualifier`) não deve ser
         // repetido; do contrário, qualifica para produzir SQL executável
         // em schemas fora do search_path padrão.
-        insertText: ctx.qualifier || r.schema === "public" || r.schema === "" ? undefined : `${r.schema}.${r.name}`,
+        // Monaco replaces only current word. Keep schema typed by user and
+        // insert table name, never a second schema qualifier.
+        insertText: r.schema === "" ? undefined : r.name,
         relevance: 90,
       }))
       .filter((s) => !partial || s.label.toLowerCase().startsWith(partial.toLowerCase()));
