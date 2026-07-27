@@ -86,7 +86,45 @@ test("caso 1: cursor após FROM → sugere tabelas/views", () => {
   assert.ok(labels.includes("users"));
   assert.ok(labels.includes("orders"));
   assert.ok(labels.includes("active_users"));
-  assert.ok(out.every((s) => s.kind === "table" || s.kind === "view"));
+  assert.ok(labels.includes("public"));
+  assert.ok(out.some((s) => s.kind === "schema"));
+});
+
+test("FROM sem prefixo sugere schemas e relações", () => {
+  const meta = metaOf(postgresDescriptor);
+  const sql = "SELECT * FROM ";
+  const out = autocompleteTier1(sql, sql.length, meta);
+  assert.ok(out.some((s) => s.kind === "schema" && s.label === "public"));
+  assert.ok(out.some((s) => s.kind === "table" && s.label === "users"));
+});
+
+test("schema. sugere apenas relações do schema", () => {
+  const meta = metaOf(postgresDescriptor);
+  const auditUsers: Relation = { ...USERS, schema: "audit", name: "users" };
+  const schemaMeta: MetadataSource = {
+    ...meta,
+    listSchemas: () => ["public", "audit"],
+    listRelations: () => [...meta.listRelations(), auditUsers],
+  };
+  const sql = "SELECT * FROM audit.";
+  const out = autocompleteTier1(sql, sql.length, schemaMeta);
+  assert.deepEqual(out.map((s) => s.label), ["users"]);
+  assert.equal(out[0]?.insertText, "users");
+});
+
+test("schema.partial seleciona somente parte da tabela", () => {
+  const meta = metaOf(postgresDescriptor);
+  const auditUsers: Relation = { ...USERS, schema: "audit", name: "users" };
+  const schemaMeta: MetadataSource = {
+    ...meta,
+    listSchemas: () => ["audit"],
+    listRelations: () => [auditUsers],
+  };
+  const sql = "SELECT * FROM audit.us";
+  const out = autocompleteTier1(sql, sql.length, schemaMeta);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.label, "users");
+  assert.equal(out[0]?.insertText, "users");
 });
 
 test("caso 2: SELECT sem FROM → `*` + funções", () => {
