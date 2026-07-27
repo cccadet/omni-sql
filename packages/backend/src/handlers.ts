@@ -355,13 +355,24 @@ export const handlers: RpcRouter = {
       password !== undefined && password.length > 0
         ? password
         : await readStoredPassword(config, "listing schemas");
+    console.log(
+      `[omni-sql] listSchemas start: id=${config.id} dialect=${config.dialect} ` +
+      `endpoint=${config.endpoint} hasPassword=${effectivePassword !== undefined}`,
+    );
     const adapter = resolveAdapter(config, effectivePassword);
+    const tConnect = Date.now();
     try {
       await adapter.connect();
+      console.log(`[omni-sql] listSchemas: connected in ${Date.now() - tConnect}ms`);
+      const tList = Date.now();
       const schemas = await adapter.listAvailableSchemas();
+      console.log(
+        `[omni-sql] listSchemas: adapter returned ${schemas.length} schemas ` +
+        `in ${Date.now() - tList}ms (${schemas.slice(0, 5).join(", ")}${schemas.length > 5 ? "…" : ""})`,
+      );
       return { schemas };
     } finally {
-      await adapter.close().catch(() => undefined);
+      await adapter.close().catch((e) => console.warn(`[omni-sql] listSchemas: close failed: ${e}`));
     }
   },
 
@@ -421,6 +432,14 @@ export const handlers: RpcRouter = {
     // contra o metadata-cache real para pegar schema/nome concretos e a PK.
     const relation = resolveRelationByName(connectionId, raw.table.name, raw.table.schema);
     if (!relation) {
+      // Cache is the source of truth for editability; a miss here means
+      // introspect either failed or never ran. Log enough to disambiguate.
+      const cachedSchemas = cache.listSchemas(connectionId);
+      console.warn(
+        `[omni-sql] analyzeEditability: relation not in cache ` +
+        `table=${raw.table.name} schema=${raw.table.schema ?? "∅"} ` +
+        `connectionId=${connectionId} cachedSchemas=${cachedSchemas.length}`,
+      );
       return notEditable("Tabela não encontrada nos metadados (rode a introspecção da conexão).");
     }
     const pkColumns = relation.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
@@ -481,8 +500,16 @@ export const handlers: RpcRouter = {
 
   async "metadata.introspect"({ connectionId }: IntrospectParams): Promise<IntrospectResult> {
     const s = requireSession(connectionId);
+    console.log(
+      `[omni-sql] introspect start: id=${connectionId} ` +
+      `dialect=${s.config.dialect} endpoint=${s.config.endpoint} user=${s.config.user}`,
+    );
+    const tConnect = Date.now();
     await s.adapter.connect();
+    console.log(`[omni-sql] introspect: connected in ${Date.now() - tConnect}ms, querying metadata…`);
+    const tIntro = Date.now();
     const db: Database = await s.adapter.introspect();
+    console.log(`[omni-sql] introspect: adapter.introspect() returned in ${Date.now() - tIntro}ms`);
 
     // Coleta relações e funções por schema a partir do adaptador; persiste no
     // cache unificado.
@@ -496,14 +523,26 @@ export const handlers: RpcRouter = {
       const fns = s.adapter.listFunctions(schema.name);
       schemasByName.set(schema.name, { name: schema.name, relations: rels, functions: fns });
     }
-    cache.ingestIntrospection(
-      connectionId,
-      [...schemasByName.values()].map((s2) => ({
-        name: s2.name,
-        relations: s2.relations,
-        functions: s2.functions,
-      })),
-    );
+    const tIngest = Date.now();
+    try {
+      cache.ingestIntrospection(
+        connectionId,
+        [...schemasByName.values()].map((s2) => ({
+          name: s2.name,
+          relations: s2.relations,
+          functions: s2.functions,
+        })),
+      );
+      console.log(
+        `[omni-sql] introspect: cache ingest ok in ${Date.now() - tIngest}ms ` +
+        `(${schemasByName.size} schemas, ` +
+        `${[...schemasByName.values()].reduce((n, x) => n + x.relations.length, 0)} relations, ` +
+        `${[...schemasByName.values()].reduce((n, x) => n + x.functions.length, 0)} functions)`,
+      );
+    } catch (e) {
+      console.error(`[omni-sql] introspect: cache ingest FAILED after ${Date.now() - tIngest}ms:`, e);
+      throw e;
+    }
     return db;
   },
 

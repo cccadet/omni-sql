@@ -203,7 +203,15 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
       return;
     }
     try {
+      console.log(`[omni-sql] rpc ← ${rpc.method} (id=${rpc.id ?? "?"})`);
+      const t0 = Date.now();
       const result = await dispatch(rpc.method, rpc.params);
+      const elapsed = Date.now() - t0;
+      // Methods we want to see how long they took even on success; skip
+      // query.run and similar that fire on every keystroke.
+      if (rpc.method !== "query.run") {
+        console.log(`[omni-sql] rpc → ${rpc.method} ok (${elapsed}ms)`);
+      }
       send(res, 200, { jsonrpc: "2.0", id: rpc.id, result } satisfies JsonRpcResponse, req.headers.origin);
     } catch (e) {
       if (e instanceof UnknownMethodError) {
