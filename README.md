@@ -1,173 +1,107 @@
-# omni-sql
+<p align="center">
+  <img src="omni-sql.svg" alt="omni-sql logo" width="96" />
+</p>
 
-One IDE for every database. Multi-database SQL IDE with intelligent
-autocomplete (no LLM in v1).
+<h1 align="center">omni-sql</h1>
 
-## O que é
+<p align="center">One focused desktop SQL workspace for every database.</p>
 
-IDE desktop **local** (não é web app). Construída com Tauri: um binário nativo
-que empacota um shell Rust + frontend React + Fluent UI React v9 + Monaco Editor + backend Node.
-Suporta **Linux e Windows** (Tauri compila para ambos). Nada roda no navegador
-na versão final — o modo `dev:frontend` abre no browser só para conveniência
-durante o desenvolvimento.
+<p align="center">
+  <a href="https://github.com/cccadet/omni-sql/releases/latest"><strong>Download latest release</strong></a>
+</p>
 
-## Pré-requisitos
+<p align="center">
+  <a href="https://github.com/cccadet/omni-sql/actions/workflows/ci.yml"><img src="https://github.com/cccadet/omni-sql/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" /></a>
+  <a href="https://github.com/cccadet/omni-sql/releases/latest"><img src="https://img.shields.io/github/v/release/cccadet/omni-sql" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
+</p>
 
-| Ferramenta | Versão     | Notas |
-|------------|------------|-------|
-| Node.js    | >= 22      | Usa `node:sqlite` builtin |
-| pnpm       | >= 11      | `npm i -g pnpm` ou via corepack |
-| Rust       | stable     | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Tauri CLI  | 2.x        | `cargo install tauri-cli --version "^2.0" --locked` |
-| Java (JDK) | >= 21      | Apenas para o JVM sidecar (Fase 3+) |
-| Gradle     | >= 8       | Apenas para o JVM sidecar (Fase 3+) |
+## Overview
 
-**Linux (Ubuntu 22.04):** `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libfuse2 xdg-utils file libayatana-appindicator3-dev` (dependências recomendadas do Tauri).
+omni-sql is a local desktop SQL IDE for PostgreSQL, MySQL, MariaDB, SQL Server,
+and Oracle. It keeps query writing, database browsing, execution, and results
+in one clear workspace.
 
-**Windows:** instale o [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) e o [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+## Features
 
-### JVM sidecar (obrigatório para autocomplete tier2)
+- Metadata-backed autocomplete for tables, columns, CTE names, and CTE columns
+- SQL diagnostics with dialect-transpilation quick fixes
+- Schema browser with columns, keys, indexes, functions, and object definitions
+- Integrated textual `EXPLAIN` for native relational connections
+- Inline edits only when primary-key checks establish a safe update path
+- Generic JDBC connections with a user-supplied driver JAR (experimental)
 
-`pnpm dev:tauri` sobe normalmente sem o JVM sidecar, mas o autocomplete fica
-travado em tier1 (sem resolução de colunas de CTE) e só um log `INFO` no
-console avisa disso. Para habilitar o tier2, gere o jar **antes** de rodar
-`pnpm dev:tauri`:
+## Database support
 
-```powershell
-# Windows (PowerShell)
-winget install --id EclipseAdoptium.Temurin.21.JDK -e   # se ainda não tiver JDK 21
-java -version                                             # em um terminal novo, para o PATH atualizar
-cd services\jvm-sidecar
-.\gradlew.bat jar
-```
+| Database | Support |
+| --- | --- |
+| <img src="docs/images/database-icons/postgres.svg" alt="" width="18" height="18" /> PostgreSQL | <span style="color: green;">✅ Supported</span> |
+| <img src="docs/images/database-icons/mysql.svg" alt="" width="18" height="18" /> MySQL | <span style="color: green;">✅ Supported</span> |
+| <img src="docs/images/database-icons/mariadb.svg" alt="" width="18" height="18" /> MariaDB | <span style="color: green;">✅ Supported</span> |
+| <img src="docs/images/database-icons/sqlserver.svg" alt="" width="18" height="18" /> SQL Server | <span style="color: green;">✅ Supported</span> |
+| <img src="docs/images/database-icons/oracle.svg" alt="" width="18" height="18" /> Oracle | <span style="color: green;">✅ Supported</span> |
+| <img src="docs/images/database-icons/jdbc-generic.svg" alt="" width="18" height="18" /> Generic JDBC | Experimental |
 
-```bash
-# Linux/macOS
-cd services/jvm-sidecar
-ls -l bootstrap.sh gradlew
-chmod +x bootstrap.sh gradlew
-./bootstrap.sh    # only first time, generates Gradle wrapper
-./gradlew jar
-```
+Generic JDBC requires a JDBC URL, driver JAR, and driver class supplied by the
+user. It currently provides limited query execution and basic metadata only;
+plans, indexes, definitions, and row edits are not available.
 
-O jar fica em `services/jvm-sidecar/build/libs/omni-sql-sidecar.jar` e é
-detectado automaticamente pelo Tauri no próximo `pnpm dev:tauri`. Rode
-`./gradlew jar` de novo sempre que mexer em `Main.kt`. Se o build falhar com
-`PKIX path building failed` (rede corporativa com SSL inspection), veja
-`services/jvm-sidecar/README.md#troubleshooting-ssl-ao-baixar-a-distribuição-do-gradle`.
+## Install
 
-## Instalação
+Download [v0.1.9](https://github.com/cccadet/omni-sql/releases/latest). No
+Node.js, Java, Rust, database client, or other SDK is required for end users.
 
-### Recursos distribuíveis
+Available release assets:
 
-Para preparar um pacote portátil (sem usar Node/Java do sistema), execute
-`pnpm prepare:resources` no próprio sistema-alvo (ou informe o mesmo valor de
-`hostTarget()` em `--target`). O preparador rejeita outros alvos: os builds de
-release são nativos e não podem carregar addons N-API de outra arquitetura. O
-script baixa versões fixas, verifica SHA-256, compila o backend e o sidecar, e
-valida o layout diretamente em `resources/`. Use `pnpm validate:resources` para
-validar novamente; downloads e saídas preparadas são ignorados pelo Git.
+- **Windows x64:** [`omni-sql_0.1.9_x64-setup.exe`](https://github.com/cccadet/omni-sql/releases/latest/download/omni-sql_0.1.9_x64-setup.exe) — run installer, then launch omni-sql.
+- **Linux amd64:** [`omni-sql_0.1.9_amd64.deb`](https://github.com/cccadet/omni-sql/releases/latest/download/omni-sql_0.1.9_amd64.deb) — install with `sudo apt install ./omni-sql_0.1.9_amd64.deb`, then launch from applications.
+- **Checksums:** [`SHA256SUMS`](https://github.com/cccadet/omni-sql/releases/latest/download/SHA256SUMS) — optionally verify with `sha256sum -c SHA256SUMS` on Linux or `Get-FileHash .\omni-sql_0.1.9_x64-setup.exe` on Windows.
 
-```bash
-git clone https://github.com/cccadet/omni-sql.git
-cd omni-sql
-pnpm install
-```
+No macOS, ARM, MSI, AppImage, or portable package is provided.
 
-## Desenvolvimento
+## Quick start
 
-### Desktop completo (recomendado)
+1. Install the package for your platform.
+2. Open omni-sql and create a connection.
+3. Select database type, enter connection details, and use **Test connection**.
+4. Choose SSL and schema settings where needed.
+5. Browse or reload metadata, open a SQL tab, and start writing.
+6. Run the selection or current statement. Inspect, filter, sort, page, or export results.
 
-Abre a janela nativa do Tauri com backend Node sidecar embutido:
+## Current status
 
-```bash
-pnpm dev:tauri
-```
+v0.1.9 is the latest release. Native database adapters listed above are
+available. Generic JDBC is experimental and intentionally limited.
 
-Isto sobe o Vite (frontend), o backend Node (JSON-RPC na porta 41920) e o
-shell Tauri que renderiza a janela desktop.
+Planned user-facing support:
 
-### Frontend isolado (browser, só para dev rápido)
+- ODBC
+- MongoDB
 
-```bash
-pnpm dev:frontend   # http://localhost:1420
-pnpm dev:backend    # http://localhost:41920/rpc (JSON-RPC)
-```
+## Screenshots and demo
 
-## Build
+Existing images are annotated development references. A clean hero screenshot
+has not yet been captured.
 
-Gera um binário instalável (.deb no Linux; .msi/.exe no Windows):
+Capture specification: **1440×900**, generic sample data, showing a database
+connection, SQL query, autocomplete suggestions, and query results in one
+cohesive view.
 
-```bash
-pnpm build:tauri
-```
+## Documentation
 
-O build executa o `vite build` do desktop automaticamente antes do bundle do
-Tauri. No Windows, os ZIPs de runtime são extraídos pelo PowerShell para
-preservar caminhos absolutos com letra de unidade.
+- [Database support and connections](docs/DATABASE-SUPPORT.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- **Developer docs:** [Development](docs/DEVELOPMENT.md), [Building](docs/BUILDING.md), [Architecture](docs/ARCHITECTURE.md)
+- Português (Brasil) — translation planned; not yet available
 
-Os artefatos ficam em `apps/desktop/src-tauri/target/release/bundle/`.
+## Built with
 
-### Preflight Windows x64
+Built with Tauri, React, Fluent UI, and Monaco Editor.
 
-O workflow manual/CI `Windows x64 preflight` também roda em PRs e em pushes
-para `main`. Ele prepara e valida os recursos, gera o instalador NSIS e publica
-somente um artifact temporário (não cria tag nem GitHub Release).
+## Contributing
 
-### Releases
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request.
 
-Push de uma tag no formato estrito `vX.Y.Z` dispara o workflow de release. Ele
-faz builds nativos para Windows x64 e Linux x64, publicando NSIS, deb
-e `SHA256SUMS` em uma GitHub Release com notas geradas. O AppImage foi removido
-do release principal e será reintroduzido após um job separado e validação.
-O macOS fica como
-requisito futuro e só será publicado após configurar signing e notarização.
-Não há updater configurado.
+## License
 
-## Verificação (typecheck + lint + testes)
-
-```bash
-pnpm verify          # todos os pacotes TS (typecheck + lint + test)
-cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml   # Rust shell
-```
-
-## SonarCloud
-
-O workflow analisa a branch padrão e PRs internos no SonarCloud. Configure o
-secret `SONAR_TOKEN` no repositório; a organização `memory-mcp-server` e a
-chave `cccadet_omni-sql` já estão em `sonar-project.properties`. PRs de forks
-são ignorados para não disponibilizar esse token.
-
-## Arquitetura
-
-```
-Tauri Shell (Rust)
-  ├─ React 19 + Fluent UI React v9 + Monaco Editor (frontend)
-  └─ Node backend (TS) — JSON-RPC HTTP localhost:41920
-       ├─ Adapters: PostgreSQL/MySQL/MariaDB/SQLServer/Oracle ✅ | JDBC ✅ | ODBC ⏳
-       ├─ Metadata cache: SQLite (node:sqlite builtin) com last_synced_at
-       └─ Autocomplete engine: lexer tier1 ✅ | Calcite tier2 ✅ (colunas de CTE)
-  └─ JVM sidecar (Kotlin, opcional) — HTTP localhost:41921
-       └─ Apache Calcite: /scope/resolve resolve colunas de `WITH x AS (...)`
-```
-
-Veja `PROJECT_PLAN.md` para o roadmap completo e `AGENTS.md` para detalhes
-técnicos.
-
-## Estado atual
-
-- ✅ Fase 0: Fundação (monorepo, Tauri, Monaco, results grid, CI)
-- ✅ Fase 1: Cache SQLite + modelo unificado de metadados
-- ✅ Fase 2: Adaptador PostgreSQL real + lexer tier1 (casos 1-6)
-- ✅ Fase 3: Colunas de CTE via Apache Calcite (`/scope/resolve` no sidecar JVM)
-- ✅ Fase 4: Adaptadores MySQL/MariaDB, SQL Server e Oracle, com smoke/integration test Docker
-- ✅ Fase 6 (núcleo): Adaptador JDBC genérico via sidecar JVM e `DatabaseMetaData`
-- ✅ Migração do frontend Svelte 5 → React 19 + Fluent UI React v9
-- ✅ EXPLAIN integrado à UI, variáveis `:nome`, execução current/all, histórico, edição inline
-- ⏳ Fase 5: snippets/overloads de funções
-- ⏳ Fase 7: Adaptador ODBC
-- ⏳ Fase 9: Polimento transversal
-
-## Licença
-
-MIT
+[MIT](LICENSE)
