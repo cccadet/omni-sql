@@ -1,0 +1,14 @@
+<svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M4 3L5.5 6H10.5L12 3L13 5V9C13 11 11.5 13 9 13H7C4.5 13 3 11 3 9V5L4 3Z" fill="url(#mariaGrad)"/>
+  <defs>
+    <linearGradient id="mariaGrad" x1="3" y1="3" x2="13" y2="13">
+      <stop offset="0%" stop-color="#003545"/>
+      <stop offset="100%" stop-color="#006060"/>
+    </linearGradient>
+  </defs>
+  <circle cx="6.5" cy="8" r="1" fill="white"/>
+  <circle cx="9.5" cy="8" r="1" fill="white"/>
+  <ellipse cx="8" cy="10" rx="1" ry="0.6" fill="#E8530E"/>
+  <path d="M5 4L3.5 2" stroke="#003545" stroke-width="0.8" stroke-linecap="round"/>
+  <path d="M11 4L12.5 2" stroke="#003545" stroke-width="0.8" stroke-linecap="round"/>
+</svg>
