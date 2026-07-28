@@ -48,14 +48,14 @@ plans, indexes, definitions, and row edits are not available.
 
 ## Install
 
-Download [v0.1.11](https://github.com/cccadet/omni-sql/releases/latest). No
+Download [v0.1.12](https://github.com/cccadet/omni-sql/releases/latest). No
 Node.js, Java, Rust, database client, or other SDK is required for end users.
 
 Available release assets:
 
-- **Windows x64:** [`omni-sql_0.1.11_x64-setup.exe`](https://github.com/cccadet/omni-sql/releases/latest/download/omni-sql_0.1.11_x64-setup.exe) — run installer, then launch omni-sql.
-- **Linux amd64:** [`omni-sql_0.1.11_amd64.deb`](https://github.com/cccadet/omni-sql/releases/latest/download/omni-sql_0.1.11_amd64.deb) — install with `sudo apt install ./omni-sql_0.1.11_amd64.deb`, then launch from applications.
-- **Checksums:** [`SHA256SUMS`](https://github.com/cccadet/omni-sql/releases/latest/download/SHA256SUMS) — optionally verify with `sha256sum -c SHA256SUMS` on Linux or `Get-FileHash .\omni-sql_0.1.11_x64-setup.exe` on Windows.
+- **Windows x64:** [`omni-sql_0.1.12_x64-setup.exe`](https://github.com/cccadet/omni-sql/releases/latest/download/omni-sql_0.1.12_x64-setup.exe) — run installer, then launch omni-sql.
+- **Linux amd64:** [`omni-sql_0.1.12_amd64.deb`](https://github.com/cccadet/omni-sql/releases/latest/download/omni-sql_0.1.12_amd64.deb) — install with `sudo apt install ./omni-sql_0.1.12_amd64.deb`, then launch from applications.
+- **Checksums:** [`SHA256SUMS`](https://github.com/cccadet/omni-sql/releases/latest/download/SHA256SUMS) — optionally verify with `sha256sum -c SHA256SUMS` on Linux or `Get-FileHash .\omni-sql_0.1.12_x64-setup.exe` on Windows.
 
 No macOS, ARM, MSI, AppImage, or portable package is provided.
 
@@ -70,7 +70,7 @@ No macOS, ARM, MSI, AppImage, or portable package is provided.
 
 ## Current status
 
-v0.1.11 is the latest release. Native database adapters listed above are
+v0.1.12 is the latest release. Native database adapters listed above are
 available. Generic JDBC is experimental and intentionally limited.
 
 Planned user-facing support:

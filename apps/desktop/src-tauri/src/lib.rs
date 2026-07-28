@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -20,6 +22,8 @@ const SIDECAR_STATUS_EVENT: &str = "sidecar-status";
 const SIDECAR_STATUS_CHECKING: &str = "checking";
 const SIDECAR_STATUS_READY: &str = "ready";
 const SIDECAR_STATUS_UNAVAILABLE: &str = "unavailable";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 fn release_allowed_origin() -> &'static str {
     if cfg!(target_os = "windows") {
@@ -510,6 +514,8 @@ pub fn run() {
 
             let mut backend_command = Command::new(&node_executable);
             clear_inherited_child_overrides(&mut backend_command);
+            #[cfg(windows)]
+            backend_command.creation_flags(CREATE_NO_WINDOW);
             #[cfg(debug_assertions)]
             backend_command.args(["--import", "tsx"]);
             let child = backend_command
@@ -599,6 +605,8 @@ pub fn run() {
             if sidecar_jar.exists() {
                 let mut cmd = Command::new(java_executable(app.handle())?);
                 clear_inherited_child_overrides(&mut cmd);
+                #[cfg(windows)]
+                cmd.creation_flags(CREATE_NO_WINDOW);
                 cmd.arg("-jar").arg(&sidecar_jar);
                 cmd.current_dir(&sidecar_dir)
                     .env("OMNI_SIDE_CAR_PORT", SIDECAR_PORT.to_string())
