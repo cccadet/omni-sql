@@ -78,14 +78,25 @@ Planned user-facing support:
 - ODBC
 - MongoDB
 
-## Screenshots and demo
+## Features in action
 
-Existing images are annotated development references. A clean hero screenshot
-has not yet been captured.
+### CTE column autocomplete
 
-Capture specification: **1440×900**, generic sample data, showing a database
-connection, SQL query, autocomplete suggestions, and query results in one
-cohesive view.
+![CTE column autocomplete showing inferred columns and function suggestions](docs/images/CTE_columns.png)
+
+Autocomplete resolves columns exposed by a common table expression while a
+query is being written.
+
+### Dialect transpilation quick fix
+
+![Dialect diagnostic with transpilation quick fix](docs/images/transpile_02.png)
+
+When SQL uses a dialect-specific expression, the editor offers a quick fix to
+transpile it to the active PostgreSQL dialect.
+
+![Transpiled PostgreSQL expression in the editor](docs/images/transpile_03.png)
+
+The quick fix replaces the expression in place with PostgreSQL syntax.
 
 ## Documentation
 
