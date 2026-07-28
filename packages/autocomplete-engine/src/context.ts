@@ -267,6 +267,10 @@ function detectQualifier(tokens: readonly Token[]): string | null {
       return prev.value;
     }
   }
+  if (last.type === "identifier" && tokens[tokens.length - 2]?.value === ".") {
+    const prev = tokens[tokens.length - 3];
+    if (prev && (prev.type === "identifier" || prev.type === "keyword")) return prev.value;
+  }
   return null;
 }
 

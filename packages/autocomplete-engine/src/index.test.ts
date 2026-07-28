@@ -118,7 +118,7 @@ test("schema.partial seleciona somente parte da tabela", () => {
   const schemaMeta: MetadataSource = {
     ...meta,
     listSchemas: () => ["audit"],
-    listRelations: () => [auditUsers],
+    listRelations: () => [auditUsers, USERS],
   };
   const sql = "SELECT * FROM audit.us";
   const out = autocompleteTier1(sql, sql.length, schemaMeta);
