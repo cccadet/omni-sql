@@ -7,10 +7,17 @@ import {
   CursorRegular,
 } from "@fluentui/react-icons";
 import type { QueryResult } from "@omni-sql/ts-types";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ConnectionEntry } from "../lib/backend";
 import { DialectIcon } from "./DialectIcon";
 
 export type ConnectionHealth = "unknown" | "verifying" | "online" | "offline";
+
+export interface UpdateInfo {
+  available: boolean;
+  version?: string;
+  releaseUrl?: string;
+}
 
 export interface StatusBarProps {
   connection?: ConnectionEntry | null;
@@ -18,9 +25,10 @@ export interface StatusBarProps {
   cursorPosition?: { line: number; column: number } | null;
   busyMsg?: string | null;
   health?: ConnectionHealth;
+  update?: UpdateInfo | null;
 }
 
-export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown" }: StatusBarProps) {
+export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown", update }: StatusBarProps) {
   const dialectLabels: Record<string, string> = {
     postgres: "PostgreSQL",
     mysql: "MySQL",
@@ -69,6 +77,35 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
         </Text>
       )}
       <div style={{ flex: 1 }} />
+      {update?.available && (
+        <button
+          type="button"
+          aria-label={`Atualização${update.version ? ` v${update.version}` : ""} disponível`}
+          onClick={() => {
+            if (!update.releaseUrl) return;
+            try {
+              const url = new URL(update.releaseUrl);
+              if (url.protocol !== "https:") return;
+              void openUrl(url.toString()).catch(() => {
+                // Ignore opener failures.
+              });
+            } catch {
+              // Ignore malformed release URLs.
+            }
+          }}
+          style={{
+            padding: "2px 6px",
+            border: `1px solid ${tokens.colorNeutralStrokeOnBrand}`,
+            borderRadius: 3,
+            background: "transparent",
+            color: tokens.colorNeutralForegroundOnBrand,
+            cursor: update.releaseUrl ? "pointer" : "default",
+            font: "inherit",
+          }}
+        >
+          Atualização{update.version ? ` v${update.version}` : ""} disponível
+        </button>
+      )}
       {result && (
         <Text size={200} style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <DocumentRegular fontSize={12} />

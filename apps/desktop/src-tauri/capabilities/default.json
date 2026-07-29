@@ -7,6 +7,14 @@
   ],
   "permissions": [
     "core:default",
-    "dialog:default"
+    "dialog:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://github.com/cccadet/omni-sql/releases/**"
+        }
+      ]
+    }
   ]
 }
