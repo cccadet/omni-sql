@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
+import { getVersion } from "@tauri-apps/api/app";
 import { useEditorMonacoTheme, type ThemeName } from "./theme";
 import { useSession, makeTab } from "./hooks/useSession";
 import { useConnections } from "./hooks/useConnections";
@@ -9,7 +10,7 @@ import { TabBar } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
-import { StatusBar, type ConnectionHealth } from "./components/StatusBar";
+import { StatusBar, type ConnectionHealth, type UpdateInfo } from "./components/StatusBar";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
@@ -95,7 +96,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [runAfterVariables, setRunAfterVariables] = useState<{ sqls: string[]; label: string } | null>(null);
   const [diagnostics, setDiagnostics] = useState<SqlDiagnostic[]>([]);
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("unknown");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const connectionHealthCheckRef = useRef(0);
+
+  useEffect(() => {
+    void getVersion()
+      .then((currentVersion) => backend.call<UpdateInfo>("update.check", { currentVersion }))
+      .then(setUpdateInfo)
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void loadConnections();
@@ -644,7 +653,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
-        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} />
+        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} />
       </div>
 
       <ConnectionDialog
