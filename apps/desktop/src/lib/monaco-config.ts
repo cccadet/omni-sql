@@ -6,8 +6,8 @@ import {
   formatSql,
   type FormatterSettings,
   parseKeybinding,
-  formatKeybindingForDisplay,
 } from "./format-sql";
+export { createEditorActions, type EditorActionCallback } from "./editor-actions";
 
 const LANGUAGE_ID = "sql-omni";
 
@@ -15,6 +15,7 @@ export { LANGUAGE_ID };
 
 export const OMNISQL_DARK = "omni-sql-dark";
 export const OMNISQL_LIGHT = "omni-sql-light";
+
 
 export function registerOmniThemes(monacoInstance: typeof monaco): void {
   monacoInstance.editor.defineTheme(OMNISQL_DARK, {
@@ -284,66 +285,4 @@ export function configureAutocomplete(
       };
     },
   });
-}
-
-export function createEditorActions(
-  monacoInstance: typeof monaco,
-  editor: monaco.editor.IStandaloneCodeEditor,
-  onRun?: () => void,
-  onRunAll?: () => void,
-  onSave?: () => void,
-  onFormat?: () => void,
-  formatterSettings?: FormatterSettings,
-): void {
-  editor.addAction({
-    id: "omni-run-query",
-    label: "Executar instrução atual",
-    keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Enter],
-    run: () => onRun?.(),
-  });
-  editor.addAction({
-    id: "omni-run-all",
-    label: "Executar todas as instruções",
-    keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.Enter],
-    run: () => onRunAll?.(),
-  });
-  editor.addAction({
-    id: "omni-save-tab",
-    label: "Salvar aba",
-    keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS],
-    run: () => {
-      onSave?.();
-      return undefined;
-    },
-  });
-
-  const keybinding = formatterSettings?.keybinding;
-  if (keybinding) {
-    const parsed = parseKeybinding(keybinding);
-    const keyCode = monacoInstance.KeyCode[parsed.key as keyof typeof monacoInstance.KeyCode];
-    if (keyCode !== undefined) {
-      let mod = 0;
-      if (parsed.ctrl) mod |= monacoInstance.KeyMod.CtrlCmd;
-      if (parsed.alt) mod |= monacoInstance.KeyMod.Alt;
-      if (parsed.shift) mod |= monacoInstance.KeyMod.Shift;
-      editor.addAction({
-        id: "omni-format-sql",
-        label: `Formatar SQL (${formatKeybindingForDisplay(keybinding)})`,
-        keybindings: [mod | keyCode],
-        run: () => onFormat?.(),
-      });
-    } else {
-      editor.addAction({
-        id: "omni-format-sql",
-        label: "Formatar SQL",
-        run: () => onFormat?.(),
-      });
-    }
-  } else {
-    editor.addAction({
-      id: "omni-format-sql",
-      label: "Formatar SQL",
-      run: () => onFormat?.(),
-    });
-  }
 }
