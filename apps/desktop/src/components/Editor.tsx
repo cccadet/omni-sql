@@ -9,6 +9,7 @@ import {
   configureAutocomplete,
   configureFormatter,
   createEditorActions,
+  type EditorActionCallback,
   LANGUAGE_ID,
   OMNISQL_DARK,
   registerOmniThemes,
@@ -67,6 +68,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const autocompleteRef = useRef<((cursor: number) => Promise<Suggestion[]>) | null>(onAutocomplete ?? null);
   const diagnosticsRef = useRef<readonly SqlDiagnostic[]>(diagnostics);
   const applyTranspiledRef = useRef<((diagnostic: SqlDiagnostic) => void) | undefined>(onApplyTranspiled);
+  const onRunRef = useRef<EditorActionCallback>({ current: onRun });
+  const onRunAllRef = useRef<EditorActionCallback>({ current: onRunAll });
+  const onSaveRef = useRef<EditorActionCallback>({ current: onSave });
+  const onFormatRef = useRef<EditorActionCallback>({ current: undefined });
 
   useEffect(() => {
     autocompleteRef.current = onAutocomplete ?? null;
@@ -154,6 +159,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     if (!editor) return;
     formatterRef.current?.formatCurrentDocument(editor);
   }, []);
+
+  useEffect(() => {
+    onRunRef.current.current = onRun;
+    onRunAllRef.current.current = onRunAll;
+    onSaveRef.current.current = onSave;
+    onFormatRef.current.current = handleFormat;
+  }, [onRun, onRunAll, onSave, handleFormat]);
 
   useEffect(() => {
     if (monacoRef.current) {
@@ -258,7 +270,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
       const settings = formatterSettings ?? DEFAULT_FORMATTER_SETTINGS;
 
-      createEditorActions(monacoInstance, editor, onRun, onRunAll, onSave, handleFormat, settings);
+      createEditorActions(monacoInstance, editor, onRunRef.current, onRunAllRef.current, onSaveRef.current, onFormatRef.current, settings);
 
       editor.onDidChangeCursorPosition((e) => {
         onCursorChange?.({ line: e.position.lineNumber, column: e.position.column });
@@ -272,7 +284,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
       });
     },
-    [dialect, formatterSettings, onRun, onRunAll, onSave, onCursorChange, handleFormat, theme, diagnostics, onApplyTranspiled],
+    [dialect, formatterSettings, onCursorChange, handleFormat, theme],
   );
 
   return (
