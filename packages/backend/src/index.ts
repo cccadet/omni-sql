@@ -145,6 +145,8 @@ async function dispatch(method: string, params: unknown): Promise<unknown> {
       return handlers["connection.listSchemas"](params as never);
     case "completion.get":
       return handlers["completion.get"](params as never);
+    case "update.check":
+      return handlers["update.check"](params as never);
     default:
       throw new UnknownMethodError(method);
   }

@@ -59,6 +59,8 @@ import type {
   GetDefinitionResult,
   CompletionParams,
   CompletionResult,
+  UpdateCheckParams,
+  UpdateCheckResult,
 } from "./protocol.ts";
 
 // ─────────────────────────── SQLite cache path
@@ -85,6 +87,57 @@ const sessions = new Map<string, Session>();
 
 const DEFAULT_QUERY_LIMIT = 1_000;
 const MAX_QUERY_LIMIT = 10_000;
+const RELEASES_URL = "https://api.github.com/repos/cccadet/omni-sql/releases/latest";
+const UPDATE_CHECK_TIMEOUT_MS = 2_000;
+
+type StableVersion = [number, number, number];
+
+function parseStableVersion(value: unknown): StableVersion | null {
+  if (typeof value !== "string") return null;
+  const match = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+  if (!match) return null;
+  const version: StableVersion = [Number(match[1]), Number(match[2]), Number(match[3])];
+  return version.every(Number.isSafeInteger) ? version : null;
+}
+
+function isNewerVersion(latest: StableVersion, current: StableVersion): boolean {
+  for (let i = 0; i < latest.length; i += 1) {
+    if (latest[i] !== current[i]) return latest[i]! > current[i]!;
+  }
+  return false;
+}
+
+async function checkForUpdate({ currentVersion }: UpdateCheckParams): Promise<UpdateCheckResult> {
+  const current = parseStableVersion(currentVersion);
+  if (!current) return { available: false };
+
+  try {
+    const response = await fetch(RELEASES_URL, {
+      headers: { accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS),
+    });
+    if (!response.ok) return { available: false };
+    const payload: unknown = await response.json();
+    if (payload === null || typeof payload !== "object") return { available: false };
+    const release = payload as { tag_name?: unknown; html_url?: unknown };
+    if (typeof release.tag_name !== "string" || typeof release.html_url !== "string") {
+      return { available: false };
+    }
+    const latest = parseStableVersion(release.tag_name);
+    let releaseUrl: URL;
+    try {
+      releaseUrl = new URL(release.html_url);
+    } catch {
+      return { available: false };
+    }
+    if (!latest || releaseUrl.protocol !== "https:" || !isNewerVersion(latest, current)) {
+      return { available: false };
+    }
+    return { available: true, version: release.tag_name, releaseUrl: release.html_url };
+  } catch {
+    return { available: false };
+  }
+}
 
 /** Validate untrusted JSON-RPC input before it reaches an adapter. */
 export function normalizeQueryLimit(limit: unknown): number {
@@ -624,4 +677,6 @@ export const handlers: RpcRouter = {
     const suggestions = autocompleteTier1(sql, cursor, meta);
     return { suggestions };
   },
+
+  "update.check": checkForUpdate,
 };

@@ -182,6 +182,15 @@ export interface CompletionResult {
   suggestions: readonly Suggestion[];
 }
 
+export interface UpdateCheckParams {
+  currentVersion: string;
+}
+export interface UpdateCheckResult {
+  available: boolean;
+  version?: string;
+  releaseUrl?: string;
+}
+
 // ─────────────────────────── Routing table
 
 export interface RpcRouter {
@@ -203,6 +212,7 @@ export interface RpcRouter {
   "metadata.listIndexes": (p: ListIndexesParams) => Promise<ListIndexesResult>;
   "metadata.getDefinition": (p: GetDefinitionParams) => Promise<GetDefinitionResult>;
   "completion.get": (p: CompletionParams) => Promise<CompletionResult>;
+  "update.check": (p: UpdateCheckParams) => Promise<UpdateCheckResult>;
 }
 
 export type RpcHandler<K extends keyof RpcRouter> = RpcRouter[K];
