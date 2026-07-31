@@ -496,6 +496,7 @@ export function Sidebar({
                             className="obj-expand-trigger"
                             type="button"
                             aria-label={tr("expandCollapse")}
+                            title={tr("expandCollapse")}
                             onClick={() => toggleExpand(g.name, t.name, true)}
                             tabIndex={-1}
                           />
@@ -571,6 +572,7 @@ export function Sidebar({
                             className="obj-expand-trigger"
                             type="button"
                             aria-label={tr("expandCollapse")}
+                            title={tr("expandCollapse")}
                             onClick={() => toggleExpand(g.name, v.name, false)}
                             tabIndex={-1}
                           />
@@ -634,6 +636,7 @@ export function Sidebar({
         role="separator"
         aria-orientation="vertical"
         aria-label={tr("resizeObjectPanel")}
+        title={tr("resizeObjectPanel")}
         onPointerDown={onResizeStart}
       />
       {menu && (
