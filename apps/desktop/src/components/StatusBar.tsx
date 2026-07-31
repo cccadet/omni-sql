@@ -10,6 +10,7 @@ import type { QueryResult } from "@omni-sql/ts-types";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ConnectionEntry } from "../lib/backend";
 import { DialectIcon } from "./DialectIcon";
+import { useLanguage } from "../i18n";
 
 export type ConnectionHealth = "unknown" | "verifying" | "online" | "offline";
 
@@ -29,6 +30,7 @@ export interface StatusBarProps {
 }
 
 export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown", update }: StatusBarProps) {
+  const { t } = useLanguage();
   const dialectLabels: Record<string, string> = {
     postgres: "PostgreSQL",
     mysql: "MySQL",
@@ -38,7 +40,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
     "jdbc-generic": "JDBC",
     odbc: "ODBC",
   };
-  const healthLabel = !connection ? "Sem conexão" : health === "verifying" ? "Verifying…" : health === "online" ? "Online" : health === "offline" ? "Offline" : "Unknown";
+  const healthLabel = !connection ? t("noResults") : health === "verifying" ? t("loading") : health === "online" ? t("success") : health === "offline" ? t("failure") : t("error");
   const healthColor = health === "offline" ? tokens.colorPaletteRedForeground1 : health === "online" ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteYellowForeground1;
 
   return (
@@ -61,7 +63,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
         ) : (
           <PlugDisconnectedRegular fontSize={12} />
         )}
-        <Text size={200}>{connection?.label ?? "Sem conexão"}</Text>
+        <Text size={200}>{connection?.label ?? t("noResults")}</Text>
       </span>
       {connection && <Text size={200} style={{ color: healthColor }}>{healthLabel}</Text>}
       {connection && (
@@ -80,7 +82,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
       {update?.available && (
         <button
           type="button"
-          aria-label={`Atualização${update.version ? ` v${update.version}` : ""} disponível`}
+          aria-label={t("updateAvailable").replace("{version}", update.version ? ` v${update.version}` : "")}
           onClick={() => {
             if (!update.releaseUrl) return;
             try {
@@ -103,19 +105,19 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
             font: "inherit",
           }}
         >
-          Atualização{update.version ? ` v${update.version}` : ""} disponível
+          {t("updateAvailable").replace("{version}", update.version ? ` v${update.version}` : "")}
         </button>
       )}
       {result && (
         <Text size={200} style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <DocumentRegular fontSize={12} />
-          {result.rows.length} linha(s) · {result.columns.length} coluna(s) · {result.elapsedMs}ms
+          {result.rows.length} {t("rowCount")} · {result.columns.length} {t("columnCount")} · {result.elapsedMs}ms
         </Text>
       )}
       {cursorPosition && (
         <Text size={200} style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <CursorRegular fontSize={12} />
-          Ln {cursorPosition.line}, Col {cursorPosition.column}
+          {t("line")} {cursorPosition.line}, {t("column")} {cursorPosition.column}
         </Text>
       )}
     </footer>

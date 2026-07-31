@@ -17,6 +17,7 @@ import {
   MoreVerticalRegular,
 } from "@fluentui/react-icons";
 import type { ConnectionEntry } from "../lib/backend";
+import { useLanguage } from "../i18n";
 
 export interface ToolbarProps {
   connections: ConnectionEntry[];
@@ -73,14 +74,15 @@ export function Toolbar({
   onToggleSidebar,
   onToggleHistory,
 }: ToolbarProps) {
+  const { t } = useLanguage();
   return (
     <FluentToolbar className="omni-toolbar" style={{ padding: "6px 12px", gap: 0, alignItems: "center" }}>
       <div className="omni-toolbar-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">Conexão</span>
+          <span className="omni-toolbar-label">{t("activeConnection")}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <select
-              aria-label="Conexão ativa"
+              aria-label={t("activeConnection")}
               value={activeConnectionId ?? ""}
               onChange={(e) => onSelectConnection?.(e.target.value)}
               style={{
@@ -95,7 +97,7 @@ export function Toolbar({
             >
               {connections.length === 0 && (
                 <option value="" disabled>
-                  Nenhuma conexão cadastrada
+                  {t("noResults")}
                 </option>
               )}
               {connections.map((c) => (
@@ -110,19 +112,19 @@ export function Toolbar({
 
       <div className="omni-toolbar-group">
         <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">Fonte</span>
+          <span className="omni-toolbar-label">{t("settings")}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <ToolbarButton icon={<ArrowSyncRegular fontSize={14} />} onClick={onRefreshMetadata} disabled={!activeConnectionId || !!busyMsg} aria-label="Atualizar metadados" />
-            <ToolbarButton icon={<DatabaseRegular fontSize={14} />} onClick={onAddConnection} aria-label="Nova conexão" />
-            <ToolbarButton icon={<EditRegular fontSize={14} />} onClick={onEditConnection} disabled={!activeConnectionId} aria-label="Editar conexão" />
-            <ToolbarButton icon={<DeleteRegular fontSize={14} />} onClick={onRemoveConnection} disabled={!activeConnectionId} aria-label="Remover conexão" />
+            <ToolbarButton icon={<ArrowSyncRegular fontSize={14} />} onClick={onRefreshMetadata} disabled={!activeConnectionId || !!busyMsg} aria-label={t("refreshMetadata")} />
+            <ToolbarButton icon={<DatabaseRegular fontSize={14} />} onClick={onAddConnection} aria-label={t("newConnection")} />
+            <ToolbarButton icon={<EditRegular fontSize={14} />} onClick={onEditConnection} disabled={!activeConnectionId} aria-label={t("editConnection")} />
+            <ToolbarButton icon={<DeleteRegular fontSize={14} />} onClick={onRemoveConnection} disabled={!activeConnectionId} aria-label={t("removeConnection")} />
           </div>
         </div>
       </div>
 
       <div className="omni-toolbar-group">
         <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">Execução</span>
+          <span className="omni-toolbar-label">{t("run")}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
             {running ? (
               <ToolbarButton
@@ -131,7 +133,7 @@ export function Toolbar({
                 appearance="primary"
                 style={{ backgroundColor: tokens.colorPaletteRedBackground1, fontWeight: 600 }}
               >
-                Cancelar
+                {t("cancel")}
               </ToolbarButton>
             ) : (
               <ToolbarButton
@@ -141,10 +143,10 @@ export function Toolbar({
                 disabled={!activeConnectionId}
                 style={{ fontWeight: 600, padding: "4px 12px" }}
               >
-                Executar
+                {t("run")}
               </ToolbarButton>
             )}
-            <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running} aria-label="Explicar query">
+            <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running} aria-label={t("explainQuery")}>
               EXPLAIN
             </ToolbarButton>
           </div>
@@ -153,9 +155,9 @@ export function Toolbar({
 
       <div className="omni-toolbar-group">
         <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">Limite</span>
+          <span className="omni-toolbar-label">{t("rowLimit")}</span>
           <select
-            aria-label="Limite de linhas"
+            aria-label={t("rowLimit")}
             value={limit}
             onChange={(e) => onLimitChange?.(Number(e.target.value))}
             style={{
@@ -169,25 +171,38 @@ export function Toolbar({
           >
             {LIMIT_OPTIONS.map((opt) => (
               <option key={opt} value={opt}>
-                {opt} linhas
+                {opt} {t("rows")}
               </option>
             ))}
           </select>
         </div>
       </div>
 
-      <div className="omni-toolbar-group">
+      <div className="omni-toolbar-group" role="group" aria-label={t("tabActions")}>
         <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">Editor</span>
+          <span className="omni-toolbar-label">{t("tabActions")}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onAdd} aria-label="Nova aba" />
-            <ToolbarButton icon={<FolderOpenRegular fontSize={14} />} onClick={onOpen} aria-label="Abrir arquivo">
-              Abrir
+            <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onAdd} aria-label={t("newSqlTab")} title={t("newSqlTab")} />
+            <ToolbarButton icon={<FolderOpenRegular fontSize={14} />} onClick={onOpen} aria-label={t("openSavedTab")}>
+              {t("openSavedTab")}
             </ToolbarButton>
-            <ToolbarButton icon={<SaveRegular fontSize={14} />} onClick={onSave} aria-label="Salvar aba">
-              Salvar
+            <ToolbarButton icon={<SaveRegular fontSize={14} />} onClick={onSave} aria-label={t("saveTab")}>
+              {t("saveTab")}
             </ToolbarButton>
-            <ToolbarButton icon={<SettingsRegular fontSize={14} />} onClick={onOpenFormatSettings} aria-label="Formatador SQL" />
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="omni-toolbar-group"
+        role="group"
+        aria-label={t("settings")}
+        style={{ borderLeft: `1px solid ${tokens.colorNeutralStroke1}`, marginLeft: 8, paddingLeft: 8 }}
+      >
+        <div className="omni-toolbar-stack">
+          <span className="omni-toolbar-label">{t("settings")}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <ToolbarButton icon={<SettingsRegular fontSize={14} />} onClick={onOpenFormatSettings} aria-label={t("settings")} title={t("settings")} />
           </div>
         </div>
       </div>
@@ -196,10 +211,9 @@ export function Toolbar({
 
       {busyMsg && <Spinner size="tiny" label={busyMsg} labelPosition="after" style={{ marginRight: 8 }} />}
 
-      <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label="Alternar sidebar" />
-      <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label="Histórico" />
-      <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label="Mais opções" />
-
+      <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} />
+      <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} />
+      <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} />
       {pendingRunCount && (
         <div
           style={{
@@ -227,12 +241,12 @@ export function Toolbar({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ fontWeight: 600 }}>Esta aba tem várias instruções</div>
+            <div style={{ fontWeight: 600 }}>{t("multipleStatements")}</div>
             <ToolbarButton onClick={() => onRunChoice?.("current")} appearance="primary">
-              Rodar instrução atual
+              {t("runCurrent")}
             </ToolbarButton>
-            <ToolbarButton onClick={() => onRunChoice?.("all")}>Rodar todas ({pendingRunCount})</ToolbarButton>
-            <ToolbarButton onClick={onRunChoiceCancel}>Cancelar</ToolbarButton>
+            <ToolbarButton onClick={() => onRunChoice?.("all")}>{t("runAll")} ({pendingRunCount})</ToolbarButton>
+            <ToolbarButton onClick={onRunChoiceCancel}>{t("cancel")}</ToolbarButton>
           </div>
         </div>
       )}

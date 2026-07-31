@@ -16,6 +16,7 @@ import {
   registerSqlLanguage,
 } from "../lib/monaco-config";
 import type { OMNISQL_LIGHT } from "../lib/monaco-config";
+import { useLanguage } from "../i18n";
 
 export interface EditorHandle {
   insertAtCursor: (text: string) => void;
@@ -62,6 +63,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   },
   ref,
 ) {
+  const { t } = useLanguage();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof monaco | null>(null);
   const formatterRef = useRef<ReturnType<typeof configureFormatter> | null>(null);
@@ -222,7 +224,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           const diagnostic = diagnosticsRef.current.find((d) => offset >= d.start && offset <= d.end);
           if (!diagnostic) return null;
           const contents: monaco.IMarkdownString[] = [
-            { value: `**${diagnostic.severity === "error" ? "Erro" : "Aviso"}**: ${diagnostic.message}` },
+            { value: `**${diagnostic.severity === "error" ? t("error") : t("error")}**: ${diagnostic.message}` },
           ];
           if (diagnostic.transpileMessage) contents.push({ value: diagnostic.transpileMessage });
           return { contents };

@@ -3,6 +3,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { SidecarStatus } from "./SidecarStatus";
+import { LanguageProvider } from "../i18n";
+
+const renderWithLanguage = (ui: React.ReactElement) => render(<LanguageProvider>{ui}</LanguageProvider>);
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -24,10 +27,10 @@ test("SidecarStatus follows sidecar-status events and cleans up the listener", a
   });
   mockedInvoke.mockResolvedValue("checking");
 
-  const view = render(<SidecarStatus />);
+  const view = renderWithLanguage(<SidecarStatus />);
   await waitFor(() => assert.ok(handler));
   handler?.({ payload: "ready" });
-  assert.ok(await screen.findByLabelText(/ativa/));
+  assert.ok(await screen.findByLabelText(/Smart search: active/));
 
   view.unmount();
   assert.equal(unlisten.mock.calls.length, 1);
@@ -38,17 +41,17 @@ test("SidecarStatus recovers the status emitted before React mounted", async () 
   mockedListen.mockResolvedValue(unlisten);
   mockedInvoke.mockResolvedValue("ready");
 
-  render(<SidecarStatus />);
+  renderWithLanguage(<SidecarStatus />);
 
-  assert.ok(await screen.findByLabelText(/ativa/));
+  assert.ok(await screen.findByLabelText(/Smart search: active/));
   assert.equal(mockedInvoke.mock.calls[0]?.[0], "get_sidecar_status");
 });
 
 test("SidecarStatus is unavailable when the Tauri event bridge is absent", async () => {
   mockedListen.mockRejectedValue(new Error("not running in Tauri"));
 
-  render(<SidecarStatus />);
+  renderWithLanguage(<SidecarStatus />);
 
-  assert.ok(await screen.findByLabelText(/indisponível/));
-  assert.equal(screen.queryByLabelText(/ativa/), null);
+  assert.ok(await screen.findByLabelText(/Smart search: unavailable/));
+  assert.equal(screen.queryByLabelText(/Smart search: active/), null);
 });
