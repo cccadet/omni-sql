@@ -9,6 +9,8 @@ import {
   Input,
   Label,
   Select,
+  Tab,
+  TabList,
   Text,
   tokens,
 } from "@fluentui/react-components";
@@ -52,6 +54,7 @@ const PREVIEW_SQL = `SELECT id, name, email FROM users WHERE active = 1 AND crea
 export function FormatSettings({ open, dialect, settings, onClose, onSave }: FormatSettingsProps) {
   const { t, language, setLanguage } = useLanguage();
   const [draft, setDraft] = useState<FormatterSettings>(() => ({ ...settings }));
+  const [section, setSection] = useState<"formatting" | "language">("formatting");
 
   const keybindingError = useMemo(
     () => (isValidKeybinding(draft.keybinding) ? null : t("invalidShortcut")),
@@ -78,25 +81,38 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
 
   return (
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
-      <DialogSurface style={{ maxWidth: 720 }}>
-        <form onSubmit={handleSubmit}>
-          <DialogTitle>{t("formatSettingsTitle")}</DialogTitle>
-          <DialogBody style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <Label>
-              {t("language")}
-              <Select
-                aria-label={t("language")}
-                value={language}
-                onChange={(_, data) => setLanguage(data.value as "en" | "pt-BR")}
-                style={{ display: "block", marginTop: 4, maxWidth: 240 }}
-              >
-                <option value="en">{t("english")}</option>
-                <option value="pt-BR">{t("portugueseBrazil")}</option>
-              </Select>
-            </Label>
-            <div>
+      <DialogSurface style={{ width: "min(760px, calc(100vw - 24px))", height: "min(760px, calc(100vh - 24px))", maxHeight: "calc(100vh - 24px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flex: "1 1 auto", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+          <DialogTitle style={{ flexShrink: 0 }}>{t("formatSettingsTitle")}</DialogTitle>
+          <TabList
+            selectedValue={section}
+            onTabSelect={(_, data) => setSection(data.value as "formatting" | "language")}
+            aria-label={t("settingsSections")}
+            style={{ flexShrink: 0, overflowX: "auto", padding: "0 24px", borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}
+          >
+            <Tab value="formatting">{t("formattingSettingsTab")}</Tab>
+            <Tab value="language">{t("languageSettingsTab")}</Tab>
+          </TabList>
+          <DialogBody style={{ display: "flex", flex: "1 1 auto", flexDirection: "column", gap: 16, minHeight: 0, overflowY: "auto", paddingTop: 16 }}>
+            {section === "language" ? (
+              <Label>
+                {t("language")}
+                <Select
+                  aria-label={t("language")}
+                  value={language}
+                  onChange={(_, data) => setLanguage(data.value as "en" | "pt-BR")}
+                  style={{ display: "block", marginTop: 4, maxWidth: 240 }}
+                >
+                  <option value="en">{t("english")}</option>
+                  <option value="pt-BR">{t("portugueseBrazil")}</option>
+                </Select>
+              </Label>
+            ) : (
+              <>
+            <section style={{ display: "flex", flexDirection: "column", gap: 6, padding: 12, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 6 }}>
               <Label>{t("shortcut")}</Label>
               <Input
+                aria-label={t("shortcut")}
                 value={draft.keybinding}
                 onChange={(_, data) => update("keybinding", data.value)}
                 placeholder="Ctrl+Alt+L"
@@ -112,11 +128,11 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               <div style={{ marginTop: 4 }}>
                 {t("displayedAs")}: <kbd>{formatKeybindingForDisplay(draft.keybinding)}</kbd>
               </div>
-            </div>
+            </section>
 
-            <div>
-              <Label style={{ display: "block", marginBottom: 8 }}>{t("capitalization")}</Label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+            <section style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 6 }}>
+              <Text weight="semibold">{t("capitalization")}</Text>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
                 {[
                   ["keywordCase", t("keywords")], ["identifierCase", t("identifiers")], ["dataTypeCase", t("dataTypes")], ["functionCase", t("functionNames")],
                 ].map(([key, label]) => (
@@ -136,11 +152,11 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   </Label>
                 ))}
               </div>
-            </div>
+            </section>
 
-            <div>
-              <Label style={{ display: "block", marginBottom: 8 }}>{t("layout")}</Label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+            <section style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 6 }}>
+              <Text weight="semibold">{t("layout")}</Text>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
                 <Label>
                   {t("indentationStyle")}
                   <Select value={draft.indentStyle} onChange={(_, data) => update("indentStyle", data.value as FormatterSettings["indentStyle"])} style={{ display: "block", marginTop: 4 }}>
@@ -170,7 +186,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   </Select>
                 </Label>
               </div>
-              <div style={{ display: "flex", gap: 16, marginTop: 12, alignItems: "center" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
                 <Label>
                   {t("tabWidth")}
                   <Input type="number" min={1} max={8} value={String(draft.tabWidth)} onChange={(_, data) => update("tabWidth", Number(data.value))} style={{ width: 80, marginTop: 4 }} />
@@ -188,10 +204,10 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   {t("newlineBeforeSemicolon")}
                 </label>
               </div>
-            </div>
+            </section>
 
-            <div>
-              <Label>{t("preview")} ({dialect})</Label>
+            <section style={{ display: "flex", flexDirection: "column", gap: 6, padding: 12, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 6 }}>
+              <Text weight="semibold">{t("preview")} ({dialect})</Text>
               <pre
                 style={{
                   background: tokens.colorNeutralBackground1,
@@ -206,9 +222,11 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               >
                 {preview}
               </pre>
-            </div>
+            </section>
+              </>
+            )}
           </DialogBody>
-          <DialogActions>
+          <DialogActions style={{ flexShrink: 0, borderTop: `1px solid ${tokens.colorNeutralStroke1}`, background: tokens.colorNeutralBackground1 }}>
             <Button type="button" onClick={() => setDraft(DEFAULT_FORMATTER_SETTINGS)}>
               {t("resetToDefaults")}
             </Button>
