@@ -7,6 +7,7 @@ import type {
 } from "./protocol.ts";
 import { closeBackendResources, handlers } from "./handlers.ts";
 import { timingSafeEqual } from "node:crypto";
+import { RpcValidationError } from "./rpc-errors.ts";
 
 const DEFAULT_PORT = Number(process.env.OMNI_SQL_PORT ?? 41920);
 const AUTH_HEADER = "authorization";
@@ -105,6 +106,20 @@ function errorResponse(
   return { jsonrpc: "2.0", id, error: err };
 }
 
+const INTERNAL_ERROR_MESSAGE = "Internal error";
+
+function logSafe(value: unknown): string {
+  return String(value).replace(/[\u0000-\u001f\u007f]/g, (c) =>
+    `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+function logFailure(method: string, error: unknown, elapsedMs: number): void {
+  const name = error instanceof Error ? error.name : "NonError";
+  // Deliberately omit error details: NODE_ENV is not guaranteed by release launchers.
+  console.error(`[omni-sql] rpc failed method=${logSafe(method)} error=${logSafe(name)} elapsedMs=${elapsedMs}`);
+}
+
 // ─────────────────────────── Method dispatch (typed by RpcRouter)
 
 async function dispatch(method: string, params: unknown): Promise<unknown> {
@@ -194,34 +209,35 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
     try {
       raw = await readBody(req);
     } catch (e) {
-      send(res, 400, errorResponse(null, -32700, "Parse error", String(e)), req.headers.origin);
+      send(res, 400, errorResponse(null, -32700, "Parse error"), req.headers.origin);
       return;
     }
     let rpc: JsonRpcRequest;
     try {
       rpc = JSON.parse(raw) as JsonRpcRequest;
     } catch (e) {
-      send(res, 400, errorResponse(null, -32700, "Parse error", String(e)), req.headers.origin);
+      send(res, 400, errorResponse(null, -32700, "Parse error"), req.headers.origin);
       return;
     }
+    const t0 = Date.now();
     try {
-      console.log(`[omni-sql] rpc ← ${rpc.method} (id=${rpc.id ?? "?"})`);
-      const t0 = Date.now();
+      console.log(`[omni-sql] rpc ← method=${logSafe(rpc.method)}`);
       const result = await dispatch(rpc.method, rpc.params);
       const elapsed = Date.now() - t0;
       // Methods we want to see how long they took even on success; skip
       // query.run and similar that fire on every keystroke.
       if (rpc.method !== "query.run") {
-        console.log(`[omni-sql] rpc → ${rpc.method} ok (${elapsed}ms)`);
+        console.log(`[omni-sql] rpc → method=${logSafe(rpc.method)} ok (${elapsed}ms)`);
       }
       send(res, 200, { jsonrpc: "2.0", id: rpc.id, result } satisfies JsonRpcResponse, req.headers.origin);
     } catch (e) {
       if (e instanceof UnknownMethodError) {
-        send(res, 200, errorResponse(rpc.id, -32601, e.message), req.headers.origin);
+        send(res, 200, errorResponse(rpc.id, -32601, "Method not found"), req.headers.origin);
         return;
       }
-      console.error(`[omni-sql] ${rpc.method} failed:`, e);
-      send(res, 200, errorResponse(rpc.id, -32000, (e as Error).message, (e as Error).stack), req.headers.origin);
+      logFailure(rpc.method, e, Date.now() - t0);
+      const message = e instanceof RpcValidationError ? e.message : INTERNAL_ERROR_MESSAGE;
+      send(res, 200, errorResponse(rpc.id, -32000, message), req.headers.origin);
     }
   });
 
