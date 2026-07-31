@@ -109,33 +109,36 @@ function isNewerVersion(latest: StableVersion, current: StableVersion): boolean 
 
 async function checkForUpdate({ currentVersion }: UpdateCheckParams): Promise<UpdateCheckResult> {
   const current = parseStableVersion(currentVersion);
-  if (!current) return { available: false };
+  if (!current) throw new Error("invalid current application version");
 
   try {
     const response = await fetch(RELEASES_URL, {
       headers: { accept: "application/vnd.github+json" },
       signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS),
     });
-    if (!response.ok) return { available: false };
+    if (!response.ok) throw new Error(`GitHub release check failed: HTTP ${response.status}`);
     const payload: unknown = await response.json();
-    if (payload === null || typeof payload !== "object") return { available: false };
+    if (payload === null || typeof payload !== "object") throw new Error("GitHub returned invalid release data");
     const release = payload as { tag_name?: unknown; html_url?: unknown };
     if (typeof release.tag_name !== "string" || typeof release.html_url !== "string") {
-      return { available: false };
+      throw new Error("GitHub returned incomplete release data");
     }
     const latest = parseStableVersion(release.tag_name);
     let releaseUrl: URL;
     try {
       releaseUrl = new URL(release.html_url);
     } catch {
-      return { available: false };
+      throw new Error("GitHub returned invalid release URL");
     }
-    if (!latest || releaseUrl.protocol !== "https:" || !isNewerVersion(latest, current)) {
+    if (!latest || releaseUrl.protocol !== "https:") {
+      throw new Error("GitHub returned an unsupported release");
+    }
+    if (!isNewerVersion(latest, current)) {
       return { available: false };
     }
     return { available: true, version: release.tag_name, releaseUrl: release.html_url };
-  } catch {
-    return { available: false };
+  } catch (error) {
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 

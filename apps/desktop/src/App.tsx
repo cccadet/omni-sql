@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
 import { useEditorMonacoTheme, type ThemeName } from "./theme";
 import { useSession, makeTab } from "./hooks/useSession";
 import { useConnections } from "./hooks/useConnections";
@@ -10,7 +11,7 @@ import { TabBar } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
-import { StatusBar, type ConnectionHealth, type UpdateInfo } from "./components/StatusBar";
+import { StatusBar, type ConnectionHealth, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
@@ -25,6 +26,7 @@ import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } 
 import { useLanguage } from "./i18n";
 
 const HISTORY_KEY = "omni-sql:history";
+const CHECK_FOR_UPDATES_EVENT = "check-for-updates";
 
 function loadHistory(): HistoryEntry[] {
   try {
@@ -100,6 +102,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [diagnostics, setDiagnostics] = useState<SqlDiagnostic[]>([]);
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("unknown");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateCheckStatus, setUpdateCheckStatus] = useState<UpdateCheckStatus | null>(null);
   const connectionHealthCheckRef = useRef(0);
 
   useEffect(() => {
@@ -108,6 +111,45 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       .then(setUpdateInfo)
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let checking = false;
+    let unlisten: (() => void) | null = null;
+    void listen(CHECK_FOR_UPDATES_EVENT, async () => {
+      if (cancelled || checking) return;
+      checking = true;
+      setUpdateInfo(null);
+      setUpdateCheckStatus({ state: "checking" });
+      setBusyMsg(t("checkingForUpdates"));
+      try {
+        const currentVersion = await getVersion();
+        const info = await backend.call<UpdateInfo>("update.check", { currentVersion });
+        if (cancelled) return;
+        setUpdateInfo(info);
+        setUpdateCheckStatus(info.available && info.version
+          ? { state: "available", version: info.version }
+          : { state: "up-to-date" });
+      } catch (error) {
+        if (!cancelled) {
+          setUpdateCheckStatus({
+            state: "error",
+            message: `${t("updateCheckFailed")}: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      } finally {
+        checking = false;
+        if (!cancelled) setBusyMsg(null);
+      }
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [t]);
 
   useEffect(() => {
     void loadConnections();
@@ -668,7 +710,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
-        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} />
+        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} />
       </div>
 
       <ConnectionDialog

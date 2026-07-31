@@ -20,6 +20,17 @@ export interface UpdateInfo {
   releaseUrl?: string;
 }
 
+function displayUpdateVersion(version?: string): string {
+  if (!version) return "";
+  return ` ${version.startsWith("v") ? version : `v${version}`}`;
+}
+
+export type UpdateCheckStatus =
+  | { state: "checking" }
+  | { state: "up-to-date" }
+  | { state: "available"; version: string }
+  | { state: "error"; message: string };
+
 export interface StatusBarProps {
   connection?: ConnectionEntry | null;
   result?: QueryResult | null;
@@ -27,9 +38,10 @@ export interface StatusBarProps {
   busyMsg?: string | null;
   health?: ConnectionHealth;
   update?: UpdateInfo | null;
+  updateStatus?: UpdateCheckStatus | null;
 }
 
-export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown", update }: StatusBarProps) {
+export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown", update, updateStatus }: StatusBarProps) {
   const { t } = useLanguage();
   const dialectLabels: Record<string, string> = {
     postgres: "PostgreSQL",
@@ -79,15 +91,27 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
         </Text>
       )}
       <div style={{ flex: 1 }} />
+      {updateStatus?.state === "checking" && (
+        <Text size={200} role="status" aria-live="polite">{t("checkingForUpdates")}</Text>
+      )}
+      {updateStatus?.state === "up-to-date" && (
+        <Text size={200} role="status" aria-live="polite">{t("upToDate")}</Text>
+      )}
+      {updateStatus?.state === "error" && (
+        <Text size={200} role="status" aria-live="polite" style={{ color: tokens.colorPaletteRedForeground1 }}>
+          {updateStatus.message}
+        </Text>
+      )}
       {update?.available && (
         <button
           type="button"
-          aria-label={t("updateAvailable").replace("{version}", update.version ? ` v${update.version}` : "")}
+          aria-label={t("updateAvailable").replace("{version}", displayUpdateVersion(update.version))}
           onClick={() => {
             if (!update.releaseUrl) return;
             try {
               const url = new URL(update.releaseUrl);
               if (url.protocol !== "https:") return;
+              if (!window.confirm(t("openReleasePrompt").replace("{version}", update.version ?? ""))) return;
               void openUrl(url.toString()).catch(() => {
                 // Ignore opener failures.
               });
@@ -105,7 +129,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
             font: "inherit",
           }}
         >
-          {t("updateAvailable").replace("{version}", update.version ? ` v${update.version}` : "")}
+          {t("updateAvailable").replace("{version}", displayUpdateVersion(update.version))}
         </button>
       )}
       {result && (

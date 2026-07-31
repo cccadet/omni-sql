@@ -56,12 +56,29 @@ test("StatusBar: makes online database health explicit", () => {
 
 test("StatusBar: shows and opens available update", () => {
   vi.mocked(openUrl).mockResolvedValue(undefined);
-  renderWithLanguage(<StatusBar update={{ available: true, version: "1.2.3", releaseUrl: "https://example.com/release" }} />);
+  vi.stubGlobal("confirm", vi.fn(() => true));
+  renderWithLanguage(<StatusBar update={{ available: true, version: "v1.2.3", releaseUrl: "https://example.com/release" }} />);
 
   const update = screen.getByRole("button", { name: "Update v1.2.3 available" });
   fireEvent.click(update);
   assert.deepEqual(vi.mocked(openUrl).mock.calls[0], ["https://example.com/release"]);
+  assert.deepEqual(vi.mocked(confirm).mock.calls[0], ["Version v1.2.3 is available. Open GitHub Releases?"]);
   vi.mocked(openUrl).mockReset();
+  vi.unstubAllGlobals();
+});
+
+test("StatusBar: keeps release closed when user declines", () => {
+  vi.stubGlobal("confirm", vi.fn(() => false));
+  renderWithLanguage(<StatusBar update={{ available: true, version: "1.2.3", releaseUrl: "https://example.com/release" }} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Update v1.2.3 available" }));
+  assert.equal(vi.mocked(openUrl).mock.calls.length, 0);
+  vi.unstubAllGlobals();
+});
+
+test("StatusBar: makes update check result visible", () => {
+  renderWithLanguage(<StatusBar updateStatus={{ state: "up-to-date" }} />);
+  assert.ok(screen.getByText("Omni SQL is up to date."));
 });
 
 test("StatusBar: hides unavailable update", () => {
