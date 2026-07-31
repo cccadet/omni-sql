@@ -16,6 +16,7 @@ import {
   type ScopeRef,
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
+import { RpcValidationError } from "./rpc-errors.ts";
 
 import { resolveCteRelations, analyzeQueryEditability } from "./sidecar-client.ts";
 import { diagnoseDialectFunctions, diagnosePolyglotSyntaxError, mergeDiagnostics } from "./sql-diagnostics.ts";
@@ -146,10 +147,10 @@ async function checkForUpdate({ currentVersion }: UpdateCheckParams): Promise<Up
 export function normalizeQueryLimit(limit: unknown): number {
   if (limit === undefined) return DEFAULT_QUERY_LIMIT;
   if (typeof limit !== "number" || !Number.isFinite(limit) || !Number.isInteger(limit) || limit <= 0) {
-    throw new Error("query.run limit must be a finite positive integer");
+    throw new RpcValidationError("query.run limit must be a finite positive integer");
   }
   if (limit > MAX_QUERY_LIMIT) {
-    throw new Error(`query.run limit must be at most ${MAX_QUERY_LIMIT}`);
+    throw new RpcValidationError(`query.run limit must be at most ${MAX_QUERY_LIMIT}`);
   }
   return limit;
 }
@@ -183,8 +184,15 @@ registerAdapter("jdbc-generic", (config, password) => new JdbcAdapter(config, pa
 
 // ─────────────────────────── Boot: restore persisted connections
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+// Never log adapter/keyring error text. Release launchers need no NODE_ENV.
+function errorMessage(_error: unknown): string {
+  return "operation failed";
+}
+
+function logValue(value: unknown): string {
+  return String(value).replace(/[\u0000-\u001f\u007f]/g, (c) =>
+    `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 async function readStoredPassword(
@@ -195,8 +203,8 @@ async function readStoredPassword(
     return await getPassword(config);
   } catch (error) {
     console.warn(
-      `[omni-sql] keyring read failed while ${context} for connection ${config.id} ` +
-      `(slot ${passwordSlotFor(config)}); continuing without stored password: ${errorMessage(error)}`,
+      `[omni-sql] keyring read failed while ${logValue(context)}; ` +
+      `continuing without stored password: ${errorMessage(error)}`,
     );
     return undefined;
   }
@@ -209,8 +217,7 @@ async function restoreConnections(): Promise<void> {
       password = await getPassword(cfg);
     } catch (error) {
       console.warn(
-        `[omni-sql] skipped restore for connection ${cfg.id} ` +
-        `(slot ${passwordSlotFor(cfg)}): keyring read failed: ${errorMessage(error)}`,
+        `[omni-sql] skipped restore for connection; keyring read failed: ${errorMessage(error)}`,
       );
       continue;
     }
@@ -218,9 +225,9 @@ async function restoreConnections(): Promise<void> {
       const configWithSlot = { ...cfg, passwordSlot: passwordSlotFor(cfg) };
       const adapter = resolveAdapter(configWithSlot, password);
       sessions.set(cfg.id, { config: configWithSlot, adapter });
-      console.log(`[omni-sql] restored connection ${cfg.id} (${cfg.dialect})`);
+      console.log(`[omni-sql] restored connection dialect=${logValue(cfg.dialect)}`);
     } catch (e) {
-      console.warn(`[omni-sql] failed to restore ${cfg.id}: ${(e as Error).message}`);
+      console.warn(`[omni-sql] failed to restore connection: ${errorMessage(e)}`);
     }
   }
 }
@@ -390,10 +397,10 @@ export const handlers: RpcRouter = {
     try {
       const result = await adapter.test();
       await adapter.close().catch(() => undefined);
-      return result;
+      return result.ok ? result : { ...result, message: "Connection test failed" };
     } catch (e) {
       await adapter.close().catch(() => undefined);
-      return { ok: false, latencyMs: 0, message: (e as Error).message };
+      return { ok: false, latencyMs: 0, message: "Connection test failed" };
     }
   },
 
@@ -401,9 +408,10 @@ export const handlers: RpcRouter = {
     await connectionsRestored;
     const s = requireSession(connectionId);
     try {
-      return await s.adapter.test();
+      const result = await s.adapter.test();
+      return result.ok ? result : { ...result, message: "Connection status unavailable" };
     } catch (e) {
-      return { ok: false, latencyMs: 0, message: e instanceof Error ? e.message : String(e) };
+      return { ok: false, latencyMs: 0, message: "Connection status unavailable" };
     }
   },
 
@@ -414,8 +422,8 @@ export const handlers: RpcRouter = {
         ? password
         : await readStoredPassword(config, "listing schemas");
     console.log(
-      `[omni-sql] listSchemas start: id=${config.id} dialect=${config.dialect} ` +
-      `endpoint=${config.endpoint} hasPassword=${effectivePassword !== undefined}`,
+      `[omni-sql] listSchemas start: dialect=${logValue(config.dialect)} ` +
+      `hasPassword=${effectivePassword !== undefined}`,
     );
     const adapter = resolveAdapter(config, effectivePassword);
     const tConnect = Date.now();
@@ -426,11 +434,11 @@ export const handlers: RpcRouter = {
       const schemas = await adapter.listAvailableSchemas();
       console.log(
         `[omni-sql] listSchemas: adapter returned ${schemas.length} schemas ` +
-        `in ${Date.now() - tList}ms (${schemas.slice(0, 5).join(", ")}${schemas.length > 5 ? "…" : ""})`,
+        `in ${Date.now() - tList}ms`,
       );
       return { schemas };
     } finally {
-      await adapter.close().catch((e) => console.warn(`[omni-sql] listSchemas: close failed: ${e}`));
+      await adapter.close().catch((e) => console.warn(`[omni-sql] listSchemas: close failed: ${errorMessage(e)}`));
     }
   },
 
@@ -495,8 +503,7 @@ export const handlers: RpcRouter = {
       const cachedSchemas = cache.listSchemas(connectionId);
       console.warn(
         `[omni-sql] analyzeEditability: relation not in cache ` +
-        `table=${raw.table.name} schema=${raw.table.schema ?? "∅"} ` +
-        `connectionId=${connectionId} cachedSchemas=${cachedSchemas.length}`,
+        `cachedSchemas=${cachedSchemas.length}`,
       );
       return notEditable("Tabela não encontrada nos metadados (rode a introspecção da conexão).");
     }
@@ -523,21 +530,21 @@ export const handlers: RpcRouter = {
     // de "query.analyzeEditability" (que pode estar desatualizada, ou o
     // cliente pode ter sido adulterado).
     const relation = resolveRelationByName(connectionId, table.name, table.schema);
-    if (!relation) throw new Error(`tabela não encontrada: ${table.schema}.${table.name}`);
+    if (!relation) throw new RpcValidationError("tabela não encontrada");
 
     const pkColumns = relation.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
-    if (pkColumns.length === 0) throw new Error("tabela sem chave primária conhecida");
+    if (pkColumns.length === 0) throw new RpcValidationError("tabela sem chave primária conhecida");
     const pkSet = new Set(pkColumns);
     const whereKeys = Object.keys(where);
     if (whereKeys.length !== pkColumns.length || !whereKeys.every((k) => pkSet.has(k))) {
-      throw new Error("where deve cobrir exatamente as colunas de chave primária da tabela");
+      throw new RpcValidationError("where deve cobrir exatamente as colunas de chave primária da tabela");
     }
 
     const validColumns = new Set(relation.columns.map((c) => c.name));
     for (const col of Object.keys(set)) {
-      if (!validColumns.has(col)) throw new Error(`coluna desconhecida em '${relation.name}': ${col}`);
+      if (!validColumns.has(col)) throw new RpcValidationError("coluna desconhecida");
     }
-    if (Object.keys(set).length === 0) throw new Error("nada para atualizar");
+    if (Object.keys(set).length === 0) throw new RpcValidationError("nada para atualizar");
 
     await s.adapter.connect();
     const rowsAffected = await s.adapter.updateRow({
@@ -547,7 +554,7 @@ export const handlers: RpcRouter = {
       where,
     });
     if (rowsAffected !== 1) {
-      throw new Error(
+      throw new RpcValidationError(
         rowsAffected === 0
           ? "nenhuma linha corresponde à chave primária informada (dado desatualizado?)"
           : `atualização afetou ${rowsAffected} linhas — abortada por segurança`,
@@ -559,8 +566,7 @@ export const handlers: RpcRouter = {
   async "metadata.introspect"({ connectionId }: IntrospectParams): Promise<IntrospectResult> {
     const s = requireSession(connectionId);
     console.log(
-      `[omni-sql] introspect start: id=${connectionId} ` +
-      `dialect=${s.config.dialect} endpoint=${s.config.endpoint} user=${s.config.user}`,
+      `[omni-sql] introspect start: dialect=${logValue(s.config.dialect)}`,
     );
     const tConnect = Date.now();
     await s.adapter.connect();
@@ -598,7 +604,7 @@ export const handlers: RpcRouter = {
         `${[...schemasByName.values()].reduce((n, x) => n + x.functions.length, 0)} functions)`,
       );
     } catch (e) {
-      console.error(`[omni-sql] introspect: cache ingest FAILED after ${Date.now() - tIngest}ms:`, e);
+      console.error(`[omni-sql] introspect: cache ingest FAILED after ${Date.now() - tIngest}ms: ${errorMessage(e)}`);
       throw e;
     }
     return db;
@@ -657,7 +663,7 @@ export const handlers: RpcRouter = {
     const s = requireSession(connectionId);
     if (kind === "table") {
       const relation = resolveRelationByName(connectionId, name, schema);
-      if (!relation) throw new Error(`tabela não encontrada: ${schema}.${name}`);
+      if (!relation) throw new RpcValidationError("tabela não encontrada");
       return { sql: buildTableDdl(s.config.dialect, relation) };
     }
     await s.adapter.connect();
