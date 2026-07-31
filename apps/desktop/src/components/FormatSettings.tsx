@@ -20,6 +20,7 @@ import {
   type FormatterSettings,
 } from "../lib/format-sql";
 import type { DialectId } from "@omni-sql/ts-types";
+import { useLanguage } from "../i18n";
 
 export interface FormatSettingsProps {
   open: boolean;
@@ -30,39 +31,40 @@ export interface FormatSettingsProps {
 }
 
 const keywordCaseOptions = [
-  { value: "preserve", label: "Preservar" },
-  { value: "upper", label: "MAIÚSCULAS" },
-  { value: "lower", label: "minúsculas" },
+  { value: "preserve", label: "Preserve" },
+  { value: "upper", label: "UPPERCASE" },
+  { value: "lower", label: "lowercase" },
 ];
 
 const indentStyleOptions = [
-  { value: "standard", label: "Padrão" },
-  { value: "tabularLeft", label: "Tabular à esquerda" },
-  { value: "tabularRight", label: "Tabular à direita" },
+  { value: "standard", label: "Standard" },
+  { value: "tabularLeft", label: "Tabular left" },
+  { value: "tabularRight", label: "Tabular right" },
 ];
 
 const logicalOperatorOptions = [
-  { value: "before", label: "Antes" },
-  { value: "after", label: "Depois" },
+  { value: "before", label: "Before" },
+  { value: "after", label: "After" },
 ];
 
 const PREVIEW_SQL = `SELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
 
 export function FormatSettings({ open, dialect, settings, onClose, onSave }: FormatSettingsProps) {
+  const { t, language, setLanguage } = useLanguage();
   const [draft, setDraft] = useState<FormatterSettings>(() => ({ ...settings }));
 
   const keybindingError = useMemo(
-    () => (isValidKeybinding(draft.keybinding) ? null : "Atalho inválido. Use pelo menos um modificador."),
-    [draft.keybinding],
+    () => (isValidKeybinding(draft.keybinding) ? null : t("invalidShortcut")),
+    [draft.keybinding, t],
   );
 
   const preview = useMemo(() => {
     try {
       return formatSql(PREVIEW_SQL, dialect, draft);
     } catch (e) {
-      return `Erro no preview: ${e instanceof Error ? e.message : String(e)}`;
+      return `${t("error")}: ${e instanceof Error ? e.message : String(e)}`;
     }
-  }, [dialect, draft]);
+  }, [dialect, draft, t]);
 
   const update = <K extends keyof FormatterSettings>(key: K, value: FormatterSettings[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -78,10 +80,22 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
       <DialogSurface style={{ maxWidth: 720 }}>
         <form onSubmit={handleSubmit}>
-          <DialogTitle>Configurações do formatador SQL</DialogTitle>
+          <DialogTitle>{t("formatSettingsTitle")}</DialogTitle>
           <DialogBody style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <Label>
+              {t("language")}
+              <Select
+                aria-label={t("language")}
+                value={language}
+                onChange={(_, data) => setLanguage(data.value as "en" | "pt-BR")}
+                style={{ display: "block", marginTop: 4, maxWidth: 240 }}
+              >
+                <option value="en">{t("english")}</option>
+                <option value="pt-BR">{t("portugueseBrazil")}</option>
+              </Select>
+            </Label>
             <div>
-              <Label>Atalho</Label>
+              <Label>{t("shortcut")}</Label>
               <Input
                 value={draft.keybinding}
                 onChange={(_, data) => update("keybinding", data.value)}
@@ -92,22 +106,19 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                 <Text style={{ color: tokens.colorPaletteRedForeground1, fontSize: 12 }}>{keybindingError}</Text>
               ) : (
                 <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                  Exemplos: Ctrl+Alt+L, Cmd+Shift+F, Ctrl+Shift+I
+                  {t("examples")}: Ctrl+Alt+L, Cmd+Shift+F, Ctrl+Shift+I
                 </Text>
               )}
               <div style={{ marginTop: 4 }}>
-                Exibido como: <kbd>{formatKeybindingForDisplay(draft.keybinding)}</kbd>
+                {t("displayedAs")}: <kbd>{formatKeybindingForDisplay(draft.keybinding)}</kbd>
               </div>
             </div>
 
             <div>
-              <Label style={{ display: "block", marginBottom: 8 }}>Capitalização</Label>
+              <Label style={{ display: "block", marginBottom: 8 }}>{t("capitalization")}</Label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
                 {[
-                  ["keywordCase", "Palavras-chave"],
-                  ["identifierCase", "Identificadores"],
-                  ["dataTypeCase", "Tipos de dados"],
-                  ["functionCase", "Funções"],
+                  ["keywordCase", t("keywords")], ["identifierCase", t("identifiers")], ["dataTypeCase", t("dataTypes")], ["functionCase", t("functionNames")],
                 ].map(([key, label]) => (
                   <Label key={key}>
                     {label}
@@ -128,10 +139,10 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
             </div>
 
             <div>
-              <Label style={{ display: "block", marginBottom: 8 }}>Layout</Label>
+              <Label style={{ display: "block", marginBottom: 8 }}>{t("layout")}</Label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
                 <Label>
-                  Estilo de indentação
+                  {t("indentationStyle")}
                   <Select value={draft.indentStyle} onChange={(_, data) => update("indentStyle", data.value as FormatterSettings["indentStyle"])} style={{ display: "block", marginTop: 4 }}>
                     {indentStyleOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -141,15 +152,15 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   </Select>
                 </Label>
                 <Label>
-                  Largura da expressão
+                  {t("expressionWidth")}
                   <Input type="number" min={20} max={200} value={String(draft.expressionWidth)} onChange={(_, data) => update("expressionWidth", Number(data.value))} style={{ marginTop: 4 }} />
                 </Label>
                 <Label>
-                  Linhas entre queries
+                  {t("linesBetweenQueries")}
                   <Input type="number" min={0} max={10} value={String(draft.linesBetweenQueries)} onChange={(_, data) => update("linesBetweenQueries", Number(data.value))} style={{ marginTop: 4 }} />
                 </Label>
                 <Label>
-                  Quebra do AND/OR
+                  {t("andOrBreak")}
                   <Select value={draft.logicalOperatorNewline} onChange={(_, data) => update("logicalOperatorNewline", data.value as FormatterSettings["logicalOperatorNewline"])} style={{ display: "block", marginTop: 4 }}>
                     {logicalOperatorOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -161,26 +172,26 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 12, alignItems: "center" }}>
                 <Label>
-                  Largura do tab
+                  {t("tabWidth")}
                   <Input type="number" min={1} max={8} value={String(draft.tabWidth)} onChange={(_, data) => update("tabWidth", Number(data.value))} style={{ width: 80, marginTop: 4 }} />
                 </Label>
                 <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <input type="checkbox" checked={draft.useTabs} onChange={(e) => update("useTabs", e.target.checked)} />
-                  Usar tabs
+                  {t("useTabs")}
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <input type="checkbox" checked={draft.denseOperators} onChange={(e) => update("denseOperators", e.target.checked)} />
-                  Operadores densos
+                  {t("denseOperators")}
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <input type="checkbox" checked={draft.newlineBeforeSemicolon} onChange={(e) => update("newlineBeforeSemicolon", e.target.checked)} />
-                  Nova linha antes do ;
+                  {t("newlineBeforeSemicolon")}
                 </label>
               </div>
             </div>
 
             <div>
-              <Label>Preview ({dialect})</Label>
+              <Label>{t("preview")} ({dialect})</Label>
               <pre
                 style={{
                   background: tokens.colorNeutralBackground1,
@@ -199,14 +210,14 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
           </DialogBody>
           <DialogActions>
             <Button type="button" onClick={() => setDraft(DEFAULT_FORMATTER_SETTINGS)}>
-              Restaurar padrão
+              {t("resetToDefaults")}
             </Button>
             <div style={{ flex: 1 }} />
             <Button type="button" onClick={onClose}>
-              Cancelar
+              {t("cancel")}
             </Button>
             <Button type="submit" appearance="primary" disabled={!!keybindingError}>
-              Salvar
+              {t("saveFormatterSettings")}
             </Button>
           </DialogActions>
         </form>

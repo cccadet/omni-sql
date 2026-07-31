@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Tab, TabList, tokens } from "@fluentui/react-components";
 import { AddRegular, DismissRegular } from "@fluentui/react-icons";
 import { DialectIcon } from "./DialectIcon";
+import { useLanguage } from "../i18n";
 
 export interface TabItem {
   id: string;
@@ -20,6 +21,7 @@ export interface TabBarProps {
 }
 
 export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }: TabBarProps) {
+  const { t } = useLanguage();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -106,14 +108,14 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
                     e.stopPropagation();
                     onClose?.(tab.id);
                   }}
-                  aria-label="Fechar aba"
+                  aria-label={t("closeTab")}
                 />
               </div>
             )}
           </Tab>
         ))}
       </TabList>
-      <Button icon={<AddRegular />} size="small" appearance="subtle" onClick={onAdd} aria-label="Nova aba" />
+      <Button icon={<AddRegular />} size="small" appearance="subtle" onClick={onAdd} aria-label={t("newTab")} />
     </div>
   );
 }

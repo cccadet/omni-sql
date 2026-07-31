@@ -2,18 +2,14 @@ import { useEffect, useState } from "react";
 import { tokens } from "@fluentui/react-components";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { useLanguage } from "../i18n";
 
 type SidecarState = "checking" | "ready" | "unavailable";
 
 const SIDECAR_STATUS_EVENT = "sidecar-status";
 
-const LABEL: Record<SidecarState, string> = {
-  checking: "Busca inteligente: iniciando em segundo plano…",
-  ready: "Busca inteligente: ativa (sugestões avançadas de CTE/subquery)",
-  unavailable: "Busca inteligente: indisponível — autocomplete básico continua normal",
-};
-
 export function SidecarStatus() {
+  const { t } = useLanguage();
   const [state, setState] = useState<SidecarState>("checking");
   const [retryKey, setRetryKey] = useState(0);
 
@@ -65,16 +61,17 @@ export function SidecarStatus() {
     setRetryKey((k) => k + 1);
   };
 
+  const label = t(state === "checking" ? "sidecarChecking" : state === "ready" ? "sidecarReady" : "sidecarUnavailable");
   const color = state === "ready" ? tokens.colorBrandForeground1 : tokens.colorNeutralForeground3;
   const opacity = state === "checking" ? 0.7 : 1;
   const cursor = state === "unavailable" ? "pointer" : "default";
 
   return (
     <span
-      title={LABEL[state]}
+      title={label}
       onClick={state === "unavailable" ? retry : undefined}
       style={{ display: "inline-flex", alignItems: "center", opacity, color, cursor }}
-      aria-label={LABEL[state]}
+      aria-label={label}
     >
       <svg
         width={15}
