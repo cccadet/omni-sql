@@ -9,6 +9,7 @@ vi.mock("@fluentui/react-icons", () => {
     AddRegular: Icon,
     ArrowSyncRegular: Icon,
     DatabaseRegular: Icon,
+    CopyRegular: Icon,
     DeleteRegular: Icon,
     EditRegular: Icon,
     FolderOpenRegular: Icon,
@@ -38,5 +39,8 @@ test("renders multi-statement modal and row limit in English", () => {
   expect(screen.getByRole("button", { name: "New SQL tab" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Open saved tab" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save Tab" })).toBeTruthy();
-  expect(screen.getByRole("group", { name: "Settings" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "Connections" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("title")).toBe("Toggle sidebar");
+  expect(screen.getByRole("button", { name: "Run" }).getAttribute("title")).toBe("Run current statement (Ctrl+Enter)");
+  expect(screen.getByRole("button", { name: "Explain query" }).getAttribute("title")).toBe("Explain query");
 });

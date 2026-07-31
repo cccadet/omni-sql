@@ -75,6 +75,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingConfig, setEditingConfig] = useState<ConnectionEntry | null>(null);
+  const [duplicatingConnection, setDuplicatingConnection] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarCache, setSidebarCache] = useState<Record<string, { relations: RelationInfo[]; functions: FunctionDef[] }>>({});
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -224,6 +225,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const onAddConnection = useCallback(() => {
     setEditingConfig(null);
+    setDuplicatingConnection(false);
     setDialogOpen(true);
   }, []);
 
@@ -231,6 +233,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const c = connections.find((x) => x.id === id);
     if (!c) return;
     setEditingConfig(c);
+    setDuplicatingConnection(false);
+    setDialogOpen(true);
+  }, [connections]);
+
+  const onDuplicateConnection = useCallback((id: string) => {
+    const c = connections.find((x) => x.id === id);
+    if (!c) return;
+    setEditingConfig(c);
+    setDuplicatingConnection(true);
     setDialogOpen(true);
   }, [connections]);
 
@@ -582,6 +593,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onAdd={() => addTab(activeConnectionId)}
           onAddConnection={onAddConnection}
           onEditConnection={() => activeConnectionId && onEditConnection(activeConnectionId)}
+          onDuplicateConnection={() => activeConnectionId && onDuplicateConnection(activeConnectionId)}
           onRemoveConnection={() => activeConnectionId && onRemoveConnection(activeConnectionId)}
           onRefreshMetadata={introspectActive}
           onSelectConnection={onSelectConnection}
@@ -662,6 +674,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       <ConnectionDialog
         open={dialogOpen}
         editing={editingConfig}
+        duplicating={duplicatingConnection}
         onClose={() => setDialogOpen(false)}
         onSaved={onConnectionSaved}
       />
