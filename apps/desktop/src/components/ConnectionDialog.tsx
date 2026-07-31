@@ -68,11 +68,12 @@ function generateId(): string {
 export interface ConnectionDialogProps {
   open: boolean;
   editing?: ConnectionConfig | null;
+  duplicating?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export function ConnectionDialog({ open, editing, onClose, onSaved }: ConnectionDialogProps) {
+export function ConnectionDialog({ open, editing, duplicating = false, onClose, onSaved }: ConnectionDialogProps) {
   const { t } = useLanguage();
   const [mode, setMode] = useState<Mode>("postgres");
   const [label, setLabel] = useState("");
@@ -100,7 +101,7 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
     const nextMode = isKnown ? editingDialect : isJdbc ? "jdbc-generic" : "demo";
     setMode(nextMode);
     setLabel(editing?.label ?? "");
-    setId(editing?.id ?? "");
+    setId(duplicating ? generateId() : editing?.id ?? "");
     setUser(editing?.user ?? "");
     setPassword("");
     setSsl(editing?.options?.ssl === true || editing?.options?.ssl === "require");
@@ -128,7 +129,7 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
     setBusy(false);
     setAvailableSchemas(null);
     setSelectedSchemas(new Set(editing?.schemas ?? []));
-  }, [open, editing]);
+  }, [open, editing, duplicating]);
 
   const buildEndpoint = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl;
@@ -247,7 +248,7 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
       <DialogSurface>
         <form onSubmit={onSave}>
-          <DialogTitle>{editing ? t("editConnection") : t("newConnection")}</DialogTitle>
+          <DialogTitle>{duplicating ? t("duplicateConnection") : editing ? t("editConnection") : t("newConnection")}</DialogTitle>
           <DialogBody style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Label>
               Tipo
@@ -271,22 +272,6 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
               Nome
               <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />
             </Label>
-
-            {editing && (
-              <Label>
-                ID interno
-                <Input
-                  value={id}
-                  readOnly
-                  disabled={busy}
-                  aria-describedby="connection-id-help"
-                  style={{ marginTop: 4 }}
-                />
-                <Text id="connection-id-help" size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                  Fixo para preservar as credenciais salvas.
-                </Text>
-              </Label>
-            )}
 
             {mode === "jdbc-generic" && (
               <>
@@ -336,6 +321,7 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
                 <Label>
                   {t("password")}
                   <Input type="password" value={password} onChange={(_, data) => setPassword(data.value)} placeholder="••••••" disabled={busy} style={{ marginTop: 4 }} />
+                  {duplicating && <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("duplicatePasswordHint")}</Text>}
                 </Label>
               </>
             )}

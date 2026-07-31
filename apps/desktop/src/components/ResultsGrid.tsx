@@ -371,6 +371,8 @@ export function ResultsGrid({
                   <Button
                     appearance="transparent"
                     icon={<DismissRegular />}
+                    aria-label={t("clearSearch")}
+                    title={t("clearSearch")}
                     onClick={() => {
                       setGlobalFilter("");
                       setPage(0);

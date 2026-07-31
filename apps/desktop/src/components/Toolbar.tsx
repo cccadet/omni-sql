@@ -11,6 +11,7 @@ import {
   PanelLeftExpandRegular,
   HistoryRegular,
   EditRegular,
+  CopyRegular,
   DeleteRegular,
   ArrowSyncRegular,
   WrenchRegular,
@@ -29,6 +30,7 @@ export interface ToolbarProps {
   onAdd?: () => void;
   onAddConnection?: () => void;
   onEditConnection?: () => void;
+  onDuplicateConnection?: () => void;
   onRemoveConnection?: () => void;
   onRefreshMetadata?: () => void;
   onSelectConnection?: (id: string) => void;
@@ -58,6 +60,7 @@ export function Toolbar({
   onAdd,
   onAddConnection,
   onEditConnection,
+  onDuplicateConnection,
   onRemoveConnection,
   onRefreshMetadata,
   onSelectConnection,
@@ -110,14 +113,15 @@ export function Toolbar({
         </div>
       </div>
 
-      <div className="omni-toolbar-group">
+      <div className="omni-toolbar-group" role="group" aria-label={t("connections")}>
         <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">{t("settings")}</span>
+          <span className="omni-toolbar-label">{t("connections")}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <ToolbarButton icon={<ArrowSyncRegular fontSize={14} />} onClick={onRefreshMetadata} disabled={!activeConnectionId || !!busyMsg} aria-label={t("refreshMetadata")} />
-            <ToolbarButton icon={<DatabaseRegular fontSize={14} />} onClick={onAddConnection} aria-label={t("newConnection")} />
-            <ToolbarButton icon={<EditRegular fontSize={14} />} onClick={onEditConnection} disabled={!activeConnectionId} aria-label={t("editConnection")} />
-            <ToolbarButton icon={<DeleteRegular fontSize={14} />} onClick={onRemoveConnection} disabled={!activeConnectionId} aria-label={t("removeConnection")} />
+            <ToolbarButton icon={<ArrowSyncRegular fontSize={14} />} onClick={onRefreshMetadata} disabled={!activeConnectionId || !!busyMsg} aria-label={t("refreshMetadata")} title={t("refreshMetadata")} />
+            <ToolbarButton icon={<DatabaseRegular fontSize={14} />} onClick={onAddConnection} aria-label={t("newConnection")} title={t("newConnection")} />
+            <ToolbarButton icon={<EditRegular fontSize={14} />} onClick={onEditConnection} disabled={!activeConnectionId} aria-label={t("editConnection")} title={t("editConnection")} />
+            <ToolbarButton icon={<CopyRegular fontSize={14} />} onClick={onDuplicateConnection} disabled={!activeConnectionId} aria-label={t("duplicateConnection")} title={t("duplicateConnection")} />
+            <ToolbarButton icon={<DeleteRegular fontSize={14} />} onClick={onRemoveConnection} disabled={!activeConnectionId} aria-label={t("removeConnection")} title={t("removeConnection")} />
           </div>
         </div>
       </div>
@@ -132,6 +136,7 @@ export function Toolbar({
                 onClick={onCancelRun}
                 appearance="primary"
                 style={{ backgroundColor: tokens.colorPaletteRedBackground1, fontWeight: 600 }}
+                title={t("cancel")}
               >
                 {t("cancel")}
               </ToolbarButton>
@@ -142,11 +147,12 @@ export function Toolbar({
                 appearance="primary"
                 disabled={!activeConnectionId}
                 style={{ fontWeight: 600, padding: "4px 12px" }}
+                title={t("runCurrentShortcut")}
               >
                 {t("run")}
               </ToolbarButton>
             )}
-            <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running} aria-label={t("explainQuery")}>
+            <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running} aria-label={t("explainQuery")} title={t("explainQuery")}>
               EXPLAIN
             </ToolbarButton>
           </div>
@@ -211,9 +217,9 @@ export function Toolbar({
 
       {busyMsg && <Spinner size="tiny" label={busyMsg} labelPosition="after" style={{ marginRight: 8 }} />}
 
-      <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} />
-      <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} />
-      <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} />
+      <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} title={t("toggleSidebar")} />
+      <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} title={t("history")} />
+      <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} title={t("moreOptions")} />
       {pendingRunCount && (
         <div
           style={{

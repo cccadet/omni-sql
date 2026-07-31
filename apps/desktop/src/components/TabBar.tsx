@@ -109,13 +109,14 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
                     onClose?.(tab.id);
                   }}
                   aria-label={t("closeTab")}
+                  title={t("closeTab")}
                 />
               </div>
             )}
           </Tab>
         ))}
       </TabList>
-      <Button icon={<AddRegular />} size="small" appearance="subtle" onClick={onAdd} aria-label={t("newTab")} />
+      <Button icon={<AddRegular />} size="small" appearance="subtle" onClick={onAdd} aria-label={t("newTab")} title={t("newTab")} />
     </div>
   );
 }

@@ -105,8 +105,8 @@ export function HistoryPanel({ open, entries, onClose, onClear }: HistoryPanelPr
         >
           <Text weight="semibold">{selectedEntry ? t("selectedQuery") : t("history")}</Text>
           <div style={{ display: "flex", gap: 4 }}>
-            {!selectedEntry && <Button icon={<DeleteRegular />} appearance="subtle" size="small" onClick={onClear} disabled={entries.length === 0} aria-label={t("clearHistory")} />}
-            <Button icon={<DismissRegular />} appearance="subtle" size="small" onClick={onClose} aria-label={t("closeHistory")} />
+            {!selectedEntry && <Button icon={<DeleteRegular />} appearance="subtle" size="small" onClick={onClear} disabled={entries.length === 0} aria-label={t("clearHistory")} title={t("clearHistory")} />}
+            <Button icon={<DismissRegular />} appearance="subtle" size="small" onClick={onClose} aria-label={t("closeHistory")} title={t("closeHistory")} />
           </div>
         </div>
 
