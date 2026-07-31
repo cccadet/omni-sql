@@ -22,6 +22,7 @@ import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables"
 import type { DialectId, FunctionDef, QueryResult, RowEditability } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
+import { useLanguage } from "./i18n";
 
 const HISTORY_KEY = "omni-sql:history";
 
@@ -67,6 +68,7 @@ export interface AppProps {
 }
 
 export default function App({ themeName: name, onToggleTheme: toggle }: AppProps) {
+  const { t } = useLanguage();
   const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab } = useSession();
   const { connections, error: connectionsError, loadConnections } = useConnections();
   const editorRef = useRef<EditorHandle | null>(null);
@@ -112,9 +114,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   useEffect(() => {
     if (connectionsError) {
-      setBusyMsg(`Falha ao carregar conexões: ${connectionsError}`);
+      setBusyMsg(`${t("error")}: ${connectionsError}`);
     }
-  }, [connectionsError]);
+  }, [connectionsError, t]);
 
   useEffect(() => {
     saveHistory(history);
@@ -197,7 +199,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const introspectActive = useCallback(async () => {
     if (!activeConnectionId) return;
-    setBusyMsg("Introspecção…");
+    setBusyMsg(t("refreshMetadata"));
     try {
       await backend.call("metadata.introspect", { connectionId: activeConnectionId });
       ++connectionHealthCheckRef.current;
@@ -206,11 +208,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       await loadSidebarData(activeConnectionId);
       updateTab(activeTab.id, { error: null });
     } catch (e) {
-      updateTab(activeTab.id, { error: `Falha ao atualizar metadados: ${e instanceof Error ? e.message : String(e)}` });
+      updateTab(activeTab.id, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
     } finally {
       setBusyMsg(null);
     }
-  }, [activeConnectionId, activeTab.id, loadConnections, loadSidebarData, updateTab]);
+  }, [activeConnectionId, activeTab.id, loadConnections, loadSidebarData, updateTab, t]);
 
   const onSelectConnection = useCallback(
     async (id: string) => {
@@ -234,15 +236,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const onRemoveConnection = useCallback(
     async (id: string) => {
-      if (!confirm("Remover conexão selecionada?")) return;
+      if (!confirm(t("removeConnection"))) return;
       try {
         await backend.call("connection.remove", { connectionId: id });
         await loadConnections();
       } catch (e) {
-        updateTab(activeTab.id, { error: `Falha ao remover: ${e instanceof Error ? e.message : String(e)}` });
+        updateTab(activeTab.id, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
       }
     },
-    [activeTab.id, loadConnections, updateTab],
+    [activeTab.id, loadConnections, updateTab, t],
   );
 
   const onConnectionSaved = useCallback(async () => {
@@ -281,7 +283,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     editorRef.current?.replaceTextRange(statement.start, statement.end, diagnostic.transpiledSql);
     updateTabSql(activeTab.id, editorRef.current?.getAllText() ?? activeTab.sql);
     setDiagnostics((current) => current.filter((item) => item !== diagnostic));
-  }, [activeTab.id, activeTab.sql, updateTabSql]);
+  }, [activeTab.id, activeTab.sql, updateTabSql, activeDialect]);
 
   const pushHistory = useCallback((sql: string, ok: boolean) => {
     const entry: HistoryEntry = {
@@ -327,7 +329,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             const safeMessage = message.length > 0 && message.length <= 120 && !message.includes("\r") && !message.includes("\n") ? `: ${message}` : "";
             setEditability({
               editable: false,
-              reason: `Não foi possível verificar a editabilidade${safeMessage}.`,
+              reason: `${t("editabilityCheckFailed")}${safeMessage}.`,
               table: null,
               pkColumns: [],
               selectStar: false,
@@ -352,7 +354,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         setBusyMsg(null);
       }
     },
-    [activeConnectionId, activeTab, pushHistory, updateTab],
+    [activeConnectionId, activeTab, pushHistory, updateTab, t],
   );
 
   const handleRun = useCallback(() => {
@@ -361,20 +363,20 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const sql = target?.sql ?? activeTab.sql;
     const statements = splitStatements(sql);
     if (statements.length > 1 && !target?.sql) {
-      setPendingRun({ sqls: statements.map((s) => s.text), label: "Executando…", runAll: false });
+      setPendingRun({ sqls: statements.map((s) => s.text), label: t("running"), runAll: false });
       return;
     }
     const sqls = target?.sql ? [target.sql] : statements.map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
-    void runSqlSequence(sqls, "Executando…");
-  }, [activeConnectionId, activeTab.sql, runSqlSequence]);
+    void runSqlSequence(sqls, t("running"));
+  }, [activeConnectionId, activeTab.sql, runSqlSequence, t]);
 
   const handleRunAll = useCallback(() => {
     if (!activeConnectionId) return;
     const sqls = editorRef.current?.getStatements().map((s) => s.text) ?? splitStatements(activeTab.sql).map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
-    void runSqlSequence(sqls, "Executando todas…");
-  }, [activeConnectionId, activeTab.sql, runSqlSequence]);
+    void runSqlSequence(sqls, t("runningAll"));
+  }, [activeConnectionId, activeTab.sql, runSqlSequence, t]);
 
   const handleRunChoice = useCallback(
     (choice: "current" | "all") => {
@@ -382,13 +384,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       if (choice === "current" && pendingRun.runAll === false) {
         const current = editorRef.current?.getCurrentStatement();
         const sqls = current ? [current.text] : [pendingRun.sqls[0]!];
-        void runSqlSequence(sqls, "Executando…");
+        void runSqlSequence(sqls, t("running"));
       } else {
-        void runSqlSequence(pendingRun.sqls, "Executando todas…");
+        void runSqlSequence(pendingRun.sqls, t("runningAll"));
       }
       setPendingRun(null);
     },
-    [pendingRun, runSqlSequence],
+    [pendingRun, runSqlSequence, t],
   );
 
   const handleRunChoiceCancel = useCallback(() => setPendingRun(null), []);
@@ -406,14 +408,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const handleExplain = useCallback(() => {
     if (!activeConnectionId || !activeTab?.sql.trim()) return;
-    setBusyMsg("Explicando…");
+    setBusyMsg(t("explaining"));
     setPlanText(null);
     backend
       .call<{ textual: string }>("query.explain", { connectionId: activeConnectionId, sql: activeTab.sql })
       .then((res) => setPlanText(res.textual))
       .catch((e) => updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) }))
       .finally(() => setBusyMsg(null));
-  }, [activeConnectionId, activeTab, updateTab]);
+  }, [activeConnectionId, activeTab, updateTab, t]);
 
   const handleCellEdit = useCallback(
     async (rowIndex: number, colIndex: number, value: unknown) => {
@@ -465,7 +467,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         await writeSqlFile(path, activeTab.sql);
         updateTab(activeTab.id, { filePath: path, title: basenameNoExt(path), savedSql: activeTab.sql, error: null });
       } catch (e) {
-        updateTab(activeTab.id, { error: `Falha ao salvar: ${e instanceof Error ? e.message : String(e)}` });
+        updateTab(activeTab.id, { error: `${t("saveFailed")}: ${e instanceof Error ? e.message : String(e)}` });
       }
       return;
     }
@@ -473,9 +475,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       await writeSqlFile(activeTab.filePath, activeTab.sql);
       updateTab(activeTab.id, { savedSql: activeTab.sql, error: null });
     } catch (e) {
-      updateTab(activeTab.id, { error: `Falha ao salvar: ${e instanceof Error ? e.message : String(e)}` });
+      updateTab(activeTab.id, { error: `${t("saveFailed")}: ${e instanceof Error ? e.message : String(e)}` });
     }
-  }, [activeTab, updateTab]);
+  }, [activeTab, updateTab, t]);
 
   const onOpenFile = useCallback(async () => {
     const path = await pickOpenPath();
@@ -490,9 +492,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         return prev.map((t) => (t.id === last.id ? { ...t, ...tab } : t));
       });
     } catch (e) {
-      updateTab(activeTab.id, { error: `Falha ao abrir: ${e instanceof Error ? e.message : String(e)}` });
+      updateTab(activeTab.id, { error: `${t("openFailed")}: ${e instanceof Error ? e.message : String(e)}` });
     }
-  }, [activeTab.connectionId, activeTab.id, addTab, setTabs, updateTab]);
+  }, [activeTab.connectionId, activeTab.id, addTab, setTabs, updateTab, t]);
 
   const onSaveFormatSettings = useCallback(
     (settings: FormatterSettings) => {
@@ -547,12 +549,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           <img src="/omni-sql.svg" alt="omni-sql" height={28} />
           <div>
             <Title1 style={{ fontSize: 18, lineHeight: 1 }}>omni-sql</Title1>
-            <span className="subtitle">    One IDE for every database</span>
+            <span className="subtitle">    {t("appName")}</span>
           </div>
         </div>
         <button
           type="button"
           onClick={toggle}
+          aria-label={name === "dark" ? t("switchToLightTheme") : t("switchToDarkTheme")}
+          title={name === "dark" ? t("switchToLightTheme") : t("switchToDarkTheme")}
           style={{
             display: "flex",
             alignItems: "center",
@@ -564,8 +568,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             fontSize: 13,
           }}
         >
-          {name === "dark" ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
-          {name === "dark" ? "Tema claro" : "Tema escuro"}
+          {name === "dark" ? <WeatherSunnyRegular fontSize={22} /> : <WeatherMoonRegular fontSize={22} />}
         </button>
       </header>
 

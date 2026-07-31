@@ -7,6 +7,7 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { ArrowLeftRegular, CopyRegular, DismissRegular, DeleteRegular, SearchRegular } from "@fluentui/react-icons";
+import { useLanguage } from "../i18n";
 
 export interface HistoryEntry {
   id: string;
@@ -39,6 +40,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 export function HistoryPanel({ open, entries, onClose, onClear }: HistoryPanelProps) {
+  const { t } = useLanguage();
   const [searchText, setSearchText] = useState("");
   const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null);
   const [copied, setCopied] = useState(false);
@@ -101,17 +103,17 @@ export function HistoryPanel({ open, entries, onClose, onClear }: HistoryPanelPr
             borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
           }}
         >
-          <Text weight="semibold">{selectedEntry ? "Detalhe da query" : "Histórico de queries"}</Text>
+          <Text weight="semibold">{selectedEntry ? t("selectedQuery") : t("history")}</Text>
           <div style={{ display: "flex", gap: 4 }}>
-            {!selectedEntry && <Button icon={<DeleteRegular />} appearance="subtle" size="small" onClick={onClear} disabled={entries.length === 0} aria-label="Limpar histórico" />}
-            <Button icon={<DismissRegular />} appearance="subtle" size="small" onClick={onClose} aria-label="Fechar histórico" />
+            {!selectedEntry && <Button icon={<DeleteRegular />} appearance="subtle" size="small" onClick={onClear} disabled={entries.length === 0} aria-label={t("clearHistory")} />}
+            <Button icon={<DismissRegular />} appearance="subtle" size="small" onClick={onClose} aria-label={t("closeHistory")} />
           </div>
         </div>
 
         {selectedEntry ? (
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto" }}>
             <Button appearance="subtle" icon={<ArrowLeftRegular />} onClick={() => setSelectedEntry(null)} style={{ alignSelf: "flex-start" }}>
-              Voltar ao histórico
+              {t("backToHistory")}
             </Button>
             <pre
               aria-label="Query selecionada"
@@ -121,16 +123,16 @@ export function HistoryPanel({ open, entries, onClose, onClear }: HistoryPanelPr
               {selectedEntry.sql}
             </pre>
             <Button appearance="primary" icon={<CopyRegular />} onClick={() => void copySelected()}>
-              {copied ? "Copiada" : "Copiar query"}
+              {copied ? t("success") : t("selectedQuery")}
             </Button>
             <Text size={200} style={{ color: tokens.colorNeutralForeground2 }} aria-live="polite">
-              A query copiada não altera a aba atual.
+              {t("copiedQueryHint")}
             </Text>
           </div>
         ) : <>
         <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 8, borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>
           <Input
-            placeholder="Buscar no histórico..."
+            placeholder={`${t("history")}...`}
             value={searchText}
             onChange={(_, data) => setSearchText(data.value)}
             contentBefore={<SearchRegular />}
@@ -140,11 +142,11 @@ export function HistoryPanel({ open, entries, onClose, onClear }: HistoryPanelPr
 
         <div style={{ flex: 1, overflow: "auto", padding: 6 }}>
           <Text size={200} style={{ color: tokens.colorNeutralForeground2, padding: "2px 4px 6px" }}>
-            {filteredEntries.length} resultado(s)
+            {filteredEntries.length} {t("resultCount")}
           </Text>
           {filteredEntries.length === 0 ? (
             <Text size={200} style={{ color: tokens.colorNeutralForeground2, padding: 10 }}>
-              {entries.length === 0 ? "Nenhuma query executada ainda." : "Nenhuma entrada corresponde aos filtros."}
+              {entries.length === 0 ? t("noQueries") : t("noMatchingHistory")}
             </Text>
           ) : (
             filteredEntries.map((entry) => (
@@ -164,18 +166,18 @@ export function HistoryPanel({ open, entries, onClose, onClear }: HistoryPanelPr
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 10, color: tokens.colorNeutralForeground2 }}>
-                  <span>SQL executado</span>
+                  <span>{t("executedSql")}</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     {entry.ok !== undefined && (
                       <span
-                        aria-label={entry.ok ? "Sucesso" : "Falha"}
-                        title={entry.ok ? "Sucesso" : "Falha"}
+                        aria-label={entry.ok ? t("success") : t("failure")}
+                        title={entry.ok ? t("success") : t("failure")}
                         style={{ color: entry.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1, fontWeight: 600 }}
                       >
                         {entry.ok ? "✓" : "✗"}
                       </span>
                     )}
-                    <span>{entry.sql.split("\n").length} linha(s)</span>
+                    <span>{entry.sql.split("\n").length} {t("rowCount")}</span>
                   </span>
                 </div>
                 <pre

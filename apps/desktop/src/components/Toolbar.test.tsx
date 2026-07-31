@@ -1,0 +1,42 @@
+import { render, screen } from "@testing-library/react";
+import { test, expect, vi } from "vitest";
+import { LanguageProvider } from "../i18n";
+import { Toolbar } from "./Toolbar";
+
+vi.mock("@fluentui/react-icons", () => {
+  const Icon = () => null;
+  return {
+    AddRegular: Icon,
+    ArrowSyncRegular: Icon,
+    DatabaseRegular: Icon,
+    DeleteRegular: Icon,
+    EditRegular: Icon,
+    FolderOpenRegular: Icon,
+    HistoryRegular: Icon,
+    MoreVerticalRegular: Icon,
+    PanelLeftContractRegular: Icon,
+    PanelLeftExpandRegular: Icon,
+    PlayRegular: Icon,
+    SaveRegular: Icon,
+    SettingsRegular: Icon,
+    StopRegular: Icon,
+    WrenchRegular: Icon,
+  };
+});
+
+test("renders multi-statement modal and row limit in English", () => {
+  render(
+    <LanguageProvider>
+      <Toolbar connections={[]} activeConnectionId={null} pendingRunCount={2} onRunChoice={vi.fn()} onRunChoiceCancel={vi.fn()} />
+    </LanguageProvider>,
+  );
+  expect(screen.getByText("This tab contains multiple statements")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run current statement" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run all (2)" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "10 rows" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "Tab actions" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "New SQL tab" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Open saved tab" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save Tab" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "Settings" })).toBeTruthy();
+});

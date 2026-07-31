@@ -31,6 +31,7 @@ import { backend, type ConnectionEntry, type RelationInfo } from "../lib/backend
 import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
 import type { ConnectionHealth } from "./StatusBar";
 import { formatLastSyncedAt, getMetadataFreshness } from "../lib/metadata-freshness";
+import { useLanguage } from "../i18n";
 
 export interface SidebarProps {
   open?: boolean;
@@ -129,6 +130,7 @@ export function Sidebar({
   onOpenInNewTab,
   health = "unknown",
 }: SidebarProps) {
+  const { t: tr } = useLanguage();
   const [search, setSearch] = useState("");
   const [width, setWidth] = useState(loadWidth);
   const [resizing, setResizing] = useState(false);
@@ -268,7 +270,7 @@ export function Sidebar({
   const insertQualified = (schema: string, name: string) => onInsert?.(`${schema}.${name}`);
   const metadataFreshness = getMetadataFreshness(connection?.lastSyncedAt);
   const metadataTimestamp = formatLastSyncedAt(connection?.lastSyncedAt);
-  const metadataTooltip = `${metadataFreshness === "today" ? "Metadados atualizados hoje" : metadataFreshness === "stale" ? "Metadados desatualizados" : "Metadados não sincronizados"}${metadataTimestamp ? ` · última sincronização: ${metadataTimestamp}` : ""}`;
+  const metadataTooltip = `${metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
   const healthLabel = health === "online" ? "Online" : health === "offline" ? "Offline" : health === "verifying" ? "Verifying…" : "Unknown";
 
   return (
@@ -323,21 +325,21 @@ export function Sidebar({
             </Tooltip>
           )}
           <SidecarStatus />
-          <Tooltip content="Atualizar objetos" relationship="label">
+          <Tooltip content={tr("refreshObjects")} relationship="label">
             <Button
               icon={<ArrowSyncRegular fontSize={12} />}
               appearance="transparent"
               size="small"
               onClick={onRefresh}
               disabled={loading}
-              aria-label="Atualizar objetos"
+              aria-label={tr("refreshObjects")}
             />
           </Tooltip>
         </div>
       </div>
       <div style={{ padding: 8 }}>
         <Input
-          placeholder="Buscar tabelas, colunas..."
+          placeholder={tr("searchObjects")}
           value={search}
           onChange={(_, data) => setSearch(data.value)}
           contentBefore={<SearchRegular fontSize={12} />}
@@ -347,7 +349,7 @@ export function Sidebar({
                 appearance="transparent"
                 icon={<DismissRegular fontSize={12} />}
                 onClick={() => setSearch("")}
-                aria-label="Limpar busca"
+                aria-label={tr("clearSearch")}
               />
             ) : undefined
           }
@@ -357,7 +359,7 @@ export function Sidebar({
       <div className="omni-sidebar-tree" style={{ flex: 1, overflow: "auto", padding: "0 8px 8px" }}>
         {groups.length === 0 ? (
           <Text size={200} style={{ color: tokens.colorNeutralForeground2, padding: 8 }}>
-            {loading ? "Carregando..." : search ? "Nenhum resultado." : "Nenhum objeto disponível."}
+            {loading ? tr("loading") : search ? tr("noResults") : tr("noObjects")}
           </Text>
         ) : (
           groups.map((g) => (
@@ -370,7 +372,7 @@ export function Sidebar({
             >
               {g.tables.length > 0 && (
                 <TreeNode
-                  label={`Tabelas (${g.tables.length})`}
+                  label={`${tr("tables")} (${g.tables.length})`}
                   icon={<TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
@@ -386,7 +388,7 @@ export function Sidebar({
                           role="presentation"
                           onContextMenu={(e) =>
                             openMenu(e, [
-                              { label: "Inserir no editor", action: () => insertQualified(g.name, t.name) },
+                              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
                               { label: "Gerar DDL em nova aba", action: () => void openDefinition("table", g.name, t.name) },
                             ])
                           }
@@ -422,7 +424,7 @@ export function Sidebar({
                             }
                           >
                             <div className="columns">
-                              <div className="sub-header"><span>Colunas ({t.columns.length})</span></div>
+                              <div className="sub-header"><span>{tr("columns")} ({t.columns.length})</span></div>
                               {t.columns.map((c) => {
                                 const ColumnIcon = typeIcon(c.dataType);
                                 return (
@@ -453,18 +455,18 @@ export function Sidebar({
                             <div className="indexes">
                               <div className="sub-header">
                                 <span>
-                                  Índices
+                                  {tr("indexes")}
                                   {indexState && !indexState.loading && !indexState.error ? ` (${indexState.indexes.length})` : ""}
                                 </span>
                               </div>
                               {(!indexState || indexState.loading) && (
-                                <p className="sub-hint">Carregando...</p>
+                                <p className="sub-hint">{tr("loading")}</p>
                               )}
                               {indexState?.error && (
                                 <p className="sub-hint error">{indexState.error}</p>
                               )}
                               {indexState && !indexState.loading && !indexState.error && indexState.indexes.length === 0 && (
-                                <p className="sub-hint">Nenhum índice.</p>
+                                <p className="sub-hint">{tr("noIndexes")}</p>
                               )}
                               {indexState && !indexState.loading && !indexState.error && indexState.indexes.length > 0 && (
                                 <div className="columns">
@@ -493,7 +495,7 @@ export function Sidebar({
                           <button
                             className="obj-expand-trigger"
                             type="button"
-                            aria-label="Expandir/recolher"
+                            aria-label={tr("expandCollapse")}
                             onClick={() => toggleExpand(g.name, t.name, true)}
                             tabIndex={-1}
                           />
@@ -505,7 +507,7 @@ export function Sidebar({
               )}
               {g.views.length > 0 && (
                 <TreeNode
-                  label={`Views (${g.views.length})`}
+                  label={`${tr("views")} (${g.views.length})`}
                   icon={<EyeRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
@@ -520,8 +522,8 @@ export function Sidebar({
                           role="presentation"
                           onContextMenu={(e) =>
                             openMenu(e, [
-                              { label: "Inserir no editor", action: () => insertQualified(g.name, v.name) },
-                              { label: "Ver definição em nova aba", action: () => void openDefinition("view", g.name, v.name) },
+                              { label: tr("insertInEditor"), action: () => insertQualified(g.name, v.name) },
+                              { label: tr("viewDefinition"), action: () => void openDefinition("view", g.name, v.name) },
                             ])
                           }
                         >
@@ -568,7 +570,7 @@ export function Sidebar({
                           <button
                             className="obj-expand-trigger"
                             type="button"
-                            aria-label="Expandir/recolher"
+                            aria-label={tr("expandCollapse")}
                             onClick={() => toggleExpand(g.name, v.name, false)}
                             tabIndex={-1}
                           />
@@ -580,7 +582,7 @@ export function Sidebar({
               )}
               {g.functions.length > 0 && (
                 <TreeNode
-                  label={`Funções (${g.functions.length})`}
+                  label={`${tr("functions")} (${g.functions.length})`}
                   icon={<NumberSymbolRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
@@ -594,8 +596,8 @@ export function Sidebar({
                         style={{ marginLeft: 10 }}
                         onContextMenu={(e) =>
                           openMenu(e, [
-                            { label: "Inserir no editor", action: () => insertQualified(g.name, f.name) },
-                            { label: "Ver definição em nova aba", action: () => void openDefinition("function", g.name, f.name) },
+                            { label: tr("insertInEditor"), action: () => insertQualified(g.name, f.name) },
+                            { label: tr("viewDefinition"), action: () => void openDefinition("function", g.name, f.name) },
                           ])
                         }
                       >
@@ -631,7 +633,7 @@ export function Sidebar({
         className={`resize-handle ${resizing ? "resizing" : ""}`}
         role="separator"
         aria-orientation="vertical"
-        aria-label="Redimensionar painel de objetos"
+        aria-label={tr("resizeObjectPanel")}
         onPointerDown={onResizeStart}
       />
       {menu && (

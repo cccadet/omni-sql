@@ -13,6 +13,7 @@ import {
   Text,
   tokens,
 } from "@fluentui/react-components";
+import { useLanguage } from "../i18n";
 
 export interface VariablesDialogProps {
   open: boolean;
@@ -22,6 +23,7 @@ export interface VariablesDialogProps {
 }
 
 export function VariablesDialog({ open, variables, onClose, onSubmit }: VariablesDialogProps) {
+  const { t } = useLanguage();
   const [values, setValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -46,10 +48,10 @@ export function VariablesDialog({ open, variables, onClose, onSubmit }: Variable
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
       <DialogSurface>
         <DialogBody>
-          <DialogTitle>Variáveis da query</DialogTitle>
+          <DialogTitle>{t("run")}</DialogTitle>
           <DialogContent>
             {variables.length === 0 ? (
-              <Text>Nenhuma variável para preencher.</Text>
+              <Text>{t("noResults")}</Text>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 280 }}>
                 {variables.map((name) => (
@@ -61,7 +63,7 @@ export function VariablesDialog({ open, variables, onClose, onSubmit }: Variable
                       id={`var-${name}`}
                       value={values[name] ?? ""}
                       onChange={(_, data) => setValues((prev) => ({ ...prev, [name]: data.value }))}
-                      placeholder={`Valor para :${name}`}
+                      placeholder={`${t("valueFor")} :${name}`}
                       autoComplete="off"
                     />
                   </div>
@@ -69,18 +71,17 @@ export function VariablesDialog({ open, variables, onClose, onSubmit }: Variable
               </div>
             )}
             <Text size={200} style={{ color: tokens.colorNeutralForeground2, marginTop: 12, display: "block" }}>
-              Os valores serão interpolados como literais de texto (ex.: <code>:nome</code> vira{" "}
-              <code>&apos;valor&apos;</code>).
+              {t("variableValuesHint")}
             </Text>
           </DialogContent>
           <DialogActions>
             <DialogTrigger disableButtonEnhancement>
               <Button appearance="secondary" onClick={onClose}>
-                Cancelar
+                {t("cancel")}
               </Button>
             </DialogTrigger>
             <Button appearance="primary" onClick={handleSubmit} disabled={!isComplete}>
-              Executar
+              {t("run")}
             </Button>
           </DialogActions>
         </DialogBody>

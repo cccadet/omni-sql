@@ -15,6 +15,7 @@ import {
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import { backend } from "../lib/backend";
 import { pickJarPath } from "../lib/file-io";
+import { useLanguage } from "../i18n";
 
 type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "demo";
 
@@ -72,6 +73,7 @@ export interface ConnectionDialogProps {
 }
 
 export function ConnectionDialog({ open, editing, onClose, onSaved }: ConnectionDialogProps) {
+  const { t } = useLanguage();
   const [mode, setMode] = useState<Mode>("postgres");
   const [label, setLabel] = useState("");
   const [id, setId] = useState("");
@@ -139,9 +141,9 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
   }, [mode, jarPath, driverClassName, ssl]);
 
   const defaultLabel = useCallback(() => {
-    if (mode === "jdbc-generic") return jdbcUrl || "JDBC genérico";
+    if (mode === "jdbc-generic") return jdbcUrl || t("jdbcGeneric");
     return `${host}/${database}`;
-  }, [mode, jdbcUrl, host, database]);
+  }, [mode, jdbcUrl, host, database, t]);
 
   const canConnect = useCallback(() => {
     if (mode === "jdbc-generic") {
@@ -245,7 +247,7 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
       <DialogSurface>
         <form onSubmit={onSave}>
-          <DialogTitle>{editing ? "Editar conexão" : "Nova conexão"}</DialogTitle>
+          <DialogTitle>{editing ? t("editConnection") : t("newConnection")}</DialogTitle>
           <DialogBody style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Label>
               Tipo
@@ -260,14 +262,14 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
                 <option value="mariadb">MariaDB</option>
                 <option value="sqlserver">SQL Server</option>
                 <option value="oracle">Oracle</option>
-                <option value="jdbc-generic">JDBC genérico</option>
+                <option value="jdbc-generic">{t("jdbcGeneric")}</option>
                 <option value="demo">Demo (in-memory)</option>
               </select>
             </Label>
 
             <Label>
               Nome
-              <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder="Minha conexão" disabled={busy} required style={{ marginTop: 4 }} />
+              <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />
             </Label>
 
             {editing && (
@@ -314,7 +316,7 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
                     <Input value={host} onChange={(_, data) => setHost(data.value)} placeholder="127.0.0.1" disabled={busy} required style={{ marginTop: 4 }} />
                   </Label>
                   <Label>
-                    Porta
+                    {t("port")}
                     <Input value={port} onChange={(_, data) => setPort(data.value)} placeholder={DEFAULT_PORTS[mode]} disabled={busy} required style={{ width: 90, marginTop: 4 }} />
                   </Label>
                 </div>
@@ -328,11 +330,11 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
             {mode !== "demo" && (
               <>
                 <Label>
-                  Usuário
+                  {t("user")}
                   <Input value={user} onChange={(_, data) => setUser(data.value)} placeholder={DEFAULT_USERS[mode]} disabled={busy} required style={{ marginTop: 4 }} />
                 </Label>
                 <Label>
-                  Senha
+                  {t("password")}
                   <Input type="password" value={password} onChange={(_, data) => setPassword(data.value)} placeholder="••••••" disabled={busy} style={{ marginTop: 4 }} />
                 </Label>
               </>
@@ -352,25 +354,25 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text size={200}>Schemas a indexar</Text>
+                    <Text size={200}>{t("schemasToIndex")}</Text>
                     <Button type="button" onClick={loadSchemas} disabled={busy || !canConnect()} size="small">
-                      Carregar schemas
+                      {t("loadSchemas")}
                     </Button>
                   </div>
                   {availableSchemas === null ? (
                     <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                      Sem seleção: todos os schemas serão indexados.
+                      {t("noSelectionAllSchemas")}
                     </Text>
                   ) : availableSchemas.length === 0 ? (
-                    <Text size={200}>Nenhum schema encontrado.</Text>
+                    <Text size={200}>{t("noSchemaFound")}</Text>
                   ) : (
                     <>
                       <div style={{ display: "flex", gap: 12 }}>
                         <Button type="button" appearance="subtle" size="small" onClick={() => setSelectedSchemas(new Set(availableSchemas))}>
-                          Selecionar todos
+                          {t("selectAll")}
                         </Button>
                         <Button type="button" appearance="subtle" size="small" onClick={() => setSelectedSchemas(new Set())}>
-                          Selecionar nenhum
+                          {t("selectNone")}
                         </Button>
                       </div>
                       <div style={{ maxHeight: 140, overflow: "auto" }}>
@@ -389,22 +391,22 @@ export function ConnectionDialog({ open, editing, onClose, onSaved }: Connection
             )}
             {testResult && (
               <Text style={{ color: testResult.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
-                {testResult.ok ? `Conectado em ${testResult.latencyMs}ms` : `Falha: ${testResult.message ?? "desconhecida"}`}
+                {testResult.ok ? `${t("connectedIn")} ${testResult.latencyMs}ms` : `${t("failure")}: ${testResult.message ?? t("unknownFailure")}`}
               </Text>
             )}
           </DialogBody>
           <DialogActions>
             {mode !== "demo" && (
               <Button type="button" onClick={onTest} disabled={busy || !canConnect()}>
-                {busy ? "Testando…" : "Testar conexão"}
+                {busy ? t("loading") : t("connect")}
               </Button>
             )}
             <div style={{ flex: 1 }} />
             <Button type="button" onClick={onClose} disabled={busy}>
-              Cancelar
+              {t("cancel")}
             </Button>
             <Button type="submit" appearance="primary" disabled={busy || (mode !== "demo" && !canConnect())}>
-              {busy ? "Salvando…" : "Salvar"}
+              {busy ? t("loading") : t("saveConnection")}
             </Button>
           </DialogActions>
         </form>

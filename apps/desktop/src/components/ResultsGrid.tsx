@@ -21,6 +21,7 @@ import {
   WrenchRegular,
 } from "@fluentui/react-icons";
 import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
+import { useLanguage } from "../i18n";
 
 export interface ResultsGridProps {
   result?: QueryResult | null;
@@ -106,6 +107,7 @@ export function ResultsGrid({
   committing = false,
   onCellEdit,
 }: ResultsGridProps) {
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan">("data");
   const [globalFilter, setGlobalFilter] = useState("");
   const [sortColumn, setSortColumn] = useState<string | undefined>(undefined);
@@ -346,19 +348,19 @@ export function ResultsGrid({
           selectedValue={activeTab}
           onTabSelect={(_, data) => setActiveTab(data.value as "data" | "messages" | "plan")}
         >
-          <Tab value="data" icon={<TableRegular fontSize={12} />}>Dados</Tab>
-          <Tab value="messages" icon={<ChatRegular fontSize={12} />}>Mensagens</Tab>
-          {planText && <Tab value="plan" icon={<WrenchRegular fontSize={12} />}>Plano</Tab>}
+          <Tab value="data" icon={<TableRegular fontSize={12} />}>{t("data")}</Tab>
+          <Tab value="messages" icon={<ChatRegular fontSize={12} />}>{t("messages")}</Tab>
+          {planText && <Tab value="plan" icon={<WrenchRegular fontSize={12} />}>{t("plan")}</Tab>}
         </TabList>
         {activeTab === "data" && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" }}>
             {result && editability && !editability.editable && (
-              <Text role="status" aria-live="polite" size={200} style={{ color: tokens.colorNeutralForeground2, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4, padding: "4px 8px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={editability.reason ?? "Edição inline indisponível."}>
-                Edição inline indisponível{editability.reason ? `: ${editability.reason}` : "."}
+              <Text role="status" aria-live="polite" size={200} style={{ color: tokens.colorNeutralForeground2, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4, padding: "4px 8px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={editability.reason ?? t("inlineEditingUnavailable")}>
+                {t("inlineEditingUnavailableText")}{editability.reason ? `: ${editability.reason}` : "."}
               </Text>
             )}
             <Input
-              placeholder="Filtrar linhas…"
+              placeholder={`${t("data")}...`}
               value={globalFilter}
               onChange={(_, data) => {
                 setGlobalFilter(data.value);
@@ -381,11 +383,11 @@ export function ResultsGrid({
             {changes.length > 0 && (
               <Button
                 appearance="subtle"
-                aria-label="Descartar alterações"
+                aria-label={t("discardChanges")}
                 onClick={() => void discardChanges()}
                 disabled={committing}
               >
-                Descartar
+                {t("discard")}
               </Button>
             )}
             <Button
@@ -393,11 +395,11 @@ export function ResultsGrid({
               onClick={() => void applyChanges()}
               disabled={changes.length === 0 || committing}
             >
-              {committing ? "Aplicando…" : `Aplicar${changes.length ? ` ${changes.length}` : ""}`}
+              {committing ? t("applying") : `${t("apply")}${changes.length ? ` ${changes.length}` : ""}`}
             </Button>
-            <Tooltip content="Exportar CSV" relationship="label">
+            <Tooltip content={t("exportCsv")} relationship="label">
               <Button icon={<ArrowDownloadRegular />} onClick={handleExportCsv} disabled={!result || rows.length === 0}>
-                Exportar
+                {t("export")}
               </Button>
             </Tooltip>
           </div>
@@ -409,7 +411,7 @@ export function ResultsGrid({
           <>
             {!result ? (
               <Text size={200} style={{ padding: 16, display: "block", color: tokens.colorNeutralForeground2 }}>
-                Nenhum resultado ainda.
+                {t("noResults")}
               </Text>
             ) : (
               <table
@@ -554,21 +556,21 @@ export function ResultsGrid({
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <Text>
                   {result.rowsAffected !== undefined
-                    ? `Linhas afetadas: ${result.rowsAffected}`
-                    : `Linhas retornadas: ${result.rows.length}`}
+                    ? `${t("affectedRows")}: ${result.rowsAffected}`
+                    : `${t("returnedRows")}: ${result.rows.length}`}
                 </Text>
                 <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                  Tempo: {result.elapsedMs} ms
+                  {t("elapsed")}: {result.elapsedMs} ms
                 </Text>
                 {result.rowsMoreAvailable && (
                   <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                    Há mais linhas disponíveis; reduza o filtro ou aumente o limite na query.
+                    {t("moreRows")}
                   </Text>
                 )}
               </div>
             ) : (
               <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                Nenhuma mensagem.
+                {t("noMessages")}
               </Text>
             )}
           </div>
@@ -602,7 +604,7 @@ export function ResultsGrid({
           }}
         >
           <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-            {sortedRows.length} de {rows.length} linhas
+            {sortedRows.length} {t("of")} {rows.length} {t("rows")}
           </Text>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Button
