@@ -191,7 +191,7 @@ test("smoke: add connection → introspect → list relations → run query → 
     assert.deepEqual(failedStatus.result, {
       ok: false,
       latencyMs: 0,
-      message: "database unavailable",
+      message: "Connection status unavailable",
     });
 
     // 9. unknown method returns JSON-RPC error (not HTTP 500)
@@ -223,6 +223,32 @@ test("query.run validates and bounds the untrusted limit at the RPC boundary", a
     await rpc("query.run", { connectionId: "limit-validation", sql: "SELECT 1", limit: 10_000 }, url);
     assert.equal(testAdapter?.lastRunLimit, 10_000);
   } finally {
+    server.close();
+  }
+});
+
+test("RPC failures do not disclose error text or forge log lines", async () => {
+  const port = TEST_PORT + 20;
+  const url = `http://127.0.0.1:${port}/rpc`;
+  const server = startServer(port);
+  const originalError = console.error;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const lines: string[] = [];
+  console.error = (...args: unknown[]) => lines.push(args.join(" "));
+  const maliciousId = "missing\r\nFORGED secret=top-secret ADAPTER_SECRET";
+  try {
+    delete process.env.NODE_ENV;
+    const response = await rpc("query.run", { connectionId: maliciousId, sql: "SELECT 1" }, url);
+    assert.equal(response.error?.code, -32000);
+    assert.equal(response.error?.message, "Internal error");
+    assert.equal(JSON.stringify(response).includes("FORGED"), false);
+    assert.equal(lines.some((line) => line.includes("\r") || line.includes("\n")), false);
+    assert.equal(lines.some((line) => line.includes("FORGED") || line.includes("ADAPTER_SECRET")), false);
+    assert.match(lines.join("\n"), /method=query\.run error=Error elapsedMs=\d+/);
+  } finally {
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+    console.error = originalError;
     server.close();
   }
 });
@@ -338,7 +364,7 @@ test("row editability: query.analyzeEditability resolves real PK, row.update val
       editUrl,
     );
     assert.ok(valid.error);
-    assert.match(valid.error!.message, /não suportada/);
+    assert.equal(valid.error!.message, "Internal error");
   } finally {
     globalThis.fetch = originalFetch;
     server.close();
