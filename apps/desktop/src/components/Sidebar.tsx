@@ -69,7 +69,7 @@ function TreeNode({ label, icon, children, defaultExpanded = false, forceExpande
   const isExpanded = forceExpanded ?? expanded;
   const hasChildren = Boolean(children);
   return (
-    <div style={{ marginLeft: 10 }}>
+    <div style={{ marginLeft: 10, minWidth: 0 }}>
       <div
         style={{ display: "flex", alignItems: "center", gap: 4, cursor: hasChildren ? "pointer" : "default", padding: "2px 0" }}
         onClick={() => {
@@ -283,6 +283,9 @@ export function Sidebar({
         background: tokens.colorNeutralBackground2,
         display: "flex",
         flexDirection: "column",
+        minWidth: 0,
+        minHeight: 0,
+        overflow: "hidden",
         padding: 0,
         position: "relative",
       }}
@@ -356,7 +359,7 @@ export function Sidebar({
           style={{ width: "100%" }}
         />
       </div>
-      <div className="omni-sidebar-tree" style={{ flex: 1, overflow: "auto", padding: "0 8px 8px" }}>
+      <div className="omni-sidebar-tree" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", padding: "0 8px 8px" }}>
         {groups.length === 0 ? (
           <Text size={200} style={{ color: tokens.colorNeutralForeground2, padding: 8 }}>
             {loading ? tr("loading") : search ? tr("noResults") : tr("noObjects")}

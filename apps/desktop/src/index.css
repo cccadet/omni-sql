@@ -115,7 +115,13 @@ select option {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   padding: 1px 0;
+}
+
+.omni-sidebar-tree .obj-row > :first-child {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .omni-sidebar-tree .obj-row:hover {
@@ -180,7 +186,24 @@ select option {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   padding: 1px 0;
+}
+
+.omni-sidebar-tree .column .col-name,
+.omni-sidebar-tree .column .col-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omni-sidebar-tree .column .col-name {
+  flex: 1 1 auto;
+}
+
+.omni-sidebar-tree .column .col-type {
+  flex: 0 1 auto;
 }
 
 /* Connection chip */
