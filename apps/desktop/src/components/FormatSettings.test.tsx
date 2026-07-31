@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { test, expect, vi } from "vitest";
 import { FormatSettings } from "./FormatSettings";
 import { LanguageProvider } from "../i18n";
@@ -19,5 +19,30 @@ test("uses context-specific save label", () => {
 
   expect(screen.getByRole("button", { name: "Save formatting settings" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Save connection" })).toBeNull();
+  expect(screen.getByRole("dialog").style.maxHeight).toBe("calc(100vh - 24px)");
+  expect(screen.getByRole("tab", { name: "SQL formatting" })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "Language" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "Language" })).toBeNull();
+});
+
+test("switches settings tabs without losing formatting controls", () => {
+  render(
+    <LanguageProvider>
+      <FormatSettings
+        open
+        dialect="postgres"
+        settings={DEFAULT_FORMATTER_SETTINGS}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    </LanguageProvider>,
+  );
+
+  fireEvent.click(screen.getByRole("tab", { name: "Language" }));
   expect(screen.getByRole("combobox", { name: "Language" })).toBeTruthy();
+  expect(screen.queryByLabelText("Shortcut")).toBeNull();
+
+  fireEvent.click(screen.getByRole("tab", { name: "SQL formatting" }));
+  expect(screen.getByRole("textbox", { name: "Shortcut" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "Language" })).toBeNull();
 });
