@@ -21,14 +21,14 @@ test("update.check returns newer stable GitHub release", async () => {
   }
 });
 
-test("update.check fails closed for malformed or unavailable releases", async () => {
+test("update.check reports malformed or unavailable releases as errors", async () => {
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = (async () => new Response(JSON.stringify({ tag_name: "not-semver", html_url: "https://example.com" }), { status: 200 })) as typeof fetch;
-    assert.deepEqual(await handlers["update.check"]({ currentVersion: "1.0.0" }), { available: false });
+    await assert.rejects(handlers["update.check"]({ currentVersion: "1.0.0" }), /unsupported release/);
 
     globalThis.fetch = (async () => { throw new Error("offline"); }) as typeof fetch;
-    assert.deepEqual(await handlers["update.check"]({ currentVersion: "1.0.0" }), { available: false });
+    await assert.rejects(handlers["update.check"]({ currentVersion: "1.0.0" }), /offline/);
   } finally {
     globalThis.fetch = originalFetch;
   }

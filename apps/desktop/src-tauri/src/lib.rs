@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::menu::Menu;
+use tauri::menu::{Menu, MenuItemBuilder, HELP_SUBMENU_ID};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
@@ -22,6 +22,8 @@ const SIDECAR_STATUS_EVENT: &str = "sidecar-status";
 const SIDECAR_STATUS_CHECKING: &str = "checking";
 const SIDECAR_STATUS_READY: &str = "ready";
 const SIDECAR_STATUS_UNAVAILABLE: &str = "unavailable";
+const CHECK_FOR_UPDATES_MENU_ID: &str = "check-for-updates";
+const CHECK_FOR_UPDATES_EVENT: &str = "check-for-updates";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -430,6 +432,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .on_menu_event(|app, event| {
+            if event.id() == CHECK_FOR_UPDATES_MENU_ID {
+                if let Err(err) = app.emit(CHECK_FOR_UPDATES_EVENT, ()) {
+                    log::warn!("failed to emit {CHECK_FOR_UPDATES_EVENT}: {err}");
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             write_text_file,
             read_text_file,
@@ -488,6 +497,20 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 match Menu::default(app.handle()) {
                     Ok(menu) => {
+                        match MenuItemBuilder::with_id(CHECK_FOR_UPDATES_MENU_ID, "Check for Updates")
+                            .build(app)
+                        {
+                            Ok(check_for_updates) => {
+                                if let Some(help_item) = menu.get(HELP_SUBMENU_ID) {
+                                    if let Some(help_menu) = help_item.as_submenu() {
+                                        if let Err(err) = help_menu.append(&check_for_updates) {
+                                            log::warn!("failed to append Check for Updates: {err}");
+                                        }
+                                    }
+                                }
+                            }
+                            Err(err) => log::warn!("failed to create update menu item: {err}"),
+                        }
                         if let Err(err) = window.set_menu(menu) {
                             log::warn!("failed to set window menu: {err}");
                         }
@@ -804,6 +827,12 @@ mod tests {
             }
         );
         assert_ne!(release_allowed_origin(), "*");
+    }
+
+    #[test]
+    fn update_menu_uses_frontend_check_event_without_opening_url() {
+        assert_eq!(CHECK_FOR_UPDATES_MENU_ID, "check-for-updates");
+        assert_eq!(CHECK_FOR_UPDATES_EVENT, "check-for-updates");
     }
 
     #[test]
