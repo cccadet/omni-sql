@@ -48,8 +48,37 @@ export interface StagedCellEdit {
 
 const PAGE_SIZE = 100;
 
+export function serializeCellValue(value: unknown): string {
+  if (value == null) return "";
+  if (value instanceof Date) {
+    try {
+      return value.toISOString();
+    } catch {
+      return String(value);
+    }
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (typeof value === "symbol" || typeof value === "function") return String(value);
+
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(value, (_key, nested: unknown) => {
+      if (typeof nested === "bigint") return `${nested}n`;
+      if (nested && typeof nested === "object") {
+        if (seen.has(nested)) return "[Circular]";
+        seen.add(nested);
+      }
+      return nested;
+    }) ?? "";
+  } catch {
+    return "[Unserializable]";
+  }
+}
+
 function escapeCsv(value: unknown): string {
-  const s = String(value ?? "");
+  const s = serializeCellValue(value);
   if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
     return `"${s.replace(/"/g, '""')}"`;
   }
@@ -60,10 +89,7 @@ function compareValues(a: unknown, b: unknown): number {
   if (a === b) return 0;
   if (a == null) return 1;
   if (b == null) return -1;
-  if (typeof a === "number" && typeof b === "number") return a - b;
-  if (typeof a === "bigint" && typeof b === "bigint") return a < b ? -1 : 1;
-  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
-  return String(a).localeCompare(String(b), undefined, { numeric: true });
+  return serializeCellValue(a).localeCompare(serializeCellValue(b), undefined, { numeric: true });
 }
 
 function columnTypeLabel(dataType: string): string {
@@ -163,7 +189,7 @@ export function ResultsGrid({
     if (term) {
       list = list.filter(({ row, rowIndex }) =>
         row.some((cell, colIndex) =>
-          String(changeByCell.get(`${rowIndex}:${colIndex}`) ?? cell ?? "").toLowerCase().includes(term),
+          serializeCellValue(changeByCell.get(`${rowIndex}:${colIndex}`) ?? cell).toLowerCase().includes(term),
         ),
       );
     }
@@ -241,7 +267,7 @@ export function ResultsGrid({
       if (originalRowIndex === undefined) return;
       const value = changeByCell.get(`${originalRowIndex}:${colIndex}`) ?? pageRows[rowIndex]?.row[colIndex];
       editFinalizedRef.current = false;
-      setEditingCell({ row: originalRowIndex, col: colIndex, value: String(value ?? "") });
+      setEditingCell({ row: originalRowIndex, col: colIndex, value: serializeCellValue(value) });
     },
     [isColumnEditable, pageRows, result?.columns, changeByCell],
   );
@@ -536,7 +562,7 @@ export function ResultsGrid({
                                   borderRadius: 2,
                                 }}
                               >
-                                {String(cellValue ?? "")}
+                                {serializeCellValue(cellValue)}
                               </div>
                             )}
                           </td>
