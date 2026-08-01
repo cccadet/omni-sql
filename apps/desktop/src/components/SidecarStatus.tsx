@@ -65,11 +65,19 @@ export function SidecarStatus() {
   const color = state === "ready" ? tokens.colorBrandForeground1 : tokens.colorNeutralForeground3;
   const opacity = state === "checking" ? 0.7 : 1;
   const cursor = state === "unavailable" ? "pointer" : "default";
+  const retryable = state === "unavailable";
 
   return (
     <span
       title={label}
-      onClick={state === "unavailable" ? retry : undefined}
+      role={retryable ? "button" : undefined}
+      tabIndex={retryable ? 0 : undefined}
+      onClick={retryable ? retry : undefined}
+      onKeyDown={retryable ? (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        retry();
+      } : undefined}
       style={{ display: "inline-flex", alignItems: "center", opacity, color, cursor }}
       aria-label={label}
     >

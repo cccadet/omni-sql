@@ -71,22 +71,36 @@ function TreeNode({ label, icon, children, defaultExpanded = false, forceExpande
   return (
     <div style={{ marginLeft: 10, minWidth: 0 }}>
       <div
-        style={{ display: "flex", alignItems: "center", gap: 4, cursor: hasChildren ? "pointer" : "default", padding: "2px 0" }}
-        onClick={() => {
-          if (!hasChildren) return;
-          const nextExpanded = !isExpanded;
-          setExpanded(nextExpanded);
-          onExpandedChange?.(nextExpanded);
-        }}
+        style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 0" }}
         onContextMenu={onContextMenu}
       >
-        {hasChildren ? (
-          isExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />
-        ) : (
-          <span style={{ width: 12 }} />
-        )}
-        {icon}
-        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, cursor: hasChildren ? "pointer" : "default" }}
+          role={hasChildren ? "button" : undefined}
+          tabIndex={hasChildren ? 0 : undefined}
+          aria-expanded={hasChildren ? isExpanded : undefined}
+          onClick={() => {
+            if (!hasChildren) return;
+            const nextExpanded = !isExpanded;
+            setExpanded(nextExpanded);
+            onExpandedChange?.(nextExpanded);
+          }}
+          onKeyDown={(e) => {
+            if (!hasChildren || e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            const nextExpanded = !isExpanded;
+            setExpanded(nextExpanded);
+            onExpandedChange?.(nextExpanded);
+          }}
+        >
+          {hasChildren ? (
+            isExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />
+          ) : (
+            <span style={{ width: 12 }} />
+          )}
+          {icon}
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        </div>
         {actions}
       </div>
       {isExpanded && <div>{children}</div>}
@@ -262,6 +276,20 @@ export function Sidebar({
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+  }, [width]);
+
+  const onResizeKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const step = 16;
+    const next = e.key === "ArrowLeft" ? width - step : e.key === "ArrowRight" ? width + step : e.key === "Home" ? MIN_WIDTH : e.key === "End" ? MAX_WIDTH : null;
+    if (next === null) return;
+    e.preventDefault();
+    const bounded = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next));
+    setWidth(bounded);
+    try {
+      localStorage.setItem(WIDTH_KEY, String(bounded));
+    } catch {
+      // localStorage indisponível — largura só não persiste.
+    }
   }, [width]);
 
   if (!open) return null;
@@ -638,9 +666,14 @@ export function Sidebar({
         className={`resize-handle ${resizing ? "resizing" : ""}`}
         role="separator"
         aria-orientation="vertical"
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        aria-valuenow={width}
+        tabIndex={0}
         aria-label={tr("resizeObjectPanel")}
         title={tr("resizeObjectPanel")}
         onPointerDown={onResizeStart}
+        onKeyDown={onResizeKeyDown}
       />
       {menu && (
         <>

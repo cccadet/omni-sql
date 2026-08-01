@@ -34,3 +34,33 @@ test("loads indexes when a table is expanded and shows the empty state", async (
   assert.ok(await screen.findByText("No indexes."));
   assert.equal(screen.queryByText("Loading…"), null);
 });
+
+test("expands tree nodes with Enter and Space", async () => {
+  mockedCall.mockResolvedValue({ indexes: [] });
+
+  renderWithLanguage(
+    <Sidebar
+      connectionId="conn-1"
+      relations={[{ schema: "public", name: "users", kind: "table", columns: [] }]}
+    />,
+  );
+
+  fireEvent.keyDown(screen.getByRole("button", { name: "public" }), { key: "Enter" });
+  fireEvent.keyDown(screen.getByRole("button", { name: "Tables (1)" }), { key: " " });
+  fireEvent.keyDown(screen.getByRole("button", { name: "users" }), { key: "Enter" });
+
+  await waitFor(() => assert.equal(mockedCall.mock.calls[0]?.[0], "metadata.listIndexes"));
+});
+
+test("resizes sidebar with bounded separator keyboard controls", () => {
+  renderWithLanguage(<Sidebar />);
+  const separator = screen.getByRole("separator", { name: "Resize object panel" });
+
+  assert.equal(separator.getAttribute("aria-valuenow"), "260");
+  fireEvent.keyDown(separator, { key: "ArrowRight" });
+  assert.equal(separator.getAttribute("aria-valuenow"), "276");
+  fireEvent.keyDown(separator, { key: "Home" });
+  assert.equal(separator.getAttribute("aria-valuenow"), "160");
+  fireEvent.keyDown(separator, { key: "End" });
+  assert.equal(separator.getAttribute("aria-valuenow"), "640");
+});
