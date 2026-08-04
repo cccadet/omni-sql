@@ -240,7 +240,8 @@ export async function introspectSchemas(
     if (c.constraint_type === "P") {
       if (!pkByTable.has(key)) pkByTable.set(key, new Set());
       pkByTable.get(key)!.add(c.column_name);
-    } else {
+    } else if (c.r_owner !== null && c.r_table_name !== null && c.r_column_name !== null) {
+      // LEFT JOINs can produce incomplete FK rows. Keep valid metadata, omit malformed references.
       if (!fksByTable.has(key)) fksByTable.set(key, []);
       fksByTable.get(key)!.push(c);
     }
