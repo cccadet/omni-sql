@@ -190,7 +190,9 @@ function errorMessage(_error: unknown): string {
 }
 
 function logValue(value: unknown): string {
-  return String(value).replace(/[\u0000-\u001f\u007f]/g, (c) =>
+  return String(value).replace(
+    new RegExp(`[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`, "g"),
+    (c) =>
     `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
 }
