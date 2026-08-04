@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { QueryResult } from "@omni-sql/ts-types";
 import { LanguageProvider } from "../i18n";
 import { ResultsGrid, serializeCellValue } from "./ResultsGrid";
@@ -46,4 +46,31 @@ test("uses serialized nested values for display, filtering, and sorting", () => 
   const rows = screen.getAllByRole("row");
   expect(within(rows[1]!).getByText("2")).toBeTruthy();
   expect(within(rows[2]!).getByText("10")).toBeTruthy();
+});
+
+test("keeps export anchor alive until click before revoking URL", () => {
+  vi.useFakeTimers();
+  const createObjectURL = vi.fn(() => "blob:test");
+  const revokeObjectURL = vi.fn();
+  vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  const remove = vi.spyOn(HTMLAnchorElement.prototype, "remove");
+
+  try {
+    renderGrid();
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+
+    expect(click).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+
+    vi.runAllTimers();
+    expect(revokeObjectURL).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
+  } finally {
+    click.mockRestore();
+    remove.mockRestore();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
 });

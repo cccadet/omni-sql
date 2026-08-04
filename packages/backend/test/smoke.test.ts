@@ -91,6 +91,41 @@ test("backend: health and RPC reject missing or invalid auth, without wildcard C
   }
 });
 
+test("backend: authenticated invalid HTTP and JSON-RPC requests return routed errors", async () => {
+  const port = TEST_PORT + 30;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const server = startServer(port);
+  try {
+    const malformed = await fetch(`${baseUrl}/rpc`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...AUTH_HEADERS },
+      body: "{",
+    });
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(await malformed.json(), {
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32700, message: "Parse error" },
+    });
+
+    const wrongMethod = await fetch(`${baseUrl}/rpc`, {
+      headers: AUTH_HEADERS,
+    });
+    assert.equal(wrongMethod.status, 404);
+    assert.deepEqual(await wrongMethod.json(), { error: "not found" });
+
+    const wrongPath = await fetch(`${baseUrl}/not-rpc`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "connection.list" }),
+    });
+    assert.equal(wrongPath.status, 404);
+    assert.deepEqual(await wrongPath.json(), { error: "not found" });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("backend: release CORS origin follows the Tauri platform without wildcard", () => {
   assert.equal(defaultAllowedOrigin("production", "win32"), "http://tauri.localhost");
   assert.equal(defaultAllowedOrigin("production", "linux"), "tauri://localhost");
