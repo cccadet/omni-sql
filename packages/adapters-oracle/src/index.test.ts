@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OracleAdapter } from "./index.ts";
+import { introspectSchemas } from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
+import type { Connection } from "oracledb";
 
 // Sem instância Oracle local: smoke só valida construção + recusa de dial.
 // Em CI/uso local, setar `ORACLE_TEST_CONNECTION_STRING` (+ `ORACLE_TEST_USER`
@@ -31,6 +33,36 @@ test("OracleAdapter: constrói sem disparar conexão", () => {
 test("OracleAdapter: factory via construtor produz instância Adapter", () => {
   const a = new OracleAdapter(cfg());
   assert.equal(a.dialect, "oracle");
+});
+
+test("introspectSchemas ignora FK incompleta e preserva FK válida", async () => {
+  const conn = {
+    execute: async (sql: string) => {
+      if (sql.includes("FROM all_tables")) {
+        return { rows: [{ table_schema: "APP", table_name: "CHILD", table_type: "TABLE" }] };
+      }
+      if (sql.includes("FROM all_tab_columns")) {
+        return {
+          rows: [
+            { table_schema: "APP", table_name: "CHILD", column_name: "BROKEN_ID", data_type: "NUMBER", is_nullable: "Y", column_default: null, ordinal_position: 1 },
+            { table_schema: "APP", table_name: "CHILD", column_name: "PARENT_ID", data_type: "NUMBER", is_nullable: "N", column_default: null, ordinal_position: 2 },
+          ],
+        };
+      }
+      return {
+        rows: [
+          { owner: "APP", table_name: "CHILD", constraint_name: "FK_BROKEN", constraint_type: "R", column_name: "BROKEN_ID", r_owner: null, r_table_name: null, r_column_name: null },
+          { owner: "APP", table_name: "CHILD", constraint_name: "FK_PARENT", constraint_type: "R", column_name: "PARENT_ID", r_owner: "APP", r_table_name: "PARENT", r_column_name: "ID" },
+        ],
+      };
+    },
+  } as unknown as Connection;
+
+  const result = await introspectSchemas(conn);
+  const relation = result[0]![2][0]!;
+  assert.equal(relation.columns[0]!.foreignKeyTo, undefined);
+  assert.deepEqual(relation.columns[1]!.foreignKeyTo, { schema: "APP", table: "parent", column: "id" });
+  assert.deepEqual(relation.constraints.map((c) => c.name), ["FK_PARENT"]);
 });
 
 test("test() retorna ok:false quando não consegue conectar", async () => {
