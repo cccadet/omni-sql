@@ -1,5 +1,5 @@
-import { assert, test, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { assert, beforeEach, test, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { LanguageProvider } from "../i18n";
 import { backend } from "../lib/backend";
@@ -11,6 +11,12 @@ vi.mock("../lib/file-io", () => ({ pickJarPath: vi.fn() }));
 
 const close = vi.fn();
 const saved = vi.fn();
+
+beforeEach(() => {
+  vi.mocked(backend.call).mockReset();
+  close.mockReset();
+  saved.mockReset();
+});
 
 test("does not expose an existing connection internal ID", () => {
   renderWithLanguage(
@@ -52,4 +58,50 @@ test("does not show the internal ID for a new connection", () => {
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
 
   assert.equal(screen.queryByText("ID interno"), null);
+});
+
+test("tests and saves a new connection", async () => {
+  const call = vi.mocked(backend.call);
+  call.mockResolvedValue({ ok: true, latencyMs: 12 });
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+
+  const dialog = screen.getByRole("dialog");
+  fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "postgres" } });
+  fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Warehouse" } });
+  fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "db.example" } });
+  fireEvent.change(within(dialog).getAllByPlaceholderText("postgres")[1]!, { target: { value: "reporter" } });
+  fireEvent.change(screen.getByPlaceholderText("••••••"), { target: { value: "secret" } });
+
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  assert.ok(await screen.findByText("Connected in 12ms"));
+
+  const testCall = call.mock.calls.find(([method]) => method === "connection.test");
+  assert.ok(testCall);
+  const testParams = testCall[1] as { config: { label: string; endpoint: string; user: string }; password: string };
+  assert.equal(testParams.config.label, "Warehouse");
+  assert.equal(testParams.config.endpoint, "db.example:5432/postgres");
+  assert.equal(testParams.config.user, "reporter");
+  assert.equal(testParams.password, "secret");
+
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  assert.ok(call.mock.calls.some(([method]) => method === "connection.add"));
+});
+
+test("shows failed connection test and recovers on retry", async () => {
+  const call = vi.mocked(backend.call);
+  call.mockRejectedValueOnce(new Error("database offline"));
+  call.mockResolvedValueOnce({ ok: true, latencyMs: 7 });
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+
+  const dialog = screen.getByRole("dialog");
+  fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "postgres" } });
+  fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "db.example" } });
+  fireEvent.change(within(dialog).getAllByPlaceholderText("postgres")[1]!, { target: { value: "reporter" } });
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  assert.ok(await screen.findByText("database offline"));
+
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  assert.ok(await screen.findByText("Connected in 7ms"));
+  assert.equal(screen.queryByText("database offline"), null);
 });

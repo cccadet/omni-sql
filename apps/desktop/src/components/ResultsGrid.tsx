@@ -248,8 +248,10 @@ export function ResultsGrid({
     const a = document.createElement("a");
     a.href = url;
     a.download = "resultados.csv";
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }, [result, sortedRows, changeByCell]);
 
   const isColumnEditable = useCallback((colIndex: number) => {
