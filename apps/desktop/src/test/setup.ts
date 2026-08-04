@@ -1,28 +1,16 @@
-import { JSDOM } from "jsdom";
+const values = new Map<string, string>();
+const storage: Storage = {
+  get length() {
+    return values.size;
+  },
+  clear: () => values.clear(),
+  getItem: (key) => values.get(key) ?? null,
+  key: (index) => [...values.keys()][index] ?? null,
+  removeItem: (key) => values.delete(key),
+  setItem: (key, value) => values.set(key, String(value)),
+};
 
-const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>", {
-  url: "http://localhost",
-  pretendToBeVisual: true,
-  resources: "usable",
-});
-
-function defineGlobal(name: string, value: unknown) {
-  Object.defineProperty(globalThis, name, {
-    value,
-    writable: true,
-    configurable: true,
-  });
-}
-
-defineGlobal("window", dom.window);
-defineGlobal("document", dom.window.document);
-defineGlobal("navigator", dom.window.navigator);
-defineGlobal("HTMLElement", dom.window.HTMLElement);
-defineGlobal("Element", dom.window.Element);
-defineGlobal("Node", dom.window.Node);
-defineGlobal("Event", dom.window.Event);
-defineGlobal("MouseEvent", dom.window.MouseEvent);
-defineGlobal("KeyboardEvent", dom.window.KeyboardEvent);
-defineGlobal("location", dom.window.location);
+Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
+Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
 
 export {};
