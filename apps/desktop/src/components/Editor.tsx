@@ -178,6 +178,21 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
   useEffect(() => {
     const monacoInstance = monacoRef.current;
+    if (!monacoInstance) return;
+    formatterRef.current?.dispose();
+    formatterRef.current = configureFormatter(
+      monacoInstance,
+      dialect,
+      formatterSettings ?? DEFAULT_FORMATTER_SETTINGS,
+    );
+    return () => {
+      formatterRef.current?.dispose();
+      formatterRef.current = null;
+    };
+  }, [dialect, formatterSettings]);
+
+  useEffect(() => {
+    const monacoInstance = monacoRef.current;
     const editor = editorRef.current;
     const model = editor?.getModel();
     if (!monacoInstance || !model) return;
@@ -215,6 +230,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       monacoRef.current = monacoInstance;
 
       monacoInstance.editor.setTheme(theme);
+      formatterRef.current?.dispose();
       formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
 
       configureAutocomplete(monacoInstance, autocompleteRef);
