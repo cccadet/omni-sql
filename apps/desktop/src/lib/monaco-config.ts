@@ -226,7 +226,7 @@ export function configureFormatter(
     return true;
   }
 
-  monacoInstance.languages.registerDocumentFormattingEditProvider(LANGUAGE_ID, {
+  const formatterRegistration = monacoInstance.languages.registerDocumentFormattingEditProvider(LANGUAGE_ID, {
     provideDocumentFormattingEdits(model) {
       try {
         const formatted = formatSql(model.getValue(), dialect, formatterSettings);
@@ -242,7 +242,11 @@ export function configureFormatter(
     },
   });
 
-  return { formatCurrentDocument, matchesKeybinding };
+  return {
+    formatCurrentDocument,
+    matchesKeybinding,
+    dispose: () => formatterRegistration.dispose(),
+  };
 }
 
 export function configureAutocomplete(
