@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { extract, gradleInvocation, pnpmCommand, pnpmInvocation, runGradle, runPnpm, stageNode } from "./prepare-resources.mjs";
+import { buildMcp, extract, gradleInvocation, pnpmCommand, pnpmInvocation, runGradle, runPnpm, stageMcp, stageNode } from "./prepare-resources.mjs";
 
 const script = fileURLToPath(new URL("./prepare-resources.mjs", import.meta.url));
 
@@ -135,5 +135,43 @@ test("fails when a Windows node.exe is absent from the extracted tree", () => {
 
   assert.throws(() => stageNode(out, "windows-x64", extracted), /Node archive has no node\.exe/);
   fs.rmSync(extracted, { recursive: true, force: true });
+  fs.rmSync(out, { recursive: true, force: true });
+});
+
+test("builds MCP server through its workspace package", () => {
+  let invocation;
+  buildMcp({ cwd: "/repo", stdio: "inherit" }, "linux", (command, args, options) => {
+    invocation = { command, args, options };
+  });
+
+  assert.deepEqual(invocation, {
+    command: "pnpm",
+    args: ["--filter", "@omni-sql/mcp-server", "build"],
+    options: { cwd: "/repo", stdio: "inherit" },
+  });
+});
+
+test("requires MCP server build entry when staging", () => {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-mcp-source-"));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-mcp-output-"));
+
+  assert.throws(() => stageMcp(out, source), /MCP server build did not produce/);
+  assert.equal(fs.existsSync(path.join(out, "mcp-server")), false);
+
+  fs.rmSync(source, { recursive: true, force: true });
+  fs.rmSync(out, { recursive: true, force: true });
+});
+
+test("stages an existing MCP server build without invoking a package build", () => {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-mcp-source-"));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-mcp-output-"));
+  fs.writeFileSync(path.join(source, "index.js"), "mcp server");
+  fs.writeFileSync(path.join(source, "package.json"), "{}");
+
+  assert.equal(stageMcp(out, source), true);
+  assert.equal(fs.readFileSync(path.join(out, "mcp-server/index.js"), "utf8"), "mcp server");
+  assert.equal(fs.readFileSync(path.join(out, "mcp-server/package.json"), "utf8"), "{}");
+
+  fs.rmSync(source, { recursive: true, force: true });
   fs.rmSync(out, { recursive: true, force: true });
 });

@@ -8,6 +8,11 @@ import type {
   ObjectDefinitionKind,
   ExplainResult,
   SqlDiagnostic,
+  McpStatusResult,
+  McpUiNextParams,
+  McpUiNextResult,
+  McpUiRespondParams,
+  McpUiRespondResult,
 } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 
@@ -191,6 +196,16 @@ export interface UpdateCheckResult {
   releaseUrl?: string;
 }
 
+export interface McpUiRouter {
+  "mcp.ui.next": (p?: McpUiNextParams, context?: McpUiRequestContext) => Promise<McpUiNextResult>;
+  "mcp.ui.respond": (p: McpUiRespondParams) => Promise<McpUiRespondResult>;
+  "mcp.status": () => Promise<McpStatusResult>;
+}
+
+export interface McpUiRequestContext {
+  readonly signal: AbortSignal;
+}
+
 // ─────────────────────────── Routing table
 
 export interface RpcRouter {
@@ -213,6 +228,11 @@ export interface RpcRouter {
   "metadata.getDefinition": (p: GetDefinitionParams) => Promise<GetDefinitionResult>;
   "completion.get": (p: CompletionParams) => Promise<CompletionResult>;
   "update.check": (p: UpdateCheckParams) => Promise<UpdateCheckResult>;
+  "mcp.ui.next": (p?: McpUiNextParams, context?: McpUiRequestContext) => Promise<McpUiNextResult>;
+  "mcp.ui.respond": (p: McpUiRespondParams) => Promise<McpUiRespondResult>;
+  "mcp.status": () => Promise<McpStatusResult>;
 }
+
+export type BackendRpcRouter = Omit<RpcRouter, keyof McpUiRouter>;
 
 export type RpcHandler<K extends keyof RpcRouter> = RpcRouter[K];

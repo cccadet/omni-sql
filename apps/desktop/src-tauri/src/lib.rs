@@ -1,21 +1,77 @@
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::io::FromRawHandle;
+use std::fs;
+#[cfg(windows)]
+use std::mem::{size_of, zeroed};
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::ptr::null_mut;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use serde::Serialize;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, ERROR_INSUFFICIENT_BUFFER,
+    ERROR_SUCCESS, GENERIC_ALL, HANDLE, INVALID_HANDLE_VALUE,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Security::{
+    AddAccessAllowedAce, CreateWellKnownSid, GetLengthSid, GetTokenInformation,
+    InitializeAcl, InitializeSecurityDescriptor, SetSecurityDescriptorDacl,
+    SetSecurityDescriptorControl, ACL, ACL_REVISION, ACCESS_ALLOWED_ACE, DACL_SECURITY_INFORMATION,
+    PROTECTED_DACL_SECURITY_INFORMATION, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
+    SECURITY_DESCRIPTOR, TOKEN_QUERY, TOKEN_USER, TokenUser, WinLocalSystemSid,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT};
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateDirectoryW, CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ,
+    FILE_GENERIC_WRITE,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::SystemServices::SECURITY_DESCRIPTOR_REVISION;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use tauri::menu::{Menu, MenuItemBuilder, HELP_SUBMENU_ID};
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
 struct SidecarStatusState(Mutex<&'static str>);
 struct AuthToken(String);
+struct McpDescriptorPath(Mutex<Option<PathBuf>>);
+
+#[derive(Serialize)]
+struct McpRuntimeDescriptor {
+    endpoint: String,
+    token: String,
+    pid: u32,
+    #[serde(rename = "startNonce")]
+    start_nonce: String,
+}
+
+#[derive(Serialize)]
+struct McpLauncherConfig {
+    command: String,
+    args: Vec<String>,
+}
 
 const BACKEND_PORT: u16 = 41920;
 const SIDECAR_PORT: u16 = 41921;
 const LOCALHOST: &str = "127.0.0.1";
+const MCP_RUNTIME_DIR: &str = "runtime";
+const MCP_DESCRIPTOR_FILE: &str = "mcp.json";
+#[cfg(not(debug_assertions))]
+const MCP_RESOURCE_ENTRY: &str = "resources/mcp-server/index.js";
+#[cfg(debug_assertions)]
+const MCP_DEV_ENTRY: &str = "packages/mcp-server/dist/index.js";
 const SIDECAR_SERVICE: &str = "omni-sql-sidecar";
 const SIDECAR_PROTOCOL: &str = "http-json";
 const SIDECAR_STATUS_EVENT: &str = "sidecar-status";
@@ -26,6 +82,239 @@ const CHECK_FOR_UPDATES_MENU_ID: &str = "check-for-updates";
 const CHECK_FOR_UPDATES_EVENT: &str = "check-for-updates";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[cfg(windows)]
+fn windows_error(context: &str) -> String {
+    format!("{context}: Win32 error {}", unsafe { GetLastError() })
+}
+
+#[cfg(windows)]
+fn windows_path(path: &std::path::Path) -> Result<Vec<u16>, String> {
+    let value = path
+        .to_str()
+        .ok_or_else(|| format!("path is not valid UTF-16: {}", path.display()))?;
+    if value.contains('\0') {
+        return Err(format!("path contains NUL: {}", path.display()));
+    }
+    Ok(value.encode_utf16().chain(std::iter::once(0)).collect())
+}
+
+#[cfg(windows)]
+fn current_user_sid() -> Result<Vec<u8>, String> {
+    unsafe {
+        let mut token: HANDLE = null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(windows_error("OpenProcessToken failed"));
+        }
+
+        let result = (|| {
+            let mut size = 0_u32;
+            let _ = GetTokenInformation(
+                token,
+                TokenUser,
+                null_mut(),
+                0,
+                &mut size,
+            );
+            if size == 0 || GetLastError() != ERROR_INSUFFICIENT_BUFFER {
+                return Err(windows_error("GetTokenInformation size query failed"));
+            }
+
+            let mut buffer = vec![0_u8; size as usize];
+            if GetTokenInformation(
+                token,
+                TokenUser,
+                buffer.as_mut_ptr().cast(),
+                size,
+                &mut size,
+            ) == 0
+            {
+                return Err(windows_error("GetTokenInformation failed"));
+            }
+
+            let token_user = buffer.as_ptr() as *const TOKEN_USER;
+            let sid = (*token_user).User.Sid;
+            let sid_length = GetLengthSid(sid) as usize;
+            if sid_length == 0 {
+                return Err(windows_error("GetLengthSid failed"));
+            }
+            Ok(std::slice::from_raw_parts(sid as *const u8, sid_length).to_vec())
+        })();
+
+        CloseHandle(token);
+        result
+    }
+}
+
+#[cfg(windows)]
+fn local_system_sid() -> Result<Vec<u8>, String> {
+    unsafe {
+        let mut size = 0_u32;
+        let _ = CreateWellKnownSid(WinLocalSystemSid, null_mut(), null_mut(), &mut size);
+        if size == 0 || GetLastError() != ERROR_INSUFFICIENT_BUFFER {
+            return Err(windows_error("CreateWellKnownSid size query failed"));
+        }
+
+        let mut sid = vec![0_u8; size as usize];
+        if CreateWellKnownSid(
+            WinLocalSystemSid,
+            null_mut(),
+            sid.as_mut_ptr().cast(),
+            &mut size,
+        ) == 0
+        {
+            return Err(windows_error("CreateWellKnownSid failed"));
+        }
+        sid.truncate(size as usize);
+        Ok(sid)
+    }
+}
+
+#[cfg(windows)]
+struct WindowsMcpSecurity {
+    descriptor: SECURITY_DESCRIPTOR,
+    acl: Vec<u32>,
+    _current_user_sid: Vec<u8>,
+    _local_system_sid: Vec<u8>,
+}
+
+#[cfg(windows)]
+impl WindowsMcpSecurity {
+    fn new() -> Result<Self, String> {
+        let current_user_sid = current_user_sid()?;
+        let local_system_sid = local_system_sid()?;
+        let current_ace_size = size_of::<ACCESS_ALLOWED_ACE>() - size_of::<u32>() + current_user_sid.len();
+        let system_ace_size = size_of::<ACCESS_ALLOWED_ACE>() - size_of::<u32>() + local_system_sid.len();
+        let acl_size = size_of::<ACL>() + current_ace_size + system_ace_size;
+        let mut acl = vec![0_u32; (acl_size + size_of::<u32>() - 1) / size_of::<u32>()];
+
+        unsafe {
+            if InitializeAcl(acl.as_mut_ptr().cast(), (acl.len() * size_of::<u32>()) as u32, ACL_REVISION) == 0 {
+                return Err(windows_error("InitializeAcl failed"));
+            }
+            for sid in [&current_user_sid, &local_system_sid] {
+                if AddAccessAllowedAce(
+                    acl.as_mut_ptr().cast(),
+                    ACL_REVISION,
+                    GENERIC_ALL,
+                    sid.as_ptr().cast_mut().cast(),
+                ) == 0
+                {
+                    return Err(windows_error("AddAccessAllowedAce failed"));
+                }
+            }
+
+            let mut descriptor: SECURITY_DESCRIPTOR = zeroed();
+            if InitializeSecurityDescriptor(
+                (&mut descriptor as *mut SECURITY_DESCRIPTOR).cast(),
+                SECURITY_DESCRIPTOR_REVISION,
+            ) == 0
+            {
+                return Err(windows_error("InitializeSecurityDescriptor failed"));
+            }
+            if SetSecurityDescriptorDacl(
+                (&mut descriptor as *mut SECURITY_DESCRIPTOR).cast(),
+                1,
+                acl.as_mut_ptr().cast(),
+                0,
+            ) == 0
+            {
+                return Err(windows_error("SetSecurityDescriptorDacl failed"));
+            }
+            if SetSecurityDescriptorControl(
+                (&mut descriptor as *mut SECURITY_DESCRIPTOR).cast(),
+                SE_DACL_PROTECTED,
+                SE_DACL_PROTECTED,
+            ) == 0
+            {
+                return Err(windows_error("SetSecurityDescriptorControl failed"));
+            }
+
+            Ok(Self {
+                descriptor,
+                acl,
+                _current_user_sid: current_user_sid,
+                _local_system_sid: local_system_sid,
+            })
+        }
+    }
+
+    fn acl_ptr(&self) -> *mut ACL {
+        self.acl.as_ptr().cast_mut().cast()
+    }
+
+    fn security_attributes(&mut self) -> SECURITY_ATTRIBUTES {
+        SECURITY_ATTRIBUTES {
+            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: (&mut self.descriptor as *mut SECURITY_DESCRIPTOR).cast(),
+            bInheritHandle: 0,
+        }
+    }
+}
+
+#[cfg(windows)]
+fn secure_windows_runtime_dir(path: &std::path::Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            format!("failed to create MCP runtime parent {}: {err}", parent.display())
+        })?;
+    }
+
+    let mut security = WindowsMcpSecurity::new()?;
+    let mut attributes = security.security_attributes();
+    let mut wide_path = windows_path(path)?;
+    unsafe {
+        if CreateDirectoryW(wide_path.as_ptr(), &attributes) != 0 {
+            return Ok(());
+        }
+
+        if GetLastError() != ERROR_ALREADY_EXISTS {
+            return Err(windows_error("CreateDirectoryW failed"));
+        }
+    }
+
+    if !path.is_dir() {
+        return Err(format!("MCP runtime path is not a directory: {}", path.display()));
+    }
+
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            wide_path.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            security.acl_ptr(),
+            null_mut(),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(format!("SetNamedSecurityInfoW failed: Win32 error {status}"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn create_windows_mcp_file(path: &std::path::Path) -> Result<std::fs::File, String> {
+    let mut security = WindowsMcpSecurity::new()?;
+    let attributes = security.security_attributes();
+    let wide_path = windows_path(path)?;
+    let handle = unsafe {
+        CreateFileW(
+            wide_path.as_ptr(),
+            FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+            0,
+            &attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(windows_error("CreateFileW failed"));
+    }
+    Ok(unsafe { std::fs::File::from_raw_handle(handle) })
+}
 
 fn release_allowed_origin() -> &'static str {
     if cfg!(target_os = "windows") {
@@ -47,6 +336,7 @@ const CHILD_ENV_OVERRIDES: &[&str] = &[
     "DYLD_INSERT_LIBRARIES",
     "OMNI_SQL_PORT",
     "OMNI_SQL_AUTH_TOKEN",
+    "OMNI_SQL_MCP_AUTH_TOKEN",
     "OMNI_SQL_ALLOWED_ORIGIN",
     "OMNI_SQL_DEV_KEYRING",
     "OMNI_SQL_DEV_KEYRING_FILE",
@@ -107,6 +397,184 @@ fn generate_auth_token() -> Result<String, String> {
     let mut bytes = [0_u8; 32];
     getrandom::fill(&mut bytes).map_err(|err| format!("failed to generate auth token: {err}"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn mcp_runtime_dir<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<Option<PathBuf>, String> {
+    #[cfg(windows)]
+    {
+        let dir = match app.path().app_data_dir().map(|path| path.join(MCP_RUNTIME_DIR)) {
+            Ok(dir) => dir,
+            Err(err) => {
+                log::warn!("MCP launcher disabled: failed to resolve runtime directory: {err}");
+                return Ok(None);
+            }
+        };
+        if let Err(err) = restrict_runtime_dir(&dir) {
+            log::warn!("MCP launcher disabled: failed to secure runtime directory: {err}");
+            return Ok(None);
+        }
+        let descriptor_path = dir.join(MCP_DESCRIPTOR_FILE);
+        match fs::remove_file(&descriptor_path) {
+            Ok(()) => log::info!("stale MCP runtime descriptor removed"),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                log::warn!(
+                    "MCP launcher disabled: could not clear stale runtime descriptor {}: {err}",
+                    descriptor_path.display()
+                );
+                return Ok(None);
+            }
+        }
+        return Ok(Some(dir));
+    }
+
+    #[cfg(not(windows))]
+    {
+        let dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|err| format!("failed to resolve app data dir: {err}"))?
+            .join(MCP_RUNTIME_DIR);
+        fs::create_dir_all(&dir).map_err(|err| {
+            format!(
+                "failed to create MCP runtime dir {}: {err}",
+                dir.display()
+            )
+        })?;
+        restrict_runtime_dir(&dir)?;
+        let descriptor_path = dir.join(MCP_DESCRIPTOR_FILE);
+        match fs::remove_file(&descriptor_path) {
+            Ok(()) => log::info!("stale MCP runtime descriptor removed"),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(format!(
+                    "failed to clear stale MCP runtime descriptor {}: {err}",
+                    descriptor_path.display()
+                ));
+            }
+        }
+        Ok(Some(dir))
+    }
+}
+
+fn restrict_runtime_dir(dir: &std::path::Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|err| format!("failed to restrict MCP runtime dir {}: {err}", dir.display()))?;
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        return secure_windows_runtime_dir(dir);
+    }
+    #[cfg(all(not(unix), not(windows)))]
+    {
+        let _ = dir;
+        Ok(())
+    }
+}
+
+fn write_mcp_runtime_descriptor(
+    runtime_dir: &std::path::Path,
+    token: &str,
+    pid: u32,
+    start_nonce: &str,
+) -> Result<PathBuf, String> {
+    restrict_runtime_dir(runtime_dir)?;
+
+    let descriptor_path = runtime_dir.join(MCP_DESCRIPTOR_FILE);
+    let temporary_path = runtime_dir.join(format!(
+        ".{MCP_DESCRIPTOR_FILE}.{pid}.{start_nonce}.tmp"
+    ));
+    let descriptor = McpRuntimeDescriptor {
+        endpoint: format!("http://{LOCALHOST}:{BACKEND_PORT}/mcp"),
+        token: token.to_string(),
+        pid,
+        start_nonce: start_nonce.to_string(),
+    };
+    let contents = serde_json::to_vec(&descriptor)
+        .map_err(|err| format!("failed to serialize MCP runtime descriptor: {err}"))?;
+
+    let result = (|| {
+        #[cfg(windows)]
+        let mut file = create_windows_mcp_file(&temporary_path).map_err(|err| {
+            format!(
+                "failed to create temporary MCP runtime descriptor {}: {err}",
+                temporary_path.display()
+            )
+        })?;
+        #[cfg(not(windows))]
+        let mut file = {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            options.mode(0o600);
+            options.open(&temporary_path).map_err(|err| {
+                format!(
+                    "failed to create temporary MCP runtime descriptor {}: {err}",
+                    temporary_path.display()
+                )
+            })?
+        };
+        use std::io::Write;
+        file.write_all(&contents).map_err(|err| {
+            format!(
+                "failed to write temporary MCP runtime descriptor {}: {err}",
+                temporary_path.display()
+            )
+        })?;
+        file.sync_all().map_err(|err| {
+            format!(
+                "failed to flush temporary MCP runtime descriptor {}: {err}",
+                temporary_path.display()
+            )
+        })?;
+        drop(file);
+
+        #[cfg(unix)]
+        std::fs::set_permissions(&temporary_path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|err| {
+                format!(
+                    "failed to restrict temporary MCP runtime descriptor {}: {err}",
+                    temporary_path.display()
+                )
+            })?;
+
+        #[cfg(windows)]
+        if descriptor_path.exists() {
+            std::fs::remove_file(&descriptor_path).map_err(|err| {
+                format!(
+                    "failed to replace MCP runtime descriptor {}: {err}",
+                    descriptor_path.display()
+                )
+            })?;
+        }
+        std::fs::rename(&temporary_path, &descriptor_path).map_err(|err| {
+            format!(
+                "failed to publish MCP runtime descriptor {}: {err}",
+                descriptor_path.display()
+            )
+        })?;
+        Ok(descriptor_path.clone())
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary_path);
+    }
+    result
+}
+
+fn remove_mcp_runtime_descriptor<R: tauri::Runtime>(app: &AppHandle<R>) {
+    let state: tauri::State<'_, McpDescriptorPath> = app.state();
+    let path = state.0.lock().unwrap().take();
+    if let Some(path) = path {
+        match std::fs::remove_file(&path) {
+            Ok(()) => log::info!("MCP runtime descriptor removed"),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => log::warn!("failed to remove MCP runtime descriptor {}: {err}", path.display()),
+        }
+    }
 }
 
 fn clear_inherited_child_overrides(command: &mut Command) {
@@ -218,6 +686,86 @@ fn get_auth_token(state: tauri::State<'_, AuthToken>) -> String {
     state.0.clone()
 }
 
+#[tauri::command]
+fn get_mcp_launcher_config<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, McpDescriptorPath>,
+) -> Result<McpLauncherConfig, String> {
+    let descriptor_path = state
+        .0
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "MCP runtime is not available".to_string())?;
+    if !descriptor_path.is_file() {
+        remove_mcp_runtime_descriptor(&app);
+        return Err("MCP runtime descriptor is not available".to_string());
+    }
+    let backend_exited = {
+        let backend_state: tauri::State<'_, BackendChild> = app.state();
+        let mut guard = backend_state.0.lock().unwrap();
+        match guard.as_mut() {
+            Some(child) => match child.try_wait() {
+                Ok(Some(status)) => {
+                    log::warn!("backend sidecar exited before MCP launcher request with status {status}");
+                    true
+                }
+                Ok(None) => false,
+                Err(err) => {
+                    log::warn!("failed to check backend sidecar status: {err}");
+                    true
+                }
+            },
+            None => true,
+        }
+    };
+    if backend_exited {
+        remove_mcp_runtime_descriptor(&app);
+        return Err("MCP runtime is not available".to_string());
+    }
+    let (node_executable, _, _) = backend_process_paths(&app)?;
+    #[cfg(not(debug_assertions))]
+    if !node_executable.is_file() {
+        return Err(format!(
+            "bundled Node executable is missing: {}",
+            node_executable.display()
+        ));
+    }
+    let server_entry_path = mcp_server_entry_path(&app)?;
+    Ok(McpLauncherConfig {
+        command: node_executable.display().to_string(),
+        args: vec![
+            server_entry_path.display().to_string(),
+            descriptor_path.display().to_string(),
+        ],
+    })
+}
+
+#[cfg(debug_assertions)]
+fn mcp_server_entry_path<R: tauri::Runtime>(_app: &AppHandle<R>) -> Result<PathBuf, String> {
+    let path = workspace_root().join(MCP_DEV_ENTRY);
+    if !path.is_file() {
+        return Err(format!(
+            "MCP server build is missing: {}; run pnpm --filter @omni-sql/mcp-server build",
+            path.display()
+        ));
+    }
+    Ok(path)
+}
+
+#[cfg(not(debug_assertions))]
+fn mcp_server_entry_path<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    let path = strip_verbatim_prefix(
+        app.path()
+            .resolve(MCP_RESOURCE_ENTRY, tauri::path::BaseDirectory::Resource)
+            .map_err(|err| format!("failed to resolve bundled MCP server: {err}"))?,
+    );
+    if !path.is_file() {
+        return Err(format!("bundled MCP server is missing: {}", path.display()));
+    }
+    Ok(path)
+}
+
 fn selected_file_path<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     suggested_path: &str,
@@ -297,12 +845,36 @@ fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
 }
 
 #[cfg(debug_assertions)]
+fn resolve_dev_node_executable() -> Result<PathBuf, String> {
+    let executable = if cfg!(target_os = "windows") {
+        "node.exe"
+    } else {
+        "node"
+    };
+    let path = std::env::var_os("PATH")
+        .ok_or_else(|| "PATH is unavailable; cannot resolve the dev Node executable".to_string())?;
+
+    for directory in std::env::split_paths(&path) {
+        let candidate = directory.join(executable);
+        if candidate.is_file() {
+            return std::fs::canonicalize(&candidate).map_err(|err| {
+                format!("failed to canonicalize dev Node executable {}: {err}", candidate.display())
+            });
+        }
+    }
+
+    Err(format!(
+        "dev Node executable '{executable}' was not found on PATH"
+    ))
+}
+
+#[cfg(debug_assertions)]
 fn backend_process_paths<R: tauri::Runtime>(
     _app: &tauri::AppHandle<R>,
 ) -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let root = workspace_root();
     Ok((
-        PathBuf::from("node"),
+        resolve_dev_node_executable()?,
         root.join("packages/backend/src/index.ts"),
         root,
     ))
@@ -428,6 +1000,8 @@ pub fn run() {
     }
 
     let auth_token = generate_auth_token().expect("failed to create per-run auth token");
+    let mcp_auth_token = generate_auth_token().expect("failed to create per-run MCP auth token");
+    let mcp_start_nonce = generate_auth_token().expect("failed to create MCP start nonce");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -443,9 +1017,11 @@ pub fn run() {
             write_text_file,
             read_text_file,
             get_sidecar_status,
-            get_auth_token
+            get_auth_token,
+            get_mcp_launcher_config
         ])
         .manage(AuthToken(auth_token.clone()))
+        .manage(McpDescriptorPath(Mutex::new(None)))
         .manage(BackendChild(Mutex::new(None)))
         .manage(SidecarChild(Mutex::new(None)))
         .manage(SidecarStatusState(Mutex::new(SIDECAR_STATUS_CHECKING)))
@@ -534,6 +1110,12 @@ pub fn run() {
 
             let (node_executable, backend_entry, backend_cwd) =
                 backend_process_paths(app.handle())?;
+            let (sidecar_jar, sidecar_dir) = sidecar_process_paths(app.handle())?;
+            let sidecar_java = if sidecar_jar.exists() {
+                Some(java_executable(app.handle())?)
+            } else {
+                None
+            };
             log::info!("Starting backend sidecar: {}", backend_entry.display());
 
             let mut backend_command = Command::new(&node_executable);
@@ -547,6 +1129,7 @@ pub fn run() {
                     .current_dir(&backend_cwd)
                     .env("OMNI_SQL_PORT", BACKEND_PORT.to_string())
                     .env("OMNI_SQL_AUTH_TOKEN", &auth_token)
+                    .env("OMNI_SQL_MCP_AUTH_TOKEN", &mcp_auth_token)
                     .env(
                         "OMNI_SQL_ALLOWED_ORIGIN",
                         if cfg!(debug_assertions) { "http://localhost:1420" } else { release_allowed_origin() },
@@ -559,18 +1142,32 @@ pub fn run() {
                         log::error!("failed to spawn Node backend: {e}");
                         e
                     })?;
-
             let state: tauri::State<'_, BackendChild> = app.state();
             *state.0.lock().unwrap() = Some(child);
 
+            let runtime_dir = match mcp_runtime_dir(app.handle()) {
+                Ok(dir) => dir,
+                Err(err) => {
+                    let state: tauri::State<'_, BackendChild> = app.state();
+                    if let Some(mut child) = state.0.lock().unwrap().take() {
+                        let _ = child.kill();
+                    }
+                    return Err(err.into());
+                }
+            };
+            if let Some(runtime_dir) = runtime_dir {
             // Readiness remains asynchronous and checks the actual HTTP service.
             // Keep the child in managed state so window teardown can still kill it;
             // the readiness thread observes its exit through that same state.
             let app_handle = app.handle().clone();
             let backend_auth_token = auth_token.clone();
+            let descriptor_runtime_dir = runtime_dir.clone();
+            let descriptor_token = mcp_auth_token.clone();
+            let descriptor_start_nonce = mcp_start_nonce.clone();
             std::thread::spawn(move || {
                 let deadline = Instant::now() + Duration::from_secs(30);
                 let mut last_probe_error = "no health probe completed".to_string();
+                let mut backend_ready = false;
 
                 while Instant::now() < deadline {
                     {
@@ -582,6 +1179,7 @@ pub fn run() {
                                     log::warn!(
                                         "backend sidecar exited before becoming ready with status {status}"
                                     );
+                                    remove_mcp_runtime_descriptor(&app_handle);
                                     return;
                                 }
                                 Ok(None) => {}
@@ -589,14 +1187,53 @@ pub fn run() {
                                     log::warn!("failed to check backend sidecar status: {err}");
                                 }
                             }
+                        } else {
+                            remove_mcp_runtime_descriptor(&app_handle);
+                            return;
                         }
                     }
 
                     match http_get(BACKEND_PORT, "/health", &backend_auth_token) {
-                        Ok((status, body)) if backend_health_is_expected(status, &body) =>
-                        {
+                        Ok((status, body)) if backend_health_is_expected(status, &body) => {
+                            let publish_error = {
+                                let state: tauri::State<'_, BackendChild> = app_handle.state();
+                                let mut guard = state.0.lock().unwrap();
+                                match guard.as_mut() {
+                                    Some(child) => match child.try_wait() {
+                                        Ok(None) => match write_mcp_runtime_descriptor(
+                                            &descriptor_runtime_dir,
+                                            &descriptor_token,
+                                            std::process::id(),
+                                            &descriptor_start_nonce,
+                                        ) {
+                                            Ok(path) => {
+                                                let descriptor_state: tauri::State<'_, McpDescriptorPath> =
+                                                    app_handle.state();
+                                                *descriptor_state.0.lock().unwrap() = Some(path);
+                                                None
+                                            }
+                                            Err(err) => Some(err),
+                                        },
+                                        Ok(Some(status)) => Some(format!(
+                                            "backend sidecar exited before descriptor publication with status {status}"
+                                        )),
+                                        Err(err) => Some(format!(
+                                            "failed to check backend sidecar before descriptor publication: {err}"
+                                        )),
+                                    },
+                                    None => Some("backend sidecar is no longer managed".to_string()),
+                                }
+                            };
+
+                            if let Some(err) = publish_error {
+                                log::warn!("MCP launcher disabled: failed to publish runtime descriptor: {err}");
+                                remove_mcp_runtime_descriptor(&app_handle);
+                                return;
+                            }
+
+                            backend_ready = true;
                             log::info!("backend sidecar health check passed on 127.0.0.1:{BACKEND_PORT}");
-                            return;
+                            break;
                         }
                         Ok((status, body)) => {
                             last_probe_error = backend_health_probe_error(status, &body);
@@ -609,10 +1246,39 @@ pub fn run() {
                     std::thread::sleep(Duration::from_millis(100));
                 }
 
-                log::warn!(
-                    "backend sidecar did not become ready in 30s; last /health probe error: {last_probe_error}"
-                );
+                if !backend_ready {
+                    log::warn!(
+                        "backend sidecar did not become ready in 30s; last /health probe error: {last_probe_error}"
+                    );
+                }
+
+                loop {
+                    let exited = {
+                        let state: tauri::State<'_, BackendChild> = app_handle.state();
+                        let mut guard = state.0.lock().unwrap();
+                        match guard.as_mut() {
+                            Some(child) => match child.try_wait() {
+                                Ok(Some(status)) => {
+                                    log::warn!("backend sidecar exited before MCP became available with status {status}");
+                                    true
+                                }
+                                Ok(None) => false,
+                                Err(err) => {
+                                    log::warn!("failed to check backend sidecar status: {err}");
+                                    false
+                                }
+                            },
+                            None => true,
+                        }
+                    };
+                    if exited {
+                        remove_mcp_runtime_descriptor(&app_handle);
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(250));
+                }
             });
+            }
 
             // Sidecar JVM (Fase 3, opcional): spawn assíncrono, nunca bloqueia o
             // boot da janela. Ele expõe /scope/resolve para as colunas de CTE;
@@ -625,9 +1291,8 @@ pub fn run() {
             // trava a próxima subida com `BindException: Address already in
             // use`. `java -jar` é um processo comum, sem Daemon, que o kill
             // mata de verdade. Gere/atualize o jar com `./gradlew jar`.
-            let (sidecar_jar, sidecar_dir) = sidecar_process_paths(app.handle())?;
             if sidecar_jar.exists() {
-                let mut cmd = Command::new(java_executable(app.handle())?);
+                let mut cmd = Command::new(sidecar_java.expect("sidecar Java path resolved above"));
                 clear_inherited_child_overrides(&mut cmd);
                 #[cfg(windows)]
                 cmd.creation_flags(CREATE_NO_WINDOW);
@@ -731,10 +1396,16 @@ pub fn run() {
                     let _ = child.kill();
                     log::info!("JVM sidecar killed");
                 }
+                remove_mcp_runtime_descriptor(window.app_handle());
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                remove_mcp_runtime_descriptor(app_handle);
+            }
+        })
 }
 
 #[cfg(test)]
@@ -810,6 +1481,75 @@ mod tests {
     }
 
     #[test]
+    fn mcp_descriptor_contract_is_secret_and_run_bound() {
+        let runtime_dir = std::env::temp_dir().join(format!(
+            "omni-sql-mcp-runtime-{}-{}",
+            std::process::id(),
+            generate_auth_token().unwrap()
+        ));
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+
+        let path = write_mcp_runtime_descriptor(&runtime_dir, "mcp-secret", 1234, "run-nonce")
+            .unwrap();
+        let descriptor: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            descriptor,
+            serde_json::json!({
+                "endpoint": "http://127.0.0.1:41920/mcp",
+                "token": "mcp-secret",
+                "pid": 1234,
+                "startNonce": "run-nonce",
+            })
+        );
+        assert!(std::fs::read_dir(&runtime_dir)
+            .unwrap()
+            .all(|entry| entry.unwrap().file_name() == MCP_DESCRIPTOR_FILE));
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&runtime_dir).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+
+        let second_path =
+            write_mcp_runtime_descriptor(&runtime_dir, "next-secret", 5678, "next-run").unwrap();
+        assert_eq!(path, second_path);
+        assert!(std::fs::read_to_string(path).unwrap().contains("next-secret"));
+        std::fs::remove_dir_all(runtime_dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_mcp_security_descriptor_builds_with_protected_dacl() {
+        let security = WindowsMcpSecurity::new().unwrap();
+        assert!(!security.acl.is_empty());
+        assert!(!security._current_user_sid.is_empty());
+        assert!(!security._local_system_sid.is_empty());
+    }
+
+    #[test]
+    fn mcp_launcher_config_contains_no_secret() {
+        let config = McpLauncherConfig {
+            command: "/runtime/node".to_string(),
+            args: vec![
+                "/user/mcp-server/index.js".to_string(),
+                "/user/runtime/mcp.json".to_string(),
+            ],
+        };
+        let value = serde_json::to_value(config).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "command": "/runtime/node",
+                "args": ["/user/mcp-server/index.js", "/user/runtime/mcp.json"],
+            })
+        );
+        assert!(value.get("mcp_token").is_none());
+    }
+
+    #[test]
     fn sidecar_endpoints_are_loopback_only() {
         assert_eq!(LOCALHOST, "127.0.0.1");
         assert_eq!(BACKEND_PORT, 41920);
@@ -843,6 +1583,7 @@ mod tests {
             "LD_PRELOAD",
             "OMNI_SQL_PORT",
             "OMNI_SQL_AUTH_TOKEN",
+            "OMNI_SQL_MCP_AUTH_TOKEN",
             "OMNI_SQL_ALLOWED_ORIGIN",
             "OMNI_SIDE_CAR_PORT",
         ] {
