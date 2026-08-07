@@ -8,10 +8,17 @@ import type {
 import { closeBackendResources, handlers } from "./handlers.ts";
 import { timingSafeEqual } from "node:crypto";
 import { RpcValidationError } from "./rpc-errors.ts";
+import { closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
+import { McpBridgeError } from "./mcp-bridge.ts";
+import {
+  MCP_MAX_HTTP_BODY_BYTES,
+  type McpErrorCode,
+  type McpHttpErrorCode,
+} from "@omni-sql/ts-types";
 
 const DEFAULT_PORT = Number(process.env.OMNI_SQL_PORT ?? 41920);
 const AUTH_HEADER = "authorization";
-const AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
+const MAX_RPC_BODY_BYTES = 1_048_576;
 export function defaultAllowedOrigin(
   nodeEnv = process.env.NODE_ENV,
   platform = process.platform,
@@ -38,6 +45,7 @@ async function gracefulShutdown(): Promise<void> {
   await Promise.all([...servers].map((server) => new Promise<void>((resolve) => {
     server.close(() => resolve());
   })));
+  closeMcpBridge();
   await closeBackendResources();
 }
 
@@ -64,9 +72,34 @@ function removeShutdownHandlers(): void {
 
 // ─────────────────────────── JSON helpers
 
-async function readBody(req: IncomingMessage): Promise<string> {
+class BodyTooLargeError extends Error {
+  constructor() {
+    super("request body too large");
+    this.name = "BodyTooLargeError";
+  }
+}
+
+async function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+  const contentLength = req.headers["content-length"];
+  if (typeof contentLength === "string") {
+    const declared = Number(contentLength);
+    if (!Number.isSafeInteger(declared) || declared < 0) throw new RpcValidationError("invalid content length");
+    if (declared > maxBytes) {
+      req.resume();
+      throw new BodyTooLargeError();
+    }
+  }
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let size = 0;
+  for await (const c of req) {
+    const chunk = c as Buffer;
+    size += chunk.byteLength;
+    if (size > maxBytes) {
+      req.resume();
+      throw new BodyTooLargeError();
+    }
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 
@@ -84,16 +117,22 @@ function send(res: ServerResponse, status: number, body: unknown, origin?: strin
   res.end(payload);
 }
 
-function authorized(req: IncomingMessage): boolean {
+function authorized(req: IncomingMessage, expectedToken: string | undefined): boolean {
   const supplied = req.headers[AUTH_HEADER];
-  if (!AUTH_TOKEN || typeof supplied !== "string") return false;
+  if (!expectedToken || typeof supplied !== "string") return false;
   const match = /^Bearer[ \t]+([^ \t]+)$/i.exec(supplied.trim());
   if (!match) return false;
   const token = match[1];
   if (!token) return false;
-  const expected = Buffer.from(AUTH_TOKEN);
+  const expected = Buffer.from(expectedToken);
   const actual = Buffer.from(token);
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function mcpAuthorized(req: IncomingMessage): boolean {
+  const mcpToken = process.env.OMNI_SQL_MCP_AUTH_TOKEN;
+  if (!mcpToken || mcpToken === process.env.OMNI_SQL_AUTH_TOKEN) return false;
+  return authorized(req, mcpToken);
 }
 
 function errorResponse(
@@ -124,7 +163,7 @@ function logFailure(method: string, error: unknown, elapsedMs: number): void {
 
 // ─────────────────────────── Method dispatch (typed by RpcRouter)
 
-async function dispatch(method: string, params: unknown): Promise<unknown> {
+async function dispatch(method: string, params: unknown, context?: { readonly signal: AbortSignal }): Promise<unknown> {
   switch (method) {
     case "connection.add":
       return handlers["connection.add"](params as never);
@@ -164,6 +203,12 @@ async function dispatch(method: string, params: unknown): Promise<unknown> {
       return handlers["completion.get"](params as never);
     case "update.check":
       return handlers["update.check"](params as never);
+    case "mcp.ui.next":
+      return mcpHandlers["mcp.ui.next"](params as never, context);
+    case "mcp.ui.respond":
+      return mcpHandlers["mcp.ui.respond"](params as never);
+    case "mcp.status":
+      return mcpHandlers["mcp.status"]();
     default:
       throw new UnknownMethodError(method);
   }
@@ -178,7 +223,45 @@ class UnknownMethodError extends Error {
   }
 }
 
+function trackRequestAbort(
+  req: IncomingMessage,
+  res: ServerResponse,
+): { readonly signal: AbortSignal; readonly cleanup: () => void } {
+  const controller = new AbortController();
+  const abort = (): void => controller.abort();
+  req.once("aborted", abort);
+  res.once("close", abort);
+  if (req.aborted) abort();
+  return {
+    signal: controller.signal,
+    cleanup: (): void => {
+      req.off("aborted", abort);
+      res.off("close", abort);
+    },
+  };
+}
+
 // ─────────────────────────── Server
+
+function mcpErrorStatus(code: McpErrorCode): number {
+  switch (code) {
+    case "invalid": return 400;
+    case "unavailable": return 503;
+    case "rejected": return 409;
+    case "stale": return 409;
+    case "timeout": return 504;
+  }
+}
+
+function sendMcpError(
+  res: ServerResponse,
+  status: number,
+  code: McpHttpErrorCode,
+  message: string,
+  origin?: string,
+): void {
+  send(res, status, { error: { code, message } }, origin);
+}
 
 export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof createServer> {
   const server = createServer(async (req, res) => {
@@ -195,36 +278,90 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
       res.end();
       return;
     }
-    if (!authorized(req)) {
+
+    const route = req.url;
+    if (route === "/mcp") {
+      if (!mcpAuthorized(req)) {
+        sendMcpError(res, 401, "unauthorized", "unauthorized", req.headers.origin);
+        return;
+      }
+      if (req.method !== "POST") {
+        sendMcpError(res, 405, "invalid", "method not allowed", req.headers.origin);
+        return;
+      }
+
+      let raw: string;
+      try {
+        raw = await readBody(req, MCP_MAX_HTTP_BODY_BYTES);
+      } catch (error) {
+        if (error instanceof BodyTooLargeError) {
+          sendMcpError(res, 413, "invalid", "request body too large", req.headers.origin);
+        } else {
+          sendMcpError(res, 400, "invalid", "invalid request body", req.headers.origin);
+        }
+        return;
+      }
+
+      let body: unknown;
+      try {
+        body = JSON.parse(raw) as unknown;
+      } catch {
+        sendMcpError(res, 400, "invalid", "invalid JSON body", req.headers.origin);
+        return;
+      }
+
+      try {
+        const result = await handleMcpRequest(body);
+        send(res, 200, { result }, req.headers.origin);
+      } catch (error) {
+        const mcpError = error instanceof McpBridgeError
+          ? error
+          : new McpBridgeError("unavailable", "MCP request unavailable");
+        send(
+          res,
+          mcpErrorStatus(mcpError.code),
+          { error: { code: mcpError.code, message: mcpError.message } },
+          req.headers.origin,
+        );
+      }
+      return;
+    }
+
+    if (!authorized(req, process.env.OMNI_SQL_AUTH_TOKEN)) {
       send(res, 401, { error: "unauthorized" }, req.headers.origin);
       return;
     }
-    if (req.url === "/health") {
+    if (route === "/health") {
       send(res, 200, { status: "ok", port }, req.headers.origin);
       return;
     }
-    if (req.method !== "POST" || req.url !== "/rpc") {
+    if (req.method !== "POST" || route !== "/rpc") {
       send(res, 404, { error: "not found" }, req.headers.origin);
       return;
     }
     let raw: string;
     try {
-      raw = await readBody(req);
+      raw = await readBody(req, MAX_RPC_BODY_BYTES);
     } catch (e) {
+      if (e instanceof BodyTooLargeError) {
+        send(res, 413, errorResponse(null, -32600, "Request too large"), req.headers.origin);
+        return;
+      }
       send(res, 400, errorResponse(null, -32700, "Parse error"), req.headers.origin);
       return;
     }
     let rpc: JsonRpcRequest;
     try {
       rpc = JSON.parse(raw) as JsonRpcRequest;
-    } catch (e) {
+    } catch {
       send(res, 400, errorResponse(null, -32700, "Parse error"), req.headers.origin);
       return;
     }
     const t0 = Date.now();
+    const requestAbort = trackRequestAbort(req, res);
     try {
       console.log(`[omni-sql] rpc ← method=${logSafe(rpc.method)}`);
-      const result = await dispatch(rpc.method, rpc.params);
+      const result = await dispatch(rpc.method, rpc.params, requestAbort);
       const elapsed = Date.now() - t0;
       // Methods we want to see how long they took even on success; skip
       // query.run and similar that fire on every keystroke.
@@ -238,8 +375,12 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         return;
       }
       logFailure(rpc.method, e, Date.now() - t0);
-      const message = e instanceof RpcValidationError ? e.message : INTERNAL_ERROR_MESSAGE;
-      send(res, 200, errorResponse(rpc.id, -32000, message), req.headers.origin);
+      const isSafeError = e instanceof RpcValidationError || e instanceof McpBridgeError;
+      const message = isSafeError ? e.message : INTERNAL_ERROR_MESSAGE;
+      const code = e instanceof McpBridgeError ? -32001 : -32000;
+      send(res, 200, errorResponse(rpc.id, code, message), req.headers.origin);
+    } finally {
+      requestAbort.cleanup();
     }
   });
 
@@ -248,6 +389,7 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
   installShutdownHandlers();
   server.once("close", () => {
     servers.delete(server);
+    if (servers.size === 0) closeMcpBridge();
     removeShutdownHandlers();
   });
   console.log(`[omni-sql] backend HTTP listening on http://127.0.0.1:${port}/rpc`);

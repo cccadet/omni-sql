@@ -38,7 +38,7 @@ function main() {
     return;
   }
 
-  for (const generated of ["backend", "runtime/node", "runtime/jre", "sidecar", "licenses"]) fs.rmSync(path.join(output, generated), { recursive: true, force: true });
+  for (const generated of ["backend", "mcp-server", "runtime/node", "runtime/jre", "sidecar", "licenses"]) fs.rmSync(path.join(output, generated), { recursive: true, force: true });
   fs.mkdirSync(output, { recursive: true });
   const downloads = path.join(cache, target);
   fs.mkdirSync(downloads, { recursive: true });
@@ -50,6 +50,8 @@ function main() {
   stageNode(output, target, path.join(downloads, "node-extract"));
   stageJre(output, target, path.join(downloads, "jre-extract"));
   stageBackend(output);
+  buildMcp({ cwd: root, stdio: "inherit" });
+  stageMcp(output);
   stageSidecar(output);
   stageLicenses(output, downloads);
   validate(output, target);
@@ -110,6 +112,9 @@ export function runGradle(args = ["jar"], options = {}, platform = process.platf
   const invocation = gradleInvocation(args, platform, env);
   return run(invocation.command, invocation.args, options);
 }
+export function buildMcp(options = {}, platform = process.platform, run = execFileSync, env = process.env) {
+  return runPnpm(["--filter", "@omni-sql/mcp-server", "build"], options, platform, run, env);
+}
 function fail(message) { throw new Error(`[omni-sql] resource preparation failed: ${message}`); }
 function downloadAndVerify(item, destination) {
   if (!fs.existsSync(destination)) execFileSync(process.platform === "win32" ? "curl.exe" : "curl", ["--fail", "--location", "--retry", "3", "--output", destination, item.url], { stdio: "inherit" });
@@ -156,6 +161,13 @@ function stageBackend(out) {
   const layout = JSON.parse(fs.readFileSync(path.join(source, "external-layout.json"), "utf8"));
   for (const specifier of layout.nodeModules) copyPackageTree(specifier, destination);
 }
+export function stageMcp(out, source = path.join(root, "packages/mcp-server/dist")) {
+  const entry = path.join(source, "index.js");
+  if (!fs.existsSync(entry)) fail(`MCP server build did not produce ${path.relative(root, entry)}`);
+  const destination = path.join(out, "mcp-server");
+  fs.cpSync(source, destination, { recursive: true, dereference: true });
+  return true;
+}
 function packageRoot(specifier, parentSource) {
   const searchPaths = [parentSource ?? root, path.join(root, "packages/backend"), path.join(root, "packages/adapters-oracle")];
   const resolved = execFileSync(process.execPath, ["--input-type=module", "-e", `import {createRequire} from 'node:module'; console.log(createRequire(import.meta.url).resolve(${JSON.stringify(specifier)}, {paths: ${JSON.stringify(searchPaths)}}))`], { cwd: root, encoding: "utf8" }).trim();
@@ -182,6 +194,6 @@ function stageLicenses(out, downloads) {
   for (const [name, dir] of [["node", path.join(downloads, "node-extract")], ["jre", path.join(downloads, "jre-extract")]]) for (const file of ["LICENSE", "NOTICE", "NOTICE.txt"]) { const found = findFile(dir, file); if (found) fs.copyFileSync(found, path.join(licenses, `${name}-${file}`)); }
 }
 function findFile(dir, wanted) { for (const item of fs.readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, item.name); if (item.isFile() && item.name.toLowerCase() === wanted.toLowerCase()) return p; if (item.isDirectory()) { const found = findFile(p, wanted); if (found) return found; } } return undefined; }
-function validate(dir, targetName) { const binary = targetName.startsWith("windows") ? "node.exe" : "node"; const java = targetName.startsWith("windows") ? "java.exe" : "java"; for (const p of [path.join(dir, "backend/index.mjs"), path.join(dir, `runtime/node/${binary}`), path.join(dir, `runtime/jre/bin/${java}`), path.join(dir, "sidecar/omni-sql-sidecar.jar"), path.join(dir, "runtime-manifest.json"), path.join(dir, "licenses")]) if (!fs.existsSync(p)) fail(`missing required resource ${path.relative(dir, p)}`); }
+function validate(dir, targetName) { const binary = targetName.startsWith("windows") ? "node.exe" : "node"; const java = targetName.startsWith("windows") ? "java.exe" : "java"; const required = [path.join(dir, "backend/index.mjs"), path.join(dir, "mcp-server/index.js"), path.join(dir, "mcp-server/package.json"), path.join(dir, `runtime/node/${binary}`), path.join(dir, `runtime/jre/bin/${java}`), path.join(dir, "sidecar/omni-sql-sidecar.jar"), path.join(dir, "runtime-manifest.json"), path.join(dir, "licenses")]; for (const p of required) if (!fs.existsSync(p)) fail(`missing required resource ${path.relative(dir, p)}`); }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

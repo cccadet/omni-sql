@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm -w --filter @omni-sql/mcp-server build && pnpm dev",
     "beforeBuildCommand": "pnpm -w prepare:resources && pnpm -w validate:resources && pnpm -w --filter desktop build"
   },
   "app": {

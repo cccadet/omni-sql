@@ -45,3 +45,34 @@ test("useSession: updateTabSql updates sql and preserves other fields", () => {
   assert.equal(result.current.tabs[0]!.sql, "SELECT 42");
   assert.equal(result.current.tabs[0]!.title, "Query 1");
 });
+
+test("useSession: CAS accepts one revision and rejects concurrent edit", () => {
+  const { result } = renderHook(() => useSession());
+  const id = result.current.tabs[0]!.id;
+  const revision = result.current.getTabRevision(id);
+  let first = false;
+  let second = false;
+
+  act(() => {
+    first = result.current.compareAndSwapTabSql(id, revision, "SELECT 1", "SELECT first");
+    second = result.current.compareAndSwapTabSql(id, revision, "SELECT 1", "SELECT second");
+  });
+
+  assert.equal(first, true);
+  assert.equal(second, false);
+  assert.equal(result.current.tabs[0]!.sql, "SELECT first");
+});
+
+test("useSession: failed CAS guard never mutates tab", () => {
+  const { result } = renderHook(() => useSession());
+  const id = result.current.tabs[0]!.id;
+  const revision = result.current.getTabRevision(id);
+
+  let applied = true;
+  act(() => {
+    applied = result.current.compareAndSwapTabSql(id, revision, "SELECT 1", "SELECT blocked", () => false);
+  });
+
+  assert.equal(applied, false);
+  assert.equal(result.current.tabs[0]!.sql, "SELECT 1");
+});

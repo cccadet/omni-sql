@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 
 export interface QueryTab {
   id: string;
@@ -58,9 +58,39 @@ function saveSession(session: StoredSession) {
 
 export function useSession() {
   const initial = loadSession();
-  const [tabs, setTabs] = useState<QueryTab[]>(initial?.tabs ?? [makeTab({ title: "Query 1" })]);
+  const initialTabs = initial?.tabs ?? [makeTab({ title: "Query 1" })];
+  const [tabs, setTabsState] = useState<QueryTab[]>(initialTabs);
+  const tabsRef = useRef(initialTabs);
+  const revisionsRef = useRef(new Map(initialTabs.map((tab) => [tab.id, 0])));
   const [activeTabId, setActiveTabId] = useState<string>(initial?.activeTabId ?? tabs[0]!.id);
   const [counter, setCounter] = useState(initial?.counter ?? 1);
+
+  const setTabs = useCallback((next: SetStateAction<QueryTab[]>) => {
+    const resolved = typeof next === "function" ? next(tabsRef.current) : next;
+    const previousById = new Map(tabsRef.current.map((tab) => [tab.id, tab]));
+    for (const tab of resolved) {
+      if (previousById.get(tab.id)?.sql !== tab.sql) {
+        revisionsRef.current.set(tab.id, (revisionsRef.current.get(tab.id) ?? 0) + 1);
+      }
+    }
+    tabsRef.current = resolved;
+    setTabsState(resolved);
+  }, []);
+
+  const getTabRevision = useCallback((id: string) => revisionsRef.current.get(id) ?? 0, []);
+
+  const compareAndSwapTabSql = useCallback((
+    id: string,
+    expectedRevision: number,
+    expectedSql: string,
+    nextSql: string,
+    canApply: () => boolean = () => true,
+  ): boolean => {
+    const current = tabsRef.current.find((tab) => tab.id === id);
+    if (!canApply() || !current || current.sql !== expectedSql || getTabRevision(id) !== expectedRevision) return false;
+    setTabs(tabsRef.current.map((tab) => (tab.id === id ? { ...tab, sql: nextSql } : tab)));
+    return true;
+  }, [getTabRevision, setTabs]);
 
   useEffect(() => {
     saveSession({ tabs, activeTabId, counter });
@@ -94,7 +124,7 @@ export function useSession() {
 
   const updateTabSql = useCallback((id: string, sql: string) => {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, sql } : t)));
-  }, []);
+  }, [setTabs]);
 
   const renameTab = useCallback((id: string, title: string) => {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, title } : t)));
@@ -104,5 +134,5 @@ export function useSession() {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, ...partial } : t)));
   }, []);
 
-  return { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab };
+  return { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab, getTabRevision, compareAndSwapTabSql };
 }

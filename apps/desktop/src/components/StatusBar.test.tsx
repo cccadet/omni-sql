@@ -1,6 +1,7 @@
 import { test, assert, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 import { StatusBar } from "./StatusBar";
 import type { ConnectionEntry } from "../lib/backend";
 import { LanguageProvider } from "../i18n";
@@ -8,6 +9,7 @@ import { LanguageProvider } from "../i18n";
 const renderWithLanguage = (ui: React.ReactElement) => render(<LanguageProvider>{ui}</LanguageProvider>);
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 test("StatusBar: shows connection and result info", () => {
   const connection: ConnectionEntry = {
@@ -84,4 +86,23 @@ test("StatusBar: makes update check result visible", () => {
 test("StatusBar: hides unavailable update", () => {
   renderWithLanguage(<StatusBar update={{ available: false, version: "1.2.3" }} />);
   assert.equal(screen.queryByRole("button", { name: /Update/ }), null);
+});
+
+test("StatusBar: shows safe MCP launcher configuration", async () => {
+  vi.mocked(invoke).mockResolvedValue({ command: "/usr/bin/node", args: ["/opt/mcp/index.js", "/run/mcp.json"] });
+  renderWithLanguage(<StatusBar mcpState="connected" mcpStatus={{ uiConnected: true, queueSize: 1, inFlight: 0, maxQueueSize: 8, timeoutMs: 30_000 }} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP connected/ }));
+  expect(await screen.findByText("Connected MCP client · Queue: 1")).toBeTruthy();
+  expect(screen.getByDisplayValue(/\/run\/mcp\.json/)).toBeTruthy();
+  expect(screen.queryByText(/token/i)).toBeTruthy();
+});
+
+test("StatusBar: clears launcher config when refresh fails", async () => {
+  vi.mocked(invoke).mockRejectedValue(new Error("MCP runtime unavailable"));
+  renderWithLanguage(<StatusBar mcpState="listening" />);
+  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
+  expect(await screen.findByText("MCP runtime unavailable")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Copy configuration" })).toHaveProperty("disabled", true);
+  expect(screen.queryByRole("textbox", { name: "Configure client" })).toBeNull();
 });
