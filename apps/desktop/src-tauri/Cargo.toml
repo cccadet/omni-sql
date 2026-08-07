@@ -26,3 +26,13 @@ tauri = { version = "2.11.3", features = ["image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_SystemServices",
+  "Win32_System_Threading",
+] }

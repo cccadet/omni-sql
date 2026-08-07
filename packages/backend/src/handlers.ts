@@ -27,7 +27,7 @@ import {
   passwordSlotFor,
 } from "./keyring.ts";
 import type {
-  RpcRouter,
+  BackendRpcRouter,
   AddConnectionParams,
   AddConnectionResult,
   ListConnectionsResult,
@@ -334,7 +334,7 @@ function metaSourceOf(session: Session, cteRelations: readonly Relation[] = []):
 
 // ─────────────────────────── Handlers
 
-export const handlers: RpcRouter = {
+export const handlers: BackendRpcRouter = {
   async "connection.add"({ config, password }: AddConnectionParams): Promise<AddConnectionResult> {
     await connectionsRestored;
     const configWithSlot: ConnectionConfig = {

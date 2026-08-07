@@ -111,13 +111,15 @@ async function fetchWithRetry(
   init: RequestInit,
   retries = 4,
   delayMs = 250,
+  signal?: AbortSignal,
 ): Promise<Response> {
   let lastErr: Error | undefined;
   for (let i = 0; i <= retries; i++) {
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, { ...init, signal });
       return res;
     } catch (e) {
+      if (signal?.aborted) throw e;
       lastErr = e as Error;
       if (i < retries) {
         await sleep(delayMs * (i + 1));
@@ -128,7 +130,7 @@ async function fetchWithRetry(
 }
 
 export const backend = {
-  async call<T = unknown>(method: string, params: AnyParams): Promise<T> {
+  async call<T = unknown>(method: string, params: AnyParams, signal?: AbortSignal): Promise<T> {
     const id = ++counter;
     const authToken = await getAuthToken();
     const body = JSON.stringify({
@@ -144,7 +146,7 @@ export const backend = {
         ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
       },
       body,
-    });
+    }, 4, 250, signal);
     if (!res.ok) {
       throw new Error(`Backend request failed: ${res.status} ${res.statusText}`.trim());
     }

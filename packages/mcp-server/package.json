@@ -1,0 +1,25 @@
+{
+  "name": "@omni-sql/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "bin": {
+    "omni-sql-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "node ./build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "node --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@omni-sql/ts-types": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  }
+}

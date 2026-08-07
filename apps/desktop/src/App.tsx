@@ -11,7 +11,8 @@ import { TabBar } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
-import { StatusBar, type ConnectionHealth, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
+import { StatusBar, type ConnectionHealth, type McpVisualState, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
+import { McpEditDialog, type McpEditProposal } from "./components/McpEditDialog";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
@@ -20,13 +21,16 @@ import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } 
 import { backend, type ConnectionEntry, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
-import type { DialectId, FunctionDef, QueryResult, RowEditability } from "@omni-sql/ts-types";
+import type { DialectId, FunctionDef, McpToolResultByName, QueryResult, RowEditability } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
+import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
+import type { McpStatusResult } from "@omni-sql/ts-types";
 
 const HISTORY_KEY = "omni-sql:history";
 const CHECK_FOR_UPDATES_EVENT = "check-for-updates";
+const MCP_PROPOSAL_SAFETY_WINDOW_MS = 1_000;
 
 function loadHistory(): HistoryEntry[] {
   try {
@@ -71,7 +75,7 @@ export interface AppProps {
 
 export default function App({ themeName: name, onToggleTheme: toggle }: AppProps) {
   const { t } = useLanguage();
-  const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab } = useSession();
+  const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab, getTabRevision, compareAndSwapTabSql } = useSession();
   const { connections, error: connectionsError, loadConnections } = useConnections();
   const editorRef = useRef<EditorHandle | null>(null);
 
@@ -103,6 +107,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("unknown");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateCheckStatus, setUpdateCheckStatus] = useState<UpdateCheckStatus | null>(null);
+  const [mcpStatus, setMcpStatus] = useState<McpStatusResult | null>(null);
+  const [mcpError, setMcpError] = useState<string | null>(null);
+  const [mcpStarted, setMcpStarted] = useState(false);
+  const [mcpProposal, setMcpProposal] = useState<McpEditProposal | null>(null);
+  const mcpProposalResolverRef = useRef<((outcome: "approved" | "rejected" | "stale") => void) | null>(null);
+  const mcpListenerIdRef = useRef(makeListenerId());
+  const mcpStateRef = useRef<McpUiState>({ activeTab: null, activeConnection: null, editor: null });
   const connectionHealthCheckRef = useRef(0);
 
   useEffect(() => {
@@ -176,6 +187,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     () => connections.find((c) => c.id === activeConnectionId) ?? null,
     [connections, activeConnectionId],
   );
+
+  mcpStateRef.current = {
+    activeTab: activeTab ? { id: activeTab.id, title: activeTab.title, sql: activeTab.sql } : null,
+    activeConnection: activeConnection ? { id: activeConnection.id, label: activeConnection.label, dialect: activeConnection.dialect } : null,
+    editor: editorRef.current,
+  };
 
   useEffect(() => {
     let current = true;
@@ -569,6 +586,112 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     [activeConnectionId, setTabs, selectTab],
   );
 
+  const openMcpTab = useCallback((args: { title: string; sql: string; connectionId?: string }) => {
+    const newTab = makeTab({ title: args.title, sql: args.sql, connectionId: args.connectionId ?? mcpStateRef.current.activeConnection?.id ?? null });
+    setTabs((prev) => [...prev, newTab]);
+    selectTab(newTab.id);
+    return true;
+  }, [selectTab, setTabs]);
+
+  const getMcpSchemaSummary = useCallback(async (connectionId: string): Promise<McpToolResultByName["getSchemaSummary"]> => {
+    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
+      throw new McpUiError("stale", "Active connection changed before schema read");
+    }
+    const response = await backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId });
+    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
+      throw new McpUiError("stale", "Active connection changed during schema read");
+    }
+    const schemas = new Map<string, { name: string; relations: { name: string; kind: "table" | "view"; columns: { name: string; dataType: string }[] }[] }>();
+    for (const relation of response.relations) {
+      const schema = schemas.get(relation.schema) ?? { name: relation.schema, relations: [] };
+      schema.relations.push({
+        name: relation.name,
+        kind: relation.kind,
+        columns: relation.columns.map((column) => ({ name: column.name, dataType: column.dataType })),
+      });
+      schemas.set(relation.schema, schema);
+    }
+    return { connectionId, schemas: [...schemas.values()] };
+  }, []);
+
+  const proposeMcpEdit = useCallback((args: { sql: string; rationale: string; tabId: string; originalSql: string; expiresAt?: number }) => {
+    return new Promise<"approved" | "rejected" | "stale">((resolve) => {
+      if (args.expiresAt !== undefined && args.expiresAt <= Date.now() + MCP_PROPOSAL_SAFETY_WINDOW_MS) {
+        resolve("rejected");
+        return;
+      }
+      mcpProposalResolverRef.current?.("rejected");
+      mcpProposalResolverRef.current = resolve;
+      setMcpProposal({
+        tabId: args.tabId,
+        originalSql: args.originalSql,
+        proposedSql: args.sql,
+        rationale: args.rationale,
+        expiresAt: args.expiresAt,
+        revision: getTabRevision(args.tabId),
+      });
+    });
+  }, []);
+
+  const resolveMcpProposal = useCallback((outcome: "approved" | "rejected" | "stale") => {
+    const resolver = mcpProposalResolverRef.current;
+    mcpProposalResolverRef.current = null;
+    setMcpProposal(null);
+    resolver?.(outcome);
+  }, []);
+
+  const applyMcpProposal = useCallback(() => {
+    if (!mcpProposal) return;
+    if (mcpProposal.expiresAt !== undefined && mcpProposal.expiresAt <= Date.now() + MCP_PROPOSAL_SAFETY_WINDOW_MS) {
+      resolveMcpProposal("rejected");
+      return;
+    }
+    const applied = compareAndSwapTabSql(
+      mcpProposal.tabId,
+      mcpProposal.revision,
+      mcpProposal.originalSql,
+      mcpProposal.proposedSql,
+      () => mcpProposal.expiresAt === undefined || mcpProposal.expiresAt > Date.now() + MCP_PROPOSAL_SAFETY_WINDOW_MS,
+    );
+    if (!applied) {
+      resolveMcpProposal("stale");
+      return;
+    }
+    resolveMcpProposal("approved");
+  }, [compareAndSwapTabSql, mcpProposal, resolveMcpProposal]);
+
+  useEffect(() => {
+    if (!mcpProposal?.expiresAt) return;
+    const delay = Math.max(0, mcpProposal.expiresAt - MCP_PROPOSAL_SAFETY_WINDOW_MS - Date.now());
+    const timer = window.setTimeout(() => resolveMcpProposal("rejected"), delay);
+    return () => window.clearTimeout(timer);
+  }, [mcpProposal, resolveMcpProposal]);
+
+  useEffect(() => {
+    const bridge = new McpUiBridge({
+      readState: () => ({ ...mcpStateRef.current, editor: editorRef.current }),
+      getSchemaSummary: getMcpSchemaSummary,
+      openTab: openMcpTab,
+      proposeEdit: proposeMcpEdit,
+      onStatus: (status, error) => {
+        setMcpStatus(status);
+        setMcpError(error ?? null);
+      },
+    }, mcpListenerIdRef.current);
+    setMcpStarted(true);
+    bridge.start();
+    void bridge.refresh();
+    return () => {
+      bridge.stop();
+      setMcpStarted(false);
+      mcpProposalResolverRef.current?.("rejected");
+      mcpProposalResolverRef.current = null;
+    };
+  }, [getMcpSchemaSummary, openMcpTab, proposeMcpEdit]);
+
+  const mcpActive = Boolean(mcpStatus?.uiConnected && (mcpStatus.queueSize > 0 || mcpStatus.inFlight > 0));
+  const mcpState: McpVisualState = mcpError ? "error" : !mcpStarted ? "inactive" : mcpActive ? "connected" : "listening";
+
   const monacoTheme = useEditorMonacoTheme(name);
 
   const sidebarData = activeConnectionId ? sidebarCache[activeConnectionId] : undefined;
@@ -710,7 +833,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
-        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} />
+        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
       </div>
 
       <ConnectionDialog
@@ -740,6 +863,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         }}
         onSubmit={handleVariablesSubmit}
       />
+
+      <McpEditDialog proposal={mcpProposal} onApply={applyMcpProposal} onReject={() => resolveMcpProposal("rejected")} />
     </div>
   );
 }

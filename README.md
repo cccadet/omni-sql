@@ -109,9 +109,52 @@ Complete columns from common table expressions while writing queries.
 
 Turn a dialect diagnostic into PostgreSQL-compatible SQL without leaving editor.
 
+## MCP STDIO (Codex / ChatGPT Desktop)
+
+MCP integration is local-only: server runs via STDIO and talks to a running
+Omni SQL instance over authenticated loopback HTTP. Build the server with:
+
+```bash
+pnpm --filter @omni-sql/mcp-server build
+```
+
+Start Omni SQL first. Open the MCP status menu in the IDE and copy its generated
+`command` and `args`; the runtime descriptor exists only while that IDE process
+is running. The launcher contract is exactly:
+
+```json
+{
+  "command": "<copy generated command>",
+  "args": ["<copy generated args[0]>", "<copy generated args[1]>"]
+}
+```
+
+Do not replace generated values with `node`, guessed paths, a working directory,
+environment variables, or descriptor contents. For Codex, map those exact fields
+to its MCP configuration or CLI, then verify with `codex mcp list`:
+
+```bash
+codex mcp add omni-sql -- "<generated command>" \
+  "<generated args[0]>" "<generated args[1]>"
+```
+
+Five tools are exposed: active SQL, active connection context, active schema
+summary, opening a SQL tab, and proposing a SQL edit. No tool executes SQL or
+exposes passwords, tokens, connection strings, arbitrary files, or a shell.
+Opening a tab is non-executing; edits require explicit desktop approval and
+stale-state checks. Returned SQL and metadata are still visible to the connected
+local MCP client.
+
+ChatGPT Desktop and Codex can use this local STDIO launcher. ChatGPT in a
+browser cannot connect to a local STDIO process; it requires a separate remote
+HTTPS app integration.
+
+See the [MCP integration and security notes](docs/MCP.md).
+
 ## Documentation
 
 - [Database support and connections](docs/DATABASE-SUPPORT.md)
+- [MCP STDIO integration plan](docs/MCP.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - **Developer docs:** [Development](docs/DEVELOPMENT.md), [Building](docs/BUILDING.md), [Architecture](docs/ARCHITECTURE.md)
 - Português (Brasil) — translation planned; not yet available
