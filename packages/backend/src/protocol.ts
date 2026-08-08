@@ -1,5 +1,6 @@
 import type {
   ConnectionConfig,
+  ConnectionGroup,
   QueryResult,
   Database,
   RowEditability,
@@ -55,8 +56,45 @@ export interface AddConnectionResult {
 
 export interface ListConnectionsResult {
   configs: ReadonlyArray<
-    Omit<ConnectionConfig, "passwordSlot"> & { lastSyncedAt?: number }
+    Omit<ConnectionConfig, "passwordSlot" | "groupId"> & {
+      groupId: string | null;
+      lastSyncedAt?: number;
+    }
   >;
+}
+
+export interface ListConnectionGroupsResult {
+  groups: ReadonlyArray<ConnectionGroup>;
+}
+
+export interface CreateConnectionGroupParams {
+  name: string;
+}
+export interface CreateConnectionGroupResult {
+  group: ConnectionGroup;
+}
+
+export interface RenameConnectionGroupParams {
+  groupId: string;
+  name: string;
+}
+export interface RenameConnectionGroupResult {
+  group: ConnectionGroup;
+}
+
+export interface DeleteConnectionGroupParams {
+  groupId: string;
+}
+export interface DeleteConnectionGroupResult {
+  ok: boolean;
+}
+
+export interface MoveConnectionParams {
+  connectionId: string;
+  groupId: string | null;
+}
+export interface MoveConnectionResult {
+  ok: boolean;
 }
 
 export interface TestConnectionParams {
@@ -212,6 +250,11 @@ export interface RpcRouter {
   "connection.add": (p: AddConnectionParams) => Promise<AddConnectionResult>;
   "connection.list": () => Promise<ListConnectionsResult>;
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
+  "connectionGroup.list": () => Promise<ListConnectionGroupsResult>;
+  "connectionGroup.create": (p: CreateConnectionGroupParams) => Promise<CreateConnectionGroupResult>;
+  "connectionGroup.rename": (p: RenameConnectionGroupParams) => Promise<RenameConnectionGroupResult>;
+  "connectionGroup.delete": (p: DeleteConnectionGroupParams) => Promise<DeleteConnectionGroupResult>;
+  "connection.move": (p: MoveConnectionParams) => Promise<MoveConnectionResult>;
   "connection.test": (p: TestConnectionParams) => Promise<TestConnectionResult>;
   "connection.status": (p: ConnectionStatusParams) => Promise<TestConnectionResult>;
   "connection.listSchemas": (p: ListSchemasParams) => Promise<ListSchemasResult>;

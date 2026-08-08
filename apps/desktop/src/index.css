@@ -107,6 +107,235 @@ select option {
 }
 
 /* Sidebar tree polish */
+.omni-connections-section {
+  border-bottom: 1px solid var(--colorNeutralStroke1);
+  padding: 6px 8px;
+}
+
+.omni-sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.omni-sidebar-section-header .fui-Button {
+  min-width: 0;
+  padding: 2px 4px;
+  color: var(--colorNeutralForeground2);
+}
+
+.omni-sidebar-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.omni-connection-actions,
+.omni-connection-management {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.omni-folder-create,
+.omni-folder-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.omni-folder-create .fui-Input,
+.omni-folder-edit .fui-Input {
+  min-width: 0;
+  flex: 1;
+}
+
+.omni-connection-folder,
+.omni-root-connections {
+  border-radius: 4px;
+}
+
+.omni-connection-folder.drop-ready,
+.omni-root-connections.drop-ready {
+  outline: 1px dashed var(--colorBrandStroke1);
+  background: var(--colorBrandBackground1);
+}
+
+.omni-folder-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 26px;
+}
+
+.omni-folder-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--colorNeutralForeground2);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.omni-folder-toggle span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omni-folder-count,
+.omni-root-label {
+  color: var(--colorNeutralForeground3);
+  font-size: 10px;
+}
+
+.omni-folder-actions {
+  display: flex;
+  gap: 0;
+}
+
+.omni-folder-actions .fui-Button {
+  min-width: 22px;
+  padding: 1px;
+}
+
+.omni-folder-members {
+  padding-left: 8px;
+}
+
+.omni-root-label {
+  padding: 3px 6px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.omni-connection-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 2px;
+  border-radius: 4px;
+}
+
+.omni-connection-row:hover,
+.omni-connection-row.selected {
+  background: var(--colorNeutralBackground3);
+}
+
+.omni-connection-row.active {
+  box-shadow: inset 2px 0 var(--colorPaletteGreenForeground1);
+}
+
+.omni-connection-row .omni-connection-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.omni-connection-row .omni-connection-item:hover,
+.omni-connection-row .omni-connection-item.selected {
+  background: transparent;
+}
+
+.omni-active-marker {
+  flex: 0 0 auto;
+  color: var(--colorPaletteGreenForeground1);
+  font-size: 9px;
+}
+
+.omni-activate-button {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid var(--colorPaletteGreenBorderActive);
+  border-radius: 4px;
+  background: var(--colorPaletteGreenBackground1);
+  color: var(--colorPaletteGreenForeground1);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.omni-connection-overflow {
+  min-width: 24px;
+  padding: 2px;
+}
+
+.context-submenu {
+  z-index: 102;
+}
+
+.context-menu .has-submenu::after {
+  content: "›";
+  float: right;
+  margin-left: 16px;
+}
+
+.omni-connection-actions .fui-Button,
+.omni-connection-management .fui-Button {
+  min-width: 24px;
+  padding: 2px;
+}
+
+.omni-connections-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 3px 0 1px;
+}
+
+.omni-connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 116px;
+  overflow: auto;
+}
+
+.omni-connection-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.omni-connection-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omni-connection-item:hover,
+.omni-connection-item.selected {
+  background: var(--colorNeutralBackground3);
+}
+
+.omni-connection-item.selected {
+  box-shadow: inset 2px 0 var(--colorBrandStroke1);
+  color: var(--colorBrandForeground1);
+}
+
+.omni-connection-management {
+  justify-content: flex-end;
+  border-top: 1px solid var(--colorNeutralStroke2);
+  padding-top: 2px;
+}
+
 .omni-sidebar-tree {
   font-size: 12px;
 }

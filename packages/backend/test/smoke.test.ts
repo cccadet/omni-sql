@@ -441,3 +441,59 @@ test("persistence: connections survive server restart", async () => {
     server2.close();
   }
 });
+
+test("RPC: connection groups CRUD and moves preserve membership across upserts", async () => {
+  const port = TEST_PORT + 3;
+  const url = `http://127.0.0.1:${port}/rpc`;
+  const server = startServer(port);
+  try {
+    const created = await rpc("connectionGroup.create", { name: "Reporting" }, url);
+    const group = (created.result as { group: { id: string; name: string } }).group;
+    assert.equal(group.name, "Reporting");
+
+    const initialGroups = await rpc("connectionGroup.list", {}, url);
+    assert.deepEqual((initialGroups.result as { groups: unknown[] }).groups, [group]);
+
+    await rpc("connection.add", {
+      config: {
+        id: "grouped",
+        label: "Grouped",
+        dialect: "jdbc-generic",
+        endpoint: "memory://local",
+        user: "anon",
+      },
+    }, url);
+    await rpc("connection.move", { connectionId: "grouped", groupId: group.id }, url);
+
+    // Ordinary upsert omits groupId, so dedicated move remains source of truth.
+    await rpc("connection.add", {
+      config: {
+        id: "grouped",
+        label: "Grouped renamed",
+        dialect: "jdbc-generic",
+        endpoint: "memory://local",
+        user: "anon",
+      },
+    }, url);
+    let connections = (await rpc("connection.list", {}, url)).result as {
+      configs: { id: string; label: string; groupId: string | null }[];
+    };
+    const grouped = connections.configs.find((c) => c.id === "grouped");
+    assert.equal(grouped?.label, "Grouped renamed");
+    assert.equal(grouped?.groupId, group.id);
+
+    const renamed = await rpc("connectionGroup.rename", { groupId: group.id, name: "Reports" }, url);
+    assert.deepEqual((renamed.result as { group: { id: string; name: string } }).group, {
+      id: group.id,
+      name: "Reports",
+    });
+    await rpc("connection.move", { connectionId: "grouped", groupId: null }, url);
+    await rpc("connectionGroup.delete", { groupId: group.id }, url);
+
+    connections = (await rpc("connection.list", {}, url)).result as typeof connections;
+    assert.equal(connections.configs.find((c) => c.id === "grouped")?.groupId, null);
+    assert.deepEqual((await rpc("connectionGroup.list", {}, url)).result, { groups: [] });
+  } finally {
+    server.close();
+  }
+});

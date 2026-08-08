@@ -23,6 +23,12 @@ import {
   CheckmarkCircleRegular,
   WarningRegular,
   CircleRegular,
+  AddRegular,
+  EditRegular,
+  CopyRegular,
+  DeleteRegular,
+  MoreVerticalRegular,
+  FolderAddRegular,
 } from "@fluentui/react-icons";
 import { DialectIcon } from "./DialectIcon";
 import { SidecarStatus } from "./SidecarStatus";
@@ -35,13 +41,24 @@ import { useLanguage } from "../i18n";
 
 export interface SidebarProps {
   open?: boolean;
+  connections?: ConnectionEntry[];
+  connectionGroups?: { id: string; name: string }[];
   connection?: ConnectionEntry | null;
   connectionId?: string | null;
   relations?: RelationInfo[];
   functions?: FunctionDef[];
   loading?: boolean;
   onInsert?: (text: string) => void;
-  onRefresh?: () => void;
+  onAddConnection?: () => void;
+  onEditConnection?: (id: string) => void;
+  onDuplicateConnection?: (id: string) => void;
+  onRemoveConnection?: (id: string) => void;
+  onRefreshMetadata?: () => void;
+  onSelectConnection?: (id: string) => void;
+  onCreateConnectionGroup?: (name: string) => Promise<void>;
+  onRenameConnectionGroup?: (id: string, name: string) => Promise<void>;
+  onDeleteConnectionGroup?: (id: string) => Promise<void>;
+  onMoveConnection?: (id: string, groupId: string | null) => Promise<void>;
   onOpenInNewTab?: (title: string, sql: string) => void;
   health?: ConnectionHealth;
 }
@@ -113,6 +130,11 @@ interface MenuItem {
   action: () => void;
 }
 
+interface MoveOption {
+  id: string | null;
+  label: string;
+}
+
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 640;
 const DEFAULT_WIDTH = 260;
@@ -134,13 +156,24 @@ function loadWidth(): number {
 
 export function Sidebar({
   open = true,
+  connections = [],
+  connectionGroups = [],
   connection,
   connectionId,
   relations = [],
   functions = [],
   loading = false,
   onInsert,
-  onRefresh,
+  onAddConnection,
+  onEditConnection,
+  onDuplicateConnection,
+  onRemoveConnection,
+  onRefreshMetadata,
+  onSelectConnection,
+  onCreateConnectionGroup,
+  onRenameConnectionGroup,
+  onDeleteConnectionGroup,
+  onMoveConnection,
   onOpenInNewTab,
   health = "unknown",
 }: SidebarProps) {
@@ -150,8 +183,36 @@ export function Sidebar({
   const [resizing, setResizing] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [indexCache, setIndexCache] = useState<Record<string, { loading: boolean; error: string | null; indexes: IndexInfo[] }>>({});
-  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string } | null>(null);
+  const [connectionsExpanded, setConnectionsExpanded] = useState(true);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(connectionId ?? null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(connectionGroups.map((group) => group.id)));
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
+  const [groupDraft, setGroupDraft] = useState("");
+  const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (selectedConnectionId && !connections.some((item) => item.id === selectedConnectionId)) {
+      setSelectedConnectionId(connectionId ?? null);
+    }
+  }, [connectionId, connections, selectedConnectionId]);
+
+  useEffect(() => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      let changed = false;
+      connectionGroups.forEach((group) => {
+        if (!next.has(group.id)) {
+          next.add(group.id);
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [connectionGroups]);
 
   const groups = useMemo<SchemaGroup[]>(() => {
     const map = new Map<string, SchemaGroup>();
@@ -235,11 +296,11 @@ export function Sidebar({
     }
   }, [connectionId, onOpenInNewTab]);
 
-  const openMenu = useCallback((e: React.MouseEvent, items: MenuItem[]) => {
+  const openMenu = useCallback((e: React.MouseEvent, items: MenuItem[], moveOptions?: MoveOption[], moveConnectionId?: string) => {
     e.preventDefault();
     const x = Math.min(e.clientX, window.innerWidth - 220);
     const y = Math.min(e.clientY, window.innerHeight - items.length * 28 - 16);
-    setMenu({ x, y, items });
+    setMenu({ x, y, items, moveOptions, moveConnectionId });
   }, []);
 
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -292,6 +353,67 @@ export function Sidebar({
     }
   }, [width]);
 
+  const rootConnections = connections.filter((item) => !item.groupId || !connectionGroups.some((group) => group.id === item.groupId));
+  const moveOptions: MoveOption[] = [{ id: null, label: "Root" }, ...connectionGroups.map((group) => ({ id: group.id, label: group.name }))];
+  const renderConnection = (item: ConnectionEntry) => {
+    const isActive = item.id === connectionId;
+    const isSelected = item.id === selectedConnectionId;
+    return (
+      <div
+        key={item.id}
+        className={`omni-connection-row${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
+        draggable
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", item.id);
+          setDraggedConnectionId(item.id);
+        }}
+        onDragEnd={() => setDraggedConnectionId(null)}
+        onContextMenu={(event) => openMenu(event, [
+          { label: tr("editConnection"), action: () => onEditConnection?.(item.id) },
+          { label: tr("duplicateConnection"), action: () => onDuplicateConnection?.(item.id) },
+          { label: tr("removeConnection"), action: () => onRemoveConnection?.(item.id) },
+          { label: "Move to…", action: () => undefined },
+        ], moveOptions, item.id)}
+      >
+        <button
+          type="button"
+          role="option"
+          aria-selected={isSelected}
+          className="omni-connection-item"
+          onClick={() => setSelectedConnectionId(item.id)}
+          onDragOver={(event) => event.preventDefault()}
+        >
+          <DialectIcon dialect={item.dialect} size={13} />
+          <span>{item.label}</span>
+          {isActive && <span className="omni-active-marker" aria-label="Active">●</span>}
+        </button>
+        {isSelected && !isActive && (
+          <button
+            type="button"
+            className="omni-activate-button"
+            onClick={() => onSelectConnection?.(item.id)}
+          >
+            Activate
+          </button>
+        )}
+        <Button
+          icon={<MoreVerticalRegular fontSize={12} />}
+          appearance="transparent"
+          size="small"
+          className="omni-connection-overflow"
+          aria-label={`${item.label} actions`}
+          onClick={(event) => openMenu(event, [
+            { label: tr("editConnection"), action: () => onEditConnection?.(item.id) },
+            { label: tr("duplicateConnection"), action: () => onDuplicateConnection?.(item.id) },
+            { label: tr("removeConnection"), action: () => onRemoveConnection?.(item.id) },
+            { label: "Move to…", action: () => undefined },
+          ], moveOptions, item.id)}
+        />
+      </div>
+    );
+  };
+
   if (!open) return null;
 
   const isSearching = !!search.trim();
@@ -318,6 +440,141 @@ export function Sidebar({
         position: "relative",
       }}
     >
+      <section className="omni-connections-section" aria-labelledby="omni-connections-heading">
+        <div className="omni-sidebar-section-header">
+          <Button
+            appearance="transparent"
+            size="small"
+            icon={connectionsExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
+            onClick={() => setConnectionsExpanded((value) => !value)}
+            aria-expanded={connectionsExpanded}
+            aria-controls="omni-connections-content"
+          >
+            <span id="omni-connections-heading" className="omni-sidebar-section-title">{tr("connections")}</span>
+          </Button>
+          <div className="omni-connection-actions">
+            <Tooltip content={tr("refreshMetadata")} relationship="label">
+              <Button icon={<ArrowSyncRegular fontSize={12} />} appearance="transparent" size="small" onClick={onRefreshMetadata} disabled={!connectionId || loading} aria-label={tr("refreshMetadata")} />
+            </Tooltip>
+            <Tooltip content={tr("newConnection")} relationship="label">
+              <Button icon={<AddRegular fontSize={12} />} appearance="transparent" size="small" onClick={onAddConnection} aria-label={tr("newConnection")} />
+            </Tooltip>
+            <Tooltip content="New folder" relationship="label">
+              <Button icon={<FolderAddRegular fontSize={12} />} appearance="transparent" size="small" onClick={() => setNewGroupOpen((value) => !value)} aria-label="New folder" />
+            </Tooltip>
+          </div>
+        </div>
+        {connectionsExpanded && (
+          <div id="omni-connections-content" className="omni-connections-content">
+            {newGroupOpen && (
+              <div className="omni-folder-create">
+                <Input
+                  value={newGroupName}
+                  placeholder="Folder name"
+                  onChange={(_, data) => setNewGroupName(data.value)}
+                  autoFocus
+                />
+                <Button
+                  size="small"
+                  appearance="primary"
+                  disabled={!newGroupName.trim()}
+                  onClick={() => {
+                    const name = newGroupName.trim();
+                    if (!name) return;
+                    void onCreateConnectionGroup?.(name);
+                    setNewGroupName("");
+                    setNewGroupOpen(false);
+                  }}
+                >
+                  Create
+                </Button>
+              </div>
+            )}
+            <div className="omni-connection-list" role="listbox" aria-label={tr("connections")}>
+              {connections.length === 0 ? (
+                <Text size={200} style={{ color: tokens.colorNeutralForeground2, padding: "4px 8px" }}>{tr("toolbar.noConnections")}</Text>
+              ) : (
+                <>
+                  {connectionGroups.map((group) => {
+                    const members = connections.filter((item) => item.groupId === group.id);
+                    const expanded = expandedGroups.has(group.id);
+                    return (
+                      <div
+                        key={group.id}
+                        className={`omni-connection-folder${draggedConnectionId ? " drop-ready" : ""}`}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const connectionId = event.dataTransfer.getData("text/plain") || draggedConnectionId;
+                          if (connectionId) void onMoveConnection?.(connectionId, group.id);
+                          setDraggedConnectionId(null);
+                        }}
+                      >
+                        <div className="omni-folder-row">
+                          <button
+                            type="button"
+                            className="omni-folder-toggle"
+                            aria-expanded={expanded}
+                            onClick={() => setExpandedGroups((current) => {
+                              const next = new Set(current);
+                              if (next.has(group.id)) next.delete(group.id); else next.add(group.id);
+                              return next;
+                            })}
+                          >
+                            {expanded ? <ChevronDownRegular fontSize={11} /> : <ChevronRightRegular fontSize={11} />}
+                            <span>{group.name}</span>
+                            <span className="omni-folder-count">{members.length}</span>
+                          </button>
+                          {renamingGroupId === group.id ? (
+                            <div className="omni-folder-edit">
+                              <Input value={groupDraft} onChange={(_, data) => setGroupDraft(data.value)} autoFocus />
+                              <Button size="small" appearance="transparent" onClick={() => {
+                                const name = groupDraft.trim();
+                                if (name) void onRenameConnectionGroup?.(group.id, name);
+                                setRenamingGroupId(null);
+                              }}>OK</Button>
+                            </div>
+                          ) : (
+                            <div className="omni-folder-actions">
+                              <Button size="small" appearance="transparent" onClick={() => { setRenamingGroupId(group.id); setGroupDraft(group.name); }} aria-label={`${group.name} ${tr("editConnection")}`} icon={<EditRegular fontSize={11} />} />
+                              <Button size="small" appearance="transparent" onClick={() => void onDeleteConnectionGroup?.(group.id)} aria-label={`${group.name} ${tr("removeConnection")}`} icon={<DeleteRegular fontSize={11} />} />
+                            </div>
+                          )}
+                        </div>
+                        {expanded && <div className="omni-folder-members">{members.map(renderConnection)}</div>}
+                      </div>
+                    );
+                  })}
+                  <div
+                    className={`omni-root-connections${draggedConnectionId ? " drop-ready" : ""}`}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const connectionId = event.dataTransfer.getData("text/plain") || draggedConnectionId;
+                      if (connectionId) void onMoveConnection?.(connectionId, null);
+                      setDraggedConnectionId(null);
+                    }}
+                  >
+                    <div className="omni-root-label">Root connections</div>
+                    {rootConnections.map(renderConnection)}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="omni-connection-management" role="group" aria-label={tr("connections")}>
+              <Button icon={<EditRegular fontSize={12} />} appearance="transparent" size="small" onClick={() => selectedConnectionId && onEditConnection?.(selectedConnectionId)} disabled={!selectedConnectionId} aria-label={tr("editConnection")} title={tr("editConnection")} />
+              <Button icon={<CopyRegular fontSize={12} />} appearance="transparent" size="small" onClick={() => selectedConnectionId && onDuplicateConnection?.(selectedConnectionId)} disabled={!selectedConnectionId} aria-label={tr("duplicateConnection")} title={tr("duplicateConnection")} />
+              <Button icon={<DeleteRegular fontSize={12} />} appearance="transparent" size="small" onClick={() => selectedConnectionId && onRemoveConnection?.(selectedConnectionId)} disabled={!selectedConnectionId} aria-label={tr("removeConnection")} title={tr("removeConnection")} />
+            </div>
+          </div>
+        )}
+      </section>
       <div
         style={{
           padding: "10px 12px",
@@ -343,7 +600,7 @@ export function Sidebar({
           </div>
         ) : (
           <Text weight="semibold" truncate>
-            Objetos
+            {tr("objects")}
           </Text>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
@@ -356,16 +613,6 @@ export function Sidebar({
             </Tooltip>
           )}
           <SidecarStatus />
-          <Tooltip content={tr("refreshObjects")} relationship="label">
-            <Button
-              icon={<ArrowSyncRegular fontSize={12} />}
-              appearance="transparent"
-              size="small"
-              onClick={onRefresh}
-              disabled={loading}
-              aria-label={tr("refreshObjects")}
-            />
-          </Tooltip>
         </div>
       </div>
       <div style={{ padding: 8 }}>
@@ -691,7 +938,9 @@ export function Sidebar({
               <li key={i}>
                 <button
                   type="button"
+                  className={item.label === "Move to…" ? "has-submenu" : undefined}
                   onClick={() => {
+                    if (item.label === "Move to…" && menu.moveOptions) return;
                     item.action();
                     closeMenu();
                   }}
@@ -701,6 +950,23 @@ export function Sidebar({
               </li>
             ))}
           </ul>
+          {menu.moveOptions && menu.moveConnectionId && (
+            <ul className="context-menu context-submenu" style={{ left: menu.x + 188, top: menu.y }}>
+              {menu.moveOptions.map((option) => (
+                <li key={option.id ?? "root"}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onMoveConnection?.(menu.moveConnectionId!, option.id);
+                      closeMenu();
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
     </Card>

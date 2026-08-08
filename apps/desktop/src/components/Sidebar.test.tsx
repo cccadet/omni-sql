@@ -64,3 +64,84 @@ test("resizes sidebar with bounded separator keyboard controls", () => {
   fireEvent.keyDown(separator, { key: "End" });
   assert.equal(separator.getAttribute("aria-valuenow"), "640");
 });
+
+test("renders configured connections", () => {
+  renderWithLanguage(
+    <Sidebar
+      connections={[
+        { id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" },
+        { id: "conn-2", label: "Reporting", dialect: "mysql", endpoint: "reports", user: "reader" },
+      ]}
+    />,
+  );
+
+  assert.ok(screen.getByRole("option", { name: "Local" }));
+  assert.ok(screen.getByRole("option", { name: "Reporting" }));
+});
+
+test("selects a connection by ID", () => {
+  const onSelectConnection = vi.fn();
+  renderWithLanguage(
+    <Sidebar
+      connections={[
+        { id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" },
+        { id: "conn-2", label: "Reporting", dialect: "mysql", endpoint: "reports", user: "reader" },
+      ]}
+      onSelectConnection={onSelectConnection}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("option", { name: "Reporting" }));
+  assert.equal(onSelectConnection.mock.calls.length, 0);
+  fireEvent.click(screen.getByRole("button", { name: "Activate" }));
+
+  assert.equal(onSelectConnection.mock.calls.length, 1);
+  assert.equal(onSelectConnection.mock.calls[0]?.[0], "conn-2");
+});
+
+test("collapses connections independently from objects", () => {
+  renderWithLanguage(
+    <Sidebar
+      connections={[{ id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" }]}
+      relations={[{ schema: "public", name: "users", kind: "table", columns: [] }]}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "public" }));
+  fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+  assert.ok(screen.getByText("users"));
+
+  const connectionsToggle = screen.getByRole("button", { name: "Connections" });
+  fireEvent.click(connectionsToggle);
+
+  assert.equal(connectionsToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(screen.queryByRole("listbox", { name: "Connections" }), null);
+  assert.ok(screen.getByText("users"));
+});
+
+test("moves dragged connection into folder drop target", () => {
+  const onMoveConnection = vi.fn(async () => undefined);
+  const view = renderWithLanguage(
+    <Sidebar
+      connections={[{ id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" }]}
+      connectionGroups={[{ id: "group-1", name: "Analytics" }]}
+      onMoveConnection={onMoveConnection}
+    />,
+  );
+
+  const dataTransfer = {
+    effectAllowed: "none",
+    dropEffect: "none",
+    setData: vi.fn(),
+    getData: vi.fn(() => "conn-1"),
+  };
+  const row = screen.getByRole("option", { name: "Local" }).parentElement;
+  const folder = view.container.querySelector<HTMLButtonElement>(".omni-folder-toggle");
+  assert.ok(row);
+  fireEvent.dragStart(row, { dataTransfer });
+  fireEvent.dragOver(folder, { dataTransfer });
+  fireEvent.drop(folder, { dataTransfer });
+
+  assert.equal(dataTransfer.setData.mock.calls[0]?.[0], "text/plain");
+  assert.deepEqual(onMoveConnection.mock.calls[0], ["conn-1", "group-1"]);
+});
