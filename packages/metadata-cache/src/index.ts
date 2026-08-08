@@ -16,8 +16,9 @@
  *     ou `refresh()`.
  *
  * Estrutura (parcialmente desnormalizada por pragmatismo do autocomplete):
+ *   connection_groups(id PK, name)
  *   connections(id PK, label, dialect, endpoint, user, options_json,
- *               password_slot, last_synced_at)
+ *               password_slot, last_synced_at, group_id FK)
  *   schemas  (id PK, connection_id FK, name, last_synced_at,
  *             UNIQUE(connection_id, name))
  *   relations(id PK, schema_id FK, name, kind, columns_json,
@@ -25,10 +26,12 @@
  *   functions(id PK, schema_id FK, name, overloads_json, last_synced_at,
  *              UNIQUE(schema_id, name))
  */
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type {
   Column,
   ConnectionConfig,
+  ConnectionGroup,
   Constraint,
   FunctionDef,
   FunctionOverload,
@@ -39,6 +42,11 @@ import type {
 // ─────────────────────────── DDL
 
 const DDL = `
+CREATE TABLE IF NOT EXISTS connection_groups (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS connections (
   id              TEXT PRIMARY KEY,
   label           TEXT NOT NULL,
@@ -48,7 +56,8 @@ CREATE TABLE IF NOT EXISTS connections (
   options_json    TEXT,
   password_slot   TEXT,
   last_synced_at  INTEGER,
-  schemas_json    TEXT
+  schemas_json    TEXT,
+  group_id        TEXT REFERENCES connection_groups(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS schemas (
@@ -85,8 +94,12 @@ CREATE INDEX IF NOT EXISTS idx_functions_schema  ON functions(schema_id);
 
 // ─────────────────────────── In-memory index
 
+export type CachedConnection = Omit<ConnectionConfig, "passwordSlot" | "groupId"> & {
+  groupId: string | null;
+};
+
 interface MemConnection {
-  config: Omit<ConnectionConfig, "passwordSlot">;
+  config: CachedConnection;
   passwordSlot?: string;
   lastSyncedAt?: number;
   /** Map<schemaName, Map<relationName, Row>> */
@@ -119,6 +132,13 @@ export class MetadataCache {
     } catch {
       // coluna já existe.
     }
+    try {
+      db.exec(
+        "ALTER TABLE connections ADD COLUMN group_id TEXT REFERENCES connection_groups(id) ON DELETE SET NULL;",
+      );
+    } catch {
+      // coluna já existe.
+    }
     return new MetadataCache(db);
   }
 
@@ -135,12 +155,12 @@ export class MetadataCache {
 
   private reindex(): void {
     const connStmt = this.db.prepare(
-      "SELECT id, label, dialect, endpoint, user, options_json, password_slot, last_synced_at, schemas_json FROM connections",
+      "SELECT id, label, dialect, endpoint, user, options_json, password_slot, last_synced_at, schemas_json, group_id FROM connections",
     );
     for (const c of connStmt.all() as Array<{
       id: string; label: string; dialect: string; endpoint: string;
       user: string; options_json: string | null; password_slot: string | null;
-      last_synced_at: number | null; schemas_json: string | null;
+      last_synced_at: number | null; schemas_json: string | null; group_id: string | null;
     }>) {
       const mem: MemConnection = {
         config: {
@@ -148,6 +168,7 @@ export class MetadataCache {
           endpoint: c.endpoint, user: c.user,
           options: c.options_json ? JSON.parse(c.options_json) : undefined,
           schemas: c.schemas_json ? JSON.parse(c.schemas_json) : undefined,
+          groupId: c.group_id,
         },
         passwordSlot: c.password_slot ?? undefined,
         lastSyncedAt: c.last_synced_at ?? undefined,
@@ -213,8 +234,8 @@ export class MetadataCache {
 
   upsertConnection(config: ConnectionConfig): void {
     const sql = `
-      INSERT INTO connections (id, label, dialect, endpoint, user, options_json, password_slot, schemas_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO connections (id, label, dialect, endpoint, user, options_json, password_slot, schemas_json, group_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         label = excluded.label,
         dialect = excluded.dialect,
@@ -235,6 +256,7 @@ export class MetadataCache {
         config.options ? JSON.stringify(config.options) : null,
         config.passwordSlot ?? null,
         config.schemas && config.schemas.length > 0 ? JSON.stringify(config.schemas) : null,
+        config.groupId ?? null,
       );
     // Atualiza o espelho em memória. Numa edição (`existing` já presente)
     // o objeto `config` antigo precisa ser substituído pelo novo — antes só
@@ -243,7 +265,10 @@ export class MetadataCache {
     // depois de reiniciar o processo (reindex() relendo do banco do zero).
     const existing = this.conns.get(config.id);
     const mem: MemConnection = {
-      config: { ...config, passwordSlot: undefined as never } as Omit<ConnectionConfig, "passwordSlot">,
+      config: {
+        ...config,
+        groupId: existing ? existing.config.groupId : config.groupId ?? null,
+      } as CachedConnection,
       passwordSlot: config.passwordSlot ?? existing?.passwordSlot,
       lastSyncedAt: existing?.lastSyncedAt,
       schemas: existing?.schemas ?? new Map(),
@@ -258,16 +283,69 @@ export class MetadataCache {
     this.conns.delete(connectionId);
   }
 
-  listConnections(): Array<Omit<ConnectionConfig, "passwordSlot">> {
+  listConnections(): CachedConnection[] {
     return [...this.conns.values()].map((m) => m.config);
   }
 
-  getConnection(id: string): Omit<ConnectionConfig, "passwordSlot"> | undefined {
+  getConnection(id: string): CachedConnection | undefined {
     return this.conns.get(id)?.config;
   }
 
   getPasswordSlot(id: string): string | undefined {
     return this.conns.get(id)?.passwordSlot;
+  }
+
+  // ─────────────────────────── Connection groups
+
+  listConnectionGroups(): ConnectionGroup[] {
+    return (this.db
+      .prepare("SELECT id, name FROM connection_groups ORDER BY rowid")
+      .all() as Array<{ id: string; name: string }>).map(({ id, name }) => ({ id, name }));
+  }
+
+  createConnectionGroup(name: string, id: string = randomUUID()): ConnectionGroup {
+    this.db.prepare("INSERT INTO connection_groups (id, name) VALUES (?, ?)").run(id, name);
+    return { id, name };
+  }
+
+  renameConnectionGroup(groupId: string, name: string): ConnectionGroup {
+    const result = this.db
+      .prepare("UPDATE connection_groups SET name = ? WHERE id = ?")
+      .run(name, groupId);
+    if (result.changes !== 1n && result.changes !== 1) {
+      throw new Error("connection group not found");
+    }
+    return { id: groupId, name };
+  }
+
+  deleteConnectionGroup(groupId: string): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM connection_groups WHERE id = ?").run(groupId);
+      this.db.prepare("UPDATE connections SET group_id = NULL WHERE group_id = ?").run(groupId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    for (const mem of this.conns.values()) {
+      if (mem.config.groupId === groupId) {
+        mem.config = { ...mem.config, groupId: null };
+      }
+    }
+  }
+
+  moveConnection(connectionId: string, groupId: string | null): void {
+    if (!this.conns.has(connectionId)) throw new Error("connection not found");
+    if (groupId !== null) {
+      const group = this.db
+        .prepare("SELECT 1 FROM connection_groups WHERE id = ?")
+        .get(groupId);
+      if (!group) throw new Error("connection group not found");
+    }
+    this.db.prepare("UPDATE connections SET group_id = ? WHERE id = ?").run(groupId, connectionId);
+    const mem = this.conns.get(connectionId)!;
+    mem.config = { ...mem.config, groupId };
   }
 
   // ─────────────────────────── Introspection ingest

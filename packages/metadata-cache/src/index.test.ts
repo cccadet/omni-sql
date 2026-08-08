@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
@@ -199,6 +200,71 @@ test("lastSyncedAt is populated after ingest", () => {
     assert.equal(cache.lastSyncedAt("c1", "connection"), now);
     assert.equal(cache.lastSyncedAt("c1", "schema", "public"), now);
     assert.equal(cache.lastSyncedAt("c1", "relation", "public.users"), now);
+  } finally {
+    cache.close();
+  }
+});
+
+test("migrates legacy SQLite connections table and persists groups", () => {
+  const dbPath = tmpPath();
+  const legacy = new DatabaseSync(dbPath);
+  legacy.exec(`
+    CREATE TABLE connections (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      dialect TEXT NOT NULL,
+      endpoint TEXT NOT NULL,
+      user TEXT NOT NULL,
+      options_json TEXT,
+      password_slot TEXT,
+      last_synced_at INTEGER,
+      schemas_json TEXT
+    );
+  `);
+  legacy.close();
+
+  let persistedGroupId: string;
+  const cache = MetadataCache.open(dbPath);
+  try {
+    cache.upsertConnection(cfg("legacy"));
+    const group = cache.createConnectionGroup("Legacy");
+    persistedGroupId = group.id;
+    cache.moveConnection("legacy", group.id);
+    assert.equal(cache.getConnection("legacy")?.groupId, group.id);
+  } finally {
+    cache.close();
+  }
+
+  const reopened = MetadataCache.open(dbPath);
+  try {
+    assert.deepEqual(reopened.listConnectionGroups(), [{ id: persistedGroupId!, name: "Legacy" }]);
+    assert.equal(reopened.getConnection("legacy")?.groupId, persistedGroupId!);
+  } finally {
+    reopened.close();
+  }
+});
+
+test("groups support CRUD, root moves, and upserts preserve membership", () => {
+  const cache = MetadataCache.open(tmpPath());
+  try {
+    cache.upsertConnection(cfg("c1"));
+    cache.upsertConnection(cfg("c2"));
+    assert.equal(cache.getConnection("c1")?.groupId, null);
+    const group = cache.createConnectionGroup("Work");
+    assert.deepEqual(cache.renameConnectionGroup(group.id, "Work renamed"), {
+      id: group.id,
+      name: "Work renamed",
+    });
+
+    cache.moveConnection("c1", group.id);
+    cache.upsertConnection({ ...cfg("c1"), label: "Renamed connection" });
+    assert.equal(cache.getConnection("c1")?.groupId, group.id);
+
+    cache.moveConnection("c2", group.id);
+    cache.deleteConnectionGroup(group.id);
+    assert.equal(cache.getConnection("c1")?.groupId, null);
+    assert.equal(cache.getConnection("c2")?.groupId, null);
+    assert.deepEqual(cache.listConnectionGroups(), []);
   } finally {
     cache.close();
   }

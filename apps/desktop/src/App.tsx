@@ -18,7 +18,7 @@ import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
 import { VariablesDialog } from "./components/VariablesDialog";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
-import { backend, type ConnectionEntry, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
+import { backend, type ConnectionEntry, type ConnectionGroup, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import type { DialectId, FunctionDef, McpToolResultByName, QueryResult, RowEditability } from "@omni-sql/ts-types";
@@ -77,6 +77,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const { t } = useLanguage();
   const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab, getTabRevision, compareAndSwapTabSql } = useSession();
   const { connections, error: connectionsError, loadConnections } = useConnections();
+  const [connectionGroups, setConnectionGroups] = useState<ConnectionGroup[]>([]);
   const editorRef = useRef<EditorHandle | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -165,6 +166,19 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   useEffect(() => {
     void loadConnections();
   }, [loadConnections]);
+
+  const loadConnectionGroups = useCallback(async () => {
+    try {
+      const result = await backend.call<{ groups: ConnectionGroup[] }>("connectionGroup.list", {});
+      setConnectionGroups(result.groups);
+    } catch {
+      setConnectionGroups([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadConnectionGroups();
+  }, [loadConnectionGroups]);
 
   useEffect(() => {
     if (connectionsError) {
@@ -316,6 +330,27 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     },
     [activeTab.id, loadConnections, updateTab, t],
   );
+
+  const onCreateConnectionGroup = useCallback(async (name: string) => {
+    await backend.call("connectionGroup.create", { name });
+    await loadConnectionGroups();
+  }, [loadConnectionGroups]);
+
+  const onRenameConnectionGroup = useCallback(async (id: string, name: string) => {
+    await backend.call("connectionGroup.rename", { groupId: id, name });
+    await loadConnectionGroups();
+  }, [loadConnectionGroups]);
+
+  const onDeleteConnectionGroup = useCallback(async (id: string) => {
+    await backend.call("connectionGroup.delete", { groupId: id });
+    await loadConnectionGroups();
+    await loadConnections();
+  }, [loadConnectionGroups, loadConnections]);
+
+  const onMoveConnection = useCallback(async (id: string, groupId: string | null) => {
+    await backend.call("connection.move", { connectionId: id, groupId });
+    await loadConnections();
+  }, [loadConnections]);
 
   const onConnectionSaved = useCallback(async () => {
     setDialogOpen(false);
@@ -750,18 +785,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
         <Toolbar
-          connections={connections}
           activeConnectionId={activeConnectionId}
           busyMsg={busyMsg}
           running={running}
           limit={activeTab.queryLimit}
           onAdd={() => addTab(activeConnectionId)}
-          onAddConnection={onAddConnection}
-          onEditConnection={() => activeConnectionId && onEditConnection(activeConnectionId)}
-          onDuplicateConnection={() => activeConnectionId && onDuplicateConnection(activeConnectionId)}
-          onRemoveConnection={() => activeConnectionId && onRemoveConnection(activeConnectionId)}
-          onRefreshMetadata={introspectActive}
-          onSelectConnection={onSelectConnection}
           onRun={handleRun}
           onExplain={handleExplain}
           onCancelRun={() => {}}
@@ -781,13 +809,24 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       <aside style={{ gridColumn: 1, gridRow: "3 / span 2" }}>
         <Sidebar
           open={sidebarOpen}
+          connections={connections}
+          connectionGroups={connectionGroups}
           connection={activeConnection}
           connectionId={activeConnectionId}
           relations={sidebarData?.relations ?? []}
           functions={sidebarData?.functions ?? []}
           loading={sidebarLoading}
           onInsert={(text) => editorRef.current?.insertAtCursor(text)}
-          onRefresh={() => loadSidebarData(activeConnectionId)}
+          onAddConnection={onAddConnection}
+          onEditConnection={onEditConnection}
+          onDuplicateConnection={onDuplicateConnection}
+          onRemoveConnection={onRemoveConnection}
+          onRefreshMetadata={introspectActive}
+          onSelectConnection={onSelectConnection}
+          onCreateConnectionGroup={onCreateConnectionGroup}
+          onRenameConnectionGroup={onRenameConnectionGroup}
+          onDeleteConnectionGroup={onDeleteConnectionGroup}
+          onMoveConnection={onMoveConnection}
           onOpenInNewTab={onOpenInNewTab}
           health={connectionHealth}
         />

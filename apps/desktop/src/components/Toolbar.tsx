@@ -3,37 +3,24 @@ import {
   AddRegular,
   PlayRegular,
   StopRegular,
-  DatabaseRegular,
   SettingsRegular,
   FolderOpenRegular,
   SaveRegular,
   PanelLeftContractRegular,
   PanelLeftExpandRegular,
   HistoryRegular,
-  EditRegular,
-  CopyRegular,
-  DeleteRegular,
-  ArrowSyncRegular,
   WrenchRegular,
   MoreVerticalRegular,
 } from "@fluentui/react-icons";
-import type { ConnectionEntry } from "../lib/backend";
 import { useLanguage } from "../i18n";
 
 export interface ToolbarProps {
-  connections: ConnectionEntry[];
   activeConnectionId: string | null;
   busyMsg?: string | null;
   running?: boolean;
   limit?: number;
   sidebarOpen?: boolean;
   onAdd?: () => void;
-  onAddConnection?: () => void;
-  onEditConnection?: () => void;
-  onDuplicateConnection?: () => void;
-  onRemoveConnection?: () => void;
-  onRefreshMetadata?: () => void;
-  onSelectConnection?: (id: string) => void;
   onRun?: () => void;
   onExplain?: () => void;
   onCancelRun?: () => void;
@@ -51,19 +38,12 @@ export interface ToolbarProps {
 const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
 
 export function Toolbar({
-  connections,
   activeConnectionId,
   busyMsg,
   running = false,
   limit = 1000,
   sidebarOpen = true,
   onAdd,
-  onAddConnection,
-  onEditConnection,
-  onDuplicateConnection,
-  onRemoveConnection,
-  onRefreshMetadata,
-  onSelectConnection,
   onRun,
   onExplain,
   onCancelRun,
@@ -80,52 +60,6 @@ export function Toolbar({
   const { t } = useLanguage();
   return (
     <FluentToolbar className="omni-toolbar" style={{ padding: "6px 12px", gap: 0, alignItems: "center" }}>
-      <div className="omni-toolbar-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">{t("activeConnection")}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <select
-              aria-label={t("activeConnection")}
-              value={activeConnectionId ?? ""}
-              onChange={(e) => onSelectConnection?.(e.target.value)}
-              style={{
-                minWidth: 170,
-                padding: "3px 6px",
-                borderRadius: 4,
-                border: `1px solid ${tokens.colorNeutralStroke1}`,
-                background: tokens.colorNeutralBackground1,
-                color: tokens.colorNeutralForeground1,
-                fontSize: 12,
-              }}
-            >
-              {connections.length === 0 && (
-                <option value="" disabled>
-                  {t("noResults")}
-                </option>
-              )}
-              {connections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div className="omni-toolbar-group" role="group" aria-label={t("connections")}>
-        <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">{t("connections")}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <ToolbarButton icon={<ArrowSyncRegular fontSize={14} />} onClick={onRefreshMetadata} disabled={!activeConnectionId || !!busyMsg} aria-label={t("refreshMetadata")} title={t("refreshMetadata")} />
-            <ToolbarButton icon={<DatabaseRegular fontSize={14} />} onClick={onAddConnection} aria-label={t("newConnection")} title={t("newConnection")} />
-            <ToolbarButton icon={<EditRegular fontSize={14} />} onClick={onEditConnection} disabled={!activeConnectionId} aria-label={t("editConnection")} title={t("editConnection")} />
-            <ToolbarButton icon={<CopyRegular fontSize={14} />} onClick={onDuplicateConnection} disabled={!activeConnectionId} aria-label={t("duplicateConnection")} title={t("duplicateConnection")} />
-            <ToolbarButton icon={<DeleteRegular fontSize={14} />} onClick={onRemoveConnection} disabled={!activeConnectionId} aria-label={t("removeConnection")} title={t("removeConnection")} />
-          </div>
-        </div>
-      </div>
-
       <div className="omni-toolbar-group">
         <div className="omni-toolbar-stack">
           <span className="omni-toolbar-label">{t("run")}</span>
