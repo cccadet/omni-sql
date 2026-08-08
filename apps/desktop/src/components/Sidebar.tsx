@@ -28,7 +28,6 @@ import {
   CopyRegular,
   DeleteRegular,
   MoreVerticalRegular,
-  FolderAddRegular,
 } from "@fluentui/react-icons";
 import { DialectIcon } from "./DialectIcon";
 import { SidecarStatus } from "./SidecarStatus";
@@ -139,6 +138,10 @@ const MIN_WIDTH = 160;
 const MAX_WIDTH = 640;
 const DEFAULT_WIDTH = 260;
 const WIDTH_KEY = "omni-sql:sidebarWidth";
+const MIN_CONNECTIONS_HEIGHT = 150;
+const MIN_OBJECTS_HEIGHT = 180;
+const DEFAULT_CONNECTIONS_HEIGHT = 220;
+const CONNECTIONS_HEIGHT_KEY = "omni-sql:connectionsHeight";
 
 function relationKey(schema: string, name: string) {
   return `${schema}.${name}`;
@@ -151,6 +154,16 @@ function loadWidth(): number {
     return Number.isFinite(n) ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, n)) : DEFAULT_WIDTH;
   } catch {
     return DEFAULT_WIDTH;
+  }
+}
+
+function loadConnectionsHeight(): number {
+  try {
+    const raw = localStorage.getItem(CONNECTIONS_HEIGHT_KEY);
+    const value = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(value) ? Math.max(MIN_CONNECTIONS_HEIGHT, value) : DEFAULT_CONNECTIONS_HEIGHT;
+  } catch {
+    return DEFAULT_CONNECTIONS_HEIGHT;
   }
 }
 
@@ -180,7 +193,9 @@ export function Sidebar({
   const { t: tr } = useLanguage();
   const [search, setSearch] = useState("");
   const [width, setWidth] = useState(loadWidth);
+  const [connectionsHeight, setConnectionsHeight] = useState(loadConnectionsHeight);
   const [resizing, setResizing] = useState(false);
+  const [resizingConnections, setResizingConnections] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [indexCache, setIndexCache] = useState<Record<string, { loading: boolean; error: string | null; indexes: IndexInfo[] }>>({});
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string } | null>(null);
@@ -193,6 +208,7 @@ export function Sidebar({
   const [groupDraft, setGroupDraft] = useState("");
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
+  const connectionsHeightRef = useRef(connectionsHeight);
 
   useEffect(() => {
     if (selectedConnectionId && !connections.some((item) => item.id === selectedConnectionId)) {
@@ -353,6 +369,50 @@ export function Sidebar({
     }
   }, [width]);
 
+  const getMaxConnectionsHeight = useCallback(() => {
+    const measured = sidebarRef.current?.clientHeight ?? 0;
+    const available = measured > 0 ? measured : DEFAULT_CONNECTIONS_HEIGHT + MIN_OBJECTS_HEIGHT;
+    return Math.max(MIN_CONNECTIONS_HEIGHT, available - MIN_OBJECTS_HEIGHT);
+  }, []);
+
+  const setConnectionsHeightValue = useCallback((value: number) => {
+    const bounded = Math.min(getMaxConnectionsHeight(), Math.max(MIN_CONNECTIONS_HEIGHT, value));
+    connectionsHeightRef.current = bounded;
+    setConnectionsHeight(bounded);
+    try {
+      localStorage.setItem(CONNECTIONS_HEIGHT_KEY, String(bounded));
+    } catch {
+      // localStorage indisponível — altura só não persiste.
+    }
+  }, [getMaxConnectionsHeight]);
+
+  const onConnectionsResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    setResizingConnections(true);
+    const startY = e.clientY;
+    const startHeight = connectionsHeightRef.current;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+    function onMove(event: PointerEvent) {
+      setConnectionsHeightValue(startHeight + event.clientY - startY);
+    }
+    function onUp() {
+      setResizingConnections(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [setConnectionsHeightValue]);
+
+  const onConnectionsResizeKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const step = 16;
+    const next = e.key === "ArrowUp" ? connectionsHeight - step : e.key === "ArrowDown" ? connectionsHeight + step : e.key === "Home" ? MIN_CONNECTIONS_HEIGHT : e.key === "End" ? getMaxConnectionsHeight() : null;
+    if (next === null) return;
+    e.preventDefault();
+    setConnectionsHeightValue(next);
+  }, [connectionsHeight, getMaxConnectionsHeight, setConnectionsHeightValue]);
+
   const rootConnections = connections.filter((item) => !item.groupId || !connectionGroups.some((group) => group.id === item.groupId));
   const moveOptions: MoveOption[] = [{ id: null, label: "Root" }, ...connectionGroups.map((group) => ({ id: group.id, label: group.name }))];
   const renderConnection = (item: ConnectionEntry) => {
@@ -440,7 +500,7 @@ export function Sidebar({
         position: "relative",
       }}
     >
-      <section className="omni-connections-section" aria-labelledby="omni-connections-heading">
+      <section className="omni-connections-section" style={{ height: Math.min(connectionsHeight, getMaxConnectionsHeight()) }} aria-labelledby="omni-connections-heading">
         <div className="omni-sidebar-section-header">
           <Button
             appearance="transparent"
@@ -460,7 +520,18 @@ export function Sidebar({
               <Button icon={<AddRegular fontSize={12} />} appearance="transparent" size="small" onClick={onAddConnection} aria-label={tr("newConnection")} />
             </Tooltip>
             <Tooltip content="New folder" relationship="label">
-              <Button icon={<FolderAddRegular fontSize={12} />} appearance="transparent" size="small" onClick={() => setNewGroupOpen((value) => !value)} aria-label="New folder" />
+              <Button
+                icon={(
+                  <span className="folder-add-icon" aria-hidden="true">
+                    <DatabaseRegular fontSize={12} />
+                    <AddRegular fontSize={8} />
+                  </span>
+                )}
+                appearance="transparent"
+                size="small"
+                onClick={() => setNewGroupOpen((value) => !value)}
+                aria-label="New folder"
+              />
             </Tooltip>
           </div>
         </div>
@@ -575,6 +646,19 @@ export function Sidebar({
           </div>
         )}
       </section>
+      <div
+        className={`connections-resize-handle${resizingConnections ? " resizing" : ""}`}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-valuemin={MIN_CONNECTIONS_HEIGHT}
+        aria-valuemax={getMaxConnectionsHeight()}
+        aria-valuenow={connectionsHeight}
+        tabIndex={0}
+        aria-label="Resize connections panel"
+        title="Resize connections panel"
+        onPointerDown={onConnectionsResizeStart}
+        onKeyDown={onConnectionsResizeKeyDown}
+      />
       <div
         style={{
           padding: "10px 12px",
