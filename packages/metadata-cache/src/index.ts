@@ -92,6 +92,72 @@ CREATE INDEX IF NOT EXISTS idx_relations_schema ON relations(schema_id);
 CREATE INDEX IF NOT EXISTS idx_functions_schema  ON functions(schema_id);
 `;
 
+type CacheTable = "connections" | "connection_groups";
+
+const BASE_CONNECTION_COLUMNS = [
+  "id",
+  "label",
+  "dialect",
+  "endpoint",
+  "user",
+  "options_json",
+  "password_slot",
+  "last_synced_at",
+] as const;
+
+function tableColumns(db: DatabaseSync, table: CacheTable): Set<string> {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return new Set(rows.map((row) => row.name));
+}
+
+function requireColumns(table: CacheTable, columns: Set<string>, required: readonly string[]): void {
+  const missing = required.filter((column) => !columns.has(column));
+  if (missing.length > 0) {
+    throw new Error(
+      `metadata cache incompatible schema: ${table} missing columns ${missing.join(", ")}`,
+    );
+  }
+}
+
+/**
+ * Apply additive migrations only after prerequisite tables exist. Column
+ * presence is checked instead of catching every ALTER error: duplicate-column
+ * is expected, other SQLite errors mean database is not safely compatible.
+ */
+function migrateConnectionSchema(db: DatabaseSync): void {
+  db.exec("BEGIN");
+  try {
+    requireColumns("connection_groups", tableColumns(db, "connection_groups"), ["id", "name"]);
+
+    let columns = tableColumns(db, "connections");
+    requireColumns("connections", columns, BASE_CONNECTION_COLUMNS);
+
+    if (!columns.has("schemas_json")) {
+      db.exec("ALTER TABLE connections ADD COLUMN schemas_json TEXT;");
+      columns = tableColumns(db, "connections");
+    }
+    if (!columns.has("group_id")) {
+      db.exec(
+        "ALTER TABLE connections ADD COLUMN group_id TEXT REFERENCES connection_groups(id) ON DELETE SET NULL;",
+      );
+    }
+
+    requireColumns("connections", tableColumns(db, "connections"), [
+      ...BASE_CONNECTION_COLUMNS,
+      "schemas_json",
+      "group_id",
+    ]);
+    db.exec("COMMIT");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // Preserve original migration error when transaction never started.
+    }
+    throw error;
+  }
+}
+
 // ─────────────────────────── In-memory index
 
 export type CachedConnection = Omit<ConnectionConfig, "passwordSlot" | "groupId"> & {
@@ -121,25 +187,20 @@ export class MetadataCache {
 
   static open(path: string): MetadataCache {
     const db = new DatabaseSync(path);
-    db.exec("PRAGMA journal_mode = WAL;");
-    db.exec("PRAGMA foreign_keys = ON;");
-    db.exec(DDL);
-    // `CREATE TABLE IF NOT EXISTS` não adiciona colunas a bancos já
-    // existentes no disco do usuário — migração defensiva para quem tinha
-    // metadata.db criado antes do campo `schemas` existir.
     try {
-      db.exec("ALTER TABLE connections ADD COLUMN schemas_json TEXT;");
-    } catch {
-      // coluna já existe.
+      db.exec("PRAGMA journal_mode = WAL;");
+      db.exec("PRAGMA foreign_keys = ON;");
+      db.exec(DDL);
+      migrateConnectionSchema(db);
+      return new MetadataCache(db);
+    } catch (error) {
+      try {
+        db.close();
+      } catch {
+        // Preserve original migration/open error.
+      }
+      throw error;
     }
-    try {
-      db.exec(
-        "ALTER TABLE connections ADD COLUMN group_id TEXT REFERENCES connection_groups(id) ON DELETE SET NULL;",
-      );
-    } catch {
-      // coluna já existe.
-    }
-    return new MetadataCache(db);
   }
 
   private constructor(db: DatabaseSync) {

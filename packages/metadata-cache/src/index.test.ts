@@ -244,6 +244,18 @@ test("migrates legacy SQLite connections table and persists groups", () => {
   }
 });
 
+test("does not hide an incompatible legacy connections schema", () => {
+  const dbPath = tmpPath();
+  const legacy = new DatabaseSync(dbPath);
+  legacy.exec("CREATE TABLE connections (id TEXT PRIMARY KEY);");
+  legacy.close();
+
+  assert.throws(
+    () => MetadataCache.open(dbPath),
+    /metadata cache incompatible schema: connections missing columns/,
+  );
+});
+
 test("groups support CRUD, root moves, and upserts preserve membership", () => {
   const cache = MetadataCache.open(tmpPath());
   try {
