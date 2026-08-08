@@ -8,6 +8,42 @@ const renderWithLanguage = (ui: React.ReactElement) => render(<LanguageProvider>
 
 vi.mock("../lib/backend", () => ({ backend: { call: vi.fn() } }));
 vi.mock("./SidecarStatus", () => ({ SidecarStatus: () => null }));
+vi.mock("@fluentui/react-icons", () => {
+  const Icon = () => null;
+  return {
+    AddRegular: Icon,
+    ArrowEnterRegular: Icon,
+    ArrowSortRegular: Icon,
+    ArrowSyncRegular: Icon,
+    BoxRegular: Icon,
+    CheckmarkCircleRegular: Icon,
+    ChevronDownRegular: Icon,
+    ChevronRightRegular: Icon,
+    CircleRegular: Icon,
+    ClockRegular: Icon,
+    CodeRegular: Icon,
+    CopyRegular: Icon,
+    DataBarVerticalRegular: Icon,
+    DatabaseRegular: Icon,
+    DeleteRegular: Icon,
+    DismissRegular: Icon,
+    EditRegular: Icon,
+    EyeRegular: Icon,
+    FingerprintRegular: Icon,
+    FlashRegular: Icon,
+    LinkRegular: Icon,
+    ListRegular: Icon,
+    MoreVerticalRegular: Icon,
+    NumberSymbolRegular: Icon,
+    PlayCircleRegular: Icon,
+    QuestionRegular: Icon,
+    SearchRegular: Icon,
+    TableRegular: Icon,
+    TextCaseTitleRegular: Icon,
+    ToggleLeftRegular: Icon,
+    WarningRegular: Icon,
+  };
+});
 
 const mockedCall = vi.mocked(backend.call);
 
@@ -63,6 +99,17 @@ test("resizes sidebar with bounded separator keyboard controls", () => {
   assert.equal(separator.getAttribute("aria-valuenow"), "160");
   fireEvent.keyDown(separator, { key: "End" });
   assert.equal(separator.getAttribute("aria-valuenow"), "640");
+});
+
+test("resizes connections panel with keyboard controls", () => {
+  renderWithLanguage(<Sidebar />);
+  const separator = screen.getByRole("separator", { name: "Resize connections panel" });
+
+  assert.equal(separator.getAttribute("aria-valuenow"), "220");
+  fireEvent.keyDown(separator, { key: "ArrowUp" });
+  assert.equal(separator.getAttribute("aria-valuenow"), "204");
+  fireEvent.keyDown(separator, { key: "Home" });
+  assert.equal(separator.getAttribute("aria-valuenow"), "150");
 });
 
 test("renders configured connections", () => {
@@ -137,7 +184,7 @@ test("moves dragged connection into folder drop target", () => {
   };
   const row = screen.getByRole("option", { name: "Local" }).parentElement;
   const folder = view.container.querySelector<HTMLButtonElement>(".omni-folder-toggle");
-  assert.ok(row);
+  if (!row || !folder) throw new Error("Connection drag targets not found");
   fireEvent.dragStart(row, { dataTransfer });
   fireEvent.dragOver(folder, { dataTransfer });
   fireEvent.drop(folder, { dataTransfer });

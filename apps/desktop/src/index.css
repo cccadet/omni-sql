@@ -109,7 +109,29 @@ select option {
 /* Sidebar tree polish */
 .omni-connections-section {
   border-bottom: 1px solid var(--colorNeutralStroke1);
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 150px;
+  min-width: 0;
+  overflow: hidden;
   padding: 6px 8px;
+}
+
+.connections-resize-handle {
+  flex: 0 0 6px;
+  cursor: row-resize;
+  background: transparent;
+  border-top: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+}
+
+.connections-resize-handle:hover,
+.connections-resize-handle.resizing {
+  background: var(--colorBrandStroke1);
+  border-color: var(--colorBrandStroke1);
+  opacity: 0.5;
 }
 
 .omni-sidebar-section-header {
@@ -282,8 +304,27 @@ select option {
   padding: 2px;
 }
 
+.folder-add-icon {
+  position: relative;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-add-icon > :last-child {
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  border-radius: 50%;
+  background: var(--colorNeutralBackground2);
+}
+
 .omni-connections-content {
   display: flex;
+  min-height: 0;
+  overflow: auto;
   flex-direction: column;
   gap: 4px;
   padding: 3px 0 1px;
@@ -293,8 +334,6 @@ select option {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: 116px;
-  overflow: auto;
 }
 
 .omni-connection-item {
