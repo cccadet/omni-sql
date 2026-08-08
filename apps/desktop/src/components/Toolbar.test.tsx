@@ -28,7 +28,7 @@ vi.mock("@fluentui/react-icons", () => {
 test("renders multi-statement modal and row limit in English", () => {
   render(
     <LanguageProvider>
-      <Toolbar connections={[]} activeConnectionId={null} pendingRunCount={2} onRunChoice={vi.fn()} onRunChoiceCancel={vi.fn()} />
+      <Toolbar activeConnectionId={null} pendingRunCount={2} onRunChoice={vi.fn()} onRunChoiceCancel={vi.fn()} />
     </LanguageProvider>,
   );
   expect(screen.getByText("This tab contains multiple statements")).toBeTruthy();
@@ -39,7 +39,6 @@ test("renders multi-statement modal and row limit in English", () => {
   expect(screen.getByRole("button", { name: "New SQL tab" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Open saved tab" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save Tab" })).toBeTruthy();
-  expect(screen.getByRole("group", { name: "Connections" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("title")).toBe("Toggle sidebar");
   expect(screen.getByRole("button", { name: "Run" }).getAttribute("title")).toBe("Run current statement (Ctrl+Enter)");
   expect(screen.getByRole("button", { name: "Explain query" }).getAttribute("title")).toBe("Explain query");

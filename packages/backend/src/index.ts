@@ -171,6 +171,16 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["connection.list"]();
     case "connection.remove":
       return handlers["connection.remove"](params as never);
+    case "connectionGroup.list":
+      return handlers["connectionGroup.list"]();
+    case "connectionGroup.create":
+      return handlers["connectionGroup.create"](params as never);
+    case "connectionGroup.rename":
+      return handlers["connectionGroup.rename"](params as never);
+    case "connectionGroup.delete":
+      return handlers["connectionGroup.delete"](params as never);
+    case "connection.move":
+      return handlers["connection.move"](params as never);
     case "connection.test":
       return handlers["connection.test"](params as never);
     case "connection.status":

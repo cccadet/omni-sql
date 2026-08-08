@@ -15,6 +15,12 @@ export interface ConnectionEntry {
   options?: Record<string, string | number | boolean>;
   schemas?: string[];
   lastSyncedAt?: number;
+  groupId?: string | null;
+}
+
+export interface ConnectionGroup {
+  id: string;
+  name: string;
 }
 
 export interface RelationColumn {

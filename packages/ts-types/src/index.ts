@@ -110,9 +110,16 @@ export interface ConnectionConfig {
   readonly user: string;
   /** Senha nunca persistida em config — vem do keyring no runtime. */
   readonly passwordSlot?: string;
+  /** Flat persisted group; undefined is accepted for legacy callers, null means root. */
+  readonly groupId?: string | null;
   readonly options?: Record<string, string | number | boolean>;
   /** Allowlist de schemas a introspectar; `undefined`/vazio = todos (comportamento padrão). */
   readonly schemas?: readonly string[];
+}
+
+export interface ConnectionGroup {
+  readonly id: string;
+  readonly name: string;
 }
 
 // ─────────────────────────── Resultados de query

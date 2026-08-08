@@ -31,6 +31,15 @@ import type {
   AddConnectionParams,
   AddConnectionResult,
   ListConnectionsResult,
+  ListConnectionGroupsResult,
+  CreateConnectionGroupParams,
+  CreateConnectionGroupResult,
+  RenameConnectionGroupParams,
+  RenameConnectionGroupResult,
+  DeleteConnectionGroupParams,
+  DeleteConnectionGroupResult,
+  MoveConnectionParams,
+  MoveConnectionResult,
   TestConnectionParams,
   TestConnectionResult,
   ConnectionStatusParams,
@@ -247,6 +256,13 @@ function requireSession(id: string): Session {
   return s;
 }
 
+function requireNonEmptyText(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new RpcValidationError(`${field} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
 // Comparação case-insensitive: dialetos diferem no folding de
 // identificadores não-citados (Postgres → minúsculas via
 // information_schema, Oracle → MAIÚSCULAS via ALL_TAB_COLUMNS), mas o
@@ -374,9 +390,45 @@ export const handlers: BackendRpcRouter = {
       user: c.user,
       options: c.options,
       schemas: c.schemas,
+      groupId: c.groupId,
       lastSyncedAt: cache.lastSyncedAt(c.id, "connection"),
     }));
     return { configs };
+  },
+
+  async "connectionGroup.list"(): Promise<ListConnectionGroupsResult> {
+    await connectionsRestored;
+    return { groups: cache.listConnectionGroups() };
+  },
+
+  async "connectionGroup.create"({ name }: CreateConnectionGroupParams): Promise<CreateConnectionGroupResult> {
+    await connectionsRestored;
+    const group = cache.createConnectionGroup(requireNonEmptyText(name, "connectionGroup.create name"));
+    return { group };
+  },
+
+  async "connectionGroup.rename"({ groupId, name }: RenameConnectionGroupParams): Promise<RenameConnectionGroupResult> {
+    await connectionsRestored;
+    const group = cache.renameConnectionGroup(
+      requireNonEmptyText(groupId, "connectionGroup.rename groupId"),
+      requireNonEmptyText(name, "connectionGroup.rename name"),
+    );
+    return { group };
+  },
+
+  async "connectionGroup.delete"({ groupId }: DeleteConnectionGroupParams): Promise<DeleteConnectionGroupResult> {
+    await connectionsRestored;
+    cache.deleteConnectionGroup(requireNonEmptyText(groupId, "connectionGroup.delete groupId"));
+    return { ok: true };
+  },
+
+  async "connection.move"({ connectionId, groupId }: MoveConnectionParams): Promise<MoveConnectionResult> {
+    await connectionsRestored;
+    cache.moveConnection(
+      requireNonEmptyText(connectionId, "connection.move connectionId"),
+      groupId === null ? null : requireNonEmptyText(groupId, "connection.move groupId"),
+    );
+    return { ok: true };
   },
 
   async "connection.remove"({ connectionId }): Promise<{ ok: boolean }> {
