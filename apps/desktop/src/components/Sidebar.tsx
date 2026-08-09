@@ -500,7 +500,11 @@ export function Sidebar({
         position: "relative",
       }}
     >
-      <section className="omni-connections-section" style={{ height: Math.min(connectionsHeight, getMaxConnectionsHeight()) }} aria-labelledby="omni-connections-heading">
+      <section
+        className={`omni-connections-section${connectionsExpanded ? "" : " collapsed"}`}
+        style={{ height: connectionsExpanded ? Math.min(connectionsHeight, getMaxConnectionsHeight()) : 32 }}
+        aria-labelledby="omni-connections-heading"
+      >
         <div className="omni-sidebar-section-header">
           <Button
             appearance="transparent"
@@ -512,7 +516,7 @@ export function Sidebar({
           >
             <span id="omni-connections-heading" className="omni-sidebar-section-title">{tr("connections")}</span>
           </Button>
-          <div className="omni-connection-actions">
+          {connectionsExpanded && <div className="omni-connection-actions">
             <Tooltip content={tr("refreshMetadata")} relationship="label">
               <Button icon={<ArrowSyncRegular fontSize={12} />} appearance="transparent" size="small" onClick={onRefreshMetadata} disabled={!connectionId || loading} aria-label={tr("refreshMetadata")} />
             </Tooltip>
@@ -533,7 +537,7 @@ export function Sidebar({
                 aria-label="New folder"
               />
             </Tooltip>
-          </div>
+          </div>}
         </div>
         {connectionsExpanded && (
           <div id="omni-connections-content" className="omni-connections-content">
@@ -646,19 +650,21 @@ export function Sidebar({
           </div>
         )}
       </section>
-      <div
-        className={`connections-resize-handle${resizingConnections ? " resizing" : ""}`}
-        role="separator"
-        aria-orientation="horizontal"
-        aria-valuemin={MIN_CONNECTIONS_HEIGHT}
-        aria-valuemax={getMaxConnectionsHeight()}
-        aria-valuenow={connectionsHeight}
-        tabIndex={0}
-        aria-label="Resize connections panel"
-        title="Resize connections panel"
-        onPointerDown={onConnectionsResizeStart}
-        onKeyDown={onConnectionsResizeKeyDown}
-      />
+      {connectionsExpanded && (
+        <div
+          className={`connections-resize-handle${resizingConnections ? " resizing" : ""}`}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-valuemin={MIN_CONNECTIONS_HEIGHT}
+          aria-valuemax={getMaxConnectionsHeight()}
+          aria-valuenow={connectionsHeight}
+          tabIndex={0}
+          aria-label="Resize connections panel"
+          title="Resize connections panel"
+          onPointerDown={onConnectionsResizeStart}
+          onKeyDown={onConnectionsResizeKeyDown}
+        />
+      )}
       <div
         style={{
           padding: "10px 12px",

@@ -30,6 +30,9 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "omni-integration-"));
 process.env.OMNI_SQL_METADATA_DB = path.join(tmpDir, "metadata.db");
 process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
 process.env.OMNI_SQL_AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN ?? "integration-auth-token";
+const RPC_AUTH_HEADERS = {
+  authorization: `Bearer ${process.env.OMNI_SQL_AUTH_TOKEN}`,
+};
 
 const { startServer } = await import("@omni-sql/backend");
 
@@ -135,7 +138,7 @@ async function rpc(method: string, params?: unknown): Promise<JsonRpcResponse> {
   });
   const res = await fetch(RPC_URL, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...RPC_AUTH_HEADERS },
     body,
   });
   const json = (await res.json()) as JsonRpcResponse;
