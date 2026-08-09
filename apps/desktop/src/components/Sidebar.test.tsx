@@ -163,6 +163,7 @@ test("collapses connections independently from objects", () => {
 
   assert.equal(connectionsToggle.getAttribute("aria-expanded"), "false");
   assert.equal(screen.queryByRole("listbox", { name: "Connections" }), null);
+  assert.equal(screen.queryByRole("separator", { name: "Resize connections panel" }), null);
   assert.ok(screen.getByText("users"));
 });
 
