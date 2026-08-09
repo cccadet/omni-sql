@@ -7,6 +7,7 @@ import {
   DocumentRegular,
   CursorRegular,
   PlugConnectedRegular as McpIcon,
+  CopyRegular,
 } from "@fluentui/react-icons";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueryResult } from "@omni-sql/ts-types";
@@ -52,12 +53,37 @@ export interface StatusBarProps {
 
 interface McpLauncherConfig { command: string; args: string[] }
 
+function McpCopyButton({ value, label, copiedLabel }: { value: string; label: string; copiedLabel: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    if (!navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard failure must not be presented as success.
+    }
+  };
+
+  return (
+    <Button
+      appearance="subtle"
+      size="small"
+      icon={<CopyRegular />}
+      aria-label={copied ? `${label} — ${copiedLabel}` : label}
+      title={copied ? copiedLabel : label}
+      onClick={() => void copy()}
+    />
+  );
+}
+
 export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown", update, updateStatus, mcpState = "inactive", mcpStatus, mcpError }: StatusBarProps) {
   const { t } = useLanguage();
   const [mcpOpen, setMcpOpen] = useState(false);
   const [config, setConfig] = useState<McpLauncherConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const dialectLabels: Record<string, string> = {
     postgres: "PostgreSQL",
     mysql: "MySQL",
@@ -77,7 +103,6 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
     setMcpOpen(true);
     setConfig(null);
     setConfigError(null);
-    setCopied(false);
     void invoke<McpLauncherConfig>("get_mcp_launcher_config")
       .then(setConfig)
       .catch((error: unknown) => {
@@ -191,34 +216,41 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
           <DialogBody style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
             <DialogTitle style={{ flexShrink: 0 }}>{t("mcpStatusTitle")}</DialogTitle>
             <DialogContent style={{ display: "grid", gap: 12, overflowY: "auto", minHeight: 0 }}>
-              <Text weight="semibold" style={{ color: mcpColor }}>{mcpLabel}</Text>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                <Text weight="semibold" style={{ color: mcpColor, minWidth: 0, overflowWrap: "anywhere" }}>{mcpLabel}</Text>
+                <McpCopyButton value={mcpLabel} label={t("copyStatus")} copiedLabel={t("copied")} />
+              </div>
               {mcpState === "connected" ? (
-                <Text>{t("mcpActiveClient")} · {t("mcpQueue")}: {mcpStatus?.queueSize ?? 0}</Text>
-              ) : <Text>{t("mcpNoClient")}</Text>}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <Text style={{ minWidth: 0, overflowWrap: "anywhere" }}>{t("mcpActiveClient")} · {t("mcpQueue")}: {mcpStatus?.queueSize ?? 0}</Text>
+                  <McpCopyButton value={`${t("mcpActiveClient")} · ${t("mcpQueue")}: ${mcpStatus?.queueSize ?? 0}`} label={t("copyConnection")} copiedLabel={t("copied")} />
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <Text style={{ minWidth: 0, overflowWrap: "anywhere" }}>{t("mcpNoClient")}</Text>
+                  <McpCopyButton value={t("mcpNoClient")} label={t("copyConnection")} copiedLabel={t("copied")} />
+                </div>
+              )}
               <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpStatusHelp")}</Text>
               <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpStartFirst")}</Text>
-              {(mcpError || configError) && <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{mcpError ?? configError}</Text>}
+              {(mcpError || configError) && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <Text style={{ color: tokens.colorPaletteRedForeground1, minWidth: 0, overflowWrap: "anywhere" }}>{mcpError ?? configError}</Text>
+                  <McpCopyButton value={mcpError ?? configError ?? ""} label={t("copyError")} copiedLabel={t("copied")} />
+                </div>
+              )}
               {config && (
                 <div style={{ display: "grid", gap: 6 }}>
                   <Text weight="semibold">{t("configureClient")}</Text>
-                  <textarea readOnly aria-label={t("configureClient")} value={configText} style={{ minHeight: 120, width: "100%", boxSizing: "border-box", padding: 10, font: "12px ui-monospace, monospace", color: tokens.colorNeutralForeground1, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }} />
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0 }}>
+                    <textarea readOnly aria-label={t("configureClient")} value={configText} style={{ minHeight: 120, minWidth: 0, flex: 1, boxSizing: "border-box", padding: 10, font: "12px ui-monospace, monospace", color: tokens.colorNeutralForeground1, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }} />
+                    <McpCopyButton value={configText} label={t("copyConfig")} copiedLabel={t("copied")} />
+                  </div>
                 </div>
               )}
             </DialogContent>
             <DialogActions style={{ flexShrink: 0 }}>
               <Button appearance="secondary" onClick={() => setMcpOpen(false)}>{t("cancel")}</Button>
-              <Button
-                appearance="primary"
-                disabled={!config}
-                onClick={() => {
-                  if (!configText) return;
-                  const write = navigator.clipboard?.writeText(configText);
-                  void write?.then(() => {
-                    setCopied(true);
-                    window.setTimeout(() => setCopied(false), 1500);
-                  });
-                }}
-              >{copied ? t("copied") : t("copyConfig")}</Button>
             </DialogActions>
           </DialogBody>
         </DialogSurface>

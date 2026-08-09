@@ -45,6 +45,7 @@ export const MCP_TOOL_NAMES: readonly McpToolName[] = [
   "getActiveSql",
   "getActiveConnectionContext",
   "getSchemaSummary",
+  "getLatestSqlExecutionError",
   "openSqlTab",
   "proposeSqlEdit",
 ];
@@ -274,6 +275,46 @@ function validateProposalResult(value: unknown): McpToolResultByName["proposeSql
   return { approved: result.approved };
 }
 
+function validateExecutionErrorResult(value: unknown): McpToolResultByName["getLatestSqlExecutionError"] {
+  const result = resultObject(value, ["error"], ["error"], "getLatestSqlExecutionError result");
+  if (result.error === null) return { error: null };
+  const error = resultObject(result.error, ["message", "code", "position"], ["message"], "getLatestSqlExecutionError.error");
+  const message = resultString(error.message, "getLatestSqlExecutionError.error.message", MCP_MAX_ERROR_MESSAGE_BYTES);
+  let code: string | undefined;
+  if (error.code !== undefined) code = resultString(error.code, "getLatestSqlExecutionError.error.code", MCP_MAX_ERROR_MESSAGE_BYTES);
+
+  let position: { start: number; end?: number } | undefined;
+  if (error.position !== undefined) {
+    const rawPosition = resultObject(
+      error.position,
+      ["start", "end"],
+      ["start"],
+      "getLatestSqlExecutionError.error.position",
+    );
+    const start = rawPosition.start;
+    const end = rawPosition.end;
+    if (typeof start !== "number" || !Number.isSafeInteger(start) || start < 0) {
+      throw new McpBridgeError("invalid", "getLatestSqlExecutionError.error.position.start is invalid");
+    }
+    if (end !== undefined &&
+      (typeof end !== "number" || !Number.isSafeInteger(end) || end < start)) {
+      throw new McpBridgeError("invalid", "getLatestSqlExecutionError.error.position.end is invalid");
+    }
+    position = {
+      start,
+      ...(end === undefined ? {} : { end }),
+    };
+  }
+
+  return {
+    error: {
+      message,
+      ...(code === undefined ? {} : { code }),
+      ...(position === undefined ? {} : { position }),
+    },
+  };
+}
+
 export function validateMcpToolResult<K extends McpToolName>(
   tool: K,
   value: unknown,
@@ -286,6 +327,8 @@ export function validateMcpToolResult<K extends McpToolName>(
       return validateActiveConnectionContextResult(value) as McpToolResultByName[K];
     case "getSchemaSummary":
       return validateSchemaSummaryResult(value) as McpToolResultByName[K];
+    case "getLatestSqlExecutionError":
+      return validateExecutionErrorResult(value) as McpToolResultByName[K];
     case "openSqlTab":
       return validateOpenSqlTabResult(value) as McpToolResultByName[K];
     case "proposeSqlEdit":

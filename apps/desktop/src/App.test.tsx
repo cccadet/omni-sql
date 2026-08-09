@@ -234,7 +234,7 @@ describe("App execution flow", () => {
   });
 
   it("shows execution errors in result messages", async () => {
-    runError = new Error("query failed");
+    runError = Object.assign(new Error("query failed"), { code: -32000 });
     renderApp();
 
     await connectToDatabase();
@@ -251,5 +251,22 @@ describe("App execution flow", () => {
       sql: "SELECT 1",
     }));
     expect(await screen.findByText("syntax error")).toBeTruthy();
+
+    await waitFor(() => {
+      const session = JSON.parse(localStorage.getItem("omni-sql:session") ?? "null") as { tabs: Array<{ latestSqlExecutionError?: unknown }> };
+      expect(session.tabs[0]?.latestSqlExecutionError).toEqual({
+        message: "query failed",
+        code: "-32000",
+        position: { start: 0, end: 1 },
+      });
+    });
+
+    runError = null;
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await screen.findByText("42");
+    await waitFor(() => {
+      const session = JSON.parse(localStorage.getItem("omni-sql:session") ?? "null") as { tabs: Array<{ latestSqlExecutionError?: unknown }> };
+      expect(session.tabs[0]?.latestSqlExecutionError).toBeNull();
+    });
   });
 });

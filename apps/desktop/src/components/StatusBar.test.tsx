@@ -103,6 +103,6 @@ test("StatusBar: clears launcher config when refresh fails", async () => {
   renderWithLanguage(<StatusBar mcpState="listening" />);
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
   expect(await screen.findByText("MCP runtime unavailable")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Copy configuration" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Copy error" })).toBeTruthy();
   expect(screen.queryByRole("textbox", { name: "Configure client" })).toBeNull();
 });
