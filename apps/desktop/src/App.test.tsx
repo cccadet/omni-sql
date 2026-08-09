@@ -87,12 +87,9 @@ function renderApp() {
 }
 
 async function connectToDatabase() {
-  const connectionSelect = await screen.findByRole("combobox", { name: "Active connection" });
-  fireEvent.change(connectionSelect, {
-    target: { value: "conn-1" },
-  });
+  fireEvent.click(await screen.findByRole("option", { name: "Local Postgres" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Activate" }));
   await waitFor(() => expect(call).toHaveBeenCalledWith("connection.status", { connectionId: "conn-1" }));
-  expect((connectionSelect as HTMLSelectElement).value).toBe("conn-1");
 }
 
 beforeEach(() => {
@@ -105,10 +102,16 @@ beforeEach(() => {
   call.mockReset();
   call.mockImplementation(async (method) => {
     switch (method) {
+      case "mcp.ui.next":
+        throw new Error("MCP UI polling disabled in test");
+      case "mcp.status":
+        return { uiConnected: false, queueSize: 0, inFlight: 0 };
       case "connection.list":
         return {
           configs: [{ id: "conn-1", label: "Local Postgres", dialect: "postgres", endpoint: "localhost", user: "user" }],
         };
+      case "connectionGroup.list":
+        return { groups: [] };
       case "update.check":
         return { available: false };
       case "connection.status":
@@ -164,8 +167,7 @@ describe("App execution flow", () => {
     seedSession("SELECT 1", 1000, "conn-1");
     renderApp();
 
-    const connectionSelect = await screen.findByRole("combobox", { name: "Active connection" });
-    expect((connectionSelect as HTMLSelectElement).value).toBe("conn-1");
+    expect((await screen.findAllByText("Local Postgres")).length).toBeGreaterThan(0);
     await waitFor(() => expect(call).toHaveBeenCalledWith("connection.status", { connectionId: "conn-1" }));
   });
 

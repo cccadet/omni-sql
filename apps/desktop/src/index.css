@@ -119,7 +119,14 @@ select option {
   padding: 6px 8px;
 }
 
+.omni-connections-section.collapsed {
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 .connections-resize-handle {
+  box-sizing: border-box;
   flex: 0 0 6px;
   cursor: row-resize;
   background: transparent;
