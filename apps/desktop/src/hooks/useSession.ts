@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
+import type { SqlExecutionError } from "@omni-sql/ts-types";
 
 export interface QueryTab {
   id: string;
@@ -9,6 +10,7 @@ export interface QueryTab {
   filePath: string | null;
   savedSql: string | null;
   error: string | null;
+  latestSqlExecutionError: SqlExecutionError | null;
 }
 
 const SESSION_KEY = "omni-sql:session";
@@ -26,7 +28,8 @@ export function makeTab(partial?: Partial<QueryTab>): QueryTab {
     connectionId: partial?.connectionId ?? null,
     filePath: partial?.filePath ?? null,
     savedSql: partial?.savedSql ?? null,
-    error: null,
+    error: partial?.error ?? null,
+    latestSqlExecutionError: partial?.latestSqlExecutionError ?? null,
   };
 }
 

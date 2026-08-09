@@ -226,6 +226,15 @@ export interface SqlDiagnostic {
   readonly transpileMessage?: string;
 }
 
+export interface SqlExecutionError {
+  readonly message: string;
+  readonly code?: string;
+  readonly position?: {
+    readonly start: number;
+    readonly end?: number;
+  };
+}
+
 // ─────────────────────────── MCP bridge
 
 /** Tools exposed by the local MCP bridge. Keep this list intentionally closed. */
@@ -233,6 +242,7 @@ export type McpToolName =
   | "getActiveSql"
   | "getActiveConnectionContext"
   | "getSchemaSummary"
+  | "getLatestSqlExecutionError"
   | "openSqlTab"
   | "proposeSqlEdit";
 
@@ -274,6 +284,7 @@ export interface McpToolArgsByName {
   getActiveSql: Record<string, never>;
   getActiveConnectionContext: Record<string, never>;
   getSchemaSummary: Record<string, never>;
+  getLatestSqlExecutionError: Record<string, never>;
   openSqlTab: {
     readonly title: string;
     readonly sql: string;
@@ -323,6 +334,9 @@ export interface McpToolResultByName {
   getSchemaSummary: {
     readonly connectionId: string;
     readonly schemas: readonly McpSchemaSummarySchema[];
+  };
+  getLatestSqlExecutionError: {
+    readonly error: SqlExecutionError | null;
   };
   openSqlTab: {
     readonly opened: boolean;

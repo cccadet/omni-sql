@@ -22,6 +22,7 @@ const boundedText = (maxBytes: number, name: string) =>
     .refine((value) => Buffer.byteLength(value, "utf8") <= maxBytes, `${name} is too large`);
 
 export const emptyInputSchema = z.object({}).strict();
+export const getLatestSqlExecutionErrorInputSchema = emptyInputSchema;
 export const openSqlTabInputSchema = z.object({
   title: boundedText(MAX_TITLE_BYTES, "title"),
   sql: boundedText(MAX_SQL_BYTES, "sql"),
@@ -104,6 +105,18 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     async (input) => invoke(() => {
       emptyInputSchema.parse(input);
       return client.call("getSchemaSummary", {});
+    }),
+  );
+
+  server.registerTool(
+    "getLatestSqlExecutionError",
+    {
+      description: "Read latest failed SQL execution error from active Omni SQL tab.",
+      inputSchema: getLatestSqlExecutionErrorInputSchema,
+    },
+    async (input) => invoke(() => {
+      getLatestSqlExecutionErrorInputSchema.parse(input);
+      return client.call("getLatestSqlExecutionError", {});
     }),
   );
 

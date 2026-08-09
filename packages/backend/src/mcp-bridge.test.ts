@@ -152,3 +152,31 @@ test("UI results use originating-tool schemas and reject unsafe fields", async (
     bridge.close();
   }
 });
+
+test("latest execution error result keeps only bounded error fields", async () => {
+  const bridge = new McpBridge({ timeoutMs: 500, idFactory: () => "execution-error-1" });
+  try {
+    await bridge.next({ listenerId: "desktop" });
+    const pending = bridge.submit("getLatestSqlExecutionError", {});
+    const request = await bridge.next({ listenerId: "desktop" });
+    bridge.respond({
+      id: request!.id,
+      ok: true,
+      result: { error: { message: "syntax error", code: "-32000", position: { start: 4, end: 9 } } },
+    }, "desktop");
+    assert.deepEqual(await pending, {
+      error: { message: "syntax error", code: "-32000", position: { start: 4, end: 9 } },
+    });
+
+    const invalidPending = bridge.submit("getLatestSqlExecutionError", {});
+    const invalidRequest = await bridge.next({ listenerId: "desktop" });
+    assert.throws(() => bridge.respond({
+      id: invalidRequest!.id,
+      ok: true,
+      result: { error: { message: "syntax error", sql: "SELECT secret", stack: "trace" } },
+    }, "desktop"), hasCode("invalid"));
+    await assert.rejects(invalidPending, hasCode("invalid"));
+  } finally {
+    bridge.close();
+  }
+});

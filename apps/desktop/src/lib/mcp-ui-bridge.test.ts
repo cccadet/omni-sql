@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SqlExecutionError } from "@omni-sql/ts-types";
 import { McpUiBridge, McpUiError, type McpUiState } from "./mcp-ui-bridge";
 
 function setup(state: McpUiState) {
@@ -12,6 +13,35 @@ function setup(state: McpUiState) {
 }
 
 describe("MCP UI bridge tools", () => {
+  it("returns no latest execution error when active tab has none", async () => {
+    const bridge = setup({
+      activeTab: { id: "tab-1", title: "Query", sql: "SELECT 1", latestSqlExecutionError: null },
+      activeConnection: null,
+      editor: null,
+    });
+
+    await expect(bridge.handleRequest({ id: "1", tool: "getLatestSqlExecutionError", args: {}, expiresAt: Date.now() + 60_000 }))
+      .resolves.toEqual({ error: null });
+  });
+
+  it("exposes failed execution and clears it after successful execution", async () => {
+    let latestSqlExecutionError: SqlExecutionError | null = { message: "syntax error", code: "-32000", position: { start: 7, end: 12 } };
+    const state: McpUiState = {
+      activeTab: { id: "tab-1", title: "Query", sql: "SELECT 1", latestSqlExecutionError },
+      activeConnection: null,
+      editor: null,
+    };
+    const bridge = setup(state);
+
+    await expect(bridge.handleRequest({ id: "2", tool: "getLatestSqlExecutionError", args: {}, expiresAt: Date.now() + 60_000 }))
+      .resolves.toEqual({ error: { message: "syntax error", code: "-32000", position: { start: 7, end: 12 } } });
+
+    latestSqlExecutionError = null;
+    state.activeTab!.latestSqlExecutionError = latestSqlExecutionError;
+    await expect(bridge.handleRequest({ id: "3", tool: "getLatestSqlExecutionError", args: {}, expiresAt: Date.now() + 60_000 }))
+      .resolves.toEqual({ error: null });
+  });
+
   it("returns full active SQL and safe connection context", async () => {
     const bridge = setup({
       activeTab: { id: "tab-1", title: "Query", sql: "SELECT state" },

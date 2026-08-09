@@ -30,6 +30,7 @@ export const mcpToolNames = [
   "getActiveSql",
   "getActiveConnectionContext",
   "getSchemaSummary",
+  "getLatestSqlExecutionError",
   "openSqlTab",
   "proposeSqlEdit",
 ] as const satisfies readonly McpToolName[];
