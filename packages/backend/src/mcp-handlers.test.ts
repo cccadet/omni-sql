@@ -14,6 +14,10 @@ test("MCP request uses exact tool/args contract and per-tool allowlists", () => 
     tool: "getSchemaSummary",
     args: {},
   });
+  assert.deepEqual(validateMcpRequest({ tool: "getLatestSqlExecutionError", args: {} }), {
+    tool: "getLatestSqlExecutionError",
+    args: {},
+  });
   assert.deepEqual(validateMcpRequest({
     tool: "openSqlTab",
     args: { title: "Draft", sql: "select 1", connectionId: "active" },
@@ -24,6 +28,7 @@ test("MCP request uses exact tool/args contract and per-tool allowlists", () => 
 
   invalid({ tool: "getSchemaSummary", args: { connectionId: "arbitrary" } });
   invalid({ tool: "getActiveSql", args: { value: "unexpected" } });
+  invalid({ tool: "getLatestSqlExecutionError", args: { value: "unexpected" } });
   invalid({ tool: "openSqlTab", args: { title: "Draft", sql: "select 1", extra: true } });
   invalid({ tool: "proposeSqlEdit", args: { sql: "select 1" } });
   invalid({ tool: "proposeSqlEdit", args: { sql: "select 1", rationale: "test", connectionId: "arbitrary" } });

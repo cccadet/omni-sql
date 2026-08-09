@@ -21,7 +21,7 @@ import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } 
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
-import type { DialectId, FunctionDef, McpToolResultByName, QueryResult, RowEditability } from "@omni-sql/ts-types";
+import { MCP_MAX_ERROR_MESSAGE_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
@@ -66,6 +66,41 @@ function saveHistory(entries: HistoryEntry[]) {
   } catch {
     // localStorage indisponível/cheio
   }
+}
+
+function boundedErrorText(value: string): string {
+  if (new TextEncoder().encode(value).byteLength <= MCP_MAX_ERROR_MESSAGE_BYTES) return value || "SQL execution failed";
+  const characters = [...value];
+  while (characters.length > 0 && new TextEncoder().encode(characters.join("")).byteLength > MCP_MAX_ERROR_MESSAGE_BYTES) {
+    characters.pop();
+  }
+  return characters.join("") || "SQL execution failed";
+}
+
+function sqlExecutionErrorFrom(error: unknown): SqlExecutionError {
+  const message = boundedErrorText(error instanceof Error ? error.message : "SQL execution failed");
+  const code = error && typeof error === "object" && "code" in error
+    ? (error as { code?: unknown }).code
+    : undefined;
+  return {
+    message,
+    ...(typeof code === "string" || typeof code === "number" ? { code: boundedErrorText(String(code)) } : {}),
+  };
+}
+
+function matchingDiagnostic(
+  diagnostics: readonly SqlDiagnostic[],
+  message: string,
+): SqlDiagnostic | undefined {
+  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  return errors.find((diagnostic) => diagnostic.message === message ||
+    diagnostic.message.includes(message) || message.includes(diagnostic.message)) ?? errors[0];
+}
+
+function diagnosticPosition(diagnostic: { start: number; end: number }): SqlExecutionError["position"] | undefined {
+  if (!Number.isSafeInteger(diagnostic.start) || diagnostic.start < 0) return undefined;
+  if (!Number.isSafeInteger(diagnostic.end) || diagnostic.end < diagnostic.start) return { start: diagnostic.start };
+  return { start: diagnostic.start, end: diagnostic.end };
 }
 
 export interface AppProps {
@@ -116,6 +151,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const mcpListenerIdRef = useRef(makeListenerId());
   const mcpStateRef = useRef<McpUiState>({ activeTab: null, activeConnection: null, editor: null });
   const connectionHealthCheckRef = useRef(0);
+  const executionSequenceRef = useRef(0);
 
   useEffect(() => {
     void getVersion()
@@ -203,7 +239,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   );
 
   mcpStateRef.current = {
-    activeTab: activeTab ? { id: activeTab.id, title: activeTab.title, sql: activeTab.sql } : null,
+    activeTab: activeTab ? {
+      id: activeTab.id,
+      title: activeTab.title,
+      sql: activeTab.sql,
+      latestSqlExecutionError: activeTab.latestSqlExecutionError ?? null,
+    } : null,
     activeConnection: activeConnection ? { id: activeConnection.id, label: activeConnection.label, dialect: activeConnection.dialect } : null,
     editor: editorRef.current,
   };
@@ -410,6 +451,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         return;
       }
       updateTab(activeTab.id, { error: null });
+      const executionSequence = ++executionSequenceRef.current;
       setRunning(true);
       setBusyMsg(label);
       setResult(null);
@@ -422,7 +464,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           limit: activeTab.queryLimit,
         });
         setResult(lastResult);
-        updateTab(activeTab.id, { error: null });
+        updateTab(activeTab.id, { error: null, latestSqlExecutionError: null });
         ++connectionHealthCheckRef.current;
         setConnectionHealth("online");
         pushHistory(sqls.join(";\n"), true);
@@ -442,17 +484,25 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             });
           });
       } catch (e) {
-        updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) });
+        const executionError = sqlExecutionErrorFrom(e);
+        updateTab(activeTab.id, {
+          error: e instanceof Error ? e.message : String(e),
+          latestSqlExecutionError: executionError,
+        });
         const executedSql = sqls.join(";\n");
-        if (executedSql === activeTab.sql) {
-          void backend
-            .call<{ diagnostics: SqlDiagnostic[] }>("query.diagnose", {
-              connectionId: activeConnectionId,
-              sql: executedSql,
-            })
-            .then((response) => setDiagnostics(response.diagnostics))
-            .catch(() => undefined);
-        }
+        void backend
+          .call<{ diagnostics: SqlDiagnostic[] }>("query.diagnose", {
+            connectionId: activeConnectionId,
+            sql: executedSql,
+          })
+          .then((response) => {
+            if (executionSequence !== executionSequenceRef.current) return;
+            const diagnostic = matchingDiagnostic(response.diagnostics, executionError.message);
+            const position = diagnostic ? diagnosticPosition(diagnostic) : undefined;
+            if (position) updateTab(activeTab.id, { latestSqlExecutionError: { ...executionError, position } });
+            if (executedSql === activeTab.sql) setDiagnostics(response.diagnostics);
+          })
+          .catch(() => undefined);
         pushHistory(executedSql, false);
       } finally {
         setRunning(false);

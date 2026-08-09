@@ -22,7 +22,12 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export interface McpUiState {
-  activeTab: { id: string; title: string; sql: string } | null;
+  activeTab: {
+    id: string;
+    title: string;
+    sql: string;
+    latestSqlExecutionError?: McpToolResultByName["getLatestSqlExecutionError"]["error"];
+  } | null;
   activeConnection: { id: string; label: string; dialect: DialectId } | null;
   editor: {
     getAllText: () => string;
@@ -145,6 +150,8 @@ export class McpUiBridge {
         }
         return result;
       }
+      case "getLatestSqlExecutionError":
+        return { error: state.activeTab?.latestSqlExecutionError ?? null } satisfies McpToolResultByName["getLatestSqlExecutionError"];
       case "openSqlTab":
         return { opened: this.handlers.openTab(request.args) } satisfies McpToolResultByName["openSqlTab"];
       case "proposeSqlEdit": {
