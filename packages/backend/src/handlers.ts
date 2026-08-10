@@ -12,8 +12,11 @@ import { JdbcAdapter } from "@omni-sql/adapters-jdbc";
 import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
   autocompleteTier1,
+  findStatement,
+  tokenize,
   type MetadataSource,
   type ScopeRef,
+  type Token,
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
 import { RpcValidationError } from "./rpc-errors.ts";
@@ -270,6 +273,10 @@ interface ScopeRefIdentifierFlags {
 
 type BackendScopeRef = ScopeRef & ScopeRefIdentifierFlags;
 
+interface BackendCteRelation extends Relation {
+  readonly nameQuoted?: boolean;
+}
+
 function foldUnquotedIdentifier(value: string, dialect: ConnectionConfig["dialect"] | undefined): string {
   switch (dialect) {
     case "postgres":
@@ -283,6 +290,64 @@ function foldUnquotedIdentifier(value: string, dialect: ConnectionConfig["dialec
 
 function identifierMatchesCaseInsensitive(actual: string, requested: string): boolean {
   return actual.toLowerCase() === requested.toLowerCase();
+}
+
+function cteNameQuoting(
+  sql: string,
+  cursor: number,
+  dialect: ReturnType<typeof dialectDescriptor>,
+): ReadonlyMap<string, boolean> {
+  const statement = findStatement(sql, cursor, dialect).text;
+  const tokens = tokenize(statement, dialect).filter((token) =>
+    token.type !== "whitespace" && token.type !== "comment" && token.type !== "eof");
+  const quoted = new Map<string, boolean>();
+  if (tokens[0]?.type !== "keyword" || tokens[0].upper !== "WITH") return quoted;
+
+  const isName = (token: Token | undefined): token is Token =>
+    token?.type === "identifier" || token?.type === "keyword";
+  const isQuoted = (token: Token): boolean =>
+    (dialect.identifierQuotePairs ?? dialect.identifierQuoteChars.map((quote) => [quote, quote] as const))
+      .some(([open]) => statement.startsWith(open, token.start));
+  const skipParenthesized = (start: number): number => {
+    if (tokens[start]?.value !== "(") return start;
+    let depth = 0;
+    for (let i = start; i < tokens.length; i += 1) {
+      if (tokens[i]!.value === "(") depth += 1;
+      if (tokens[i]!.value === ")") {
+        depth -= 1;
+        if (depth === 0) return i + 1;
+      }
+    }
+    return tokens.length;
+  };
+
+  let i = 1;
+  if (tokens[i]?.type === "keyword" && tokens[i]?.upper === "RECURSIVE") i += 1;
+  while (isName(tokens[i])) {
+    const name = tokens[i]!;
+    quoted.set(name.value, isQuoted(name));
+    i += 1;
+    if (tokens[i]?.value === "(") i = skipParenthesized(i);
+    if (tokens[i]?.type !== "keyword" || tokens[i]?.upper !== "AS") break;
+    i += 1;
+    if (tokens[i]?.value !== "(") break;
+    i = skipParenthesized(i);
+    if (tokens[i]?.value !== ",") break;
+    i += 1;
+  }
+  return quoted;
+}
+
+function annotateCteRelations(
+  sql: string,
+  cursor: number,
+  dialect: ReturnType<typeof dialectDescriptor>,
+  relations: readonly Relation[],
+): BackendCteRelation[] {
+  const quotedNames = cteNameQuoting(sql, cursor, dialect);
+  return relations.map((relation) => quotedNames.get(relation.name) === true
+    ? { ...relation, nameQuoted: true }
+    : { ...relation, name: foldUnquotedIdentifier(relation.name, dialect.dialect) });
 }
 
 // Identificadores não-citados passam por folding do dialeto (Postgres →
@@ -356,7 +421,7 @@ function buildTableDdl(dialect: ConnectionConfig["dialect"], relation: Relation)
 
 export function metaSourceOf(
   session: Pick<Session, "config">,
-  cteRelations: readonly Relation[] = [],
+  cteRelations: readonly BackendCteRelation[] = [],
 ): MetadataSource {
   return {
     dialect: dialectDescriptor(session.config.dialect),
@@ -364,10 +429,15 @@ export function metaSourceOf(
       cache.listSchemas(session.config.id).map((schema) => schema.name),
     listRelations: (): readonly Relation[] => {
       const out: Relation[] = [...cteRelations];
-      const cteNames = new Set(cteRelations.map((r) => r.name.toLowerCase()));
+      const strictFolding = session.config.dialect === "postgres" || session.config.dialect === "oracle";
       for (const s of cache.listSchemas(session.config.id)) {
         for (const rel of cache.getTablesBySchema(session.config.id, s.name)) {
-          if (!cteNames.has(rel.name.toLowerCase())) out.push(rel);
+          const shadowed = cteRelations.some((cte) => {
+            if (cte.nameQuoted) return rel.name === cte.name;
+            if (strictFolding) return rel.name === foldUnquotedIdentifier(cte.name, session.config.dialect);
+            return identifierMatchesCaseInsensitive(rel.name, cte.name);
+          });
+          if (!shadowed) out.push(rel);
         }
       }
       return out;
@@ -375,13 +445,19 @@ export function metaSourceOf(
     listFunctions: () => cache.getFunctions(session.config.id),
     resolveRelation: (ref: ScopeRef): Relation | null => {
       const quotedRef = ref as BackendScopeRef;
+      const strictFolding = session.config.dialect === "postgres" || session.config.dialect === "oracle";
       // CTEs (tier2 via sidecar/Calcite) sombreiam tabelas reais de mesmo
       // nome — mesma regra de resolução de escopo do SQL padrão.
       if (ref.schema == null) {
         const cte = quotedRef.tableQuoted
           ? cteRelations.find((r) => r.name === ref.table)
-          : cteRelations.find((r) => r.name === foldUnquotedIdentifier(ref.table, session.config.dialect))
-            ?? cteRelations.find((r) => identifierMatchesCaseInsensitive(r.name, ref.table));
+          : cteRelations
+            .filter((r) => !r.nameQuoted)
+            .find((r) => foldUnquotedIdentifier(r.name, session.config.dialect)
+              === foldUnquotedIdentifier(ref.table, session.config.dialect))
+            ?? (strictFolding ? undefined : cteRelations
+              .filter((r) => !r.nameQuoted)
+              .find((r) => identifierMatchesCaseInsensitive(r.name, ref.table)));
         if (cte) return cte;
       }
       return resolveRelationByName(session.config.id, ref.table, ref.schema, quotedRef);
@@ -776,10 +852,12 @@ export const handlers: BackendRpcRouter = {
     // o tier1 (lexer puro, síncrono) — best-effort, timeout curto; se o
     // sidecar não responder a tempo, cteRelations fica vazio e o
     // autocomplete segue 100% tier1, como sempre foi.
-    const cteRelations = await resolveCteRelations(
+    const descriptor = dialectDescriptor(s.config.dialect);
+    const cteRelations = annotateCteRelations(
       sql,
       cursor,
-      dialectDescriptor(s.config.dialect),
+      descriptor,
+      await resolveCteRelations(sql, cursor, descriptor),
     );
     const meta = metaSourceOf(s, cteRelations);
     const suggestions = autocompleteTier1(sql, cursor, meta);

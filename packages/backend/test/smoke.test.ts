@@ -27,7 +27,7 @@ process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
 process.env.OMNI_SQL_AUTH_TOKEN = "smoke-auth-token";
 
 const { defaultAllowedOrigin, startServer } = await import("../src/index.ts");
-const { metaSourceOf } = await import("../src/handlers.ts");
+const { handlers, metaSourceOf } = await import("../src/handlers.ts");
 
 // Sobrescreve o registro de produção (JdbcAdapter) para os smoke tests
 // usarem o adaptador in-memory. Deve rodar DEPOIS de importar o backend,
@@ -56,13 +56,34 @@ const ONLY_QUOTED_SCHEMA: InMemorySchema[] = [{
     columns: [{ name: "QuotedOnlyColumn", dataType: "text", nullable: true, isPrimaryKey: false, ordinal: 0 }],
   }],
 }];
+const ORACLE_COLLISION_SCHEMA: InMemorySchema[] = [{
+  schema: "PUBLIC",
+  tables: [
+    {
+      name: "Foo",
+      kind: "table",
+      columns: [{ name: "quoted_column", dataType: "text", nullable: true, isPrimaryKey: false, ordinal: 0 }],
+    },
+    {
+      name: "FOO",
+      kind: "table",
+      columns: [{ name: "lower_column", dataType: "text", nullable: true, isPrimaryKey: false, ordinal: 0 }],
+    },
+  ],
+}];
 
 registerAdapter("jdbc-generic", (config) => {
   testAdapter = new InMemoryAdapter(config, config.endpoint === "memory://quoted" ? QUOTED_SCHEMA : undefined);
   return testAdapter;
 });
-registerAdapter("postgres", (config) => new InMemoryAdapter(config, ONLY_QUOTED_SCHEMA));
-registerAdapter("oracle", (config) => new InMemoryAdapter(config, ONLY_QUOTED_SCHEMA));
+registerAdapter("postgres", (config) => new InMemoryAdapter(
+  config,
+  config.endpoint === "memory://quoted" ? QUOTED_SCHEMA : ONLY_QUOTED_SCHEMA,
+));
+registerAdapter("oracle", (config) => new InMemoryAdapter(
+  config,
+  config.endpoint === "memory://quoted" ? ORACLE_COLLISION_SCHEMA : ONLY_QUOTED_SCHEMA,
+));
 
 type QuotedScopeRef = ScopeRef & {
   readonly schemaQuoted?: boolean;
@@ -359,6 +380,55 @@ test("Postgres e Oracle não resolvem nome não quoted contra objeto quoted case
 
       const suggestions = autocompleteTier1("SELECT  FROM foo", "SELECT ".length, meta);
       assert.ok(!suggestions.some((suggestion) => suggestion.label === "QuotedOnlyColumn"));
+
+      const cteConnectionId = `cte-quoted-${dialect}`;
+      const cteConfig = { ...config, id: cteConnectionId, endpoint: "memory://quoted" };
+      await rpc("connection.add", { config: cteConfig }, url);
+      await rpc("metadata.introspect", { connectionId: cteConnectionId }, url);
+      const fromUnquotedCte = 'WITH "Foo" AS (SELECT 1) SELECT  FROM foo';
+      const fromQuotedCte = 'WITH "Foo" AS (SELECT 1) SELECT  FROM "Foo"';
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input) !== "http://127.0.0.1:41921/scope/resolve") return originalFetch(input, init);
+        return new Response(JSON.stringify({ ctes: [{ name: "Foo", columns: ["QuotedCteColumn"] }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+      try {
+        const unquotedCteSuggestions = (await handlers["completion.get"]({
+          connectionId: cteConnectionId,
+          sql: fromUnquotedCte,
+          cursor: fromUnquotedCte.lastIndexOf("SELECT  FROM") + "SELECT ".length,
+        })).suggestions;
+        assert.ok(unquotedCteSuggestions.some((suggestion) => suggestion.label === "lower_column"));
+        assert.ok(!unquotedCteSuggestions.some((suggestion) => suggestion.label === "QuotedCteColumn"));
+
+        const quotedCteSuggestions = (await handlers["completion.get"]({
+          connectionId: cteConnectionId,
+          sql: fromQuotedCte,
+          cursor: fromQuotedCte.lastIndexOf("SELECT  FROM") + "SELECT ".length,
+        })).suggestions;
+        assert.ok(quotedCteSuggestions.some((suggestion) => suggestion.label === "QuotedCteColumn"));
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      const normalCteName = dialect === "oracle" ? "FOO" : "foo";
+      const normalCteMeta = metaSourceOf(
+        { config: cteConfig },
+        [{
+          schema: "",
+          name: normalCteName,
+          kind: "view",
+          columns: [],
+          constraints: [],
+        }],
+      );
+      assert.equal(
+        normalCteMeta.resolveRelation({ schema: null, table: "foo", alias: "foo" })?.name,
+        normalCteName,
+      );
     }
   } finally {
     server.close();
