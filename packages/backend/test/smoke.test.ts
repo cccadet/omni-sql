@@ -390,7 +390,16 @@ test("Postgres e Oracle não resolvem nome não quoted contra objeto quoted case
       const originalFetch = globalThis.fetch;
       globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
         if (String(input) !== "http://127.0.0.1:41921/scope/resolve") return originalFetch(input, init);
-        return new Response(JSON.stringify({ ctes: [{ name: "Foo", columns: ["QuotedCteColumn"] }] }), {
+        const request = JSON.parse(String(init?.body)) as { sql?: string };
+        const ctes = request.sql?.includes("OMIT_FIRST")
+          ? [{ name: "foo", columns: ["ReturnedSecondFooCteColumn"] }]
+          : request.sql?.includes('WITH "foo" AS')
+          ? [
+            { name: "foo", columns: ["QuotedFooCteColumn"] },
+            { name: "foo", columns: ["UnquotedFooCteColumn"] },
+          ]
+          : [{ name: "Foo", columns: ["QuotedCteColumn"] }];
+        return new Response(JSON.stringify({ ctes }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -410,6 +419,43 @@ test("Postgres e Oracle não resolvem nome não quoted contra objeto quoted case
           cursor: fromQuotedCte.lastIndexOf("SELECT  FROM") + "SELECT ".length,
         })).suggestions;
         assert.ok(quotedCteSuggestions.some((suggestion) => suggestion.label === "QuotedCteColumn"));
+
+        if (dialect === "oracle") {
+          const fromQuotedLowerCte = 'WITH "foo" AS (SELECT 1), foo AS (SELECT 2) SELECT  FROM "foo"';
+          const quotedLowerSuggestions = (await handlers["completion.get"]({
+            connectionId: cteConnectionId,
+            sql: fromQuotedLowerCte,
+            cursor: fromQuotedLowerCte.lastIndexOf("SELECT  FROM") + "SELECT ".length,
+          })).suggestions;
+          assert.ok(quotedLowerSuggestions.some((suggestion) => suggestion.label === "QuotedFooCteColumn"));
+          assert.ok(!quotedLowerSuggestions.some((suggestion) => suggestion.label === "UnquotedFooCteColumn"));
+
+          const fromUnquotedUpperCte = 'WITH "foo" AS (SELECT 1), foo AS (SELECT 2) SELECT  FROM foo';
+          const unquotedUpperSuggestions = (await handlers["completion.get"]({
+            connectionId: cteConnectionId,
+            sql: fromUnquotedUpperCte,
+            cursor: fromUnquotedUpperCte.lastIndexOf("SELECT  FROM") + "SELECT ".length,
+          })).suggestions;
+          assert.ok(unquotedUpperSuggestions.some((suggestion) => suggestion.label === "UnquotedFooCteColumn"));
+          assert.ok(!unquotedUpperSuggestions.some((suggestion) => suggestion.label === "QuotedFooCteColumn"));
+
+          const fromOmittedFirst = 'WITH "foo" AS (SELECT OMIT_FIRST), foo AS (SELECT 2) SELECT  FROM foo';
+          const omittedFirstSuggestions = (await handlers["completion.get"]({
+            connectionId: cteConnectionId,
+            sql: fromOmittedFirst,
+            cursor: fromOmittedFirst.lastIndexOf("SELECT  FROM") + "SELECT ".length,
+          })).suggestions;
+          assert.ok(omittedFirstSuggestions.some((suggestion) => suggestion.label === "lower_column"));
+          assert.ok(!omittedFirstSuggestions.some((suggestion) => suggestion.label === "ReturnedSecondFooCteColumn"));
+
+          const fromOmittedFirstQuoted = 'WITH "foo" AS (SELECT OMIT_FIRST), foo AS (SELECT 2) SELECT  FROM "foo"';
+          const omittedFirstQuotedSuggestions = (await handlers["completion.get"]({
+            connectionId: cteConnectionId,
+            sql: fromOmittedFirstQuoted,
+            cursor: fromOmittedFirstQuoted.lastIndexOf("SELECT  FROM") + "SELECT ".length,
+          })).suggestions;
+          assert.ok(!omittedFirstQuotedSuggestions.some((suggestion) => suggestion.label === "ReturnedSecondFooCteColumn"));
+        }
       } finally {
         globalThis.fetch = originalFetch;
       }

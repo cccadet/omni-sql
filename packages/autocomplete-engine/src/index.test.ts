@@ -192,26 +192,23 @@ test("qualifier quoted compara alias exatamente; qualifier nonquoted aplica fold
   assert.deepEqual(oracleOut.map((suggestion) => suggestion.label), ["email", "id", "name"]);
 });
 
-test("aliases quoted/nonquoted com mesmo valor resolvem em Postgres e Oracle", () => {
-  for (const dialect of [postgresDescriptor, oracleDescriptor]) {
-    const quotedAlias = 'SELECT u. FROM users "u"';
-    assert.deepEqual(
-      autocompleteTier1(quotedAlias, "SELECT u.".length, metaOf(dialect)).map((suggestion) => suggestion.label),
-      ["email", "id", "name"],
-    );
-
-    const unquotedAlias = "SELECT \"u\". FROM users u";
-    assert.deepEqual(
-      autocompleteTier1(unquotedAlias, 'SELECT "u".'.length, metaOf(dialect)).map((suggestion) => suggestion.label),
-      ["email", "id", "name"],
-    );
+test("qualifier compara valores efetivos quoted/nonquoted por dialeto", () => {
+  const cases = [
+    [postgresDescriptor, 'SELECT u. FROM users "u"', true],
+    [postgresDescriptor, 'SELECT "u". FROM users u', true],
+    [postgresDescriptor, 'SELECT "U". FROM users U', false],
+    [postgresDescriptor, 'SELECT "x". FROM users "X"', false],
+    [oracleDescriptor, 'SELECT "U". FROM users u', true],
+    [oracleDescriptor, 'SELECT u. FROM users "U"', true],
+    [oracleDescriptor, 'SELECT "u". FROM users u', false],
+    [oracleDescriptor, 'SELECT u. FROM users "u"', false],
+    [oracleDescriptor, 'SELECT "x". FROM users "X"', false],
+  ] as const;
+  for (const [dialect, sql, resolves] of cases) {
+    const cursor = sql.indexOf(".") + 1;
+    const labels = autocompleteTier1(sql, cursor, metaOf(dialect)).map((suggestion) => suggestion.label);
+    assert.deepEqual(labels, resolves ? ["email", "id", "name"] : [], `${dialect.dialect}: ${sql}`);
   }
-});
-
-test("qualifier quoted não resolve alias quoted com caixa diferente", () => {
-  const sql = 'SELECT "x". FROM users "X"';
-  const out = autocompleteTier1(sql, 'SELECT "x".'.length, metaOf(postgresDescriptor));
-  assert.deepEqual(out, []);
 });
 
 test("ORDER/GROUP sem BY fora de subquery continua no nível externo", () => {
