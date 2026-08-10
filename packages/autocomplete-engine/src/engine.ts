@@ -85,14 +85,14 @@ function pendingBy(ctx: ResolvedContext, cursor: number): boolean {
   return lastDepth === depth;
 }
 
-function foldUnquotedIdentifier(name: string, dialect: DialectDescriptor): string {
+function effectiveIdentifier(name: string, quoted: boolean, dialect: DialectDescriptor): string {
+  if (quoted) return name;
   return dialect.dialect === "oracle" ? name.toUpperCase() : name.toLowerCase();
 }
 
 function matchesQualifier(ctx: ResolvedContext, ref: ScopeRef, dialect: DialectDescriptor): boolean {
-  const qualifier = ctx.qualifier!;
-  if (ctx.qualifierQuoted || ref.aliasQuoted) return ref.alias === qualifier;
-  return foldUnquotedIdentifier(ref.alias, dialect) === foldUnquotedIdentifier(qualifier, dialect);
+  return effectiveIdentifier(ctx.qualifier!, ctx.qualifierQuoted === true, dialect) ===
+    effectiveIdentifier(ref.alias, ref.aliasQuoted === true, dialect);
 }
 
 function currentSourceSegment(ctx: ResolvedContext): readonly Token[] {
