@@ -4,6 +4,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { registerAdapter } from "@omni-sql/adapters-core";
+import { autocompleteTier1, type ScopeRef } from "@omni-sql/autocomplete-engine";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -15,7 +16,7 @@ import type {
   AnalyzeEditabilityResult,
   TestConnectionResult,
 } from "../src/protocol.ts";
-import { InMemoryAdapter } from "./in-memory-adapter.ts";
+import { InMemoryAdapter, type InMemorySchema } from "./in-memory-adapter.ts";
 
 // Isolate the SQLite cache and dev keyring to a tmp dir so tests don't pollute
 // $XDG_DATA_HOME. Must run BEFORE importing the backend module (which opens the
@@ -26,15 +27,47 @@ process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
 process.env.OMNI_SQL_AUTH_TOKEN = "smoke-auth-token";
 
 const { defaultAllowedOrigin, startServer } = await import("../src/index.ts");
+const { metaSourceOf } = await import("../src/handlers.ts");
 
 // Sobrescreve o registro de produção (JdbcAdapter) para os smoke tests
 // usarem o adaptador in-memory. Deve rodar DEPOIS de importar o backend,
 // pois handlers.ts registra JdbcAdapter no load do módulo.
 let testAdapter: InMemoryAdapter | undefined;
+const QUOTED_SCHEMA: InMemorySchema[] = [{
+  schema: "public",
+  tables: [
+    {
+      name: "Foo",
+      kind: "table",
+      columns: [{ name: "QuotedColumn", dataType: "text", nullable: true, isPrimaryKey: false, ordinal: 0 }],
+    },
+    {
+      name: "foo",
+      kind: "table",
+      columns: [{ name: "lower_column", dataType: "text", nullable: true, isPrimaryKey: false, ordinal: 0 }],
+    },
+  ],
+}];
+const ONLY_QUOTED_SCHEMA: InMemorySchema[] = [{
+  schema: "public",
+  tables: [{
+    name: "Foo",
+    kind: "table",
+    columns: [{ name: "QuotedOnlyColumn", dataType: "text", nullable: true, isPrimaryKey: false, ordinal: 0 }],
+  }],
+}];
+
 registerAdapter("jdbc-generic", (config) => {
-  testAdapter = new InMemoryAdapter(config);
+  testAdapter = new InMemoryAdapter(config, config.endpoint === "memory://quoted" ? QUOTED_SCHEMA : undefined);
   return testAdapter;
 });
+registerAdapter("postgres", (config) => new InMemoryAdapter(config, ONLY_QUOTED_SCHEMA));
+registerAdapter("oracle", (config) => new InMemoryAdapter(config, ONLY_QUOTED_SCHEMA));
+
+type QuotedScopeRef = ScopeRef & {
+  readonly schemaQuoted?: boolean;
+  readonly tableQuoted?: boolean;
+};
 
 const TEST_PORT = 14378;
 const DEFAULT_URL = `http://127.0.0.1:${TEST_PORT}/rpc`;
@@ -233,6 +266,100 @@ test("smoke: add connection → introspect → list relations → run query → 
     const bad = await rpc("nonexistent.method");
     assert.ok(bad.error);
     assert.equal(bad.error.code, -32601);
+  } finally {
+    server.close();
+  }
+});
+
+test("completion resolves quoted table names exactly and suggests matching columns", async () => {
+  const port = TEST_PORT + 40;
+  const url = `http://127.0.0.1:${port}/rpc`;
+  const server = startServer(port);
+  try {
+    await rpc("connection.add", {
+      config: {
+        id: "quoted-lookup",
+        label: "Quoted lookup",
+        dialect: "jdbc-generic",
+        endpoint: "memory://quoted",
+        user: "anon",
+      },
+    }, url);
+    await rpc("metadata.introspect", { connectionId: "quoted-lookup" }, url);
+
+    const meta = metaSourceOf({
+      config: {
+        id: "quoted-lookup",
+        label: "Quoted lookup",
+        dialect: "jdbc-generic",
+        endpoint: "memory://quoted",
+        user: "anon",
+      },
+    });
+    const resolve = (ref: QuotedScopeRef) => meta.resolveRelation(ref);
+
+    // Cache order has quoted `Foo` first; unquoted `foo` must follow PG fold,
+    // not whichever case-insensitive candidate happens to be encountered first.
+    assert.equal(resolve({ schema: "public", table: "FOO", alias: "FOO" })?.name, "foo");
+    assert.equal(resolve({ schema: "public", table: "Foo", alias: "Foo", tableQuoted: true })?.name, "Foo");
+    assert.equal(resolve({ schema: "public", table: "fOO", alias: "fOO", tableQuoted: true }), null);
+    assert.equal(resolve({ schema: "PUBLIC", table: "foo", alias: "foo" })?.name, "foo");
+    assert.equal(resolve({ schema: "PUBLIC", table: "foo", alias: "foo", schemaQuoted: true }), null);
+
+    // Simula flags que serão produzidas por ScopeRef no parser da outra frente.
+    const quotedAwareMeta = {
+      ...meta,
+      resolveRelation: (ref: ScopeRef) => meta.resolveRelation({
+        ...ref,
+        tableQuoted: ref.table === "Foo",
+      } as QuotedScopeRef),
+    };
+    const unquotedSuggestions = autocompleteTier1(
+      "SELECT  FROM public.foo",
+      "SELECT ".length,
+      quotedAwareMeta,
+    );
+    const quotedSuggestions = autocompleteTier1(
+      'SELECT  FROM public."Foo"',
+      "SELECT ".length,
+      quotedAwareMeta,
+    );
+    assert.ok(unquotedSuggestions.some((suggestion) => suggestion.label === "lower_column"));
+    assert.ok(!unquotedSuggestions.some((suggestion) => suggestion.label === "QuotedColumn"));
+    assert.ok(quotedSuggestions.some((suggestion) => suggestion.label === "QuotedColumn"));
+    assert.ok(!quotedSuggestions.some((suggestion) => suggestion.label === "lower_column"));
+  } finally {
+    server.close();
+  }
+});
+
+test("Postgres e Oracle não resolvem nome não quoted contra objeto quoted case-different", async () => {
+  const port = TEST_PORT + 50;
+  const url = `http://127.0.0.1:${port}/rpc`;
+  const server = startServer(port);
+  try {
+    for (const dialect of ["postgres", "oracle"] as const) {
+      const connectionId = `quoted-only-${dialect}`;
+      const config = {
+        id: connectionId,
+        label: `Quoted only ${dialect}`,
+        dialect,
+        endpoint: "memory://quoted-only",
+        user: "anon",
+      };
+      await rpc("connection.add", { config }, url);
+      await rpc("metadata.introspect", { connectionId }, url);
+
+      const meta = metaSourceOf({ config });
+      assert.equal(meta.resolveRelation({ schema: null, table: "foo", alias: "foo" }), null);
+      assert.equal(
+        meta.resolveRelation({ schema: null, table: "Foo", alias: "Foo", tableQuoted: true })?.name,
+        "Foo",
+      );
+
+      const suggestions = autocompleteTier1("SELECT  FROM foo", "SELECT ".length, meta);
+      assert.ok(!suggestions.some((suggestion) => suggestion.label === "QuotedOnlyColumn"));
+    }
   } finally {
     server.close();
   }
