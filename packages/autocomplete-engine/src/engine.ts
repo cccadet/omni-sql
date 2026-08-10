@@ -96,6 +96,11 @@ export function autocompleteTier1(
           detail: "schema",
           relevance: 95,
         }));
+    const relationNameCounts = new Map<string, number>();
+    for (const relation of rels) {
+      const key = relation.name.toLowerCase();
+      relationNameCounts.set(key, (relationNameCounts.get(key) ?? 0) + 1);
+    }
     const matchingRelations = rels
       .map((r) => ({
         kind: r.kind === "view" ? ("view" as const) : ("table" as const),
@@ -106,7 +111,11 @@ export function autocompleteTier1(
         // em schemas fora do search_path padrão.
         // Monaco replaces only current word. Keep schema typed by user and
         // insert table name, never a second schema qualifier.
-        insertText: r.schema === "" ? undefined : r.name,
+        insertText: qualifier
+          ? r.name
+          : (relationNameCounts.get(r.name.toLowerCase()) ?? 0) > 1 && r.schema !== ""
+            ? `${r.schema}.${r.name}`
+            : undefined,
         relevance: 90,
       }))
       .filter((s) => !partial || s.label.toLowerCase().startsWith(partial.toLowerCase()));
@@ -115,7 +124,8 @@ export function autocompleteTier1(
 
   // Caso 4: `alias.` → colunas do alias.
   if (ctx.qualifier) {
-    const ref = ctx.scope.find((s) => s.alias === ctx.qualifier);
+    const qualifier = ctx.qualifier.toLowerCase();
+    const ref = ctx.scope.find((s) => s.alias.toLowerCase() === qualifier);
     if (!ref) return [];
     const rel = meta.resolveRelation(ref);
     if (!rel) return [];
@@ -152,17 +162,30 @@ export function autocompleteTier1(
     const isSelectList = ctx.clause === "select-list";
     const alreadySelected = new Set(ctx.selectedColumns);
     const cols: Suggestion[] = [];
+    const columnCounts = new Map<string, number>();
+    for (const ref of ctx.scope) {
+      const rel = meta.resolveRelation(ref);
+      if (!rel) continue;
+      for (const column of rel.columns) {
+        const key = column.name.toLowerCase();
+        columnCounts.set(key, (columnCounts.get(key) ?? 0) + 1);
+      }
+    }
     const allColumnNames: string[] = [];
     for (const ref of ctx.scope) {
       const rel = meta.resolveRelation(ref);
       if (!rel) continue;
       for (const c of rel.columns) {
-        allColumnNames.push(c.name);
+        const insertText = (columnCounts.get(c.name.toLowerCase()) ?? 0) > 1
+          ? `${ref.alias}.${c.name}`
+          : c.name;
+        allColumnNames.push(insertText);
         if (isSelectList && alreadySelected.has(c.name.toLowerCase())) continue;
         cols.push({
           kind: "column",
           label: c.name,
           detail: `${ref.alias}.${c.name} (${c.dataType})`,
+          ...((columnCounts.get(c.name.toLowerCase()) ?? 0) > 1 ? { insertText } : {}),
           relevance: ref.alias === ref.table ? 80 : 85,
         });
       }

@@ -69,3 +69,36 @@ test("sidecar-client: resposta HTTP não-2xx retorna lista vazia", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("sidecar-client: JSON estruturalmente inválido retorna lista vazia", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    JSON.stringify({ ctes: [{ name: "b1", columns: [1] }] }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  )) as typeof fetch;
+  try {
+    assert.deepEqual(await resolveCteRelations("with b1 as (select 1 as x) select from b1"), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sidecar-client: cursor resolve somente CTEs do statement atual", async () => {
+  const sql = "with old_cte as (select 1 as old_col) select from old_cte; with current_cte as (select 1 as current_col) select from current_cte";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const statement = JSON.parse(String(init?.body)).sql;
+    assert.equal(statement.includes("old_cte"), false);
+    assert.equal(statement.includes("current_cte"), true);
+    return new Response(
+      JSON.stringify({ ctes: [{ name: "current_cte", columns: ["current_col"] }] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const relations = await resolveCteRelations(sql, sql.length);
+    assert.deepEqual(relations.map((relation) => relation.name), ["current_cte"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

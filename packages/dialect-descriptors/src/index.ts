@@ -15,6 +15,8 @@ export interface DialectDescriptor {
   readonly alternativeStatementSeparators: readonly string[];
   /** Caracteres de quote de identificador (ex: `"` (ANSI), `` ` `` (MySQL), `[` `]` (MSSQL)). */
   readonly identifierQuoteChars: readonly string[];
+  /** Pares de abertura/fechamento; um dialeto pode aceitar estilos alternativos. */
+  readonly identifierQuotePairs?: readonly (readonly [string, string])[];
   /** Limite de tamanho de nome de identificador (null se desconhecido). */
   readonly identifierMaxLength: number | null;
   /** Prefixo de comentário de linha. */
@@ -70,6 +72,7 @@ function ansiLike(
   keywords: ReadonlySet<string>,
   opts: {
     identifierQuoteChars: readonly string[];
+    identifierQuotePairs?: readonly (readonly [string, string])[];
     batchTerminator?: string | null;
     alternativeStatementSeparators?: readonly string[];
   },
@@ -80,6 +83,7 @@ function ansiLike(
     statementSeparator: ";",
     alternativeStatementSeparators: opts.alternativeStatementSeparators ?? [],
     identifierQuoteChars: opts.identifierQuoteChars,
+    identifierQuotePairs: opts.identifierQuotePairs ?? opts.identifierQuoteChars.map((q) => [q, q] as const),
     identifierMaxLength: 63,
     lineComment: ["--"],
     blockComment: ANSI_BLOCK,
@@ -103,6 +107,7 @@ export const mariadbDescriptor: DialectDescriptor = {
 export const sqlserverDescriptor: DialectDescriptor = {
   ...ansiLike("sqlserver", MSSQL_KEYWORDS, {
     identifierQuoteChars: ['[', "]"],
+    identifierQuotePairs: [["[", "]"]],
     batchTerminator: "GO",
   }),
   identifierMaxLength: 128,

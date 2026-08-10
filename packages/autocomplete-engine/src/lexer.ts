@@ -21,6 +21,14 @@ export interface Token {
   readonly upper?: string;
 }
 
+type IdentifierQuotePair = readonly [string, string];
+
+function identifierQuotePairs(dialect: DialectDescriptor): readonly IdentifierQuotePair[] {
+  if (dialect.identifierQuotePairs) return dialect.identifierQuotePairs;
+  // Compatibilidade com descritores externos anteriores ao contrato de pares.
+  return dialect.identifierQuoteChars.map((q) => [q, q]);
+}
+
 /**
  * Lexer SQL tolerante. Não é um parser de dialeto — apenas separa tokens
  * respeitando o `DialectDescriptor` (quote de identificador, comentários,
@@ -87,13 +95,28 @@ export function tokenize(input: string, dialect: DialectDescriptor): Token[] {
       continue;
     }
 
-    // Identifier quotes
-    const quote = dialect.identifierQuoteChars.find((q) => q === c);
+    // Identifier quotes. Closing quote is not always opening quote (MSSQL:
+    // [name]); doubled closing quotes are identifier escapes.
+    const quote = identifierQuotePairs(dialect).find(([open]) => open === c);
     if (quote) {
-      let j = i + 1;
-      while (j < n && input[j] !== quote) j++;
-      if (j < n) j++;
-      tokens.push({ type: "identifier", value: input.slice(start, j), start, end: j });
+      const [open, close] = quote;
+      let j = i + open.length;
+      let closed = false;
+      while (j < n) {
+        if (input.startsWith(close, j)) {
+          if (input.startsWith(close + close, j)) {
+            j += close.length * 2;
+            continue;
+          }
+          j += close.length;
+          closed = true;
+          break;
+        }
+        j++;
+      }
+      const raw = input.slice(start + open.length, closed ? j - close.length : n);
+      const value = raw.split(close + close).join(close);
+      tokens.push({ type: "identifier", value, start, end: j });
       i = j;
       continue;
     }

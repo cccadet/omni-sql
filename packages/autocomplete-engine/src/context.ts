@@ -72,22 +72,21 @@ function isSignificant(t: Token): boolean {
 }
 
 /** Encontra o statement que contém o cursor (split por statementSeparator). */
-function findStatement(input: string, cursor: number, dialect: DialectDescriptor): {
+export function findStatement(input: string, cursor: number, dialect: DialectDescriptor): {
   text: string;
   start: number;
 } {
   const sep = dialect.statementSeparator;
+  const boundedCursor = Math.max(0, Math.min(cursor, input.length));
+  const separators = tokenize(input, dialect)
+    .filter((token) => token.type === "punct" && token.value === sep)
+    .map((token) => token.start);
   let start = 0;
-  for (let i = 0; i < cursor && i < input.length; i++) {
-    if (input[i] === sep) start = i + 1;
+  for (const offset of separators) {
+    if (offset >= boundedCursor) break;
+    start = offset + 1;
   }
-  let end = input.length;
-  for (let i = cursor; i < input.length; i++) {
-    if (input[i] === sep) {
-      end = i;
-      break;
-    }
-  }
+  const end = separators.find((offset) => offset >= boundedCursor) ?? input.length;
   return { text: input.slice(start, end), start };
 }
 
