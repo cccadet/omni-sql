@@ -735,7 +735,11 @@ export const handlers: BackendRpcRouter = {
     // o tier1 (lexer puro, síncrono) — best-effort, timeout curto; se o
     // sidecar não responder a tempo, cteRelations fica vazio e o
     // autocomplete segue 100% tier1, como sempre foi.
-    const cteRelations = await resolveCteRelations(sql);
+    const cteRelations = await resolveCteRelations(
+      sql,
+      cursor,
+      dialectDescriptor(s.config.dialect),
+    );
     const meta = metaSourceOf(s, cteRelations);
     const suggestions = autocompleteTier1(sql, cursor, meta);
     return { suggestions };

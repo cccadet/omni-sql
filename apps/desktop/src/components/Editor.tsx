@@ -7,6 +7,7 @@ import { DEFAULT_FORMATTER_SETTINGS, type FormatterSettings } from "../lib/forma
 import { splitStatements, statementAt, type SqlStatement } from "../lib/sql-statements";
 import {
   configureAutocomplete,
+  type AutocompleteCallback,
   configureFormatter,
   createEditorActions,
   type EditorActionCallback,
@@ -37,7 +38,7 @@ export interface EditorProps {
   onRunAll?: () => void;
   onSave?: () => void;
   onCursorChange?: (position: { line: number; column: number }) => void;
-  onAutocomplete?: (cursor: number) => Promise<Suggestion[]>;
+  onAutocomplete?: AutocompleteCallback;
   dialect?: DialectId;
   theme?: typeof OMNISQL_DARK | typeof OMNISQL_LIGHT;
   fontFamily?: string;
@@ -68,7 +69,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof monaco | null>(null);
   const formatterRef = useRef<ReturnType<typeof configureFormatter> | null>(null);
-  const autocompleteRef = useRef<((cursor: number) => Promise<Suggestion[]>) | null>(onAutocomplete ?? null);
+  const autocompleteRef = useRef<AutocompleteCallback | null>(onAutocomplete ?? null);
+  const providerRegistrationsRef = useRef<monaco.IDisposable[]>([]);
   const diagnosticsRef = useRef<readonly SqlDiagnostic[]>(diagnostics);
   const applyTranspiledRef = useRef<((diagnostic: SqlDiagnostic) => void) | undefined>(onApplyTranspiled);
   const onRunRef = useRef<EditorActionCallback>({ current: onRun });
@@ -79,6 +81,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   useEffect(() => {
     autocompleteRef.current = onAutocomplete ?? null;
   }, [onAutocomplete]);
+
+  const disposeProviderRegistrations = useCallback(() => {
+    for (const registration of providerRegistrationsRef.current) registration.dispose();
+    providerRegistrationsRef.current = [];
+  }, []);
+
+  useEffect(() => disposeProviderRegistrations, [disposeProviderRegistrations]);
 
   useEffect(() => {
     diagnosticsRef.current = diagnostics;
@@ -233,9 +242,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       formatterRef.current?.dispose();
       formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
 
-      configureAutocomplete(monacoInstance, autocompleteRef);
+      disposeProviderRegistrations();
+      const autocompleteRegistration = configureAutocomplete(monacoInstance, autocompleteRef);
 
-      monacoInstance.languages.registerHoverProvider(LANGUAGE_ID, {
+      const hoverRegistration = monacoInstance.languages.registerHoverProvider(LANGUAGE_ID, {
         provideHover(model, position) {
           const offset = model.getOffsetAt(position);
           const diagnostic = diagnosticsRef.current.find((d) => offset >= d.start && offset <= d.end);
@@ -248,7 +258,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         },
       });
 
-      monacoInstance.languages.registerCodeActionProvider(LANGUAGE_ID, {
+      const codeActionRegistration = monacoInstance.languages.registerCodeActionProvider(LANGUAGE_ID, {
         provideCodeActions(model, range) {
           const start = model.getOffsetAt(range.getStartPosition());
           const diagnostic = diagnosticsRef.current.find((item) =>
@@ -271,6 +281,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           };
         },
       });
+      providerRegistrationsRef.current = [autocompleteRegistration, hoverRegistration, codeActionRegistration];
       monacoInstance.editor.registerCommand("omni-apply-transpile", (_accessor, suppliedDiagnostic?: SqlDiagnostic) => {
         const editor = editorRef.current;
         const model = editor?.getModel();
@@ -303,7 +314,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
       });
     },
-    [dialect, formatterSettings, onCursorChange, handleFormat, theme],
+    [dialect, formatterSettings, onCursorChange, handleFormat, theme, disposeProviderRegistrations],
   );
 
   return (

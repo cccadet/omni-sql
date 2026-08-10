@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
+import { mysqlDescriptor, postgresDescriptor, sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
 import type { DialectDescriptor } from "@omni-sql/dialect-descriptors";
 import { autocompleteTier1, type MetadataSource } from "./engine.ts";
 import { resolveContext, type ScopeRef } from "./context.ts";
@@ -156,6 +156,25 @@ test("caso 4: alias `u.` → colunas do alias", () => {
   assert.deepEqual([...labels].sort(), ["email", "id", "name"]);
 });
 
+test("identificadores quoted resolvem aliases ANSI, MySQL e SQL Server", () => {
+  for (const [dialect, quote] of [
+    [postgresDescriptor, '"'],
+    [mysqlDescriptor, "`"],
+    [sqlserverDescriptor, "["],
+  ] as const) {
+    const closeQuote = quote === "[" ? "]" : quote;
+    const sql = `SELECT ${quote}x${closeQuote}. FROM users ${quote}x${closeQuote}`;
+    const out = autocompleteTier1(sql, "SELECT ".length + 4, metaOf(dialect));
+    assert.deepEqual(out.map((s) => s.label), ["email", "id", "name"]);
+  }
+});
+
+test("alias case-insensitive resolve colunas", () => {
+  const sql = "SELECT U. FROM users u";
+  const out = autocompleteTier1(sql, "SELECT U.".length, metaOf(postgresDescriptor));
+  assert.deepEqual(out.map((s) => s.label), ["email", "id", "name"]);
+});
+
 test("caso 5: múltiplos JOINs com aliases → colunas de todas em escopo (WHERE)", () => {
   const meta = metaOf(postgresDescriptor);
   const sql = "SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id WHERE ";
@@ -165,6 +184,15 @@ test("caso 5: múltiplos JOINs com aliases → colunas de todas em escopo (WHERE
   assert.ok(labels.includes("id"));
   assert.ok(labels.includes("user_id"));
   assert.ok(labels.includes("total"));
+});
+
+test("colunas homônimas em JOIN inserem alias.qualificação", () => {
+  const sql = "SELECT  FROM users u JOIN orders o ON u.id = o.user_id";
+  const out = autocompleteTier1(sql, "SELECT ".length, metaOf(postgresDescriptor));
+  assert.deepEqual(
+    out.filter((s) => s.label === "id").map((s) => s.insertText).sort(),
+    ["o.id", "u.id"],
+  );
 });
 
 test("caso 6: ORDER BY reusa colunas em escopo", () => {

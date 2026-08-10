@@ -5,6 +5,7 @@ export {
 } from "./lexer.ts";
 export {
   resolveContext,
+  findStatement,
   type ResolvedContext,
   type ClauseId,
   type ScopeRef,

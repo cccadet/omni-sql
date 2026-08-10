@@ -16,6 +16,11 @@ export { LANGUAGE_ID };
 export const OMNISQL_DARK = "omni-sql-dark";
 export const OMNISQL_LIGHT = "omni-sql-light";
 
+export type AutocompleteCallback = (
+  cursor: number,
+  sql?: string,
+  signal?: AbortSignal,
+) => Promise<Suggestion[]>;
 
 export function registerOmniThemes(monacoInstance: typeof monaco): void {
   monacoInstance.editor.defineTheme(OMNISQL_DARK, {
@@ -251,21 +256,25 @@ export function configureFormatter(
 
 export function configureAutocomplete(
   monacoInstance: typeof monaco,
-  onAutocompleteRef: { current: ((cursor: number) => Promise<Suggestion[]>) | null },
-) {
-  monacoInstance.languages.registerCompletionItemProvider(LANGUAGE_ID, {
+  onAutocompleteRef: { current: AutocompleteCallback | null },
+): monaco.IDisposable {
+  return monacoInstance.languages.registerCompletionItemProvider(LANGUAGE_ID, {
     triggerCharacters: [".", " "],
-    async provideCompletionItems(model, position) {
+    async provideCompletionItems(model, position, _context, token) {
       const cursor = model.getOffsetAt(position);
       const word = model.getWordUntilPosition(position);
       const onAutocomplete = onAutocompleteRef.current;
       let suggestions: Suggestion[] = [];
+      const abortController = new AbortController();
+      const cancellationDisposable = token.onCancellationRequested(() => abortController.abort());
       try {
-        if (onAutocomplete) {
-          suggestions = (await onAutocomplete(cursor)) ?? [];
-        }
+        if (token.isCancellationRequested) return { suggestions: [] };
+        if (onAutocomplete) suggestions = (await onAutocomplete(cursor, model.getValue(), abortController.signal)) ?? [];
+        if (abortController.signal.aborted) return { suggestions: [] };
       } catch {
         suggestions = [];
+      } finally {
+        cancellationDisposable.dispose();
       }
       const range = {
         startLineNumber: position.lineNumber,
