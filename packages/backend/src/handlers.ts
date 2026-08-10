@@ -277,6 +277,11 @@ interface BackendCteRelation extends Relation {
   readonly nameQuoted?: boolean;
 }
 
+interface CteNameInfo {
+  readonly name: string;
+  readonly quoted: boolean;
+}
+
 function foldUnquotedIdentifier(value: string, dialect: ConnectionConfig["dialect"] | undefined): string {
   switch (dialect) {
     case "postgres":
@@ -296,12 +301,12 @@ function cteNameQuoting(
   sql: string,
   cursor: number,
   dialect: ReturnType<typeof dialectDescriptor>,
-): ReadonlyMap<string, boolean> {
+): readonly CteNameInfo[] {
   const statement = findStatement(sql, cursor, dialect).text;
   const tokens = tokenize(statement, dialect).filter((token) =>
     token.type !== "whitespace" && token.type !== "comment" && token.type !== "eof");
-  const quoted = new Map<string, boolean>();
-  if (tokens[0]?.type !== "keyword" || tokens[0].upper !== "WITH") return quoted;
+  const names: CteNameInfo[] = [];
+  if (tokens[0]?.type !== "keyword" || tokens[0].upper !== "WITH") return names;
 
   const isName = (token: Token | undefined): token is Token =>
     token?.type === "identifier" || token?.type === "keyword";
@@ -325,7 +330,7 @@ function cteNameQuoting(
   if (tokens[i]?.type === "keyword" && tokens[i]?.upper === "RECURSIVE") i += 1;
   while (isName(tokens[i])) {
     const name = tokens[i]!;
-    quoted.set(name.value, isQuoted(name));
+    names.push({ name: name.value, quoted: isQuoted(name) });
     i += 1;
     if (tokens[i]?.value === "(") i = skipParenthesized(i);
     if (tokens[i]?.type !== "keyword" || tokens[i]?.upper !== "AS") break;
@@ -335,7 +340,7 @@ function cteNameQuoting(
     if (tokens[i]?.value !== ",") break;
     i += 1;
   }
-  return quoted;
+  return names;
 }
 
 function annotateCteRelations(
@@ -344,10 +349,38 @@ function annotateCteRelations(
   dialect: ReturnType<typeof dialectDescriptor>,
   relations: readonly Relation[],
 ): BackendCteRelation[] {
-  const quotedNames = cteNameQuoting(sql, cursor, dialect);
-  return relations.map((relation) => quotedNames.get(relation.name) === true
-    ? { ...relation, nameQuoted: true }
-    : { ...relation, name: foldUnquotedIdentifier(relation.name, dialect.dialect) });
+  const names = cteNameQuoting(sql, cursor, dialect);
+  const declarationCounts = new Map<string, number>();
+  const quoteStates = new Map<string, Set<boolean>>();
+  for (const name of names) {
+    declarationCounts.set(name.name, (declarationCounts.get(name.name) ?? 0) + 1);
+    const states = quoteStates.get(name.name) ?? new Set<boolean>();
+    states.add(name.quoted);
+    quoteStates.set(name.name, states);
+  }
+  const returnedCounts = new Map<string, number>();
+  for (const relation of relations) {
+    returnedCounts.set(relation.name, (returnedCounts.get(relation.name) ?? 0) + 1);
+  }
+  const ambiguousNames = new Set(
+    [...declarationCounts.keys()].filter((name) =>
+      (quoteStates.get(name)?.size ?? 0) > 1
+      && (returnedCounts.get(name) ?? 0) < declarationCounts.get(name)!),
+  );
+  let nameIndex = 0;
+  const annotated: BackendCteRelation[] = [];
+  for (const relation of relations) {
+    // Repeated raw names with mixed quoting cannot be matched safely after
+    // sidecar omits one occurrence; discard relation instead of mis-tagging it.
+    if (ambiguousNames.has(relation.name)) continue;
+    const nextNameIndex = names.findIndex((name, index) => index >= nameIndex && name.name === relation.name);
+    const nameInfo = nextNameIndex < 0 ? undefined : names[nextNameIndex];
+    if (nameInfo) nameIndex = nextNameIndex + 1;
+    annotated.push(nameInfo?.quoted
+      ? { ...relation, nameQuoted: true }
+      : { ...relation, name: foldUnquotedIdentifier(relation.name, dialect.dialect) });
+  }
+  return annotated;
 }
 
 // Identificadores não-citados passam por folding do dialeto (Postgres →
