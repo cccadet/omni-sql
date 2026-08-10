@@ -53,7 +53,7 @@ function identifierNeedsQuote(name: string, dialect: DialectDescriptor, metadata
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) || dialect.keywords.has(name.toUpperCase())) return true;
   if (!metadataIdentifier) return false;
   if (dialect.dialect === "postgres") return name !== name.toLowerCase();
-  if (dialect.dialect === "oracle") return /[A-Z]/.test(name) && /[a-z]/.test(name);
+  if (dialect.dialect === "oracle") return name !== name.toUpperCase();
   return false;
 }
 
@@ -66,6 +66,34 @@ function currentPrefix(ctx: ResolvedContext, cursor: number): string | null {
   const localCursor = cursor - ctx.statementStart;
   const last = ctx.prelude[ctx.prelude.length - 1];
   return last?.type === "keyword" && last.end === localCursor ? last.value : null;
+}
+
+function pendingBy(ctx: ResolvedContext, cursor: number): boolean {
+  const last = ctx.prelude[ctx.prelude.length - 1];
+  if (!last || last.type !== "keyword") return false;
+  const upper = last.upper ?? last.value.toUpperCase();
+  const localCursor = cursor - ctx.statementStart;
+  if (last.end >= localCursor || (upper !== "ORDER" && upper !== "GROUP")) return false;
+
+  let depth = 0;
+  let lastDepth = -1;
+  for (const token of ctx.prelude) {
+    if (token.type === "punct" && token.value === "(") depth++;
+    else if (token.type === "punct" && token.value === ")") depth = Math.max(0, depth - 1);
+    if (token === last) lastDepth = depth;
+  }
+  return lastDepth === depth;
+}
+
+function foldUnquotedIdentifier(name: string, dialect: DialectDescriptor): string {
+  return dialect.dialect === "oracle" ? name.toUpperCase() : name.toLowerCase();
+}
+
+function matchesQualifier(ctx: ResolvedContext, ref: ScopeRef, dialect: DialectDescriptor): boolean {
+  const qualifier = ctx.qualifier!;
+  if (ctx.qualifierQuoted) return ref.aliasQuoted === true && ref.alias === qualifier;
+  if (ref.aliasQuoted) return false;
+  return foldUnquotedIdentifier(ref.alias, dialect) === foldUnquotedIdentifier(qualifier, dialect);
 }
 
 function currentSourceSegment(ctx: ResolvedContext): readonly Token[] {
@@ -114,7 +142,7 @@ function isRelationSlot(ctx: ResolvedContext): boolean {
 function isPendingJoinModifier(ctx: ResolvedContext): boolean {
   const segment = currentSourceSegment(ctx);
   const last = segment[segment.length - 1];
-  return last?.type === "keyword" && (last.upper === "LEFT" || last.upper === "INNER");
+  return last?.type === "keyword" && ["LEFT", "INNER", "CROSS", "NATURAL"].includes(last.upper ?? "");
 }
 
 function currentSourceKind(ctx: ResolvedContext): "from" | "join" | null {
@@ -139,7 +167,36 @@ function currentSourceKind(ctx: ResolvedContext): "from" | "join" | null {
 }
 
 function isAfterJoinRelation(ctx: ResolvedContext): boolean {
-  return currentSourceKind(ctx) === "join" && !isRelationSlot(ctx) && currentSourceSegment(ctx).length > 0;
+  return currentSourceKind(ctx) === "join" && !isRelationSlot(ctx) && currentSourceSegment(ctx).length > 0 && !currentJoinDisallowsCondition(ctx);
+}
+
+function currentJoinDisallowsCondition(ctx: ResolvedContext): boolean {
+  let depth = 0;
+  let joinIndex = -1;
+  for (let i = 0; i < ctx.prelude.length; i++) {
+    const token = ctx.prelude[i]!;
+    if (token.type === "punct" && token.value === "(") {
+      depth++;
+      continue;
+    }
+    if (token.type === "punct" && token.value === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 0 || token.type !== "keyword") continue;
+    const upper = token.upper ?? token.value.toUpperCase();
+    if (upper === "JOIN" || upper === "STRAIGHT_JOIN") joinIndex = i;
+  }
+  if (joinIndex < 0) return false;
+
+  for (let i = joinIndex - 1; i >= 0; i--) {
+    const token = ctx.prelude[i]!;
+    if (token.type !== "keyword") continue;
+    const upper = token.upper ?? token.value.toUpperCase();
+    if (upper === "CROSS" || upper === "NATURAL") return true;
+    if (upper === "FROM" || upper === "JOIN" || ["WHERE", "GROUP", "HAVING", "ORDER", "ON", "USING"].includes(upper)) break;
+  }
+  return false;
 }
 
 function isUsingContext(ctx: ResolvedContext): boolean {
@@ -229,11 +286,14 @@ function transitionSuggestions(ctx: ResolvedContext, cursor: number): Suggestion
     .map((transition) => transition.suggestion);
 }
 
-function joinConditionSuggestions(): Suggestion[] {
-  return [
+function joinConditionSuggestions(dialect: DialectDescriptor): Suggestion[] {
+  const suggestions: Suggestion[] = [
     { kind: "keyword", label: "ON", insertText: "ON ", relevance: 1000 },
-    { kind: "keyword", label: "USING", insertText: "USING (", relevance: 990 },
   ];
+  if (dialect.dialect !== "sqlserver") {
+    suggestions.push({ kind: "keyword", label: "USING", insertText: "USING (", relevance: 990 });
+  }
+  return suggestions;
 }
 
 function usingColumnSuggestions(ctx: ResolvedContext, meta: MetadataSource): Suggestion[] {
@@ -268,10 +328,11 @@ function usingColumnSuggestions(ctx: ResolvedContext, meta: MetadataSource): Sug
 export function autocompleteTier1(input: string, cursor: number, meta: MetadataSource): Suggestion[] {
   const ctx = resolveContext(input, cursor, meta.dialect);
   if (ctx.prelude.length === 0) return [SELECT_SNIPPET.suggestion];
+  if (pendingBy(ctx, cursor)) return [{ kind: "keyword", label: "BY", insertText: "BY ", relevance: 1000 }];
   const prefixSuggestions = contextualPrefixSuggestions(ctx, cursor);
   if (prefixSuggestions.length > 0) return prefixSuggestions;
 
-  if (isAfterJoinRelation(ctx)) return joinConditionSuggestions();
+  if (isAfterJoinRelation(ctx)) return joinConditionSuggestions(meta.dialect);
 
   if ((ctx.clause === "from" || ctx.clause === "join") && isPendingJoinModifier(ctx)) {
     const prefix = currentPrefix(ctx, cursor)?.toLowerCase();
@@ -328,8 +389,7 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
   if (isUsingContext(ctx)) return usingColumnSuggestions(ctx, meta);
 
   if (ctx.qualifier) {
-    const qualifier = ctx.qualifier.toLowerCase();
-    const ref = ctx.scope.find((scopeRef) => scopeRef.alias.toLowerCase() === qualifier);
+    const ref = ctx.scope.find((scopeRef) => matchesQualifier(ctx, scopeRef, meta.dialect));
     if (!ref) return [];
     const relation = meta.resolveRelation(ref);
     if (!relation) return [];

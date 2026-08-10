@@ -19,6 +19,8 @@ export interface ScopeRef {
   readonly schema: string | null;
   readonly table: string;
   readonly alias: string;
+  readonly schemaQuoted?: boolean;
+  readonly tableQuoted?: boolean;
   readonly aliasQuoted?: boolean;
 }
 
@@ -40,6 +42,8 @@ export interface ResolvedContext {
   readonly cursorToken: Token | null;
   /** Qualificador antes do ponto (ex: `t.<cursor>` → "t"). */
   readonly qualifier: string | null;
+  /** Qualificador foi escrito como identificador quoted. */
+  readonly qualifierQuoted?: boolean;
   /** Statement contendo o cursor (substring). */
   readonly statementText: string;
   /** Offset do statement dentro do SQL completo. */
@@ -71,23 +75,79 @@ function isSignificant(t: Token): boolean {
   return t.type !== "whitespace" && t.type !== "comment" && t.type !== "eof";
 }
 
-/** Encontra o statement que contém o cursor (split por statementSeparator). */
+function identifierQuotePairs(dialect: DialectDescriptor): readonly (readonly [string, string])[] {
+  return dialect.identifierQuotePairs ?? dialect.identifierQuoteChars.map((quote) => [quote, quote] as const);
+}
+
+function isQuotedIdentifier(token: Token, statementText: string, dialect: DialectDescriptor): boolean {
+  return token.type === "identifier" && identifierQuotePairs(dialect).some(([open]) => statementText.startsWith(open, token.start));
+}
+
+function lineBounds(input: string, offset: number): { readonly start: number; readonly end: number } {
+  let start = offset;
+  while (start > 0 && input[start - 1] !== "\n") start--;
+  let end = offset;
+  while (end < input.length && input[end] !== "\n") end++;
+  return { start, end };
+}
+
+function isLineIsolatedToken(input: string, tokens: readonly Token[], token: Token): boolean {
+  const line = lineBounds(input, token.start);
+  for (const candidate of tokens) {
+    if (candidate.start < line.start || candidate.start >= line.end || !isSignificant(candidate)) continue;
+    if (candidate !== token) return false;
+  }
+  return true;
+}
+
+/** Encontra o statement que contém o cursor (split por separadores válidos). */
 export function findStatement(input: string, cursor: number, dialect: DialectDescriptor): {
   text: string;
   start: number;
 } {
-  const sep = dialect.statementSeparator;
   const boundedCursor = Math.max(0, Math.min(cursor, input.length));
-  const separators = tokenize(input, dialect)
-    .filter((token) => token.type === "punct" && token.value === sep)
-    .map((token) => token.start);
-  let start = 0;
-  for (const offset of separators) {
-    if (offset >= boundedCursor) break;
-    start = offset + 1;
+  const tokens = tokenize(input, dialect);
+  const boundaries: { readonly start: number; readonly end: number }[] = [];
+  for (const token of tokens) {
+    if (token.type === "punct" && token.value === dialect.statementSeparator) {
+      boundaries.push({ start: token.start, end: token.end });
+      continue;
+    }
+    if (
+      dialect.alternativeStatementSeparators.includes(token.value) &&
+      isLineIsolatedToken(input, tokens, token)
+    ) {
+      boundaries.push({ start: token.start, end: token.end });
+      continue;
+    }
+    if (
+      dialect.batchTerminator !== null &&
+      token.type === "keyword" &&
+      token.upper === dialect.batchTerminator.toUpperCase() &&
+      isLineIsolatedToken(input, tokens, token)
+    ) {
+      boundaries.push({ start: token.start, end: token.end });
+    }
   }
-  const end = separators.find((offset) => offset >= boundedCursor) ?? input.length;
+  boundaries.sort((a, b) => a.start - b.start);
+  let start = 0;
+  for (const boundary of boundaries) {
+    if (boundary.start >= boundedCursor) break;
+    start = boundary.end;
+  }
+  const end = boundaries.find((boundary) => boundary.start >= boundedCursor)?.start ?? input.length;
   return { text: input.slice(start, end), start };
+}
+
+function isTopLevelToken(tokens: readonly Token[], index: number): boolean {
+  let depth = 0;
+  for (let i = 0; i < index; i++) {
+    const token = tokens[i]!;
+    if (token.type !== "punct") continue;
+    if (token.value === "(") depth++;
+    else if (token.value === ")") depth = Math.max(0, depth - 1);
+  }
+  return depth === 0;
 }
 
 /** Determina a cláusula do cursor a partir dos tokens significantes. */
@@ -96,6 +156,18 @@ function detectClause(tokens: readonly Token[]): ClauseId {
   let i = 0;
   while (i < tokens.length) {
     const t = tokens[i]!;
+    if (t.type === "punct" && t.value === "(") {
+      i++;
+      continue;
+    }
+    if (t.type === "punct" && t.value === ")") {
+      i++;
+      continue;
+    }
+    if (!isTopLevelToken(tokens, i)) {
+      i++;
+      continue;
+    }
     if (t.type === "keyword") {
       const up = t.upper ?? t.value.toUpperCase();
       if (CLAUSE_KEYWORDS[up]) {
@@ -118,7 +190,7 @@ function detectClause(tokens: readonly Token[]): ClauseId {
 }
 
 /** Varre tokens entre FROM/JOIN e a próxima cláusula maior extraindo aliases. */
-function extractScope(tokens: readonly Token[], statementText: string): ScopeRef[] {
+function extractScope(tokens: readonly Token[], statementText: string, dialect: DialectDescriptor): ScopeRef[] {
   const refs: ScopeRef[] = [];
   // Re-pass: capturar pares `table [alias]` e `schema.table [alias]` em janela FROM.
   let i = 0;
@@ -190,11 +262,13 @@ function extractScope(tokens: readonly Token[], statementText: string): ScopeRef
     if (depth === 0 && insideFrom && !inJoinCondition && expectRelation && t.type === "identifier") {
       // Possível `schema.table` ou `table` seguido de alias.
       let schema: string | null = null;
+      let schemaToken: Token | null = null;
       let table = t.value;
       let tableToken = t;
       let j = i + 1;
       if (tokens[j]?.type === "punct" && tokens[j]?.value === ".") {
         schema = t.value;
+        schemaToken = t;
         const tb = tokens[j + 1];
         if (tb && (tb.type === "identifier" || tb.type === "keyword")) {
           table = tb.value;
@@ -211,8 +285,17 @@ function extractScope(tokens: readonly Token[], statementText: string): ScopeRef
       const hasAlias = aliasTok?.type === "identifier";
       const alias = hasAlias ? aliasTok.value : table;
       const aliasToken = hasAlias ? aliasTok! : tableToken;
-      const aliasQuoted = ["\"", "`", "["].includes(statementText[aliasToken.start]!);
-      refs.push({ schema, table, alias, ...(aliasQuoted ? { aliasQuoted: true } : {}) });
+      const tableQuoted = isQuotedIdentifier(tableToken, statementText, dialect);
+      const schemaQuoted = schemaToken !== null && isQuotedIdentifier(schemaToken, statementText, dialect);
+      const aliasQuoted = isQuotedIdentifier(aliasToken, statementText, dialect);
+      refs.push({
+        schema,
+        table,
+        alias,
+        ...(schemaQuoted ? { schemaQuoted: true } : {}),
+        ...(tableQuoted ? { tableQuoted: true } : {}),
+        ...(aliasQuoted ? { aliasQuoted: true } : {}),
+      });
       expectRelation = false;
       i = hasAlias ? aliasId + 1 : j;
       continue;
@@ -301,18 +384,24 @@ function extractAlreadySelectedColumns(prelude: readonly Token[]): string[] {
 }
 
 /** Calcula qualificador antes do cursor: `t.` → "t". */
-function detectQualifier(tokens: readonly Token[]): string | null {
+function detectQualifier(
+  tokens: readonly Token[],
+  statementText: string,
+  dialect: DialectDescriptor,
+): { readonly value: string; readonly quoted: boolean } | null {
   if (tokens.length < 2) return null;
   const last = tokens[tokens.length - 1]!;
   if (last.type === "punct" && last.value === ".") {
     const prev = tokens[tokens.length - 2]!;
     if (prev && (prev.type === "identifier" || prev.type === "keyword")) {
-      return prev.value;
+      return { value: prev.value, quoted: isQuotedIdentifier(prev, statementText, dialect) };
     }
   }
   if (last.type === "identifier" && tokens[tokens.length - 2]?.value === ".") {
     const prev = tokens[tokens.length - 3];
-    if (prev && (prev.type === "identifier" || prev.type === "keyword")) return prev.value;
+    if (prev && (prev.type === "identifier" || prev.type === "keyword")) {
+      return { value: prev.value, quoted: isQuotedIdentifier(prev, statementText, dialect) };
+    }
   }
   return null;
 }
@@ -339,8 +428,8 @@ export function resolveContext(
   const clause = detectClause(prelude);
   // Escopo é extraído do statement inteiro (lookahead) — assim, digitar `SELECT
   // <cursor> FROM users u` ainda resolve aliases da cláusula FROM à direita.
-  const scope = extractScope(significant, text);
-  const qualifier = detectQualifier(prelude);
+  const scope = extractScope(significant, text, dialect);
+  const qualifierRef = detectQualifier(prelude, text, dialect);
   const selectedColumns = clause === "select-list" ? extractAlreadySelectedColumns(prelude) : [];
   return {
     clause,
@@ -348,7 +437,8 @@ export function resolveContext(
     statementTokens: significant,
     scope,
     cursorToken,
-    qualifier,
+    qualifier: qualifierRef?.value ?? null,
+    ...(qualifierRef?.quoted ? { qualifierQuoted: true } : {}),
     statementText: text,
     statementStart: start,
     selectedColumns,

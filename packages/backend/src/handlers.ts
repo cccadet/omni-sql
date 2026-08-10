@@ -263,28 +263,62 @@ function requireNonEmptyText(value: unknown, field: string): string {
   return value.trim();
 }
 
-// Comparação case-insensitive: dialetos diferem no folding de
-// identificadores não-citados (Postgres → minúsculas via
-// information_schema, Oracle → MAIÚSCULAS via ALL_TAB_COLUMNS), mas o
-// usuário (ou o parser Calcite, que não conhece o catálogo) referencia como
-// bem entender. Varre todos os schemas em vez de indexar direto porque
-// `schema` pode vir `null`/`undefined` (tabela não qualificada).
+interface ScopeRefIdentifierFlags {
+  readonly schemaQuoted?: boolean;
+  readonly tableQuoted?: boolean;
+}
+
+type BackendScopeRef = ScopeRef & ScopeRefIdentifierFlags;
+
+function foldUnquotedIdentifier(value: string, dialect: ConnectionConfig["dialect"] | undefined): string {
+  switch (dialect) {
+    case "postgres":
+      return value.toLowerCase();
+    case "oracle":
+      return value.toUpperCase();
+    default:
+      return value.toLowerCase();
+  }
+}
+
+function identifierMatchesCaseInsensitive(actual: string, requested: string): boolean {
+  return actual.toLowerCase() === requested.toLowerCase();
+}
+
+// Identificadores não-citados passam por folding do dialeto (Postgres →
+// minúsculas, Oracle → MAIÚSCULAS). PG/Oracle exigem nome canônico; dialetos
+// genéricos mantêm fallback case-insensitive. Identificadores citados exigem
+// igualdade exata. Varre schemas porque `schema` pode ser null/undefined.
 function resolveRelationByName(
   connectionId: string,
   table: string,
   schema?: string | null,
+  flags: ScopeRefIdentifierFlags = {},
 ): Relation | null {
-  const t = table.toLowerCase();
-  const s = schema?.toLowerCase();
+  const dialect = sessions.get(connectionId)?.config.dialect;
+  const strictFolding = dialect === "postgres" || dialect === "oracle";
+  const foldedTable = foldUnquotedIdentifier(table, dialect);
+  const foldedSchema = schema == null ? null : foldUnquotedIdentifier(schema, dialect);
+  let fallback: Relation | null = null;
   for (const sch of cache.listSchemas(connectionId)) {
-    if (s != null && sch.name.toLowerCase() !== s) continue;
+    const schemaMatches = schema == null
+      || (flags.schemaQuoted ? sch.name === schema : identifierMatchesCaseInsensitive(sch.name, schema));
+    if (!schemaMatches) continue;
     for (const r of cache.getTablesBySchema(connectionId, sch.name)) {
-      if (r.name.toLowerCase() === t && (s == null || r.schema.toLowerCase() === s)) {
-        return r;
-      }
+      const tableMatches = flags.tableQuoted
+        ? r.name === table
+        : identifierMatchesCaseInsensitive(r.name, table);
+      const relationSchemaMatches = schema == null
+        || (flags.schemaQuoted ? r.schema === schema : identifierMatchesCaseInsensitive(r.schema, schema));
+      if (!tableMatches || !relationSchemaMatches) continue;
+
+      const foldedSchemaMatch = schema == null || flags.schemaQuoted || sch.name === foldedSchema;
+      const foldedTableMatch = flags.tableQuoted || r.name === foldedTable;
+      if (foldedSchemaMatch && foldedTableMatch) return r;
+      if (!strictFolding && fallback === null) fallback = r;
     }
   }
-  return null;
+  return fallback;
 }
 
 // DDL construída a partir dos metadados já cacheados (colunas + PK/FK) — não
@@ -320,7 +354,10 @@ function buildTableDdl(dialect: ConnectionConfig["dialect"], relation: Relation)
   return `CREATE TABLE ${tableRef} (\n${[...columnLines, ...constraintLines].join(",\n")}\n);`;
 }
 
-function metaSourceOf(session: Session, cteRelations: readonly Relation[] = []): MetadataSource {
+export function metaSourceOf(
+  session: Pick<Session, "config">,
+  cteRelations: readonly Relation[] = [],
+): MetadataSource {
   return {
     dialect: dialectDescriptor(session.config.dialect),
     listSchemas: (): readonly string[] =>
@@ -337,13 +374,17 @@ function metaSourceOf(session: Session, cteRelations: readonly Relation[] = []):
     },
     listFunctions: () => cache.getFunctions(session.config.id),
     resolveRelation: (ref: ScopeRef): Relation | null => {
+      const quotedRef = ref as BackendScopeRef;
       // CTEs (tier2 via sidecar/Calcite) sombreiam tabelas reais de mesmo
       // nome — mesma regra de resolução de escopo do SQL padrão.
       if (ref.schema == null) {
-        const cte = cteRelations.find((r) => r.name.toLowerCase() === ref.table.toLowerCase());
+        const cte = quotedRef.tableQuoted
+          ? cteRelations.find((r) => r.name === ref.table)
+          : cteRelations.find((r) => r.name === foldUnquotedIdentifier(ref.table, session.config.dialect))
+            ?? cteRelations.find((r) => identifierMatchesCaseInsensitive(r.name, ref.table));
         if (cte) return cte;
       }
-      return resolveRelationByName(session.config.id, ref.table, ref.schema);
+      return resolveRelationByName(session.config.id, ref.table, ref.schema, quotedRef);
     },
   };
 }
