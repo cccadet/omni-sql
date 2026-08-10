@@ -233,13 +233,13 @@ export async function introspectSchemas(
   }
 
   const constraints = await execRows<ConstraintRow>(conn, CONSTRAINTS_SQL);
-  const pkByTable = new Map<string, Set<string>>();
+  const pkByTable = new Map<string, { name: string; columns: Set<string> }>();
   const fksByTable = new Map<string, ConstraintRow[]>();
   for (const c of constraints) {
     const key = `${c.owner}.${c.table_name}`;
     if (c.constraint_type === "P") {
-      if (!pkByTable.has(key)) pkByTable.set(key, new Set());
-      pkByTable.get(key)!.add(c.column_name);
+      if (!pkByTable.has(key)) pkByTable.set(key, { name: c.constraint_name, columns: new Set() });
+      pkByTable.get(key)!.columns.add(c.column_name);
     } else if (c.r_owner !== null && c.r_table_name !== null && c.r_column_name !== null) {
       // LEFT JOINs can produce incomplete FK rows. Keep valid metadata, omit malformed references.
       if (!fksByTable.has(key)) fksByTable.set(key, []);
@@ -253,14 +253,15 @@ export async function introspectSchemas(
     const relations: Relation[] = schemaRels.map((r) => {
       const tableKey = `${schemaName}.${r.table_name}`;
       const rcols = colsByTable.get(tableKey) ?? [];
-      const pkCols = pkByTable.get(tableKey) ?? new Set<string>();
+      const pk = pkByTable.get(tableKey);
+      const pkCols = pk?.columns ?? new Set<string>();
       const fkRows = fksByTable.get(tableKey) ?? [];
       const fkByColumn = new Map(fkRows.map((f) => [f.column_name, f]));
 
       const columns: Column[] = rcols.map((c) => {
         const fk = fkByColumn.get(c.column_name);
         return {
-          name: c.column_name.toLowerCase(),
+          name: c.column_name,
           dataType: c.data_type,
           nullable: c.is_nullable === "Y",
           isPrimaryKey: pkCols.has(c.column_name),
@@ -270,8 +271,8 @@ export async function introspectSchemas(
             ? {
                 foreignKeyTo: {
                   schema: fk.r_owner!,
-                  table: fk.r_table_name!.toLowerCase(),
-                  column: fk.r_column_name!.toLowerCase(),
+                  table: fk.r_table_name!,
+                  column: fk.r_column_name!,
                 },
               }
             : {}),
@@ -280,24 +281,24 @@ export async function introspectSchemas(
 
       const relConstraints: Constraint[] = [];
       if (pkCols.size > 0) {
-        relConstraints.push({ name: "pk", kind: "primary", columns: [...pkCols].map((c) => c.toLowerCase()) });
+        relConstraints.push({ name: pk!.name, kind: "primary", columns: [...pkCols] });
       }
       for (const fk of fkRows) {
         relConstraints.push({
           name: fk.constraint_name,
           kind: "foreign",
-          columns: [fk.column_name.toLowerCase()],
+          columns: [fk.column_name],
           references: {
             schema: fk.r_owner!,
-            table: fk.r_table_name!.toLowerCase(),
-            column: fk.r_column_name!.toLowerCase(),
+            table: fk.r_table_name!,
+            column: fk.r_column_name!,
           },
         });
       }
 
       return {
         schema: schemaName,
-        name: r.table_name.toLowerCase(),
+        name: r.table_name,
         kind: r.table_type === "VIEW" ? "view" : "table",
         columns,
         constraints: relConstraints,
