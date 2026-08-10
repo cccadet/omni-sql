@@ -60,9 +60,69 @@ test("introspectSchemas ignora FK incompleta e preserva FK válida", async () =>
 
   const result = await introspectSchemas(conn);
   const relation = result[0]![2][0]!;
+  assert.equal(relation.name, "CHILD");
+  assert.deepEqual(relation.columns.map((c) => c.name), ["BROKEN_ID", "PARENT_ID"]);
   assert.equal(relation.columns[0]!.foreignKeyTo, undefined);
-  assert.deepEqual(relation.columns[1]!.foreignKeyTo, { schema: "APP", table: "parent", column: "id" });
+  assert.deepEqual(relation.columns[1]!.foreignKeyTo, { schema: "APP", table: "PARENT", column: "ID" });
   assert.deepEqual(relation.constraints.map((c) => c.name), ["FK_PARENT"]);
+});
+
+test("introspectSchemas preserva casing exato do catálogo Oracle", async () => {
+  const conn = {
+    execute: async (sql: string) => {
+      if (sql.includes("FROM all_tables")) {
+        return {
+          rows: [
+            { table_schema: "APP", table_name: "USERS", table_type: "TABLE" },
+            { table_schema: "APP", table_name: "quoted_users", table_type: "TABLE" },
+            { table_schema: "APP", table_name: "MixedCaseUsers", table_type: "TABLE" },
+          ],
+        };
+      }
+      if (sql.includes("FROM all_tab_columns")) {
+        return {
+          rows: [
+            { table_schema: "APP", table_name: "USERS", column_name: "ID", data_type: "NUMBER", is_nullable: "N", column_default: null, ordinal_position: 1 },
+            { table_schema: "APP", table_name: "quoted_users", column_name: "id", data_type: "NUMBER", is_nullable: "N", column_default: null, ordinal_position: 1 },
+            { table_schema: "APP", table_name: "MixedCaseUsers", column_name: "MixedId", data_type: "NUMBER", is_nullable: "N", column_default: null, ordinal_position: 1 },
+          ],
+        };
+      }
+      return {
+        rows: [
+          { owner: "APP", table_name: "USERS", constraint_name: "PK_USERS", constraint_type: "P", column_name: "ID", r_owner: null, r_table_name: null, r_column_name: null },
+          { owner: "APP", table_name: "quoted_users", constraint_name: "pk_quoted_users", constraint_type: "P", column_name: "id", r_owner: null, r_table_name: null, r_column_name: null },
+          { owner: "APP", table_name: "quoted_users", constraint_name: "fk_quoted_users", constraint_type: "R", column_name: "id", r_owner: "APP", r_table_name: "USERS", r_column_name: "ID" },
+          { owner: "APP", table_name: "MixedCaseUsers", constraint_name: "MixedPk", constraint_type: "P", column_name: "MixedId", r_owner: null, r_table_name: null, r_column_name: null },
+        ],
+      };
+    },
+  } as unknown as Connection;
+
+  const result = await introspectSchemas(conn);
+  const relations = result[0]![2];
+  assert.deepEqual(relations.map((r) => r.name), ["USERS", "quoted_users", "MixedCaseUsers"]);
+
+  const users = relations[0]!;
+  assert.deepEqual(users.columns.map((c) => c.name), ["ID"]);
+  assert.deepEqual(users.constraints, [{ name: "PK_USERS", kind: "primary", columns: ["ID"] }]);
+
+  const quotedUsers = relations[1]!;
+  assert.deepEqual(quotedUsers.columns.map((c) => c.name), ["id"]);
+  assert.deepEqual(quotedUsers.columns[0]!.foreignKeyTo, { schema: "APP", table: "USERS", column: "ID" });
+  assert.deepEqual(quotedUsers.constraints, [
+    { name: "pk_quoted_users", kind: "primary", columns: ["id"] },
+    {
+      name: "fk_quoted_users",
+      kind: "foreign",
+      columns: ["id"],
+      references: { schema: "APP", table: "USERS", column: "ID" },
+    },
+  ]);
+
+  const mixedCaseUsers = relations[2]!;
+  assert.deepEqual(mixedCaseUsers.columns.map((c) => c.name), ["MixedId"]);
+  assert.deepEqual(mixedCaseUsers.constraints, [{ name: "MixedPk", kind: "primary", columns: ["MixedId"] }]);
 });
 
 test("test() retorna ok:false quando não consegue conectar", async () => {
