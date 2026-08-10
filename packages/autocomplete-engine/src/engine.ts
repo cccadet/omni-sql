@@ -91,8 +91,7 @@ function foldUnquotedIdentifier(name: string, dialect: DialectDescriptor): strin
 
 function matchesQualifier(ctx: ResolvedContext, ref: ScopeRef, dialect: DialectDescriptor): boolean {
   const qualifier = ctx.qualifier!;
-  if (ctx.qualifierQuoted) return ref.aliasQuoted === true && ref.alias === qualifier;
-  if (ref.aliasQuoted) return false;
+  if (ctx.qualifierQuoted || ref.aliasQuoted) return ref.alias === qualifier;
   return foldUnquotedIdentifier(ref.alias, dialect) === foldUnquotedIdentifier(qualifier, dialect);
 }
 

@@ -192,6 +192,22 @@ test("qualifier quoted compara alias exatamente; qualifier nonquoted aplica fold
   assert.deepEqual(oracleOut.map((suggestion) => suggestion.label), ["email", "id", "name"]);
 });
 
+test("aliases quoted/nonquoted com mesmo valor resolvem em Postgres e Oracle", () => {
+  for (const dialect of [postgresDescriptor, oracleDescriptor]) {
+    const quotedAlias = 'SELECT u. FROM users "u"';
+    assert.deepEqual(
+      autocompleteTier1(quotedAlias, "SELECT u.".length, metaOf(dialect)).map((suggestion) => suggestion.label),
+      ["email", "id", "name"],
+    );
+
+    const unquotedAlias = "SELECT \"u\". FROM users u";
+    assert.deepEqual(
+      autocompleteTier1(unquotedAlias, 'SELECT "u".'.length, metaOf(dialect)).map((suggestion) => suggestion.label),
+      ["email", "id", "name"],
+    );
+  }
+});
+
 test("qualifier quoted não resolve alias quoted com caixa diferente", () => {
   const sql = 'SELECT "x". FROM users "X"';
   const out = autocompleteTier1(sql, 'SELECT "x".'.length, metaOf(postgresDescriptor));
