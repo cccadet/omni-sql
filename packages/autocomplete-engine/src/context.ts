@@ -19,6 +19,7 @@ export interface ScopeRef {
   readonly schema: string | null;
   readonly table: string;
   readonly alias: string;
+  readonly aliasQuoted?: boolean;
 }
 
 export interface AliasNode {
@@ -44,9 +45,8 @@ export interface ResolvedContext {
   /** Offset do statement dentro do SQL completo. */
   readonly statementStart: number;
   /**
-   * Nomes de colunas (lowercased) já digitados na lista do `SELECT` antes do
-   * cursor — populado apenas quando `clause === "select-list"`. Usado para
-   * não sugerir de novo uma coluna que o usuário já escolheu.
+   * Colunas (lowercased, preservando `alias.coluna` quando qualificado) já
+   * digitadas na lista do `SELECT` antes do cursor.
    */
   readonly selectedColumns: readonly string[];
 }
@@ -100,7 +100,7 @@ function detectClause(tokens: readonly Token[]): ClauseId {
       const up = t.upper ?? t.value.toUpperCase();
       if (CLAUSE_KEYWORDS[up]) {
         clause = CLAUSE_KEYWORDS[up]!;
-      } else if (up === "ON") {
+      } else if (up === "ON" || up === "USING") {
         clause = "on";
       } else if (up === "JOIN" || JOIN_TOKENS.has(up)) {
         // JOIN é um contexto FROM-like até o próximo ON/próxima cláusula.
@@ -118,11 +118,13 @@ function detectClause(tokens: readonly Token[]): ClauseId {
 }
 
 /** Varre tokens entre FROM/JOIN e a próxima cláusula maior extraindo aliases. */
-function extractScope(tokens: readonly Token[]): ScopeRef[] {
+function extractScope(tokens: readonly Token[], statementText: string): ScopeRef[] {
   const refs: ScopeRef[] = [];
   // Re-pass: capturar pares `table [alias]` e `schema.table [alias]` em janela FROM.
   let i = 0;
   let insideFrom = false;
+  let expectRelation = false;
+  let inJoinCondition = false;
   // Profundidade de parênteses: corpos de CTE (`WITH x AS (...)`) e
   // subqueries têm seu próprio FROM/JOIN interno, que não pode vazar pro
   // escopo da query externa — senão `WITH b1 AS (SELECT ... FROM t1 JOIN t2
@@ -133,6 +135,7 @@ function extractScope(tokens: readonly Token[]): ScopeRef[] {
   while (i < tokens.length) {
     const t = tokens[i]!;
     if (t.type === "punct" && t.value === "(") {
+      if (depth === 0 && expectRelation) expectRelation = false;
       depth++;
       i++;
       continue;
@@ -144,29 +147,58 @@ function extractScope(tokens: readonly Token[]): ScopeRef[] {
     }
     if (depth === 0 && t.type === "keyword") {
       const up = t.upper ?? t.value.toUpperCase();
-      if (up === "FROM" || JOIN_TOKENS.has(up)) {
+      if (up === "FROM") {
         insideFrom = true;
+        inJoinCondition = false;
+        expectRelation = true;
         i++;
-        while (i < tokens.length && JOIN_TOKENS.has((tokens[i]?.upper) ?? "")) i++;
+        continue;
+      }
+      if (up === "JOIN" || up === "STRAIGHT_JOIN") {
+        insideFrom = true;
+        inJoinCondition = false;
+        expectRelation = true;
+        i++;
+        continue;
+      }
+      if (JOIN_TOKENS.has(up)) {
+        // LEFT/INNER/etc. are JOIN modifiers, not relation names.
+        if (insideFrom) {
+          inJoinCondition = false;
+          expectRelation = true;
+        }
+        i++;
+        continue;
+      }
+      if (up === "ON" || up === "USING") {
+        if (insideFrom) {
+          inJoinCondition = true;
+          expectRelation = false;
+        }
+        i++;
         continue;
       }
       if (MAJOR_CLAUSE_TOKENS.has(up)) {
         insideFrom = false;
+        inJoinCondition = false;
+        expectRelation = false;
         i++;
         if (up === "GROUP" || up === "ORDER") i++;
         continue;
       }
     }
-    if (depth === 0 && insideFrom && t.type === "identifier") {
+    if (depth === 0 && insideFrom && !inJoinCondition && expectRelation && t.type === "identifier") {
       // Possível `schema.table` ou `table` seguido de alias.
       let schema: string | null = null;
       let table = t.value;
+      let tableToken = t;
       let j = i + 1;
       if (tokens[j]?.type === "punct" && tokens[j]?.value === ".") {
         schema = t.value;
         const tb = tokens[j + 1];
         if (tb && (tb.type === "identifier" || tb.type === "keyword")) {
           table = tb.value;
+          tableToken = tb;
           j += 2;
         } else {
           j = i + 1;
@@ -176,15 +208,18 @@ function extractScope(tokens: readonly Token[]): ScopeRef[] {
       let aliasId = j;
       if (tokens[aliasId]?.type === "keyword" && (tokens[aliasId]?.upper) === "AS") aliasId++;
       const aliasTok = tokens[aliasId];
-      const alias =
-        aliasTok && (aliasTok.type === "identifier" || (aliasTok.type === "keyword" && !MAJOR_CLAUSE_TOKENS.has(aliasTok.upper ?? aliasTok.value.toUpperCase()) && !JOIN_TOKENS.has(aliasTok.upper ?? aliasTok.value.toUpperCase())))
-          ? aliasTok.value
-          : table;
-      refs.push({ schema, table, alias });
-      i = aliasTok ? aliasId + 1 : j;
+      const hasAlias = aliasTok?.type === "identifier";
+      const alias = hasAlias ? aliasTok.value : table;
+      const aliasToken = hasAlias ? aliasTok! : tableToken;
+      const aliasQuoted = ["\"", "`", "["].includes(statementText[aliasToken.start]!);
+      refs.push({ schema, table, alias, ...(aliasQuoted ? { aliasQuoted: true } : {}) });
+      expectRelation = false;
+      i = hasAlias ? aliasId + 1 : j;
       continue;
     }
     if (depth === 0 && insideFrom && t.type === "punct" && t.value === ",") {
+      inJoinCondition = false;
+      expectRelation = true;
       i++;
       continue;
     }
@@ -248,10 +283,19 @@ function extractAlreadySelectedColumns(prelude: readonly Token[]): string[] {
   for (const seg of completed) {
     const hasParen = seg.some((t) => t.type === "punct" && (t.value === "(" || t.value === ")"));
     if (hasParen) continue;
-    const idents = seg.filter((t) => t.type === "identifier");
-    if (idents.length < 1 || idents.length > 2) continue;
-    const last = idents[idents.length - 1]!;
-    used.push(last.value.toLowerCase());
+    if (seg[0]?.type !== "identifier") continue;
+    let sourceEnd = 1;
+    let source = seg[0]!.value.toLowerCase();
+    if (seg[1]?.type === "punct" && seg[1].value === "." && seg[2]?.type === "identifier") {
+      sourceEnd = 3;
+      source = `${source}.${seg[2].value.toLowerCase()}`;
+    }
+    const suffix = seg.slice(sourceEnd);
+    const validAlias =
+      suffix.length === 0 ||
+      (suffix.length === 1 && suffix[0]?.type === "identifier") ||
+      (suffix.length === 2 && suffix[0]?.type === "keyword" && suffix[0].upper === "AS" && suffix[1]?.type === "identifier");
+    if (validAlias) used.push(source);
   }
   return used;
 }
@@ -275,12 +319,8 @@ function detectQualifier(tokens: readonly Token[]): string | null {
 
 /** Token sendo digita no momento (parcial, sem trailing punct/space). */
 function detectCursorToken(allTokens: readonly Token[], cursor: number): Token | null {
-  for (let i = allTokens.length - 1; i >= 0; i--) {
-    const t = allTokens[i]!;
-    if (!isSignificant(t)) continue;
-    if (cursor >= t.start && cursor <= t.end && t.type === "identifier") return t;
-    if (cursor > t.end && t.type === "identifier") return t;
-    return null;
+  for (const t of allTokens) {
+    if (isSignificant(t) && t.type === "identifier" && cursor >= t.start && cursor <= t.end) return t;
   }
   return null;
 }
@@ -299,7 +339,7 @@ export function resolveContext(
   const clause = detectClause(prelude);
   // Escopo é extraído do statement inteiro (lookahead) — assim, digitar `SELECT
   // <cursor> FROM users u` ainda resolve aliases da cláusula FROM à direita.
-  const scope = extractScope(significant);
+  const scope = extractScope(significant, text);
   const qualifier = detectQualifier(prelude);
   const selectedColumns = clause === "select-list" ? extractAlreadySelectedColumns(prelude) : [];
   return {
