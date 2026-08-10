@@ -1,4 +1,4 @@
-import * as monaco from "monaco-editor";
+import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import type { DialectId } from "@omni-sql/ts-types";
@@ -282,6 +282,13 @@ export function configureAutocomplete(
         startColumn: word.startColumn,
         endColumn: word.endColumn,
       };
+      const relevanceRanks = new Map(
+        [...new Set(suggestions.map((s) => s.relevance))]
+          .sort((a, b) => b - a)
+          .map((relevance, rank) => [relevance, rank] as const),
+      );
+      const relevanceWidth = String(Math.max(relevanceRanks.size - 1, 0)).length;
+      const indexWidth = String(Math.max(suggestions.length - 1, 0)).length;
       return {
         suggestions: suggestions.map((s, i) => ({
           label: s.label,
@@ -292,7 +299,8 @@ export function configureAutocomplete(
             s.insertText && (s.insertText.includes("$1") || s.insertText.includes("$2"))
               ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
               : undefined,
-          sortText: String(i).padStart(5, "0"),
+          sortText: `${String(relevanceRanks.get(s.relevance) ?? relevanceRanks.size)
+            .padStart(relevanceWidth, "0")}:${String(i).padStart(indexWidth, "0")}`,
           range,
         })),
       };

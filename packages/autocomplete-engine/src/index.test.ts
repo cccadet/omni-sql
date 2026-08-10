@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mysqlDescriptor, postgresDescriptor, sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
+import { mysqlDescriptor, oracleDescriptor, postgresDescriptor, sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
 import type { DialectDescriptor } from "@omni-sql/dialect-descriptors";
 import { autocompleteTier1, type MetadataSource } from "./engine.ts";
 import { resolveContext, type ScopeRef } from "./context.ts";
@@ -127,13 +127,55 @@ test("schema.partial seleciona somente parte da tabela", () => {
   assert.equal(out[0]?.insertText, "users");
 });
 
-test("caso 2: SELECT sem FROM → `*` + funções", () => {
+test("caso 2: SELECT sem FROM → `*`, sem ruído de funções sem prefixo", () => {
   const meta = metaOf(postgresDescriptor);
   const sql = "SELECT ";
   const out = autocompleteTier1(sql, sql.length, meta);
   const labels = out.map((s) => s.label);
-  assert.ok(labels.includes("*"));
-  assert.ok(labels.includes("COALESCE"));
+  assert.deepEqual(labels, ["*"]);
+});
+
+test("prefixos contextuais oferecem snippets mínimos", () => {
+  const meta = metaOf(postgresDescriptor);
+  const snippets = [
+    ["", "SELECT * FROM $1"],
+    ["sel", "SELECT * FROM $1"],
+    ["order", "ORDER BY $1"],
+    ["GROUP", "GROUP BY $1"],
+    ["left", "LEFT JOIN $1 ON $2"],
+    ["INNER", "INNER JOIN $1 ON $2"],
+  ] as const;
+  for (const [sql, expected] of snippets) {
+    const out = autocompleteTier1(sql, sql.length, meta);
+    assert.deepEqual(out.map((suggestion) => suggestion.insertText), [expected], sql || "empty input");
+    assert.ok(out.every((suggestion) => !suggestion.label.includes("$")));
+  }
+});
+
+test("após relação sugere somente transições SQL, em ordem", () => {
+  const sql = "SELECT * FROM users ";
+  const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
+  assert.deepEqual(out.map((suggestion) => suggestion.label), [
+    "WHERE",
+    "JOIN",
+    "GROUP BY",
+    "HAVING",
+    "ORDER BY",
+  ]);
+  assert.ok(!out.some((suggestion) => ["users", "orders", "active_users"].includes(suggestion.label)));
+});
+
+test("LEFT/INNER completos pedem JOIN, sem FULL em MySQL/MariaDB", () => {
+  for (const dialect of [mysqlDescriptor, { ...mysqlDescriptor, dialect: "mariadb" as const }]) {
+    for (const modifier of ["LEFT", "INNER"]) {
+      const sql = `SELECT * FROM users ${modifier} `;
+      const out = autocompleteTier1(sql, sql.length, metaOf(dialect));
+      assert.deepEqual(out.map((suggestion) => suggestion.label), ["JOIN"]);
+      assert.ok(!out.some((suggestion) => suggestion.label.toUpperCase().includes("FULL")));
+    }
+    const full = autocompleteTier1("SELECT * FROM users full", "SELECT * FROM users full".length, metaOf(dialect));
+    assert.ok(!full.some((suggestion) => suggestion.label.toUpperCase().includes("FULL")));
+  }
 });
 
 test("caso 3: SELECT ... FROM users → colunas da tabela em escopo", () => {
@@ -175,6 +217,13 @@ test("alias case-insensitive resolve colunas", () => {
   assert.deepEqual(out.map((s) => s.label), ["email", "id", "name"]);
 });
 
+test("alias uppercase não citado preserva texto, sem quote automático", () => {
+  const sql = "SELECT  FROM users X JOIN orders o ON true";
+  const ids = autocompleteTier1(sql, "SELECT ".length, metaOf(postgresDescriptor)).filter((suggestion) => suggestion.label === "id");
+  assert.ok(ids.some((suggestion) => suggestion.insertText === "X.id"));
+  assert.ok(!ids.some((suggestion) => suggestion.insertText === '"X".id'));
+});
+
 test("caso 5: múltiplos JOINs com aliases → colunas de todas em escopo (WHERE)", () => {
   const meta = metaOf(postgresDescriptor);
   const sql = "SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id WHERE ";
@@ -184,6 +233,51 @@ test("caso 5: múltiplos JOINs com aliases → colunas de todas em escopo (WHERE
   assert.ok(labels.includes("id"));
   assert.ok(labels.includes("user_id"));
   assert.ok(labels.includes("total"));
+});
+
+test("JOIN orders ON não transforma ON em alias e sugere colunas de orders", () => {
+  const sql = "SELECT * FROM users JOIN orders ON ";
+  const ctx = resolveContext(sql, sql.length, postgresDescriptor);
+  assert.deepEqual(ctx.scope, [
+    { schema: null, table: "users", alias: "users" },
+    { schema: null, table: "orders", alias: "orders" },
+  ]);
+  const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
+  assert.ok(out.some((suggestion) => suggestion.label === "user_id"));
+  assert.ok(out.some((suggestion) => suggestion.detail?.startsWith("orders.")));
+  assert.ok(!out.some((suggestion) => suggestion.detail?.startsWith("ON.")));
+});
+
+test("após relação JOIN sugere ON prioritário, sem transições gerais", () => {
+  const sql = "SELECT * FROM users JOIN orders ";
+  const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
+  assert.deepEqual(out.map((suggestion) => suggestion.label), ["ON", "USING"]);
+  assert.equal(out[0]?.insertText, "ON ");
+  assert.equal(out[0]?.relevance, 1000);
+});
+
+test("USING também não vira alias", () => {
+  const sql = "SELECT * FROM users JOIN orders USING ";
+  const ctx = resolveContext(sql, sql.length, postgresDescriptor);
+  assert.deepEqual(ctx.scope.map((ref) => ref.alias), ["users", "orders"]);
+  assert.equal(ctx.clause, "on");
+});
+
+test("USING sugere somente nomes comuns, sem qualificação ou duplicatas", () => {
+  const keywordUsers = { ...USERS, columns: [...USERS.columns, { name: "order", dataType: "text", nullable: true, isPrimaryKey: false, ordinalPosition: 3 }, { name: "display-name", dataType: "text", nullable: true, isPrimaryKey: false, ordinalPosition: 4 }] };
+  const keywordOrders = { ...ORDERS, columns: [...ORDERS.columns, { name: "order", dataType: "text", nullable: true, isPrimaryKey: false, ordinalPosition: 3 }, { name: "display-name", dataType: "text", nullable: true, isPrimaryKey: false, ordinalPosition: 4 }] };
+  const base = metaOf(postgresDescriptor);
+  const meta: MetadataSource = {
+    ...base,
+    listRelations: () => [keywordUsers, keywordOrders],
+    resolveRelation: (ref) => [keywordUsers, keywordOrders].find((relation) => relation.name === ref.table) ?? null,
+  };
+  const sql = "SELECT * FROM users JOIN orders USING (";
+  const out = autocompleteTier1(sql, sql.length, meta);
+  assert.deepEqual(out.map((suggestion) => suggestion.label), ["display-name", "id", "order"]);
+  assert.equal(out.find((suggestion) => suggestion.label === "order")?.insertText, '"order"');
+  assert.equal(out.find((suggestion) => suggestion.label === "display-name")?.insertText, '"display-name"');
+  assert.ok(out.every((suggestion) => !suggestion.insertText?.includes(".")));
 });
 
 test("colunas homônimas em JOIN inserem alias.qualificação", () => {
@@ -222,6 +316,8 @@ test("sugestão 'Todas as colunas' insere todas as colunas de uma vez", () => {
   const allCols = out.find((s) => s.kind === "all-columns");
   assert.ok(allCols, "sugestão 'Todas as colunas' ausente");
   assert.equal(allCols!.insertText, "id, name, email");
+  assert.ok(allCols!.relevance < (out.find((suggestion) => suggestion.kind === "column")?.relevance ?? 0));
+  assert.ok(out.indexOf(allCols!) > out.findIndex((suggestion) => suggestion.kind === "column"));
 });
 
 test("'Todas as colunas' não aparece fora do select-list (ex: WHERE)", () => {
@@ -232,7 +328,7 @@ test("'Todas as colunas' não aparece fora do select-list (ex: WHERE)", () => {
   assert.ok(!out.some((s) => s.kind === "all-columns"));
 });
 
-test("coluna já digitada no SELECT some das sugestões individuais mas continua na de 'Todas as colunas'", () => {
+test("coluna já digitada no SELECT some das sugestões individuais e da expansão", () => {
   const meta = metaOf(postgresDescriptor);
   const sql = "SELECT id,  FROM users";
   const cursor = "SELECT id, ".length;
@@ -242,7 +338,88 @@ test("coluna já digitada no SELECT some das sugestões individuais mas continua
   assert.ok(colLabels.includes("email"));
   assert.ok(colLabels.includes("name"));
   const allCols = out.find((s) => s.kind === "all-columns");
-  assert.ok(allCols?.insertText?.includes("id"), "'id' deveria continuar na sugestão 'Todas as colunas'");
+  assert.equal(allCols?.insertText, "name, email");
+});
+
+test("coluna qualificada selecionada só remove mesma relação", () => {
+  const sql = "SELECT u.id,  FROM users u JOIN orders o ON u.id = o.user_id";
+  const out = autocompleteTier1(sql, "SELECT u.id, ".length, metaOf(postgresDescriptor));
+  const ids = out.filter((suggestion) => suggestion.label === "id");
+  assert.deepEqual(ids.map((suggestion) => suggestion.insertText), ["o.id"]);
+});
+
+test("'Todas as colunas' some quando não há colunas faltantes", () => {
+  const sql = "SELECT id, name, email,  FROM users";
+  const cursor = "SELECT id, name, email, ".length;
+  const out = autocompleteTier1(sql, cursor, metaOf(postgresDescriptor));
+  assert.ok(!out.some((suggestion) => suggestion.kind === "all-columns"));
+});
+
+test("funções aparecem somente com prefixo case-insensitive", () => {
+  const meta = metaOf(postgresDescriptor);
+  assert.deepEqual(
+    autocompleteTier1("SELECT ", 7, meta).filter((suggestion) => suggestion.kind === "function"),
+    [],
+  );
+  assert.deepEqual(
+    autocompleteTier1("SELECT co", 9, meta).filter((suggestion) => suggestion.kind === "function").map((suggestion) => suggestion.label),
+    ["COALESCE"],
+  );
+});
+
+test("identificadores só recebem quote quando necessário", () => {
+  const quoted: Relation = { ...USERS, name: "select-table", columns: [{ ...USERS.columns[0]!, name: "order" }] };
+  const meta = metaOf(postgresDescriptor);
+  const quotedMeta: MetadataSource = {
+    ...meta,
+    listRelations: () => [quoted],
+    resolveRelation: () => quoted,
+  };
+  const relationSql = "SELECT * FROM ";
+  const relation = autocompleteTier1(relationSql, relationSql.length, quotedMeta).find((suggestion) => suggestion.label === "select-table");
+  assert.equal(relation?.insertText, '"select-table"');
+  const columnSql = 'SELECT  FROM "select-table"';
+  const column = autocompleteTier1(columnSql, "SELECT ".length, quotedMeta).find((suggestion) => suggestion.label === "order");
+  assert.equal(column?.insertText, '"order"');
+  assert.equal(autocompleteTier1("SELECT  FROM users", 7, meta).find((suggestion) => suggestion.label === "id")?.insertText, undefined);
+});
+
+test("metadados Oracle mixed-case recebem quote", () => {
+  const mixed: Relation = {
+    ...USERS,
+    name: "CamelTable",
+    columns: [{ ...USERS.columns[0]!, name: "MixedColumn" }],
+  };
+  const base = metaOf(oracleDescriptor);
+  const meta: MetadataSource = {
+    ...base,
+    listRelations: () => [mixed],
+    resolveRelation: (ref) => ref.table === mixed.name ? mixed : null,
+  };
+  const fromSql = "SELECT * FROM ";
+  assert.equal(autocompleteTier1(fromSql, fromSql.length, meta).find((suggestion) => suggestion.label === "CamelTable")?.insertText, '"CamelTable"');
+  const selectSql = "SELECT  FROM CamelTable";
+  assert.equal(autocompleteTier1(selectSql, "SELECT ".length, meta).find((suggestion) => suggestion.label === "MixedColumn")?.insertText, '"MixedColumn"');
+});
+
+test("expansão reconhece aliases AS e implícitos em colunas simples e qualificadas", () => {
+  for (const sql of [
+    "SELECT id AS user_id, name display_name,  FROM users",
+    "SELECT u.id AS user_id, u.name display_name,  FROM users u",
+  ]) {
+    const out = autocompleteTier1(sql, sql.indexOf("FROM"), metaOf(postgresDescriptor));
+    const allColumns = out.find((suggestion) => suggestion.kind === "all-columns");
+    assert.equal(allColumns?.insertText, "email");
+  }
+});
+
+test("alias quoted usa identifierText em Postgres e Oracle", () => {
+  const sql = 'SELECT  FROM users "X" JOIN orders o ON true';
+  for (const dialect of [postgresDescriptor, { ...postgresDescriptor, dialect: "oracle" as const }]) {
+    const ids = autocompleteTier1(sql, "SELECT ".length, metaOf(dialect)).filter((suggestion) => suggestion.label === "id");
+    assert.ok(ids.some((suggestion) => suggestion.insertText === '"X".id'));
+    assert.ok(ids.some((suggestion) => suggestion.insertText === "o.id"));
+  }
 });
 
 test("caso 7: CTE WITH x AS (...) lista x no FROM externo", () => {
