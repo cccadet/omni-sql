@@ -52,5 +52,6 @@ sequenceDiagram
   N-->>UI: JSON-RPC result
 ```
 
-The JVM sidecar is non-blocking and optional. If absent, unavailable, or slow,
-completion falls back to tier 1 rather than failing the request.
+The JVM sidecar is optional and used on a best-effort basis. If absent,
+unavailable, or slow, completion falls back to tier 1; the request does not
+fail.

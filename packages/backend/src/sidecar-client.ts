@@ -1,4 +1,6 @@
 import type { QueryEditability, Relation } from "@omni-sql/ts-types";
+import { postgresDescriptor, type DialectDescriptor } from "@omni-sql/dialect-descriptors";
+import { findStatement } from "@omni-sql/autocomplete-engine";
 
 const SIDECAR_URL = validatedSidecarUrl();
 const AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
@@ -21,35 +23,55 @@ interface CteInfo {
  * `completion.get` segue funcionando 100% tier1 (TS) sem essas colunas,
  * exatamente como antes desta função existir.
  */
-export async function resolveCteRelations(sql: string): Promise<Relation[]> {
-  if (!/\bwith\b/i.test(sql)) return [];
-  let ctes: CteInfo[];
+export async function resolveCteRelations(
+  sql: string,
+  cursor?: number,
+  dialect: DialectDescriptor = postgresDescriptor,
+): Promise<Relation[]> {
+  const statement = cursor === undefined ? sql : findStatement(sql, cursor, dialect).text;
+  if (!/\bwith\b/i.test(statement)) return [];
   try {
     const res = await fetch(`${SIDECAR_URL}/scope/resolve`, {
       method: "POST",
       headers: sidecarHeaders(),
-      body: JSON.stringify({ sql }),
+      body: JSON.stringify({ sql: statement }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!res.ok) return [];
-    const parsed = (await res.json()) as { ctes?: CteInfo[] };
-    ctes = parsed.ctes ?? [];
+    const parsed: unknown = await res.json();
+    const ctes = parseCteResponse(parsed);
+    if (!ctes) return [];
+    return ctes.map((cte) => ({
+      schema: "",
+      name: cte.name,
+      kind: "view" as const,
+      columns: cte.columns.map((name, i) => ({
+        name,
+        dataType: "unknown",
+        nullable: true,
+        isPrimaryKey: false,
+        ordinalPosition: i + 1,
+      })),
+      constraints: [],
+    }));
   } catch {
     return [];
   }
-  return ctes.map((cte) => ({
-    schema: "",
-    name: cte.name,
-    kind: "view" as const,
-    columns: cte.columns.map((name, i) => ({
-      name,
-      dataType: "unknown",
-      nullable: true,
-      isPrimaryKey: false,
-      ordinalPosition: i + 1,
-    })),
-    constraints: [],
-  }));
+}
+
+function parseCteResponse(value: unknown): CteInfo[] | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const ctes = (value as { ctes?: unknown }).ctes;
+  if (!Array.isArray(ctes)) return null;
+  if (!ctes.every((cte): cte is CteInfo => {
+    if (cte === null || typeof cte !== "object" || Array.isArray(cte)) return false;
+    const candidate = cte as { name?: unknown; columns?: unknown };
+    return typeof candidate.name === "string"
+      && candidate.name.length > 0
+      && Array.isArray(candidate.columns)
+      && candidate.columns.every((column): column is string => typeof column === "string");
+  })) return null;
+  return ctes;
 }
 
 const NOT_EDITABLE: QueryEditability = {

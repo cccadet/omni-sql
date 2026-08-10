@@ -403,16 +403,16 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   }, [activeTab.connectionId, activeTab.id, connections, introspectActive, loadConnections, updateTab]);
 
   const handleAutocomplete = useCallback(
-    async (cursor: number): Promise<Suggestion[]> => {
+    async (cursor: number, sql = "", signal?: AbortSignal): Promise<Suggestion[]> => {
       if (!activeConnectionId) return [];
       const r = await backend.call<{ suggestions: Suggestion[] }>("completion.get", {
         connectionId: activeConnectionId,
-        sql: activeTab.sql,
+        sql,
         cursor,
-      });
+      }, signal);
       return r.suggestions;
     },
-    [activeConnectionId, activeTab.sql],
+    [activeConnectionId],
   );
 
   const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
