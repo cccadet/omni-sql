@@ -406,7 +406,6 @@ export class McpBridge {
       const waitingRef: { current?: WaitingListener } = {};
       const onAbort = (): void => this.releaseWaiting(null, waitingRef.current);
       const timer = setTimeout(() => this.releaseWaiting(null, waitingRef.current), waitMs);
-      timer.unref?.();
       const abortCleanup = signal
         ? (): void => signal.removeEventListener("abort", onAbort)
         : (): void => undefined;
@@ -449,7 +448,6 @@ export class McpBridge {
       if (queueIndex >= 0) this.queue.splice(queueIndex, 1);
       rejectPending(new McpBridgeError("timeout", "desktop UI did not respond before timeout"));
     }, this.timeoutMs);
-    timer.unref?.();
     const pending: PendingRequest = {
       request,
       resolve: resolvePending,
