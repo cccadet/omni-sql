@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mysqlDescriptor, oracleDescriptor, postgresDescriptor, sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
 import type { DialectDescriptor } from "@omni-sql/dialect-descriptors";
 import { autocompleteTier1, type MetadataSource } from "./engine.ts";
-import { resolveContext, type ScopeRef } from "./context.ts";
+import { findStatement, resolveContext, type ScopeRef } from "./context.ts";
 import type { FunctionDef, Relation } from "@omni-sql/ts-types";
 
 const USERS: Relation = {
@@ -152,6 +152,76 @@ test("prefixos contextuais oferecem snippets mínimos", () => {
   }
 });
 
+test("ORDER/GROUP top-level sem BY sugerem somente BY; após BY sugerem colunas", () => {
+  for (const keyword of ["ORDER", "GROUP"] as const) {
+    const pending = `SELECT * FROM users ${keyword} `;
+    const pendingOut = autocompleteTier1(pending, pending.length, metaOf(postgresDescriptor));
+    assert.deepEqual(pendingOut.map((suggestion) => suggestion.label), ["BY"]);
+    assert.equal(pendingOut[0]?.insertText, "BY ");
+
+    const complete = `${pending}BY `;
+    const completeOut = autocompleteTier1(complete, complete.length, metaOf(postgresDescriptor));
+    assert.ok(completeOut.some((suggestion) => suggestion.label === "id"));
+    assert.ok(!completeOut.some((suggestion) => suggestion.label === "BY"));
+  }
+});
+
+test("ORDER/GROUP sem BY sugere BY no nível de subquery contendo cursor", () => {
+  for (const keyword of ["ORDER", "GROUP"] as const) {
+    const sql = `SELECT * FROM users WHERE id IN (SELECT id FROM orders ${keyword} `;
+    const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
+    assert.deepEqual(out.map((suggestion) => suggestion.label), ["BY"]);
+  }
+});
+
+test("qualifier quoted compara alias exatamente; qualifier nonquoted aplica folding", () => {
+  const quotedSql = 'SELECT "x". FROM users "X" JOIN orders "x" ON true';
+  const quotedCtx = resolveContext(quotedSql, 'SELECT "x".'.length, postgresDescriptor);
+  assert.equal(quotedCtx.qualifier, "x");
+  assert.equal(quotedCtx.qualifierQuoted, true);
+  const quotedOut = autocompleteTier1(quotedSql, 'SELECT "x".'.length, metaOf(postgresDescriptor));
+  assert.deepEqual(quotedOut.map((suggestion) => suggestion.label), ["id", "total", "user_id"]);
+
+  const nonquotedSql = "SELECT U. FROM users u";
+  const nonquotedCtx = resolveContext(nonquotedSql, "SELECT U.".length, postgresDescriptor);
+  assert.equal(nonquotedCtx.qualifier, "U");
+  assert.equal(nonquotedCtx.qualifierQuoted, undefined);
+  const nonquotedOut = autocompleteTier1(nonquotedSql, "SELECT U.".length, metaOf(postgresDescriptor));
+  assert.deepEqual(nonquotedOut.map((suggestion) => suggestion.label), ["email", "id", "name"]);
+  const oracleOut = autocompleteTier1(nonquotedSql, "SELECT U.".length, metaOf(oracleDescriptor));
+  assert.deepEqual(oracleOut.map((suggestion) => suggestion.label), ["email", "id", "name"]);
+});
+
+test("qualifier quoted não resolve alias quoted com caixa diferente", () => {
+  const sql = 'SELECT "x". FROM users "X"';
+  const out = autocompleteTier1(sql, 'SELECT "x".'.length, metaOf(postgresDescriptor));
+  assert.deepEqual(out, []);
+});
+
+test("ORDER/GROUP sem BY fora de subquery continua no nível externo", () => {
+  const sql = "SELECT * FROM users WHERE id IN (SELECT id FROM orders) ORDER ";
+  const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
+  assert.deepEqual(out.map((suggestion) => suggestion.label), ["BY"]);
+});
+
+test("findStatement separa slash Oracle somente isolado em linha", () => {
+  const sql = "SELECT ' / ' AS marker /* / */ FROM dual\n/\nSELECT 2 FROM dual";
+  const cursor = sql.lastIndexOf("SELECT 2") + "SELECT 2".length;
+  assert.equal(findStatement(sql, cursor, oracleDescriptor).text.trim(), "SELECT 2 FROM dual");
+
+  const division = "SELECT 10 / 2 FROM dual";
+  assert.equal(findStatement(division, division.length, oracleDescriptor).text, division);
+});
+
+test("findStatement separa SQL Server GO somente isolado em linha", () => {
+  const sql = "SELECT 'GO' AS marker -- GO\nFROM users\nGO\nSELECT 2 FROM users";
+  const cursor = sql.lastIndexOf("SELECT 2") + "SELECT 2".length;
+  assert.equal(findStatement(sql, cursor, sqlserverDescriptor).text.trim(), "SELECT 2 FROM users");
+
+  const quoted = "SELECT 'GO' AS marker";
+  assert.equal(findStatement(quoted, quoted.length, sqlserverDescriptor).text, quoted);
+});
+
 test("após relação sugere somente transições SQL, em ordem", () => {
   const sql = "SELECT * FROM users ";
   const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
@@ -254,6 +324,27 @@ test("após relação JOIN sugere ON prioritário, sem transições gerais", () 
   assert.deepEqual(out.map((suggestion) => suggestion.label), ["ON", "USING"]);
   assert.equal(out[0]?.insertText, "ON ");
   assert.equal(out[0]?.relevance, 1000);
+});
+
+test("CROSS/NATURAL JOIN não sugerem ON/USING após relação", () => {
+  for (const join of ["CROSS JOIN", "NATURAL JOIN"] as const) {
+    const sql = `SELECT * FROM users ${join} orders `;
+    const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
+    assert.deepEqual(out.map((suggestion) => suggestion.label), [
+      "WHERE",
+      "JOIN",
+      "GROUP BY",
+      "HAVING",
+      "ORDER BY",
+    ]);
+    assert.ok(!out.some((suggestion) => ["ON", "USING"].includes(suggestion.label)));
+  }
+});
+
+test("SQL Server não sugere USING após relação JOIN", () => {
+  const sql = "SELECT * FROM users JOIN orders ";
+  const out = autocompleteTier1(sql, sql.length, metaOf(sqlserverDescriptor));
+  assert.deepEqual(out.map((suggestion) => suggestion.label), ["ON"]);
 });
 
 test("USING também não vira alias", () => {
@@ -402,6 +493,31 @@ test("metadados Oracle mixed-case recebem quote", () => {
   assert.equal(autocompleteTier1(selectSql, "SELECT ".length, meta).find((suggestion) => suggestion.label === "MixedColumn")?.insertText, '"MixedColumn"');
 });
 
+test("metadados Oracle lowercase recebem quote, aliases não quoted não recebem folding", () => {
+  const base = metaOf(oracleDescriptor);
+  const fromSql = "SELECT * FROM ";
+  const relation = autocompleteTier1(fromSql, fromSql.length, base).find((suggestion) => suggestion.label === "users");
+  assert.equal(relation?.insertText, '"users"');
+
+  const sql = "SELECT  FROM users x JOIN orders y ON x.id = y.id";
+  const ids = autocompleteTier1(sql, "SELECT ".length, base).filter((suggestion) => suggestion.label === "id");
+  assert.deepEqual(ids.map((suggestion) => suggestion.insertText), ['x."id"', 'y."id"']);
+  assert.ok(ids.every((suggestion) => !suggestion.insertText?.startsWith('"x"') && !suggestion.insertText?.startsWith('"y"')));
+});
+
+test("ScopeRef preserva quotes de schema, tabela e alias", () => {
+  const sql = 'SELECT * FROM "Sales"."Orders" "o"';
+  const ctx = resolveContext(sql, sql.length, postgresDescriptor);
+  assert.deepEqual(ctx.scope, [{
+    schema: "Sales",
+    table: "Orders",
+    alias: "o",
+    schemaQuoted: true,
+    tableQuoted: true,
+    aliasQuoted: true,
+  }]);
+});
+
 test("expansão reconhece aliases AS e implícitos em colunas simples e qualificadas", () => {
   for (const sql of [
     "SELECT id AS user_id, name display_name,  FROM users",
@@ -415,10 +531,14 @@ test("expansão reconhece aliases AS e implícitos em colunas simples e qualific
 
 test("alias quoted usa identifierText em Postgres e Oracle", () => {
   const sql = 'SELECT  FROM users "X" JOIN orders o ON true';
-  for (const dialect of [postgresDescriptor, { ...postgresDescriptor, dialect: "oracle" as const }]) {
+  const cases = [
+    [postgresDescriptor, '"X".id', "o.id"],
+    [{ ...postgresDescriptor, dialect: "oracle" as const }, '"X"."id"', 'o."id"'],
+  ] as const;
+  for (const [dialect, quotedAliasId, plainAliasId] of cases) {
     const ids = autocompleteTier1(sql, "SELECT ".length, metaOf(dialect)).filter((suggestion) => suggestion.label === "id");
-    assert.ok(ids.some((suggestion) => suggestion.insertText === '"X".id'));
-    assert.ok(ids.some((suggestion) => suggestion.insertText === "o.id"));
+    assert.ok(ids.some((suggestion) => suggestion.insertText === quotedAliasId));
+    assert.ok(ids.some((suggestion) => suggestion.insertText === plainAliasId));
   }
 });
 
