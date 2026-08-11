@@ -588,7 +588,21 @@ export function Sidebar({
                           setDraggedConnectionId(null);
                         }}
                       >
-                        <div className="omni-folder-row">
+                        <div
+                          className="omni-folder-row"
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            event.dataTransfer.dropEffect = "move";
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const connectionId = event.dataTransfer.getData("text/plain") || draggedConnectionId;
+                            if (connectionId) void onMoveConnection?.(connectionId, group.id);
+                            setDraggedConnectionId(null);
+                          }}
+                        >
                           <button
                             type="button"
                             className="omni-folder-toggle"
