@@ -17,6 +17,7 @@ import {
   listIndexesViaConnection,
   listSchemaNames,
   runQueryViaConnection,
+  stripTrailingStatementDelimiter,
   updateRowViaConnection,
 } from "./introspection.ts";
 
@@ -127,7 +128,7 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
     this.activeQuery = activeQuery;
     try {
       // Oracle exige FROM DUAL para SELECTs sem cláusula FROM.
-      const normalized = sql.replace(/;?\s*$/, "");
+      const normalized = stripTrailingStatementDelimiter(sql);
       const needsDual = /^\s*SELECT\b/i.test(normalized) && !/\bFROM\b/i.test(normalized);
       const finalSql = needsDual ? `${normalized} FROM DUAL` : sql;
       return await runQueryViaConnection(conn, finalSql, limit);

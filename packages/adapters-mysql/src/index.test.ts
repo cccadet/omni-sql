@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { FieldPacket, Pool, PoolConnection, QueryOptions } from "mysql2/promise";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
-import { cancelQueryViaPool, runQueryViaPool } from "./introspection.ts";
+import { cancelQueryViaPool, prepareMysqlQuery, runQueryViaPool } from "./introspection.ts";
 import { MysqlAdapter } from "./index.ts";
 
 // Sem docker/MySQL local: smoke só valida construção + recusa de dial.
@@ -45,6 +45,53 @@ test("test() retorna ok:false quando não consegue conectar", async () => {
   assert.equal(t.ok, false);
   assert.ok(t.message);
   await a.close();
+});
+
+test("prepareMysqlQuery aplica LIMIT parametrizado somente a leitura segura", () => {
+  assert.deepEqual(prepareMysqlQuery("SELECT id FROM users ORDER BY id;", 100), {
+    sql: "SELECT id FROM users ORDER BY id LIMIT ?;",
+    values: [101],
+    serverSideLimitApplied: true,
+  });
+  assert.deepEqual(prepareMysqlQuery("WITH recent AS (SELECT id FROM users) SELECT id FROM recent ORDER BY id", 2), {
+    sql: "WITH recent AS (SELECT id FROM users) SELECT id FROM recent ORDER BY id LIMIT ?",
+    values: [3],
+    serverSideLimitApplied: true,
+  });
+
+  for (const sql of [
+    "UPDATE users SET name = 'x'",
+    "WITH changed AS (SELECT 1) UPDATE users SET name = 'x'",
+    "SELECT id FROM users LIMIT 10",
+    "SELECT id FROM users FOR UPDATE",
+  ]) {
+    assert.deepEqual(prepareMysqlQuery(sql, 100), { sql, serverSideLimitApplied: false });
+  }
+});
+
+test("runQuery aplica cap server-side com bind e calcula rowsMoreAvailable", async () => {
+  let executedOptions: QueryOptions | undefined;
+  const fields = [{ name: "v", type: 3 }] as FieldPacket[];
+  const queryConnection = {
+    query: async (options: QueryOptions): Promise<[unknown, FieldPacket[]]> => {
+      executedOptions = options;
+      return [Array.from({ length: 4 }, (_, i) => [i]), fields];
+    },
+    release: () => undefined,
+  } as unknown as PoolConnection;
+  const pool = {
+    getConnection: async (): Promise<PoolConnection> => queryConnection,
+  } as unknown as Pool;
+
+  const result = await runQueryViaPool(pool, "SELECT v FROM values_table ORDER BY v", 3);
+
+  assert.deepEqual(executedOptions, {
+    sql: "SELECT v FROM values_table ORDER BY v LIMIT ?",
+    values: [4],
+    rowsAsArray: true,
+  });
+  assert.deepEqual(result.rows, [[0], [1], [2]]);
+  assert.equal(result.rowsMoreAvailable, true);
 });
 
 test("runQuery mantém conexão ativa e cancelQuery usa outra conexão", async () => {

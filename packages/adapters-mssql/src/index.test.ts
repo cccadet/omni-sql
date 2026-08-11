@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ConnectionPool, Request } from "mssql";
 import { MssqlAdapter } from "./index.ts";
+import { runQueryViaPool } from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
 // Sem docker/SQL Server local: smoke só valida construção + recusa de dial.
@@ -52,6 +53,7 @@ test("cancelRunning cancela Request ativo e não limpa Request mais novo", async
 
   const firstRequest = {
     arrayRowMode: false,
+    input: () => firstRequest,
     query: async () => {
       firstStarted();
       await new Promise<void>((resolve) => { finishFirst = resolve; });
@@ -61,6 +63,7 @@ test("cancelRunning cancela Request ativo e não limpa Request mais novo", async
   } as unknown as Request;
   const secondRequest = {
     arrayRowMode: false,
+    input: () => secondRequest,
     query: async () => {
       secondStarted();
       await new Promise<never>((_resolve, reject) => { rejectSecond = reject; });
@@ -88,6 +91,57 @@ test("cancelRunning cancela Request ativo e não limpa Request mais novo", async
   await a.cancelRunning();
 
   assert.equal(cancelCalls, 1);
+});
+
+test("runQueryViaPool caps simple SELECT server-side and preserves ORDER BY", async () => {
+  let queryText = "";
+  let boundLimit: number | undefined;
+  const request = {
+    arrayRowMode: false,
+    input: (name: string, value: number) => {
+      assert.equal(name, "omni_limit");
+      boundLimit = value;
+      return request;
+    },
+    query: async (text: string) => {
+      queryText = text;
+      const recordset = [[1], [2]] as unknown[][] & {
+        columns?: Record<string, { index: number; type: unknown }>;
+      };
+      recordset.columns = { value: { index: 0, type: Number } };
+      return { recordset };
+    },
+  } as unknown as Request;
+  const pool = { request: () => request } as unknown as ConnectionPool;
+
+  const result = await runQueryViaPool(pool, "SELECT DISTINCT value\nFROM dbo.items\nORDER BY value", 1);
+
+  assert.equal(queryText, "SELECT DISTINCT TOP (@omni_limit) value\nFROM dbo.items\nORDER BY value");
+  assert.equal(boundLimit, 2);
+  assert.deepEqual(result.rows, [[1]]);
+  assert.equal(result.rowsMoreAvailable, true);
+});
+
+test("runQueryViaPool bypasses unsafe SQL without changing binds", async () => {
+  const queryTexts: string[] = [];
+  const boundNames: string[] = [];
+  const request = {
+    arrayRowMode: false,
+    input: (name: string) => {
+      boundNames.push(name);
+      return request;
+    },
+    query: async (text: string) => {
+      queryTexts.push(text);
+      return { recordset: [] };
+    },
+  } as unknown as Request;
+  const pool = { request: () => request } as unknown as ConnectionPool;
+
+  await runQueryViaPool(pool, "SELECT value FROM dbo.items UNION SELECT value FROM dbo.archive", 1);
+
+  assert.deepEqual(queryTexts, ["SELECT value FROM dbo.items UNION SELECT value FROM dbo.archive"]);
+  assert.deepEqual(boundNames, []);
 });
 
 if (MSSQL_CONN) {

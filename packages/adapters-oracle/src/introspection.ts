@@ -347,13 +347,185 @@ export async function listFunctionsPerSchema(
 
 // ─────────────────────────── Query execution
 
+const ORACLE_LIMIT_BIND = "omni_sql_limit";
+
+interface OracleSqlToken {
+  readonly value: string;
+  readonly start: number;
+  readonly depth: number;
+}
+
+function isSqlIdentifierStart(char: string): boolean {
+  return /[A-Za-z_]/.test(char);
+}
+
+function isSqlIdentifierPart(char: string): boolean {
+  return /[A-Za-z0-9_$#]/.test(char);
+}
+
+function skipSingleQuoted(sql: string, start: number): number {
+  for (let i = start + 1; i < sql.length; i += 1) {
+    if (sql[i] !== "'") continue;
+    if (sql[i + 1] === "'") {
+      i += 1;
+      continue;
+    }
+    return i + 1;
+  }
+  return sql.length;
+}
+
+function skipDoubleQuoted(sql: string, start: number): number {
+  for (let i = start + 1; i < sql.length; i += 1) {
+    if (sql[i] !== '"') continue;
+    if (sql[i + 1] === '"') {
+      i += 1;
+      continue;
+    }
+    return i + 1;
+  }
+  return sql.length;
+}
+
+function skipOracleQuoted(sql: string, start: number): number | null {
+  if (!/[qQ]/.test(sql[start] ?? "") || sql[start + 1] !== "'") return null;
+  const delimiter = sql[start + 2];
+  if (delimiter === undefined) return sql.length;
+  const closingDelimiter = delimiter === "[" ? "]" : delimiter === "(" ? ")" : delimiter === "{" ? "}" : delimiter === "<" ? ">" : delimiter;
+  for (let i = start + 3; i < sql.length; i += 1) {
+    if (sql[i] === closingDelimiter && sql[i + 1] === "'") return i + 2;
+  }
+  return sql.length;
+}
+
+function tokenizeOracleSql(sql: string): OracleSqlToken[] {
+  const tokens: OracleSqlToken[] = [];
+  let depth = 0;
+  let i = 0;
+  while (i < sql.length) {
+    const char = sql[i]!;
+    if (/\s/.test(char)) {
+      i += 1;
+      continue;
+    }
+    if (char === "-" && sql[i + 1] === "-") {
+      const newline = sql.indexOf("\n", i + 2);
+      i = newline === -1 ? sql.length : newline + 1;
+      continue;
+    }
+    if (char === "/" && sql[i + 1] === "*") {
+      const commentEnd = sql.indexOf("*/", i + 2);
+      i = commentEnd === -1 ? sql.length : commentEnd + 2;
+      continue;
+    }
+    const oracleQuotedEnd = skipOracleQuoted(sql, i);
+    if (oracleQuotedEnd !== null) {
+      i = oracleQuotedEnd;
+      continue;
+    }
+    if (char === "'") {
+      i = skipSingleQuoted(sql, i);
+      continue;
+    }
+    if (char === '"') {
+      i = skipDoubleQuoted(sql, i);
+      continue;
+    }
+    if (char === "(") {
+      tokens.push({ value: char, start: i, depth });
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (char === ")") {
+      depth = Math.max(0, depth - 1);
+      tokens.push({ value: char, start: i, depth });
+      i += 1;
+      continue;
+    }
+    if (char === ";") {
+      tokens.push({ value: char, start: i, depth });
+      i += 1;
+      continue;
+    }
+    if (char === ",") {
+      tokens.push({ value: char, start: i, depth });
+      i += 1;
+      continue;
+    }
+    if (isSqlIdentifierStart(char)) {
+      const start = i;
+      i += 1;
+      while (i < sql.length && isSqlIdentifierPart(sql[i]!)) i += 1;
+      tokens.push({ value: sql.slice(start, i).toUpperCase(), start, depth });
+      continue;
+    }
+    i += 1;
+  }
+  return tokens;
+}
+
+/** Remove only a final statement delimiter outside literals/comments. */
+export function stripTrailingStatementDelimiter(sql: string): string {
+  const trimmed = sql.trimEnd();
+  const last = tokenizeOracleSql(trimmed).at(-1);
+  return last?.value === ";" && last.depth === 0 ? trimmed.slice(0, last.start).trimEnd() : trimmed;
+}
+
+function withMainStatement(tokens: readonly OracleSqlToken[]): string | undefined {
+  let index = 1;
+  if (tokens[index]?.value === "RECURSIVE") index += 1;
+  while (index < tokens.length) {
+    while (index < tokens.length && !(tokens[index]!.value === "AS" && tokens[index]!.depth === 0)) index += 1;
+    if (index >= tokens.length || tokens[index + 1]?.value !== "(") return undefined;
+    const openingDepth = tokens[index + 1]!.depth;
+    index += 2;
+    while (index < tokens.length && !(tokens[index]!.value === ")" && tokens[index]!.depth === openingDepth)) index += 1;
+    if (index >= tokens.length) return undefined;
+    index += 1;
+    if (tokens[index]?.value === "," && tokens[index]?.depth === 0) {
+      index += 1;
+      continue;
+    }
+    return tokens[index]?.value;
+  }
+  return undefined;
+}
+
+function isReadQuery(sql: string): boolean {
+  const tokens = tokenizeOracleSql(sql);
+  const first = tokens[0]?.value;
+  const statement = first === "SELECT" ? "SELECT" : first === "WITH" ? withMainStatement(tokens) : undefined;
+  if (statement !== "SELECT") return false;
+  return !tokens.some((token, index) =>
+    token.depth === 0 && token.value === "FOR" && tokens[index + 1]?.depth === 0 && tokens[index + 1]?.value === "UPDATE",
+  );
+}
+
+export interface PreparedOracleQuery {
+  readonly sql: string;
+  readonly binds: Record<string, number>;
+  readonly serverSideLimitApplied: boolean;
+}
+
+export function prepareOracleQuery(sql: string, limit: number): PreparedOracleQuery {
+  const normalized = stripTrailingStatementDelimiter(sql);
+  if (!isReadQuery(normalized)) return { sql, binds: {}, serverSideLimitApplied: false };
+  return {
+    sql: `SELECT * FROM (\n${normalized}\n)\nWHERE ROWNUM <= :${ORACLE_LIMIT_BIND}`,
+    binds: { [ORACLE_LIMIT_BIND]: limit + 1 },
+    serverSideLimitApplied: true,
+  };
+}
+
 export async function runQueryViaConnection(
   conn: Connection,
   sql: string,
   limit: number,
 ): Promise<QueryResult> {
   const t0 = Date.now();
-  const result = await conn.execute(sql, [], {
+  const prepared = prepareOracleQuery(sql, limit);
+  const result = await conn.execute(prepared.sql, prepared.serverSideLimitApplied ? prepared.binds : [], {
     resultSet: true,
     outFormat: oracledb.OUT_FORMAT_ARRAY,
   });
@@ -378,9 +550,12 @@ export async function runQueryViaConnection(
       nullable: true,
     }));
 
-    const rows = (await rs.getRows(limit)) as unknown[][];
+    const fetchedRows = (await rs.getRows(prepared.serverSideLimitApplied ? limit + 1 : limit)) as unknown[][];
+    const rows = fetchedRows.slice(0, limit);
     let moreAvailable = false;
-    if (rows.length === limit) {
+    if (prepared.serverSideLimitApplied) {
+      moreAvailable = fetchedRows.length > limit;
+    } else if (rows.length === limit) {
       const peek = (await rs.getRows(1)) as unknown[][];
       moreAvailable = peek.length > 0;
     }

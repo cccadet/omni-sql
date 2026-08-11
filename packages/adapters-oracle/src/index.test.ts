@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OracleAdapter } from "./index.ts";
-import { introspectSchemas } from "./introspection.ts";
+import { introspectSchemas, prepareOracleQuery, runQueryViaConnection } from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import type { Connection, Pool } from "oracledb";
 
@@ -123,6 +123,75 @@ test("introspectSchemas preserva casing exato do catálogo Oracle", async () => 
   const mixedCaseUsers = relations[2]!;
   assert.deepEqual(mixedCaseUsers.columns.map((c) => c.name), ["MixedId"]);
   assert.deepEqual(mixedCaseUsers.constraints, [{ name: "MixedPk", kind: "primary", columns: ["MixedId"] }]);
+});
+
+test("runQuery aplica cap Oracle server-side com bind e mantém cap client-side", async () => {
+  let executedSql = "";
+  let executedBinds: unknown;
+  const getRowsCalls: number[] = [];
+  const conn = {
+    execute: async (sql: string, binds: unknown) => {
+      executedSql = sql;
+      executedBinds = binds;
+      return {
+        metaData: [{ name: "V", dbTypeName: "NUMBER" }],
+        resultSet: {
+          getRows: async (count: number) => {
+            getRowsCalls.push(count);
+            return Array.from({ length: 101 }, (_, i) => [i]);
+          },
+          close: async () => undefined,
+        },
+      };
+    },
+  } as unknown as Connection;
+
+  const result = await runQueryViaConnection(conn, "SELECT ';' AS v FROM DUAL ORDER BY v;", 100);
+
+  assert.match(executedSql, /^SELECT \* FROM \(\nSELECT ';' AS v FROM DUAL ORDER BY v\n\)\nWHERE ROWNUM <= :omni_sql_limit$/);
+  assert.deepEqual(executedBinds, { omni_sql_limit: 101 });
+  assert.deepEqual(getRowsCalls, [101]);
+  assert.equal(result.rows.length, 100);
+  assert.equal(result.rows[99]?.[0], 99);
+  assert.equal(result.rowsMoreAvailable, true);
+});
+
+test("prepareOracleQuery não envolve DML, CTE mutante ou SELECT FOR UPDATE", () => {
+  const statements = [
+    "UPDATE users SET name = 'x'",
+    "WITH changed AS (SELECT 1 FROM DUAL) UPDATE users SET name = 'x'",
+    "SELECT id FROM users FOR UPDATE",
+  ];
+  for (const sql of statements) {
+    assert.deepEqual(prepareOracleQuery(sql, 100), {
+      sql,
+      binds: {},
+      serverSideLimitApplied: false,
+    });
+  }
+});
+
+test("runQuery mantém execução direta e commit para instrução sem result set", async () => {
+  let executedSql = "";
+  let executedBinds: unknown;
+  let commitCalls = 0;
+  const conn = {
+    execute: async (sql: string, binds: unknown) => {
+      executedSql = sql;
+      executedBinds = binds;
+      return { rowsAffected: 3 };
+    },
+    commit: async () => { commitCalls += 1; },
+  } as unknown as Connection;
+
+  const result = await runQueryViaConnection(conn, "UPDATE users SET name = 'x';", 100);
+
+  assert.equal(executedSql, "UPDATE users SET name = 'x';");
+  assert.deepEqual(executedBinds, []);
+  assert.equal(commitCalls, 1);
+  assert.deepEqual(result.rows, []);
+  assert.equal(result.rowsAffected, 3);
+  assert.equal(result.rowsMoreAvailable, false);
 });
 
 test("test() retorna ok:false quando não consegue conectar", async () => {

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import pg, { type Pool, type PoolClient, type Query as PgQuery } from "pg";
 import { PostgresAdapter } from "./index.ts";
+import { applyServerRowCap, runQueryViaPool } from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
 // Sem docker/Postgres local: smoke só valida construção + dial refusal.
@@ -30,6 +31,69 @@ test("PostgresAdapter: constrói sem disparar conexão", () => {
 test("PostgresAdapter: factory via construtor produz instância Adapter", () => {
   const a = new PostgresAdapter(cfg());
   assert.equal(a.dialect, "postgres");
+});
+
+test("applyServerRowCap limita apenas leitura sem LIMIT/FETCH existente", () => {
+  assert.equal(applyServerRowCap("SELECT v FROM items", 10), "SELECT v FROM items LIMIT 11");
+  assert.equal(applyServerRowCap("WITH x AS (SELECT 1) SELECT * FROM x;", 2), "WITH x AS (SELECT 1) SELECT * FROM x LIMIT 3;");
+  assert.equal(applyServerRowCap("SELECT v FROM items LIMIT 5", 10), "SELECT v FROM items LIMIT 5");
+  assert.equal(applyServerRowCap("UPDATE items SET v = 1", 10), "UPDATE items SET v = 1");
+  assert.equal(applyServerRowCap("SELECT 'LIMIT 5' AS v -- LIMIT 9\n", 10), "SELECT 'LIMIT 5' AS v LIMIT 11 -- LIMIT 9\n");
+});
+
+test("runQueryViaPool envia cap limit+1 ao cursor e preserva rowsMoreAvailable", async () => {
+  const calls: string[] = [];
+  const queryClient = {
+    query(query: PgQuery) {
+      const text = (query as unknown as { text: string }).text;
+      calls.push(text);
+      queueMicrotask(() => {
+        if (text.startsWith("FETCH 2")) {
+          query.emit("end", {
+            rows: [{ v: 1 }, { v: 2 }],
+            fields: [{ name: "v", dataTypeID: 23 }],
+            rowCount: 2,
+          } as never);
+        } else if (text.startsWith("FETCH 1")) {
+          query.emit("end", { rows: [{ v: 3 }], fields: [], rowCount: 1 } as never);
+        } else {
+          query.emit("end", { rows: [], fields: [], rowCount: null } as never);
+        }
+      });
+      return query;
+    },
+    release: () => undefined,
+  } as unknown as PoolClient;
+  const fakePool = { connect: async () => queryClient } as unknown as Pool;
+
+  const result = await runQueryViaPool(fakePool, "SELECT v FROM items ORDER BY v", 2);
+
+  assert.match(calls[0] ?? "", /SELECT v FROM items ORDER BY v LIMIT 3$/);
+  assert.deepEqual(result.rows, [[1], [2]]);
+  assert.equal(result.rowsMoreAvailable, true);
+});
+
+test("runQueryViaPool não reescreve UPDATE no fallback sem cursor", async () => {
+  const calls: string[] = [];
+  const queryClient = {
+    query(query: PgQuery) {
+      const text = (query as unknown as { text: string }).text;
+      calls.push(text);
+      queueMicrotask(() => {
+        if (text.startsWith("DECLARE")) query.emit("error", { code: "42601" } as never);
+        else query.emit("end", { rows: [], fields: [], rowCount: 1 } as never);
+      });
+      return query;
+    },
+    release: () => undefined,
+  } as unknown as PoolClient;
+  const fakePool = { connect: async () => queryClient } as unknown as Pool;
+
+  const result = await runQueryViaPool(fakePool, "UPDATE items SET v = 1", 10);
+
+  assert.equal(calls[0]?.includes("LIMIT"), false);
+  assert.equal(calls[1], "UPDATE items SET v = 1");
+  assert.equal(result.rowsAffected, 1);
 });
 
 test("test() retorna ok:false quando não consegue conectar", async () => {
