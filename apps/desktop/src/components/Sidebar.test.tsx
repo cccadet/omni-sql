@@ -193,3 +193,29 @@ test("moves dragged connection into folder drop target", () => {
   assert.equal(dataTransfer.setData.mock.calls[0]?.[0], "text/plain");
   assert.deepEqual(onMoveConnection.mock.calls[0], ["conn-1", "group-1"]);
 });
+
+test("moves dragged connection when dropped on visible folder row", () => {
+  const onMoveConnection = vi.fn(async () => undefined);
+  const view = renderWithLanguage(
+    <Sidebar
+      connections={[{ id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" }]}
+      connectionGroups={[{ id: "group-1", name: "Analytics" }]}
+      onMoveConnection={onMoveConnection}
+    />,
+  );
+
+  const dataTransfer = {
+    effectAllowed: "none",
+    dropEffect: "none",
+    setData: vi.fn(),
+    getData: vi.fn(() => "conn-1"),
+  };
+  const connectionRow = screen.getByRole("option", { name: "Local" }).parentElement;
+  const folderRow = view.container.querySelector<HTMLDivElement>(".omni-folder-row");
+  if (!connectionRow || !folderRow) throw new Error("Connection drag targets not found");
+  fireEvent.dragStart(connectionRow, { dataTransfer });
+  fireEvent.dragOver(folderRow, { dataTransfer });
+  fireEvent.drop(folderRow, { dataTransfer });
+
+  assert.deepEqual(onMoveConnection.mock.calls[0], ["conn-1", "group-1"]);
+});
