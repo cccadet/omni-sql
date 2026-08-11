@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { ConnectionPool, Request } from "mssql";
 import { MssqlAdapter } from "./index.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
@@ -39,6 +40,54 @@ test("test() retorna ok:false quando não consegue conectar", async () => {
   assert.equal(t.ok, false);
   assert.ok(t.message);
   await a.close();
+});
+
+test("cancelRunning cancela Request ativo e não limpa Request mais novo", async () => {
+  let firstStarted!: () => void;
+  let secondStarted!: () => void;
+  let finishFirst!: () => void;
+  let rejectSecond!: (error: Error) => void;
+  let cancelCalls = 0;
+  let requestNumber = 0;
+
+  const firstRequest = {
+    arrayRowMode: false,
+    query: async () => {
+      firstStarted();
+      await new Promise<void>((resolve) => { finishFirst = resolve; });
+      return { recordset: [], rowsAffected: [] };
+    },
+    cancel: () => { cancelCalls += 1; },
+  } as unknown as Request;
+  const secondRequest = {
+    arrayRowMode: false,
+    query: async () => {
+      secondStarted();
+      await new Promise<never>((_resolve, reject) => { rejectSecond = reject; });
+    },
+    cancel: () => {
+      cancelCalls += 1;
+      rejectSecond(new Error("query cancelled"));
+    },
+  } as unknown as Request;
+  const pool = {
+    request: () => requestNumber++ === 0 ? firstRequest : secondRequest,
+  } as unknown as ConnectionPool;
+  const a = new MssqlAdapter(cfg());
+  (a as unknown as { poolPromise: Promise<ConnectionPool> | null }).poolPromise = Promise.resolve(pool);
+
+  const firstRun = a.runQuery("SELECT 1", 10);
+  await new Promise<void>((resolve) => { firstStarted = resolve; });
+  const secondRun = a.runQuery("SELECT 2", 10);
+  await new Promise<void>((resolve) => { secondStarted = resolve; });
+
+  finishFirst();
+  await firstRun;
+  await a.cancelRunning();
+  await assert.rejects(secondRun, /query cancelled/);
+  await a.cancelRunning();
+
+  assert.equal(cancelCalls, 1);
 });
 
 if (MSSQL_CONN) {

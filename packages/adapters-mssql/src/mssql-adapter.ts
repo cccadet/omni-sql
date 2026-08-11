@@ -1,4 +1,4 @@
-import sql, { type ConnectionPool, type config as MssqlConfig } from "mssql";
+import sql, { type ConnectionPool, type config as MssqlConfig, type Request } from "mssql";
 import type {
   ConnectionConfig,
   ExplainResult,
@@ -33,6 +33,7 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
   private readonly poolConfig: MssqlConfig;
   private poolPromise: Promise<ConnectionPool> | null = null;
+  private activeRequest: Request | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -101,7 +102,19 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
   async runQuery(sqlText: string, limit: number): Promise<QueryResult> {
     const pool = await this.getPool();
-    return runQueryViaPool(pool, sqlText, limit);
+    let request: Request | null = null;
+    try {
+      return await runQueryViaPool(pool, sqlText, limit, (activeRequest) => {
+        request = activeRequest;
+        this.activeRequest = activeRequest;
+      });
+    } finally {
+      if (this.activeRequest === request) this.activeRequest = null;
+    }
+  }
+
+  async cancelRunning(): Promise<void> {
+    this.activeRequest?.cancel();
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {

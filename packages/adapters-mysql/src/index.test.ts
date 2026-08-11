@@ -1,7 +1,9 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MysqlAdapter } from "./index.ts";
+import { test } from "node:test";
+import type { FieldPacket, Pool, PoolConnection, QueryOptions } from "mysql2/promise";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
+import { cancelQueryViaPool, runQueryViaPool } from "./introspection.ts";
+import { MysqlAdapter } from "./index.ts";
 
 // Sem docker/MySQL local: smoke só valida construção + recusa de dial.
 // Em CI/uso local, setar `MYSQL_TEST_CONNECTION_STRING` para acionar testes reais.
@@ -43,6 +45,99 @@ test("test() retorna ok:false quando não consegue conectar", async () => {
   assert.equal(t.ok, false);
   assert.ok(t.message);
   await a.close();
+});
+
+test("runQuery mantém conexão ativa e cancelQuery usa outra conexão", async () => {
+  let releaseQuery!: () => void;
+  const queryFinished = new Promise<void>((resolve) => {
+    releaseQuery = resolve;
+  });
+  let queryStarted!: () => void;
+  const queryStartedPromise = new Promise<void>((resolve) => {
+    queryStarted = resolve;
+  });
+  const calls: Array<{ sql: string; values?: unknown[] }> = [];
+  let releasedQuery = false;
+  let releasedKiller = false;
+  const fields = [{ name: "v", type: 3 }] as FieldPacket[];
+  const queryConnection = {
+    threadId: 42,
+    query: async (_options: QueryOptions): Promise<[unknown, FieldPacket[]]> => {
+      queryStarted();
+      await queryFinished;
+      return [[[1], [2]], fields];
+    },
+    release: () => {
+      releasedQuery = true;
+    },
+  } as unknown as PoolConnection;
+  const killerConnection = {
+    query: async (sql: string, values?: unknown[]): Promise<void> => {
+      calls.push({ sql, values });
+    },
+    release: () => {
+      releasedKiller = true;
+    },
+  } as unknown as PoolConnection;
+  const connections: PoolConnection[] = [queryConnection, killerConnection];
+  const pool = {
+    getConnection: async (): Promise<PoolConnection> => connections.shift()!,
+  } as unknown as Pool;
+  const token = Symbol();
+  let active: { token: symbol; threadId: number } | null = null;
+
+  const resultPromise = runQueryViaPool(pool, "SELECT v", 1, (connection) => {
+    active = { token, threadId: connection.threadId };
+    return () => {
+      active = null;
+    };
+  });
+  await queryStartedPromise;
+  assert.equal(releasedQuery, false);
+
+  assert.equal(await cancelQueryViaPool(pool, 42, () => active?.token === token), true);
+  assert.deepEqual(calls, [{ sql: "KILL QUERY ?", values: [42] }]);
+  assert.equal(releasedKiller, true);
+
+  releaseQuery();
+  const result = await resultPromise;
+  assert.deepEqual(result.rows, [[1]]);
+  assert.equal(result.rowsMoreAvailable, true);
+  assert.equal(releasedQuery, true);
+  assert.equal(active, null);
+});
+
+test("cancelQuery ignora token obsoleto antes de KILL QUERY", async () => {
+  let releaseKiller!: () => void;
+  const killerReady = new Promise<void>((resolve) => {
+    releaseKiller = resolve;
+  });
+  const calls: Array<{ sql: string; values?: unknown[] }> = [];
+  let releasedKiller = false;
+  const killerConnection = {
+    query: async (sql: string, values?: unknown[]): Promise<void> => {
+      calls.push({ sql, values });
+    },
+    release: () => {
+      releasedKiller = true;
+    },
+  } as unknown as PoolConnection;
+  const pool = {
+    getConnection: async (): Promise<PoolConnection> => {
+      await killerReady;
+      return killerConnection;
+    },
+  } as unknown as Pool;
+  const token = Symbol();
+  let currentToken: symbol | null = token;
+
+  const cancellation = cancelQueryViaPool(pool, 42, () => currentToken === token);
+  currentToken = Symbol();
+  releaseKiller();
+
+  assert.equal(await cancellation, false);
+  assert.deepEqual(calls, []);
+  assert.equal(releasedKiller, true);
 });
 
 if (MYSQL_CONN) {

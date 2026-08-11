@@ -58,6 +58,8 @@ vi.mock("./components/Editor", async () => {
 const call = vi.mocked(backend.call);
 let runError: Error | null;
 let diagnosis: { message: string; severity: "error"; start: number; end: number; source: "database" }[];
+let blockQueryRun: boolean;
+let rejectBlockedQueryRun: ((reason?: unknown) => void) | null;
 
 function seedSession(sql: string, queryLimit = 1000, connectionId: string | null = null) {
   localStorage.setItem("omni-sql:session", JSON.stringify({
@@ -96,11 +98,13 @@ beforeEach(() => {
   localStorage.clear();
   runError = null;
   diagnosis = [];
+  blockQueryRun = false;
+  rejectBlockedQueryRun = null;
   editorMockState.selection = null;
   vi.mocked(getVersion).mockResolvedValue("0.1.0");
   vi.mocked(listen).mockResolvedValue(() => undefined);
   call.mockReset();
-  call.mockImplementation(async (method) => {
+  call.mockImplementation(async (method, _params, signal) => {
     switch (method) {
       case "mcp.ui.next":
         throw new Error("MCP UI polling disabled in test");
@@ -121,6 +125,12 @@ beforeEach(() => {
       case "metadata.listFunctions":
         return { functions: [] };
       case "query.run":
+        if (blockQueryRun) {
+          return new Promise<never>((_resolve, reject) => {
+            rejectBlockedQueryRun = reject;
+            signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+          });
+        }
         if (runError) {
           diagnosis = [{ message: "syntax error", severity: "error", start: 0, end: 1, source: "database" }];
           throw runError;
@@ -158,9 +168,25 @@ describe("App execution flow", () => {
       connectionId: "conn-1",
       sql: "SELECT 1",
       limit: 1000,
-    }));
+    }, expect.any(AbortSignal)));
     expect(await screen.findByText("42")).toBeTruthy();
     expect(screen.getByText("1 of 1 rows")).toBeTruthy();
+  });
+
+  it("cancels active query from toolbar", async () => {
+    blockQueryRun = true;
+    renderApp();
+
+    await connectToDatabase();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    const cancel = await screen.findByRole("button", { name: "Cancel" });
+
+    fireEvent.click(cancel);
+    fireEvent.click(cancel);
+
+    await waitFor(() => expect(call).toHaveBeenCalledWith("query.cancel", { connectionId: "conn-1" }));
+    expect(call.mock.calls.filter(([method]) => method === "query.cancel")).toHaveLength(1);
+    expect(rejectBlockedQueryRun).toBeTruthy();
   });
 
   it("restores a persisted connection from the listed connections", async () => {
@@ -183,7 +209,7 @@ describe("App execution flow", () => {
       connectionId: "conn-1",
       sql: "SELECT 1",
       limit: 1000,
-    }));
+    }, expect.any(AbortSignal)));
   });
 
   it("runs all statements when editor requests it", async () => {
@@ -197,7 +223,7 @@ describe("App execution flow", () => {
       connectionId: "conn-1",
       sql: "SELECT 1;\nSELECT 2",
       limit: 1000,
-    }));
+    }, expect.any(AbortSignal)));
   });
 
   it("collects variables before running and substitutes submitted values", async () => {
@@ -216,7 +242,7 @@ describe("App execution flow", () => {
       connectionId: "conn-1",
       sql: "SELECT * FROM users WHERE id = '42'",
       limit: 1000,
-    }));
+    }, expect.any(AbortSignal)));
   });
 
   it("sends configured query limit", async () => {
@@ -230,7 +256,7 @@ describe("App execution flow", () => {
       connectionId: "conn-1",
       sql: "SELECT 1",
       limit: 500,
-    }));
+    }, expect.any(AbortSignal)));
   });
 
   it("shows execution errors in result messages", async () => {
@@ -245,7 +271,7 @@ describe("App execution flow", () => {
       connectionId: "conn-1",
       sql: "SELECT 1",
       limit: 1000,
-    });
+    }, expect.any(AbortSignal));
     await waitFor(() => expect(call).toHaveBeenCalledWith("query.diagnose", {
       connectionId: "conn-1",
       sql: "SELECT 1",
