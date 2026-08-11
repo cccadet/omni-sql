@@ -14,10 +14,16 @@ coverage
 !.env.example
 
 # Agent / IDE local state
-.serena/
+.serena/*
+!.serena/memories/
+.serena/memories/**/*
+!.serena/memories/**/
+!.serena/memories/**/*.md
 .codebase-memory/
 .headroom/
 .tokensave/
+.mimocode/
+.cursorrules
 .slim/deepwork/
 node
 .cache/omni-sql-runtimes/

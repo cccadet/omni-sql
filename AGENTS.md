@@ -1,120 +1,90 @@
 # AGENTS.md — omni-sql
 
-One IDE for every database. Multi-database SQL IDE with intelligent
-autocomplete (no LLM in v1). See `PROJECT_PLAN.md` for the full roadmap.
+One IDE for every database. Multi-database SQL IDE with contextual autocomplete
+(no LLM in v1). See `PROJECT_PLAN.md` for roadmap.
 
 ## Stack
 - **Shell:** Tauri (Rust) — `apps/desktop/src-tauri`
-- **Frontend:** TypeScript + React 19 + Fluent UI React v9 + Monaco Editor — `apps/desktop/src`
-- **Backend:** Node (TypeScript) — HTTP JSON-RPC — `packages/backend`
-- **Parser/Validator (Fase 3):** JVM sidecar (Kotlin) com Apache Calcite — colunas de CTE via `/scope/resolve` ✅; `CalciteSchemaAdapter` com schema/tipos reais TODO
-- **Cache:** SQLite embutido (`node:sqlite` builtin, Node 22+) — `packages/metadata-cache`
-- **Oracle:** thin mode por default (sem instant client) — real desde Fase 4
-- **MySQL/MariaDB:** driver `mysql2/promise` compartilhado (protocolo de fio
-  compatível) — Fase 4
-- **SQL Server:** driver `mssql`/Tedious, `SET SHOWPLAN_XML` numa transaction
-  própria no lugar de `EXPLAIN` — Fase 4
-- **MongoDB:** deferido para v2
+- **Frontend:** TypeScript + React 19 + Fluent UI React v9 + Monaco — `apps/desktop/src`
+- **Backend:** Node/TypeScript HTTP JSON-RPC — `packages/backend`
+- **MCP:** stdio and Streamable HTTP — `packages/mcp-server`; backend bridge also serves `/mcp`
+- **Parser/scope:** Kotlin JVM sidecar with Apache Calcite; CTE scope via `/scope/resolve`
+- **Cache:** SQLite builtin `node:sqlite` — `packages/metadata-cache`
+- **Drivers:** PostgreSQL `pg`; MySQL/MariaDB `mysql2/promise`; SQL Server `mssql`/Tedious;
+  Oracle `oracledb` thin mode; generic JDBC adapter also present
+- PostgreSQL metadata uses `information_schema` and `pg_catalog`; query execution uses
+  server-side cursors and `EXPLAIN (FORMAT JSON)`. SQL Server plans use `SET SHOWPLAN_XML`
+  in a separate transaction.
+- **MongoDB:** deferred to v2
 
 ## Monorepo (pnpm workspaces)
 ```
-apps/desktop                Tauri shell + React + Fluent UI + Monaco
-apps/desktop/src-tauri      Rust shell (spawns Node backend sidecar)
-packages/ts-types                Modelo unificado + contratos
-packages/dialect-descriptors     Descritores por dialeto (lexer consome)
-packages/adapters-core           Interface Adapter + registry
-packages/adapters-pg             Adaptador PostgreSQL real (driver `pg`)
-packages/adapters-mysql          Adaptador MySQL/MariaDB real (driver `mysql2/promise`)
-packages/adapters-mssql          Adaptador SQL Server real (driver `mssql`/Tedious)
-packages/adapters-oracle         Adaptador Oracle real (driver `oracledb` thin mode)
-packages/autocomplete-engine     Lexer tier1 + provider de autocomplete
-packages/metadata-cache          Cache SQLite (`node:sqlite` builtin) + last_synced_at
-packages/backend                 Node HTTP JSON-RPC (handlers + protocol)
-services/jvm-sidecar             Kotlin/Gradle + Calcite: /health, /scope/resolve (colunas de CTE)
+apps/desktop                 Tauri shell + React + Fluent UI + Monaco
+apps/desktop/src-tauri       Rust shell; spawns Node backend sidecar
+packages/ts-types            Unified model and contracts
+packages/dialect-descriptors Dialect descriptors consumed by lexer
+packages/adapters-core       Adapter interface and registry
+packages/adapters-pg         PostgreSQL adapter (`pg`)
+packages/adapters-mysql      MySQL/MariaDB adapter (`mysql2/promise`)
+packages/adapters-mssql      SQL Server adapter (`mssql`/Tedious)
+packages/adapters-oracle    Oracle adapter (`oracledb` thin mode)
+packages/adapters-jdbc      Generic JDBC adapter
+packages/autocomplete-engine Lexer and contextual autocomplete provider
+packages/metadata-cache      SQLite metadata cache and `last_synced_at`
+packages/backend             Node HTTP JSON-RPC handlers and protocol
+packages/mcp-server          MCP stdio/Streamable HTTP server
+services/jvm-sidecar         Kotlin/Gradle + Calcite: `/health`, `/scope/resolve`
 ```
 
-## Comandos
+## Commands
+- **Package manager:** pnpm 11.17.0 (`package.json#packageManager`)
 - **Typecheck:** `pnpm -r typecheck`
-- **Lint:** `pnpm -r lint` (ESLint 9 flat config em `eslint.config.js`)
-- **Test:** `pnpm -r test` (Node `--test` no backend/pacotes; Vitest no `apps/desktop` por causa de jsdom + Fluent UI ESM)
-- **Full verify:** `pnpm verify`  →  typecheck && lint && test
-- **Install:** `pnpm install`  (esbuild é aprovado em `pnpm-workspace.yaml#allowBuilds`)
-- **Frontend dev (Vite standalone):** `pnpm dev:frontend`  (\>porta 1420)
-- **Backend dev (HTTP JSON-RPC):** `pnpm dev:backend`  (\>porta 41920)
-- **Tauri dev (full desktop):** `pnpm dev:tauri`  (spawns backend + Vite together)
+- **Lint:** `pnpm -r lint` (ESLint 9 flat config in `eslint.config.js`)
+- **Test:** `pnpm -r test` (Node `--test` for backend/packages; Vitest for `apps/desktop`)
+- **Full verify:** `pnpm verify` (typecheck, lint, test)
+- **Install:** `pnpm install`
+- **Frontend dev:** `pnpm dev:frontend` (port 1420)
+- **Backend dev:** `pnpm dev:backend` (port 41920)
+- **Tauri dev:** `pnpm dev:tauri`
 - **Rust check:** `cd apps/desktop/src-tauri && cargo check`
 
-## Convenções
-- **TypeScript:** strict, noUncheckedIndexedAccess, noImplicitOverride,
-  allowImportingTsExtensions, target ES2022, module ESNext, moduleResolution
-  Bundler. Ver `tsconfig.base.json`.
-- **ESLint:** flat config (`eslint.config.js`), TypeScript-ESLint recommended.
-- **React:** functional components + hooks; React 19 sem experimental APIs.
-- **Node tests:** `node --test --import ./path.test.ts` — sem runner externo. O frontend `apps/desktop` usa Vitest (jsdom + Fluent UI ESM).
-- **Paths:** imports entre pacotes usam sempre `workspace:*` e a extensão `.ts`.
-- **Comunicação:** Tauri ↔ Node backend = JSON-RPC sobre HTTP localhost:41920.
-  Contratos em `packages/backend/src/protocol.ts` (RpcRouter type-safe).
+Native build approvals in `pnpm-workspace.yaml#allowBuilds`: `esbuild`,
+`@sveltejs/vite-plugin-svelte`, and `oracledb`. Svelte plugin approval is
+stale/legacy; current frontend uses React, not Svelte.
 
-## Estado atual (F0 ✅ + F1 ✅ + F2 ✅ + F3 ✅ + F4 ✅ + F5 ✅ + F6 ✅ + CI ✅ + Spike JVM ✅)
-- ✅ Toolchain local: Node 26, pnpm 11.10, rustup stable 1.96, tauri-cli 2.11.4.
-- ✅ Monorepo com 8 pacotes TS + 1 Tauri shell Rust + 1 spike Kotlin sidecar.
-- ✅ Lexer tier1 do autocomplete cobre casos 1-6 da suíte (8 casos planejados).
-- ✅ Smoke test E2E via JSON-RPC em `packages/backend/test/smoke.test.ts`.
-- ✅ `packages/metadata-cache` via `node:sqlite` builtin (não `better-sqlite3` —
-  este último quebra em Node 26 por mudanças no V8).
-- ✅ `packages/adapters-pg` real: driver `pg`, `information_schema` + `pg_catalog`,
-  pool de 4 conns, server-side cursor para runQuery, `EXPLAIN (FORMAT JSON)`.
-- ✅ `services/jvm-sidecar` spike Kotlin/Gradle mínimo com `/health` HTTP na
-  porta 41921 — bootstrap via `bootstrap.sh` (baixa gradle-wrapper).
-- ✅ CI GitHub Actions: `pnpm verify` + `cargo check` com cache de crates.
-- ✅ `pnpm verify` green (0 erros, ~25 testes pass + 2 todo + 1 skip condicional).
-- ✅ Migração do frontend de Svelte 5 para React 19 + Fluent UI React v9 completa:
-  `Toolbar`, `Sidebar`, `TabBar`, `Editor`, `ResultsGrid`, `StatusBar`,
-  `ConnectionDialog`, `FormatSettings`, `HistoryPanel`, `VariablesDialog`.
-- ✅ Keyring: backend Node usa `@napi-rs/keyring` (Windows/macOS/Linux) para senhas;
-  fallback dev via arquivo quando `OMNI_SQL_DEV_KEYRING_FILE`/`OMNI_SQL_DEV_KEYRING=1`.
-- ✅ Persistência de conexões: lista de conexões é restaurada do SQLite no boot do backend,
-  com senhas recuperadas do keyring e adaptadores reidratados automaticamente.
-- ✅ Persistência de sessão no frontend: abas, histórico de queries e tema
-  salvos/restaurados do `localStorage`.
-- ✅ Formatter SQL no editor (`apps/desktop/src/components/FormatSettings.tsx`): usa
-  `sql-formatter` com dialeto detectado pela conexão ativa, atalho padrão
-  `Ctrl+Alt+L` (configurável) e persistência das preferências no `localStorage`.
-- ✅ Editor avançado: split de statements, execução de instrução atual (`Ctrl+Enter`)
-  vs. todas (`Ctrl+Shift+Enter`), variáveis `:nome` com modal, autocomplete via
-  backend `completion.get`, atalhos `Ctrl+S` e `Ctrl+Alt+L`.
-- ✅ ResultsGrid avançado: ordenação, filtro global, paginação client-side, export
-  CSV, edição inline via PK, sub-abas Dados/Mensagens/Plano e EXPLAIN integrado.
-- ✅ Tela branca no Linux/Wayland (dev): medida preventiva em `lib.rs` define
-  `LIBGL_ALWAYS_SOFTWARE=1` em builds de debug para evitar falhas EGL/ZINK
-  (`failed to choose pdev`, `failed to create dri2 screen`) em ambientes
-  virtuais/headless; não afeta releases.
+## Conventions
+- **TypeScript:** strict, `noUncheckedIndexedAccess`, `noImplicitOverride`,
+  `allowImportingTsExtensions`, target ES2022, ESNext modules, Bundler resolution;
+  see `tsconfig.base.json`.
+- **ESLint:** flat config with TypeScript-ESLint recommended rules.
+- **React:** functional components and hooks; no experimental React 19 APIs.
+- **Tests:** Node `--test --import ./path.test.ts`; frontend uses Vitest/jsdom.
+- **Paths:** cross-package imports use `workspace:*` and `.ts` extensions.
+- **Communication:** Tauri ↔ Node backend uses type-safe JSON-RPC over HTTP at
+  `localhost:41920`; contracts live in `packages/backend/src/protocol.ts`.
 
-## Fase 3 — Calcite (colunas de CTE)
-- ✅ **Apache Calcite** adicionado a `services/jvm-sidecar/build.gradle.kts`
-  (`org.apache.calcite:calcite-core:1.37.0`); fat-jar exclui `META-INF/*.SF|RSA|DSA|EC`
-  (dependências assinadas do Calcite quebravam `java -jar` sem essa exclusão).
-- ✅ **`dev.omnisql.sidecar.scope.ScopeResolver` + `/scope/resolve`:** resolve
-  colunas de CTE sem tolerant-parse do statement inteiro — o corpo de cada CTE
-  (`AS (...)`) é isolado via varredura textual balanceada (`CteTextScanner`) e
-  parseado isoladamente pelo Calcite; a query externa (que costuma estar
-  incompleta enquanto o usuário digita) nem entra no parser. Testes:
-  `services/jvm-sidecar/src/test/kotlin/.../ScopeResolverTest.kt` (7 casos,
-  incluindo a query real do bug reportado).
-- ✅ **`packages/backend/src/sidecar-client.ts`:** chama `/scope/resolve` com
-  timeout de 250ms; `completion.get` injeta as colunas resolvidas como
-  `Relation`s sintéticas em `metaSourceOf` (CTEs sombreiam tabelas reais de
-  mesmo nome), então o tier1 (`autocompleteTier1`) resolve `FROM cte` /
-  `cte.<cursor>` sem mudança nenhuma no `engine.ts`. Falha do sidecar
-  (indisponível/timeout/JSON inválido) sempre faz `completion.get` cair de
-  volta pro tier1 puro — nunca quebra o autocomplete.
-- ⏳ **Ainda TODO:** `CalciteSchemaAdapter` com schema/catálogo real (tipos de
-  coluna, expansão de `SELECT *`, validação completa) — hoje `/scope/resolve`
-  só infere NOMES de coluna via `SqlValidatorUtil.getAlias`, sintaticamente.
-  Decisão Calcite vs ANTLR nem chegou a ser necessária: o parse tolerante do
-  statement inteiro (`SqlParser.parseStatementFragment` + recovery custom)
-  foi evitado inteiramente para este caso — só voltaria à mesa se precisarmos
-  resolver escopo de subqueries correlacionadas (fora do que o bug pedia).
+## Current status
+- Contextual autocomplete uses lexer context plus metadata. CTE names/columns are
+  resolved through Calcite `/scope/resolve` and injected by backend `completion.get`;
+  case 8 remains TODO.
+- Backend exposes `query.cancel` and bounded `query.run` database row limits;
+  adapters cancel active work where driver support exists.
+- MCP Streamable HTTP is implemented in `packages/mcp-server`, with authenticated
+  `/mcp` transport, bounded payloads, sessions, and UI bridge handlers.
+- Frontend editor supports statement splitting, current/all execution, variables,
+  backend completion, save, and SQL formatting via `sql-formatter` with configurable
+  shortcuts. ResultsGrid supports
+  sorting, global filtering, client pagination, CSV export, PK inline edits,
+  Data/Messages/Plan tabs, and EXPLAIN.
+- Keyring uses `@napi-rs/keyring`; development file fallback requires
+  `OMNI_SQL_DEV_KEYRING_FILE` or `OMNI_SQL_DEV_KEYRING=1`.
+- Connections restore from SQLite with keyring passwords and rehydrated adapters;
+  frontend tabs, query history, and theme persist in `localStorage`.
+- JVM sidecar isolates each CTE body with balanced `CteTextScanner` and parses it
+  with Calcite, avoiding tolerant parsing of incomplete outer statements. Sidecar
+  failure, timeout, or invalid JSON falls back to tier1 autocomplete.
+- TODO: `CalciteSchemaAdapter` with real schema/catalog types, `SELECT *` expansion,
+  and complete validation. Correlated subquery scope remains outside current scope.
 
 ## Memory persistida
 - Plano + decisões arquiteturais salvos no `mymem0ry` (project scope). Buscar
@@ -133,47 +103,3 @@ from past sessions — call `memory_search` first.
 facts — call `memory_save` to persist them for future sessions.
 
 Memory is your first source of truth for anything not visible in the current conversation.
-
-
-<!-- headroom:rtk-instructions -->
-# RTK (Rust Token Killer) - Token-Optimized Commands
-
-When running shell commands, **always prefix with `rtk`**. This reduces context
-usage by 60-90% with zero behavior change. If rtk has no filter for a command,
-it passes through unchanged — so it is always safe to use.
-
-## Key Commands
-```bash
-# Git (59-80% savings)
-rtk git status          rtk git diff            rtk git log
-
-# Files & Search (60-75% savings)
-rtk ls <path>           rtk read <file>         rtk grep <pattern>
-rtk find <pattern>      rtk diff <file>
-
-# Test (90-99% savings) — shows failures only
-rtk pytest tests/       rtk cargo test          rtk test <cmd>
-
-# Build & Lint (80-90% savings) — shows errors only
-rtk tsc                 rtk lint                rtk cargo build
-rtk prettier --check    rtk mypy                rtk ruff check
-
-# Analysis (70-90% savings)
-rtk err <cmd>           rtk log <file>          rtk json <file>
-rtk summary <cmd>       rtk deps                rtk env
-
-# GitHub (26-87% savings)
-rtk gh pr view <n>      rtk gh run list         rtk gh issue list
-
-# Infrastructure (85% savings)
-rtk docker ps           rtk kubectl get         rtk docker logs <c>
-
-# Package managers (70-90% savings)
-rtk pip list            rtk pnpm install        rtk npm run <script>
-```
-
-## Rules
-- In command chains, prefix each segment: `rtk git add . && rtk git commit -m "msg"`
-- For debugging, use raw command without rtk prefix
-- `rtk proxy <cmd>` runs command without filtering but tracks usage
-<!-- /headroom:rtk-instructions -->
