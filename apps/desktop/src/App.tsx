@@ -716,12 +716,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     [activeConnectionId, setTabs, selectTab],
   );
 
-  const openMcpTab = useCallback((args: { title: string; sql: string; connectionId?: string }) => {
-    const newTab = makeTab({ title: args.title, sql: args.sql, connectionId: args.connectionId ?? mcpStateRef.current.activeConnection?.id ?? null });
-    setTabs((prev) => [...prev, newTab]);
-    selectTab(newTab.id);
-    return true;
-  }, [selectTab, setTabs]);
 
   const getMcpSchemaSummary = useCallback(async (connectionId: string): Promise<McpToolResultByName["getSchemaSummary"]> => {
     if (mcpStateRef.current.activeConnection?.id !== connectionId) {
@@ -801,7 +795,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const bridge = new McpUiBridge({
       readState: () => ({ ...mcpStateRef.current, editor: editorRef.current }),
       getSchemaSummary: getMcpSchemaSummary,
-      openTab: openMcpTab,
       proposeEdit: proposeMcpEdit,
       onStatus: (status, error) => {
         setMcpStatus(status);
@@ -817,7 +810,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       mcpProposalResolverRef.current?.("rejected");
       mcpProposalResolverRef.current = null;
     };
-  }, [getMcpSchemaSummary, openMcpTab, proposeMcpEdit]);
+  }, [getMcpSchemaSummary, proposeMcpEdit]);
 
   const mcpActive = Boolean(mcpStatus?.uiConnected && (mcpStatus.queueSize > 0 || mcpStatus.inFlight > 0));
   const mcpState: McpVisualState = mcpError ? "error" : !mcpStarted ? "inactive" : mcpActive ? "connected" : "listening";

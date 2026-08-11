@@ -6,7 +6,6 @@ function setup(state: McpUiState) {
   return new McpUiBridge({
     readState: () => state,
     getSchemaSummary: vi.fn(async (connectionId) => ({ connectionId, schemas: [] })),
-    openTab: vi.fn(() => true),
     proposeEdit: vi.fn(async () => "approved" as const),
     onStatus: vi.fn(),
   }, "test-listener");
@@ -22,6 +21,8 @@ describe("MCP UI bridge tools", () => {
 
     await expect(bridge.handleRequest({ id: "1", tool: "getLatestSqlExecutionError", args: {}, expiresAt: Date.now() + 60_000 }))
       .resolves.toEqual({ error: null });
+    await expect(bridge.handleRequest({ id: "2", tool: "getActiveSql", args: {}, expiresAt: Date.now() + 60_000 }))
+      .resolves.toEqual({ sql: "SELECT 1", dialect: null });
   });
 
   it("exposes failed execution and clears it after successful execution", async () => {
@@ -49,24 +50,12 @@ describe("MCP UI bridge tools", () => {
       editor: { getAllText: () => "SELECT current", getSelectionOrCurrent: () => ({ sql: "SELECT current", start: 0 }) },
     });
 
-    await expect(bridge.handleRequest({ id: "1", tool: "getActiveSql", args: {}, expiresAt: Date.now() + 60_000 })).resolves.toEqual({ sql: "SELECT current" });
+    await expect(bridge.handleRequest({ id: "1", tool: "getActiveSql", args: {}, expiresAt: Date.now() + 60_000 })).resolves.toEqual({ sql: "SELECT current", dialect: "postgres" });
     await expect(bridge.handleRequest({ id: "2", tool: "getActiveConnectionContext", args: {}, expiresAt: Date.now() + 60_000 })).resolves.toEqual({
       connectionId: "opaque-id", label: "Warehouse", dialect: "postgres",
     });
   });
 
-  it("opens new tab without mutating existing tab", async () => {
-    const openTab = vi.fn(() => true);
-    const bridge = new McpUiBridge({
-      readState: () => ({ activeTab: { id: "old", title: "Old", sql: "SELECT old" }, activeConnection: null, editor: null }),
-      getSchemaSummary: vi.fn(async (connectionId) => ({ connectionId, schemas: [] })),
-      openTab,
-      proposeEdit: vi.fn(),
-      onStatus: vi.fn(),
-    }, "test-listener");
-    await expect(bridge.handleRequest({ id: "1", tool: "openSqlTab", args: { title: "New", sql: "SELECT new" }, expiresAt: Date.now() + 60_000 })).resolves.toEqual({ opened: true });
-    expect(openTab).toHaveBeenCalledWith({ title: "New", sql: "SELECT new" });
-  });
 
   it("returns exact grouped schema summary and rejects changed connection", async () => {
     let connectionId = "conn-1";
@@ -78,7 +67,6 @@ describe("MCP UI bridge tools", () => {
         if (changeDuringRead) connectionId = "conn-2";
         return { connectionId: id, schemas: [{ name: "public", relations: [] }] };
       }),
-      openTab: vi.fn(() => true),
       proposeEdit: vi.fn(),
       onStatus: vi.fn(),
     }, "test-listener");

@@ -46,7 +46,6 @@ export const MCP_TOOL_NAMES: readonly McpToolName[] = [
   "getActiveConnectionContext",
   "getSchemaSummary",
   "getLatestSqlExecutionError",
-  "openSqlTab",
   "proposeSqlEdit",
 ];
 
@@ -185,9 +184,20 @@ function resultRelationKind(value: unknown, label: string): "table" | "view" {
   return kind;
 }
 
+function resultDialect(value: unknown, label: string): McpToolResultByName["getActiveConnectionContext"]["dialect"] {
+  const dialect = resultString(value, label);
+  if (!MCP_DIALECT_NAMES.has(dialect)) {
+    throw new McpBridgeError("invalid", `${label} is invalid`);
+  }
+  return dialect as McpToolResultByName["getActiveConnectionContext"]["dialect"];
+}
+
 function validateActiveSqlResult(value: unknown): McpToolResultByName["getActiveSql"] {
-  const result = resultObject(value, ["sql"], ["sql"], "getActiveSql result");
-  return { sql: resultString(result.sql, "getActiveSql.sql", MCP_MAX_SQL_BYTES, true) };
+  const result = resultObject(value, ["sql", "dialect"], ["sql", "dialect"], "getActiveSql result");
+  return {
+    sql: resultString(result.sql, "getActiveSql.sql", MCP_MAX_SQL_BYTES, true),
+    dialect: result.dialect === null ? null : resultDialect(result.dialect, "getActiveSql.dialect"),
+  };
 }
 
 function validateActiveConnectionContextResult(value: unknown): McpToolResultByName["getActiveConnectionContext"] {
@@ -197,14 +207,10 @@ function validateActiveConnectionContextResult(value: unknown): McpToolResultByN
     ["connectionId", "label", "dialect"],
     "getActiveConnectionContext result",
   );
-  const dialect = resultString(result.dialect, "getActiveConnectionContext.dialect");
-  if (!MCP_DIALECT_NAMES.has(dialect)) {
-    throw new McpBridgeError("invalid", "getActiveConnectionContext.dialect is invalid");
-  }
   return {
     connectionId: resultString(result.connectionId, "getActiveConnectionContext.connectionId", MCP_MAX_CONNECTION_ID_BYTES),
     label: resultString(result.label, "getActiveConnectionContext.label", MCP_MAX_TITLE_BYTES),
-    dialect: dialect as McpToolResultByName["getActiveConnectionContext"]["dialect"],
+    dialect: resultDialect(result.dialect, "getActiveConnectionContext.dialect"),
   };
 }
 
@@ -261,11 +267,6 @@ function validateSchemaSummaryResult(value: unknown): McpToolResultByName["getSc
   };
 }
 
-function validateOpenSqlTabResult(value: unknown): McpToolResultByName["openSqlTab"] {
-  const result = resultObject(value, ["opened"], ["opened"], "openSqlTab result");
-  if (typeof result.opened !== "boolean") throw new McpBridgeError("invalid", "openSqlTab.opened must be boolean");
-  return { opened: result.opened };
-}
 
 function validateProposalResult(value: unknown): McpToolResultByName["proposeSqlEdit"] {
   const result = resultObject(value, ["approved"], ["approved"], "proposeSqlEdit result");
@@ -329,8 +330,6 @@ export function validateMcpToolResult<K extends McpToolName>(
       return validateSchemaSummaryResult(value) as McpToolResultByName[K];
     case "getLatestSqlExecutionError":
       return validateExecutionErrorResult(value) as McpToolResultByName[K];
-    case "openSqlTab":
-      return validateOpenSqlTabResult(value) as McpToolResultByName[K];
     case "proposeSqlEdit":
       return validateProposalResult(value) as McpToolResultByName[K];
   }
