@@ -315,6 +315,147 @@ export async function listFunctionsPerSchema(
 
 // ─────────────────────────── Query execution
 
+interface SqlToken {
+  readonly kind: "word" | "symbol";
+  readonly value: string;
+  readonly start: number;
+  readonly end: number;
+  readonly depth: number;
+}
+
+/**
+ * Adds a server-side cap only where appending PostgreSQL `LIMIT` is safe.
+ *
+ * This deliberately conservative lexer ignores strings, quoted identifiers,
+ * comments, and dollar-quoted bodies. It is not a SQL parser: unsupported or
+ * ambiguous statements stay unchanged rather than risking DML semantics.
+ */
+export function applyServerRowCap(sql: string, limit: number): string {
+  if (!Number.isSafeInteger(limit) || limit <= 0) return sql;
+
+  const tokens = tokenizeSql(sql);
+  if (!tokens) return sql;
+
+  const semicolons = tokens.filter((token) => token.value === ";" && token.depth === 0);
+  if (semicolons.length > 1) return sql;
+  const semicolon = semicolons[0];
+  const semicolonIndex = semicolon ? tokens.indexOf(semicolon) : -1;
+  const statementTokens = semicolon ? tokens.slice(0, semicolonIndex) : tokens;
+  if (semicolonIndex >= 0 && tokens.length > semicolonIndex + 1) return sql;
+  if (statementTokens.length === 0) return sql;
+
+  // Existing LIMIT/FETCH may be intentional, and DML can hide in a CTE.
+  if (statementTokens.some((token) => token.kind === "word" && (token.value === "limit" || token.value === "fetch"))) {
+    return sql;
+  }
+  if (statementTokens.some((token) => token.kind === "word" && ["insert", "update", "delete", "merge", "into"].includes(token.value))) {
+    return sql;
+  }
+
+  const command = statementTokens.find(
+    (token) => token.kind === "word" && token.depth === 0 && ["select", "values", "table"].includes(token.value),
+  );
+  if (!command || (statementTokens[0]?.value !== "select" && statementTokens[0]?.value !== "with" && statementTokens[0]?.value !== "values" && statementTokens[0]?.value !== "table")) {
+    return sql;
+  }
+
+  const lastToken = statementTokens[statementTokens.length - 1];
+  if (!lastToken) return sql;
+  return `${sql.slice(0, lastToken.end)} LIMIT ${limit + 1}${sql.slice(lastToken.end)}`;
+}
+
+function tokenizeSql(sql: string): SqlToken[] | null {
+  const tokens: SqlToken[] = [];
+  let depth = 0;
+  let i = 0;
+
+  while (i < sql.length) {
+    const char = sql[i]!;
+    if (/\s/.test(char)) {
+      i += 1;
+      continue;
+    }
+    if (char === "-" && sql[i + 1] === "-") {
+      i += 2;
+      while (i < sql.length && sql[i] !== "\n") i += 1;
+      continue;
+    }
+    if (char === "/" && sql[i + 1] === "*") {
+      i += 2;
+      let commentDepth = 1;
+      while (i < sql.length && commentDepth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          commentDepth += 1;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          commentDepth -= 1;
+          i += 2;
+        } else {
+          i += 1;
+        }
+      }
+      if (commentDepth > 0) return null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      const quote = char;
+      i += 1;
+      let closed = false;
+      while (i < sql.length) {
+        if (sql[i] === "\\") {
+          i += 2;
+        } else if (sql[i] === quote) {
+          if (sql[i + 1] === quote) {
+            i += 2;
+          } else {
+            i += 1;
+            closed = true;
+            break;
+          }
+        } else {
+          i += 1;
+        }
+      }
+      if (!closed) return null;
+      continue;
+    }
+    if (char === "$") {
+      const delimiter = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i))?.[0];
+      if (delimiter) {
+        const bodyStart = i + delimiter.length;
+        const bodyEnd = sql.indexOf(delimiter, bodyStart);
+        if (bodyEnd < 0) return null;
+        i = bodyEnd + delimiter.length;
+        continue;
+      }
+    }
+    if (/[A-Za-z_]/.test(char)) {
+      const start = i;
+      i += 1;
+      while (i < sql.length && /[A-Za-z0-9_$]/.test(sql[i]!)) i += 1;
+      tokens.push({ kind: "word", value: sql.slice(start, i).toLowerCase(), start, end: i, depth });
+      continue;
+    }
+    if (char === "(") {
+      tokens.push({ kind: "symbol", value: char, start: i, end: i + 1, depth });
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (char === ")") {
+      if (depth === 0) return null;
+      depth -= 1;
+      tokens.push({ kind: "symbol", value: char, start: i, end: i + 1, depth });
+      i += 1;
+      continue;
+    }
+    tokens.push({ kind: "symbol", value: char, start: i, end: i + 1, depth });
+    i += 1;
+  }
+
+  return depth === 0 ? tokens : null;
+}
+
 export async function runQueryViaPool(
   pool: Pool,
   sql: string,
@@ -323,6 +464,7 @@ export async function runQueryViaPool(
   onQuery?: (client: PoolClient, query: PgQuery) => (() => void) | undefined,
 ): Promise<QueryResult> {
   const t0 = Date.now();
+  const sqlForExecution = applyServerRowCap(sql, limit);
   // Use a named cursor on a borrowed client for server-side pagination.
   const client = await pool.connect();
   try {
@@ -332,12 +474,12 @@ export async function runQueryViaPool(
     onPid?.((client as unknown as { processID: number }).processID);
     const cursorName = `omni_q_${Math.random().toString(36).slice(2)}`;
     try {
-      await queryViaClient(client, `DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sql}`, onQuery);
+      await queryViaClient(client, `DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sqlForExecution}`, onQuery);
     } catch (e) {
       if (isQueryCancellation(e)) throw e;
       // Not every statement can back a cursor (SHOW, SET, DDL, plain DML
       // without RETURNING, etc.) — fall back to running it directly.
-      const res = await queryViaClient(client, sql, onQuery);
+      const res = await queryViaClient(client, sqlForExecution, onQuery);
       const cols: QueryResultColumn[] = (res.fields ?? []).map((f) => ({
         name: f.name,
         dataType: mapPgOidToDataType(f.dataTypeID),

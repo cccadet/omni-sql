@@ -298,9 +298,173 @@ export async function listFunctionsPerSchema(
 
 /**
  * MySQL não tem um análogo direto ao cursor server-side do Postgres via
- * driver `mysql2` sem entrar em streaming manual — roda a query inteira e
- * corta em memória. Aceitável em v1 (P99<100ms/10k linhas é meta de Fase 9).
+ * driver `mysql2`; leituras seguras recebem LIMIT parametrizado de limit+1,
+ * enquanto instruções sem rewrite seguro mantêm execução direta.
  */
+interface MysqlSqlToken {
+  readonly value: string;
+  readonly start: number;
+  readonly end: number;
+  readonly depth: number;
+}
+
+function isSqlIdentifierStart(char: string): boolean {
+  return /[A-Za-z_]/.test(char);
+}
+
+function isSqlIdentifierPart(char: string): boolean {
+  return /[A-Za-z0-9_$]/.test(char);
+}
+
+function skipMysqlQuoted(sql: string, start: number): number {
+  const quote = sql[start];
+  for (let i = start + 1; i < sql.length; i += 1) {
+    if (sql[i] === "\\") {
+      i += 1;
+      continue;
+    }
+    if (sql[i] !== quote) continue;
+    if (sql[i + 1] === quote) {
+      i += 1;
+      continue;
+    }
+    return i + 1;
+  }
+  return sql.length;
+}
+
+function isMysqlLineCommentStart(sql: string, index: number): boolean {
+  const char = sql[index];
+  if (char === "#") return true;
+  return char === "-" && sql[index + 1] === "-" && (sql[index + 2] === undefined || /\s/.test(sql[index + 2]!));
+}
+
+function tokenizeMysqlSql(sql: string): MysqlSqlToken[] {
+  const tokens: MysqlSqlToken[] = [];
+  let depth = 0;
+  let i = 0;
+  while (i < sql.length) {
+    const char = sql[i]!;
+    if (/\s/.test(char)) {
+      i += 1;
+      continue;
+    }
+    if (isMysqlLineCommentStart(sql, i)) {
+      const newline = sql.indexOf("\n", i + (char === "#" ? 1 : 2));
+      i = newline === -1 ? sql.length : newline + 1;
+      continue;
+    }
+    if (char === "/" && sql[i + 1] === "*") {
+      const commentEnd = sql.indexOf("*/", i + 2);
+      i = commentEnd === -1 ? sql.length : commentEnd + 2;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      const start = i;
+      i = skipMysqlQuoted(sql, i);
+      tokens.push({ value: "<quoted>", start, end: i, depth });
+      continue;
+    }
+    if (char === "(") {
+      tokens.push({ value: char, start: i, end: i + 1, depth });
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (char === ")") {
+      depth = Math.max(0, depth - 1);
+      tokens.push({ value: char, start: i, end: i + 1, depth });
+      i += 1;
+      continue;
+    }
+    if (char === ";" || char === ",") {
+      tokens.push({ value: char, start: i, end: i + 1, depth });
+      i += 1;
+      continue;
+    }
+    if (isSqlIdentifierStart(char)) {
+      const start = i;
+      i += 1;
+      while (i < sql.length && isSqlIdentifierPart(sql[i]!)) i += 1;
+      tokens.push({ value: sql.slice(start, i).toUpperCase(), start, end: i, depth });
+      continue;
+    }
+    tokens.push({ value: char, start: i, end: i + 1, depth });
+    i += 1;
+  }
+  return tokens;
+}
+
+function withMainStatement(tokens: readonly MysqlSqlToken[]): string | undefined {
+  let index = 1;
+  if (tokens[index]?.value === "RECURSIVE") index += 1;
+  while (index < tokens.length) {
+    while (index < tokens.length && !(tokens[index]!.value === "AS" && tokens[index]!.depth === 0)) index += 1;
+    if (index >= tokens.length || tokens[index + 1]?.value !== "(") return undefined;
+    const openingDepth = tokens[index + 1]!.depth;
+    index += 2;
+    while (index < tokens.length && !(tokens[index]!.value === ")" && tokens[index]!.depth === openingDepth)) index += 1;
+    if (index >= tokens.length) return undefined;
+    index += 1;
+    if (tokens[index]?.value === "," && tokens[index]?.depth === 0) {
+      index += 1;
+      continue;
+    }
+    return tokens[index]?.value;
+  }
+  return undefined;
+}
+
+function hasTopLevelToken(tokens: readonly MysqlSqlToken[], value: string): boolean {
+  return tokens.some((token) => token.depth === 0 && token.value === value);
+}
+
+function isReadQuery(tokens: readonly MysqlSqlToken[]): boolean {
+  const first = tokens[0]?.value;
+  const statement = first === "SELECT" ? "SELECT" : first === "WITH" ? withMainStatement(tokens) : undefined;
+  if (statement !== "SELECT") return false;
+
+  // Locking reads and SELECT ... INTO/PROCEDURE have syntax/side effects that
+  // make appending LIMIT at statement end unsafe.
+  if (hasTopLevelToken(tokens, "INTO") || hasTopLevelToken(tokens, "PROCEDURE")) return false;
+  return !tokens.some((token, index) =>
+    token.depth === 0 && token.value === "FOR" &&
+    (tokens[index + 1]?.value === "UPDATE" || tokens[index + 1]?.value === "SHARE"),
+  ) && !tokens.some((token, index) =>
+    token.depth === 0 && token.value === "LOCK" &&
+    tokens[index + 1]?.depth === 0 && tokens[index + 1]?.value === "IN" &&
+    tokens[index + 2]?.depth === 0 && tokens[index + 2]?.value === "SHARE",
+  );
+}
+
+function hasMultipleStatements(tokens: readonly MysqlSqlToken[]): boolean {
+  const semicolons = tokens.filter((token) => token.depth === 0 && token.value === ";");
+  return semicolons.length > 0 && (semicolons.length !== 1 || tokens.at(-1) !== semicolons[0]);
+}
+
+export interface PreparedMysqlQuery {
+  readonly sql: string;
+  readonly values?: number[];
+  readonly serverSideLimitApplied: boolean;
+}
+
+export function prepareMysqlQuery(sql: string, limit: number): PreparedMysqlQuery {
+  const tokens = tokenizeMysqlSql(sql);
+  if (tokens.length === 0 || hasMultipleStatements(tokens) || !isReadQuery(tokens) || hasTopLevelToken(tokens, "LIMIT")) {
+    return { sql, serverSideLimitApplied: false };
+  }
+
+  const delimiter = tokens.find((token) => token.depth === 0 && token.value === ";");
+  const lastToken = delimiter ? tokens[tokens.indexOf(delimiter) - 1] : tokens.at(-1);
+  if (!lastToken || lastToken.value === ";") return { sql, serverSideLimitApplied: false };
+
+  return {
+    sql: `${sql.slice(0, lastToken.end)} LIMIT ?${sql.slice(lastToken.end)}`,
+    values: [limit + 1],
+    serverSideLimitApplied: true,
+  };
+}
+
 export async function runQueryViaPool(
   pool: Pool,
   sql: string,
@@ -312,7 +476,13 @@ export async function runQueryViaPool(
   let cleanup: (() => void) | undefined;
   try {
     cleanup = onConnection?.(connection);
-    const [rowsOrHeader, fields]: [unknown, FieldPacket[]] = await connection.query({ sql, rowsAsArray: true });
+    const prepared = prepareMysqlQuery(sql, limit);
+    const queryOptions = {
+      sql: prepared.sql,
+      ...(prepared.values ? { values: prepared.values } : {}),
+      rowsAsArray: true,
+    };
+    const [rowsOrHeader, fields]: [unknown, FieldPacket[]] = await connection.query(queryOptions);
     const elapsedMs = Date.now() - t0;
 
     if (!Array.isArray(rowsOrHeader) || fields.length === 0) {
