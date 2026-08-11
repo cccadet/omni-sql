@@ -51,7 +51,11 @@ export interface StatusBarProps {
   mcpError?: string | null;
 }
 
-interface McpLauncherConfig { command: string; args: string[] }
+interface McpLauncherConfig {
+  command: string;
+  args: string[];
+  endpoint?: string;
+}
 
 function McpCopyButton({ value, label, copiedLabel }: { value: string; label: string; copiedLabel: string }) {
   const [copied, setCopied] = useState(false);
@@ -97,7 +101,8 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
   const healthColor = health === "offline" ? tokens.colorPaletteRedForeground1 : health === "online" ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteYellowForeground1;
   const mcpLabel = mcpState === "connected" ? t("mcpConnected") : mcpState === "error" ? t("mcpError") : mcpState === "listening" ? t("mcpListening") : t("mcpInactive");
   const mcpColor = mcpState === "connected" ? tokens.colorPaletteGreenForeground1 : mcpState === "error" ? tokens.colorPaletteRedForeground1 : mcpState === "listening" ? tokens.colorPaletteYellowForeground1 : tokens.colorNeutralForegroundOnBrand;
-  const configText = config ? JSON.stringify(config, null, 2) : "";
+  const mcpClientConnected = mcpState === "connected" || mcpStatus?.uiConnected === true;
+  const httpEndpoint = safeHttpEndpoint(config?.endpoint);
 
   const openMcp = () => {
     setMcpOpen(true);
@@ -218,17 +223,14 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
             <DialogContent style={{ display: "grid", gap: 12, overflowY: "auto", minHeight: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                 <Text weight="semibold" style={{ color: mcpColor, minWidth: 0, overflowWrap: "anywhere" }}>{mcpLabel}</Text>
-                <McpCopyButton value={mcpLabel} label={t("copyStatus")} copiedLabel={t("copied")} />
               </div>
-              {mcpState === "connected" ? (
+              {mcpClientConnected ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                   <Text style={{ minWidth: 0, overflowWrap: "anywhere" }}>{t("mcpActiveClient")} · {t("mcpQueue")}: {mcpStatus?.queueSize ?? 0}</Text>
-                  <McpCopyButton value={`${t("mcpActiveClient")} · ${t("mcpQueue")}: ${mcpStatus?.queueSize ?? 0}`} label={t("copyConnection")} copiedLabel={t("copied")} />
                 </div>
               ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                   <Text style={{ minWidth: 0, overflowWrap: "anywhere" }}>{t("mcpNoClient")}</Text>
-                  <McpCopyButton value={t("mcpNoClient")} label={t("copyConnection")} copiedLabel={t("copied")} />
                 </div>
               )}
               <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpStatusHelp")}</Text>
@@ -236,16 +238,21 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
               {(mcpError || configError) && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                   <Text style={{ color: tokens.colorPaletteRedForeground1, minWidth: 0, overflowWrap: "anywhere" }}>{mcpError ?? configError}</Text>
-                  <McpCopyButton value={mcpError ?? configError ?? ""} label={t("copyError")} copiedLabel={t("copied")} />
                 </div>
               )}
               {config && (
                 <div style={{ display: "grid", gap: 6 }}>
                   <Text weight="semibold">{t("configureClient")}</Text>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0 }}>
-                    <textarea readOnly aria-label={t("configureClient")} value={configText} style={{ minHeight: 120, minWidth: 0, flex: 1, boxSizing: "border-box", padding: 10, font: "12px ui-monospace, monospace", color: tokens.colorNeutralForeground1, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }} />
-                    <McpCopyButton value={configText} label={t("copyConfig")} copiedLabel={t("copied")} />
-                  </div>
+                  {httpEndpoint ? (
+                    <McpValue label={t("mcpHttpEndpoint")} value={httpEndpoint} copyLabel={t("copyEndpoint")} copiedLabel={t("copied")} />
+                  ) : (
+                    <>
+                      <McpValue label={t("mcpCommand")} value={config.command} copyLabel={t("copyCommand")} copiedLabel={t("copied")} />
+                      {config.args.map((arg, index) => (
+                        <McpValue key={`${index}-${arg}`} label={`${t("mcpArgument")} ${index + 1}`} value={arg} copyLabel={`${t("copyArgument")} ${index + 1}`} copiedLabel={t("copied")} />
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
             </DialogContent>
@@ -257,4 +264,25 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
       </Dialog>
     </footer>
   );
+}
+
+function McpValue({ label, value, copyLabel, copiedLabel }: { label: string; value: string; copyLabel: string; copiedLabel: string }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", alignItems: "center", gap: 8, minWidth: 0 }}>
+      <Text size={200} weight="semibold" style={{ minWidth: 0, overflowWrap: "anywhere" }}>{label}</Text>
+      <code style={{ minWidth: 0, overflowWrap: "anywhere", padding: "6px 8px", color: tokens.colorNeutralForeground1, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }}>{value}</code>
+      <McpCopyButton value={value} label={copyLabel} copiedLabel={copiedLabel} />
+    </div>
+  );
+}
+
+function safeHttpEndpoint(value?: string): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null;
+    return `${url.origin}${url.pathname || "/"}`;
+  } catch {
+    return null;
+  }
 }
