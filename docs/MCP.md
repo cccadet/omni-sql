@@ -1,18 +1,20 @@
 # Integração MCP local
 
-Omni SQL fornece servidor MCP local via STDIO. O servidor conversa somente com
-o backend autenticado em `127.0.0.1:41920`; não é um endpoint remoto.
+Omni SQL fornece servidor MCP local via STDIO (padrão). O servidor conversa
+somente com o backend autenticado em `127.0.0.1:41920`; não é um endpoint remoto
+por padrão. Streamable HTTP é opt-in e escuta apenas em loopback.
 
 ## Capacidades e limites
 
-As cinco ferramentas expostas são:
+As seis ferramentas expostas são:
 
 1. `getActiveSql`: lê SQL da aba ativa.
 2. `getActiveConnectionContext`: retorna contexto seguro da conexão ativa,
    sem senha ou credenciais.
 3. `getSchemaSummary`: retorna schemas, relações e colunas da conexão ativa.
-4. `openSqlTab`: abre uma aba com SQL fornecido; não executa SQL.
-5. `proposeSqlEdit`: apresenta proposta de edição para aprovação explícita no
+4. `getLatestSqlExecutionError`: retorna último erro de execução da aba ativa.
+5. `openSqlTab`: abre uma aba com SQL fornecido; não executa SQL.
+6. `proposeSqlEdit`: apresenta proposta de edição para aprovação explícita no
    desktop; rejeita estado obsoleto.
 
 Não há ferramenta para executar SQL, ler conexões arbitrárias, acessar senhas,
@@ -25,6 +27,28 @@ O backend mantém autenticação separada para MCP, bind em loopback, requests e
 respostas limitados, allowlists por ferramenta e fila limitada. O descritor de
 runtime contém uma capacidade temporária da execução atual: não abra, copie ou
 cole seu conteúdo.
+
+## Streamable HTTP e Secure MCP Tunnel
+
+Para habilitar:
+
+```bash
+OMNI_SQL_MCP_HTTP_TOKEN='<segredo separado>' \
+  node dist/index.js '<descritor>' --transport streamable-http
+```
+
+`OMNI_SQL_MCP_HTTP_TOKEN` autentica entrada HTTP. Não reutilize token do
+descritor: ele autentica ponte local com backend. Host CLI/env não-loopback é
+rejeitado; sessões têm limite pequeno e expiram por inatividade.
+
+Secure MCP Tunnel deve ser único limite público: fornecer HTTPS/autenticação
+pública, injetar `Authorization: Bearer <OMNI_SQL_MCP_HTTP_TOKEN>` no upstream e
+nunca expor segredo. Encaminhar para `http://127.0.0.1:41922/mcp` preservando
+métodos `POST`, `GET`, `DELETE`, headers `Mcp-Session-Id`,
+`Mcp-Protocol-Version`, `Last-Event-ID`, `Accept` e `Content-Type`, além de
+SSE/chunked streaming sem buffering ou reescrita. Não adicionar OAuth aqui;
+tunnel possui HTTPS/auth pública. Headers `Host`/`Origin` encaminhados podem ser
+do domínio público do tunnel; listener valida apenas formato e exige bearer.
 
 ## Inicialização e launcher real
 
@@ -86,6 +110,32 @@ strings de conexão ou conteúdo do descritor.
 
 Referência: [Codex — MCP](https://developers.openai.com/codex/extend/mcp).
 
+## Configuração do Claude Desktop
+
+Inicie Omni SQL e copie os campos gerados `command` e `args` no menu de status
+MCP da UI. No Claude Desktop, abra **Settings > Developer > Edit Config** e
+adicione esta entrada ao JSON:
+
+```json
+{
+  "mcpServers": {
+    "omni-sql": {
+      "command": "<command copiado da UI do Omni SQL>",
+      "args": ["<args[0] copiado>", "<args[1] copiado>"]
+    }
+  }
+}
+```
+
+Se arquivo já tiver `mcpServers`, mescle `omni-sql` dentro desse objeto; não crie
+uma segunda chave `mcpServers`. No Windows, cada barra invertida em caminho JSON
+deve ser escrita duas vezes (`\\`). Salve, encerre completamente Claude Desktop
+e abra-o novamente. Em **Connectors**, Omni SQL deve aparecer como **Running**.
+Se não aparecer, consulte **Developer logs** para erro de launcher ou caminho.
+Gere e copie sempre valores atuais da UI. Nunca copie ou exponha conteúdo do
+descritor de runtime, token do descritor, token HTTP ou qualquer segredo; apenas
+campos gerados do launcher entram na configuração.
+
 ## ChatGPT Desktop versus navegador
 
 Codex e ChatGPT Desktop podem iniciar este servidor STDIO local. No ChatGPT
@@ -110,5 +160,5 @@ pnpm verify
 ```
 
 Além do comando acima, valide manualmente: Omni SQL iniciado antes do launcher,
-configuração gerada pelo menu, inicialização STDIO, listagem das cinco
+configuração gerada pelo menu, inicialização STDIO, listagem das seis
 ferramentas e aprovação de proposta de edição no desktop.
