@@ -32,6 +32,15 @@ const HISTORY_KEY = "omni-sql:history";
 const CHECK_FOR_UPDATES_EVENT = "check-for-updates";
 const MCP_PROPOSAL_SAFETY_WINDOW_MS = 1_000;
 
+interface ActiveQuery {
+  sequence: number;
+  connectionId: string;
+  abortController: AbortController;
+  cancelPromise: Promise<void> | null;
+  cancelSettled: boolean;
+  finished: boolean;
+}
+
 function loadHistory(): HistoryEntry[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
@@ -152,6 +161,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const mcpStateRef = useRef<McpUiState>({ activeTab: null, activeConnection: null, editor: null });
   const connectionHealthCheckRef = useRef(0);
   const executionSequenceRef = useRef(0);
+  const activeQueryRef = useRef<ActiveQuery | null>(null);
 
   useEffect(() => {
     void getVersion()
@@ -440,6 +450,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     setHistory((prev) => [entry, ...prev].slice(0, 50));
   }, []);
 
+  const finishQuery = useCallback((activeQuery: ActiveQuery) => {
+    if (!activeQuery.finished || (activeQuery.cancelPromise && !activeQuery.cancelSettled) || activeQueryRef.current !== activeQuery) return;
+    activeQueryRef.current = null;
+    setRunning(false);
+    setBusyMsg(null);
+  }, []);
+
   const runSqlSequence = useCallback(
     async (sqls: string[], label: string) => {
       if (!activeConnectionId || !activeTab) return;
@@ -450,8 +467,18 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         setVariablesOpen(true);
         return;
       }
+      if (activeQueryRef.current) return;
       updateTab(activeTab.id, { error: null });
       const executionSequence = ++executionSequenceRef.current;
+      const activeQuery: ActiveQuery = {
+        sequence: executionSequence,
+        connectionId: activeConnectionId,
+        abortController: new AbortController(),
+        cancelPromise: null,
+        cancelSettled: false,
+        finished: false,
+      };
+      activeQueryRef.current = activeQuery;
       setRunning(true);
       setBusyMsg(label);
       setResult(null);
@@ -462,7 +489,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           connectionId: activeConnectionId,
           sql: sqls.join(";\n"),
           limit: activeTab.queryLimit,
-        });
+        }, activeQuery.abortController.signal);
         setResult(lastResult);
         updateTab(activeTab.id, { error: null, latestSqlExecutionError: null });
         ++connectionHealthCheckRef.current;
@@ -470,8 +497,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         pushHistory(sqls.join(";\n"), true);
         void backend
           .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: sqls.join(";\n") })
-          .then(setEditability)
+          .then((nextEditability) => {
+            if (executionSequence === executionSequenceRef.current) setEditability(nextEditability);
+          })
           .catch((e: unknown) => {
+            if (executionSequence !== executionSequenceRef.current) return;
             const message = e instanceof Error ? e.message.trim() : "";
             const safeMessage = message.length > 0 && message.length <= 120 && !message.includes("\r") && !message.includes("\n") ? `: ${message}` : "";
             setEditability({
@@ -484,6 +514,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             });
           });
       } catch (e) {
+        if (activeQueryRef.current !== activeQuery) return;
         const executionError = sqlExecutionErrorFrom(e);
         updateTab(activeTab.id, {
           error: e instanceof Error ? e.message : String(e),
@@ -505,12 +536,26 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           .catch(() => undefined);
         pushHistory(executedSql, false);
       } finally {
-        setRunning(false);
-        setBusyMsg(null);
+        activeQuery.finished = true;
+        finishQuery(activeQuery);
       }
     },
-    [activeConnectionId, activeTab, pushHistory, updateTab, t],
+    [activeConnectionId, activeTab, finishQuery, pushHistory, updateTab, t],
   );
+
+  const handleCancelRun = useCallback(() => {
+    const activeQuery = activeQueryRef.current;
+    if (!activeQuery || activeQuery.finished || activeQuery.cancelPromise) return;
+    activeQuery.cancelPromise = backend
+      .call("query.cancel", { connectionId: activeQuery.connectionId })
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        activeQuery.abortController.abort();
+        activeQuery.cancelSettled = true;
+        finishQuery(activeQuery);
+      });
+  }, [finishQuery]);
 
   const handleRun = useCallback(() => {
     if (!activeConnectionId) return;
@@ -842,7 +887,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onAdd={() => addTab(activeConnectionId)}
           onRun={handleRun}
           onExplain={handleExplain}
-          onCancelRun={() => {}}
+          onCancelRun={handleCancelRun}
           onRunChoice={handleRunChoice}
           onRunChoiceCancel={handleRunChoiceCancel}
           pendingRunCount={pendingRun ? pendingRun.sqls.length : null}

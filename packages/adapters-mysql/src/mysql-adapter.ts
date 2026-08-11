@@ -12,6 +12,7 @@ import { databaseDiagnostic, type Adapter, type RowUpdateSpec, type TestResult }
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
+  cancelQueryViaPool,
   introspectSchemas,
   listFunctionsPerSchema,
   listIndexesViaPool,
@@ -34,6 +35,10 @@ export class MysqlAdapter extends CachedAdapter implements Adapter {
   readonly dialect: "mysql" | "mariadb";
 
   private readonly pool: Pool;
+  private activeQuery: {
+    threadId: number;
+    token: symbol;
+  } | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -95,7 +100,26 @@ export class MysqlAdapter extends CachedAdapter implements Adapter {
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
-    return runQueryViaPool(this.pool, sql, limit);
+    return runQueryViaPool(this.pool, sql, limit, (connection) => {
+      const activeQuery = {
+        threadId: connection.threadId,
+        token: Symbol(),
+      };
+      this.activeQuery = activeQuery;
+      return () => {
+        if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
+      };
+    });
+  }
+
+  async cancelRunning(): Promise<void> {
+    const activeQuery = this.activeQuery;
+    if (!activeQuery) return;
+    await cancelQueryViaPool(
+      this.pool,
+      activeQuery.threadId,
+      () => this.activeQuery?.token === activeQuery.token,
+    );
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {

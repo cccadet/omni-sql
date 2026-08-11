@@ -1,4 +1,4 @@
-import type { Pool, PoolClient, QueryResult as PgQueryResult } from "pg";
+import pg, { type Pool, type PoolClient, type Query as PgQuery, type QueryResult as PgQueryResult } from "pg";
 import type {
   Column,
   ConnectionConfig,
@@ -320,22 +320,24 @@ export async function runQueryViaPool(
   sql: string,
   limit: number,
   onPid?: (pid: number) => void,
+  onQuery?: (client: PoolClient, query: PgQuery) => (() => void) | undefined,
 ): Promise<QueryResult> {
   const t0 = Date.now();
   // Use a named cursor on a borrowed client for server-side pagination.
   const client = await pool.connect();
-  // `processID` é o PID do backend Postgres desta conexão (setado pelo driver
-  // no handshake, não documentado no tipo `PoolClient` mas estável em runtime)
-  // — é a única forma de cancelar a query via `pg_cancel_backend` de outra conexão.
-  onPid?.((client as unknown as { processID: number }).processID);
   try {
+    // `processID` é o PID do backend Postgres desta conexão (setado pelo driver
+    // no handshake, não documentado no tipo `PoolClient` mas estável em runtime)
+    // — é a única forma de cancelar a query via `pg_cancel_backend` de outra conexão.
+    onPid?.((client as unknown as { processID: number }).processID);
     const cursorName = `omni_q_${Math.random().toString(36).slice(2)}`;
     try {
-      await client.query(`DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sql}`);
-    } catch {
+      await queryViaClient(client, `DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sql}`, onQuery);
+    } catch (e) {
+      if (isQueryCancellation(e)) throw e;
       // Not every statement can back a cursor (SHOW, SET, DDL, plain DML
       // without RETURNING, etc.) — fall back to running it directly.
-      const res = await client.query(sql);
+      const res = await queryViaClient(client, sql, onQuery);
       const cols: QueryResultColumn[] = (res.fields ?? []).map((f) => ({
         name: f.name,
         dataType: mapPgOidToDataType(f.dataTypeID),
@@ -358,7 +360,7 @@ export async function runQueryViaPool(
     const batchSize = Math.min(limit, 1000);
     let res: PgQueryResult;
     while (true) {
-      res = await client.query(`FETCH ${batchSize} FROM ${cursorName}`);
+      res = await queryViaClient(client, `FETCH ${batchSize} FROM ${cursorName}`, onQuery);
       if (res.rows.length === 0) break;
       if (cols.length === 0 && res.fields.length > 0) {
         cols = res.fields.map((f) => ({
@@ -372,12 +374,12 @@ export async function runQueryViaPool(
       }
       if (rowsFetched.length >= limit) {
         // Check if more remain.
-        const peek = await client.query(`FETCH 1 FROM ${cursorName}`);
+        const peek = await queryViaClient(client, `FETCH 1 FROM ${cursorName}`, onQuery);
         if (peek.rows.length > 0) moreAvailable = true;
         break;
       }
     }
-    await client.query(`CLOSE ${cursorName}`);
+    await queryViaClient(client, `CLOSE ${cursorName}`, onQuery);
     return {
       columns: cols,
       rows: rowsFetched.slice(0, limit),
@@ -390,6 +392,31 @@ export async function runQueryViaPool(
   } finally {
     client.release();
   }
+}
+
+function queryViaClient(
+  client: PoolClient,
+  sql: string,
+  onQuery?: (client: PoolClient, query: PgQuery) => (() => void) | undefined,
+): Promise<PgQueryResult> {
+  const query = new pg.Query(sql);
+  // Register active query before submit: cancellation cannot interleave with
+  // this synchronous submission, and query object remains available to pg.cancel.
+  const cleanup = onQuery?.(client, query);
+  const result = new Promise<PgQueryResult>((resolve, reject) => {
+    query.once("error", reject);
+    query.once("end", resolve);
+    try {
+      client.query(query);
+    } catch (e) {
+      reject(e);
+    }
+  });
+  return result.finally(() => cleanup?.());
+}
+
+function isQueryCancellation(error: unknown): boolean {
+  return (error as { code?: unknown })?.code === "57014";
 }
 
 /**

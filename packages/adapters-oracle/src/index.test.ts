@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { OracleAdapter } from "./index.ts";
 import { introspectSchemas } from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
-import type { Connection } from "oracledb";
+import type { Connection, Pool } from "oracledb";
 
 // Sem instância Oracle local: smoke só valida construção + recusa de dial.
 // Em CI/uso local, setar `ORACLE_TEST_CONNECTION_STRING` (+ `ORACLE_TEST_USER`
@@ -131,6 +131,125 @@ test("test() retorna ok:false quando não consegue conectar", async () => {
   assert.equal(t.ok, false);
   assert.ok(t.message);
   await a.close();
+});
+
+test("cancelRunning interrompe execute Oracle em andamento", async () => {
+  let executeStarted!: () => void;
+  let rejectExecute!: (error: Error) => void;
+  let breakCalls = 0;
+  let closeCalls = 0;
+  const conn = {
+    execute: async () => {
+      executeStarted();
+      await new Promise<never>((_resolve, reject) => { rejectExecute = reject; });
+    },
+    break: async () => {
+      breakCalls += 1;
+      rejectExecute(new Error("query cancelled"));
+    },
+    rollback: async () => undefined,
+    close: async () => { closeCalls += 1; },
+  } as unknown as Connection;
+  const pool = {
+    getConnection: async () => conn,
+    close: async () => undefined,
+  } as unknown as Pool;
+  const a = new OracleAdapter(cfg());
+  (a as unknown as { poolPromise: Promise<Pool> | null }).poolPromise = Promise.resolve(pool);
+
+  const run = a.runQuery("SELECT 1", 10);
+  await new Promise<void>((resolve) => { executeStarted = resolve; });
+  await a.cancelRunning();
+  await assert.rejects(run, /query cancelled/);
+  await a.cancelRunning();
+
+  assert.equal(breakCalls, 1);
+  assert.equal(closeCalls, 1);
+});
+
+test("cancelRunning ignora falha de break e deixa runQuery limpar conexão", async () => {
+  let executeStarted!: () => void;
+  let rejectExecute!: (error: Error) => void;
+  let closeCalls = 0;
+  const conn = {
+    execute: async () => {
+      executeStarted();
+      await new Promise<never>((_resolve, reject) => { rejectExecute = reject; });
+    },
+    break: async () => {
+      throw new Error("break unavailable");
+    },
+    rollback: async () => undefined,
+    close: async () => { closeCalls += 1; },
+  } as unknown as Connection;
+  const pool = {
+    getConnection: async () => conn,
+    close: async () => undefined,
+  } as unknown as Pool;
+  const a = new OracleAdapter(cfg());
+  (a as unknown as { poolPromise: Promise<Pool> | null }).poolPromise = Promise.resolve(pool);
+
+  const run = a.runQuery("SELECT 1", 10);
+  await new Promise<void>((resolve) => { executeStarted = resolve; });
+  await a.cancelRunning();
+  rejectExecute(new Error("query stopped"));
+
+  await assert.rejects(run, /query stopped/);
+  assert.equal(closeCalls, 1);
+});
+
+test("cancelRunning não limpa query nova quando conexão é reutilizada", async () => {
+  let executeStartedA!: () => void;
+  let executeStartedB!: () => void;
+  let rejectExecuteA!: (error: Error) => void;
+  let rejectExecuteB!: (error: Error) => void;
+  let releaseBreakA!: () => void;
+  let breakCalls = 0;
+  let closeCalls = 0;
+  const conn = {
+    execute: async () => {
+      if (!rejectExecuteA) {
+        executeStartedA();
+        await new Promise<never>((_resolve, reject) => { rejectExecuteA = reject; });
+        return undefined;
+      }
+      executeStartedB();
+      await new Promise<never>((_resolve, reject) => { rejectExecuteB = reject; });
+    },
+    break: async () => {
+      breakCalls += 1;
+      if (breakCalls === 1) {
+        await new Promise<void>((resolve) => { releaseBreakA = resolve; });
+        return;
+      }
+      rejectExecuteB(new Error("query B cancelled"));
+    },
+    rollback: async () => undefined,
+    close: async () => { closeCalls += 1; },
+  } as unknown as Connection;
+  const pool = {
+    getConnection: async () => conn,
+    close: async () => undefined,
+  } as unknown as Pool;
+  const a = new OracleAdapter(cfg());
+  (a as unknown as { poolPromise: Promise<Pool> | null }).poolPromise = Promise.resolve(pool);
+
+  const runA = a.runQuery("SELECT 1", 10);
+  await new Promise<void>((resolve) => { executeStartedA = resolve; });
+  const cancelA = a.cancelRunning();
+
+  rejectExecuteA(new Error("query A stopped"));
+  await assert.rejects(runA, /query A stopped/);
+
+  const runB = a.runQuery("SELECT 1", 10);
+  await new Promise<void>((resolve) => { executeStartedB = resolve; });
+  releaseBreakA();
+  await cancelA;
+  await a.cancelRunning();
+  await assert.rejects(runB, /query B cancelled/);
+
+  assert.equal(breakCalls, 2);
+  assert.equal(closeCalls, 2);
 });
 
 if (ORACLE_CONN) {

@@ -1,4 +1,4 @@
-import oracledb, { type Pool } from "oracledb";
+import oracledb, { type Connection, type Pool } from "oracledb";
 import type {
   ConnectionConfig,
   ExplainResult,
@@ -36,6 +36,7 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
   private readonly user: string;
   private readonly password: string;
   private poolPromise: Promise<Pool> | null = null;
+  private activeQuery: { readonly connection: Connection; readonly token: symbol } | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -122,6 +123,8 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
     const pool = await this.getPool();
     const conn = await pool.getConnection();
+    const activeQuery = { connection: conn, token: Symbol() };
+    this.activeQuery = activeQuery;
     try {
       // Oracle exige FROM DUAL para SELECTs sem cláusula FROM.
       const normalized = sql.replace(/;?\s*$/, "");
@@ -132,7 +135,18 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
       await conn.rollback().catch(() => undefined);
       throw e;
     } finally {
+      if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
       await conn.close();
+    }
+  }
+
+  async cancelRunning(): Promise<void> {
+    const activeQuery = this.activeQuery;
+    if (!activeQuery) return;
+    try {
+      await activeQuery.connection.break();
+    } catch {
+      // `break()` is best-effort; runQuery owns query and connection cleanup.
     }
   }
 
