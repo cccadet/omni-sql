@@ -243,7 +243,6 @@ export type McpToolName =
   | "getActiveConnectionContext"
   | "getSchemaSummary"
   | "getLatestSqlExecutionError"
-  | "openSqlTab"
   | "proposeSqlEdit";
 
 export const MCP_MAX_HTTP_BODY_BYTES = 64 * 1024;
@@ -285,11 +284,6 @@ export interface McpToolArgsByName {
   getActiveConnectionContext: Record<string, never>;
   getSchemaSummary: Record<string, never>;
   getLatestSqlExecutionError: Record<string, never>;
-  openSqlTab: {
-    readonly title: string;
-    readonly sql: string;
-    readonly connectionId?: string;
-  };
   proposeSqlEdit: {
     readonly sql: string;
     readonly rationale: string;
@@ -325,6 +319,8 @@ export interface McpSchemaSummarySchema {
 export interface McpToolResultByName {
   getActiveSql: {
     readonly sql: string;
+    /** Dialect of the active tab's connection; null when it has no connection. */
+    readonly dialect: DialectId | null;
   };
   getActiveConnectionContext: {
     readonly connectionId: string;
@@ -337,9 +333,6 @@ export interface McpToolResultByName {
   };
   getLatestSqlExecutionError: {
     readonly error: SqlExecutionError | null;
-  };
-  openSqlTab: {
-    readonly opened: boolean;
   };
   proposeSqlEdit: {
     readonly approved: boolean;

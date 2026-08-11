@@ -9,11 +9,9 @@ import { z } from "zod";
 import {
   BackendClientError,
   BackendMcpClient,
-  MAX_CONNECTION_ID_BYTES,
   MAX_REQUEST_BYTES,
   MAX_RATIONALE_BYTES,
   MAX_SQL_BYTES,
-  MAX_TITLE_BYTES,
   MAX_TOKEN_LENGTH,
   readRuntimeDescriptor,
   type RuntimeDescriptor,
@@ -61,11 +59,6 @@ const boundedText = (maxBytes: number, name: string) =>
 
 export const emptyInputSchema = z.object({}).strict();
 export const getLatestSqlExecutionErrorInputSchema = emptyInputSchema;
-export const openSqlTabInputSchema = z.object({
-  title: boundedText(MAX_TITLE_BYTES, "title"),
-  sql: boundedText(MAX_SQL_BYTES, "sql"),
-  connectionId: boundedText(MAX_CONNECTION_ID_BYTES, "connectionId").optional(),
-}).strict();
 export const proposeSqlEditInputSchema = z.object({
   sql: boundedText(MAX_SQL_BYTES, "sql"),
   rationale: boundedText(MAX_RATIONALE_BYTES, "rationale"),
@@ -158,17 +151,6 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     }),
   );
 
-  server.registerTool(
-    "openSqlTab",
-    {
-      description: "Request a new Omni SQL tab without executing SQL.",
-      inputSchema: openSqlTabInputSchema,
-    },
-    async (input) => invoke(() => {
-      const parsed = openSqlTabInputSchema.parse(input);
-      return client.call("openSqlTab", parsed);
-    }),
-  );
 
   server.registerTool(
     "proposeSqlEdit",

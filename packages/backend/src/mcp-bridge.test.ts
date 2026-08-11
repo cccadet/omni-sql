@@ -34,8 +34,8 @@ test("MCP bridge delivers one queued request and accepts its response", async ()
     assert.ok(next!.expiresAt > Date.now());
     assert.ok(next!.expiresAt <= Date.now() + 500);
 
-    bridge.respond({ id: "request-1", ok: true, result: { sql: "select 1" } }, "desktop");
-    assert.deepEqual(await pending, { sql: "select 1" });
+    bridge.respond({ id: "request-1", ok: true, result: { sql: "select 1", dialect: "postgres" } }, "desktop");
+    assert.deepEqual(await pending, { sql: "select 1", dialect: "postgres" });
     assert.equal(bridge.status().inFlight, 0);
   } finally {
     bridge.close();
@@ -63,16 +63,16 @@ test("MCP bridge bounds queue and cleans timed out requests as stale", async () 
   const bridge = new McpBridge({ maxQueueSize: 1, timeoutMs: 20, idFactory: () => "request-timeout" });
   try {
     await bridge.next({ listenerId: "desktop" });
-    const pending = bridge.submit("openSqlTab", { title: "Draft", sql: "select 1" });
+    const pending = bridge.submit("getActiveSql", {});
     await assert.rejects(
-      Promise.resolve().then(() => bridge.submit("openSqlTab", { title: "Draft 2", sql: "select 2" })),
+      Promise.resolve().then(() => bridge.submit("getActiveSql", {})),
       hasCode("rejected"),
     );
     const next = await bridge.next({ listenerId: "desktop" });
     assert.equal(next?.id, "request-timeout");
     await assert.rejects(pending, hasCode("timeout"));
     assert.throws(
-      () => bridge.respond({ id: "request-timeout", ok: true, result: { opened: true } }, "desktop"),
+      () => bridge.respond({ id: "request-timeout", ok: true, result: { sql: "select 1", dialect: "postgres" } }, "desktop"),
       hasCode("stale"),
     );
   } finally {
@@ -143,7 +143,7 @@ test("UI results use originating-tool schemas and reject unsafe fields", async (
       () => bridge.respond({
         id: sqlRequest!.id,
         ok: true,
-        result: { sql: "select 1", secret: "nope" },
+        result: { sql: "select 1", dialect: "postgres", secret: "nope" },
       }, "desktop"),
       hasCode("invalid"),
     );

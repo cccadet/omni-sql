@@ -19,17 +19,17 @@ test("MCP request uses exact tool/args contract and per-tool allowlists", () => 
     args: {},
   });
   assert.deepEqual(validateMcpRequest({
-    tool: "openSqlTab",
-    args: { title: "Draft", sql: "select 1", connectionId: "active" },
+    tool: "proposeSqlEdit",
+    args: { sql: "select 1", rationale: "Improve query" },
   }), {
-    tool: "openSqlTab",
-    args: { title: "Draft", sql: "select 1", connectionId: "active" },
+    tool: "proposeSqlEdit",
+    args: { sql: "select 1", rationale: "Improve query" },
   });
 
   invalid({ tool: "getSchemaSummary", args: { connectionId: "arbitrary" } });
   invalid({ tool: "getActiveSql", args: { value: "unexpected" } });
   invalid({ tool: "getLatestSqlExecutionError", args: { value: "unexpected" } });
-  invalid({ tool: "openSqlTab", args: { title: "Draft", sql: "select 1", extra: true } });
+  invalid({ tool: "openSqlTab", args: { title: "Draft", sql: "select 1" } });
   invalid({ tool: "proposeSqlEdit", args: { sql: "select 1" } });
   invalid({ tool: "proposeSqlEdit", args: { sql: "select 1", rationale: "test", connectionId: "arbitrary" } });
   invalid({ tool: "getActiveSql", args: {}, params: {} });
