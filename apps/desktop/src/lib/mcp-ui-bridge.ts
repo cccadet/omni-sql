@@ -40,7 +40,6 @@ type SchemaSummary = McpToolResultByName["getSchemaSummary"];
 export interface McpUiBridgeHandlers {
   readState: () => McpUiState;
   getSchemaSummary: (connectionId: string) => Promise<SchemaSummary>;
-  openTab: (args: { title: string; sql: string; connectionId?: string }) => boolean;
   proposeEdit: (args: { sql: string; rationale: string; tabId: string; originalSql: string; expiresAt?: number }) => Promise<"approved" | "rejected" | "stale">;
   onStatus: (status: McpStatusResult | null, error?: string) => void;
 }
@@ -133,8 +132,8 @@ export class McpUiBridge {
     switch (request.tool) {
       case "getActiveSql": {
         if (!state.activeTab) throw new McpUiError("unavailable", "No SQL tab is active");
-        // Contract returns full SQL. Editor handle remains source of truth while mounted.
-        return { sql: state.editor?.getAllText() ?? state.activeTab.sql } satisfies McpToolResultByName["getActiveSql"];
+        // Contract returns full SQL and its tab connection's dialect. Editor handle remains source of truth while mounted.
+        return { sql: state.editor?.getAllText() ?? state.activeTab.sql, dialect: state.activeConnection?.dialect ?? null } satisfies McpToolResultByName["getActiveSql"];
       }
       case "getActiveConnectionContext": {
         const connection = state.activeConnection;
@@ -152,8 +151,6 @@ export class McpUiBridge {
       }
       case "getLatestSqlExecutionError":
         return { error: state.activeTab?.latestSqlExecutionError ?? null } satisfies McpToolResultByName["getLatestSqlExecutionError"];
-      case "openSqlTab":
-        return { opened: this.handlers.openTab(request.args) } satisfies McpToolResultByName["openSqlTab"];
       case "proposeSqlEdit": {
         if (!state.activeTab) throw new McpUiError("unavailable", "No SQL tab is active");
         const originalSql = state.editor?.getAllText() ?? state.activeTab.sql;

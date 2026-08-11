@@ -23,7 +23,6 @@ import {
   emptyInputSchema,
   getLatestSqlExecutionErrorInputSchema,
   isLoopbackHost,
-  openSqlTabInputSchema,
   parseMcpCliOptions,
   proposeSqlEditInputSchema,
   startMcpServer,
@@ -131,13 +130,12 @@ test("STDIO remains default and accepts explicit transport selection", async () 
   assert.equal(started, true);
 });
 
-test("advertises exactly six approved tools", async () => {
+test("advertises exactly five approved tools", async () => {
   const expectedTools = [
     "getActiveSql",
     "getActiveConnectionContext",
     "getSchemaSummary",
     "getLatestSqlExecutionError",
-    "openSqlTab",
     "proposeSqlEdit",
   ];
   const client = new BackendMcpClient(
@@ -157,9 +155,8 @@ test("advertises exactly six approved tools", async () => {
 test("input schemas reject unknown fields and oversized values", () => {
   assert.throws(() => emptyInputSchema.parse({ extra: true }));
   assert.throws(() => getLatestSqlExecutionErrorInputSchema.parse({ extra: true }));
-  assert.throws(() => openSqlTabInputSchema.parse({ title: "x", sql: "select 1", extra: true }));
   assert.throws(() => proposeSqlEditInputSchema.parse({ sql: "select 1", rationale: "" }));
-  assert.throws(() => openSqlTabInputSchema.parse({ title: "x", sql: "x".repeat(32 * 1024 + 1) }));
+  assert.throws(() => proposeSqlEditInputSchema.parse({ sql: "x".repeat(32 * 1024 + 1), rationale: "reason" }));
 });
 
 test("descriptor has exact endpoint, token, pid, and startNonce shape", () => {
@@ -202,7 +199,7 @@ test("backend client posts only approved tool request and unwraps result", async
   assert.equal("params" in body, false);
 });
 
-test("backend client forwards all six approved tools", async () => {
+test("backend client forwards all five approved tools", async () => {
   const called: string[] = [];
   const client = new BackendMcpClient(
     { endpoint: "http://127.0.0.1:41920", token: "test-token", pid: 1234, startNonce: "run-1" },

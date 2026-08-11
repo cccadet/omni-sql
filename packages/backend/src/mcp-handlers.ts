@@ -15,14 +15,12 @@ import {
   validateSafePayload,
 } from "./mcp-bridge.ts";
 import {
-  MCP_MAX_CONNECTION_ID_BYTES,
   MCP_MAX_ERROR_MESSAGE_BYTES,
   MCP_MAX_LISTENER_ID_BYTES,
   MCP_MAX_REQUEST_ID_BYTES,
   MCP_MAX_RATIONALE_BYTES,
   MCP_MAX_SQL_BYTES,
   MCP_MAX_STRING_BYTES,
-  MCP_MAX_TITLE_BYTES,
 } from "@omni-sql/ts-types";
 import type {
   McpUiRouter,
@@ -68,13 +66,6 @@ function validateToolArgs<K extends McpToolName>(tool: K, value: unknown): McpTo
     requireExactKeys(args, [], tool);
   } else if (tool === "getSchemaSummary") {
     requireExactKeys(args, [], tool);
-  } else if (tool === "openSqlTab") {
-    requireExactKeys(args, ["title", "sql", "connectionId"], tool);
-    requireText(args.title, "openSqlTab.title", MCP_MAX_TITLE_BYTES);
-    requireText(args.sql, "openSqlTab.sql", MCP_MAX_SQL_BYTES);
-    if (args.connectionId !== undefined) {
-      requireText(args.connectionId, "openSqlTab.connectionId", MCP_MAX_CONNECTION_ID_BYTES);
-    }
   } else if (tool === "proposeSqlEdit") {
     requireExactKeys(args, ["sql", "rationale"], tool);
     requireText(args.sql, "proposeSqlEdit.sql", MCP_MAX_SQL_BYTES);

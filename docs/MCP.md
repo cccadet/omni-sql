@@ -6,15 +6,15 @@ por padrão. Streamable HTTP é opt-in e escuta apenas em loopback.
 
 ## Capacidades e limites
 
-As seis ferramentas expostas são:
+As cinco ferramentas expostas são:
 
-1. `getActiveSql`: lê SQL da aba ativa.
+1. `getActiveSql`: lê SQL e dialeto da conexão da aba ativa; o dialeto é
+   `null` quando a aba não tem conexão.
 2. `getActiveConnectionContext`: retorna contexto seguro da conexão ativa,
    sem senha ou credenciais.
 3. `getSchemaSummary`: retorna schemas, relações e colunas da conexão ativa.
 4. `getLatestSqlExecutionError`: retorna último erro de execução da aba ativa.
-5. `openSqlTab`: abre uma aba com SQL fornecido; não executa SQL.
-6. `proposeSqlEdit`: apresenta proposta de edição para aprovação explícita no
+5. `proposeSqlEdit`: apresenta proposta de edição para aprovação explícita no
    desktop; rejeita estado obsoleto.
 
 Não há ferramenta para executar SQL, ler conexões arbitrárias, acessar senhas,
@@ -160,5 +160,5 @@ pnpm verify
 ```
 
 Além do comando acima, valide manualmente: Omni SQL iniciado antes do launcher,
-configuração gerada pelo menu, inicialização STDIO, listagem das seis
+configuração gerada pelo menu, inicialização STDIO, listagem das cinco
 ferramentas e aprovação de proposta de edição no desktop.
