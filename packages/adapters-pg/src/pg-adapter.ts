@@ -1,4 +1,4 @@
-import pg, { type Pool, type PoolClient } from "pg";
+import pg, { type Pool, type PoolClient, type Query as PgQuery } from "pg";
 import type {
   ConnectionConfig,
   ExplainResult,
@@ -33,6 +33,11 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
   readonly dialect = "postgres" as const;
 
   private readonly pool: Pool;
+  private activeQuery: {
+    client: PoolClient;
+    query: PgQuery;
+    token: symbol;
+  } | null = null;
 
   constructor(config: ConnectionConfig, password?: string) {
     super(config);
@@ -95,7 +100,34 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
-    return runQueryViaPool(this.pool, sql, limit);
+    return runQueryViaPool(this.pool, sql, limit, undefined, (client, query) => {
+      const activeQuery = { client, query, token: Symbol() };
+      this.activeQuery = activeQuery;
+      return () => {
+        if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
+      };
+    });
+  }
+
+  async cancelRunning(): Promise<void> {
+    const activeQuery = this.activeQuery;
+    if (!activeQuery) return;
+
+    const pgCancel = (pg as unknown as {
+      cancel?: (client: PoolClient, query: PgQuery) => void;
+    }).cancel;
+    if (pgCancel) {
+      pgCancel(activeQuery.client, activeQuery.query);
+      return;
+    }
+
+    // pg@8 exposes cancellation as Client#cancel(client, query). The fresh
+    // Client owns separate connection used only for PostgreSQL cancel packet.
+    const cancelClient = new pg.Client(this.pool.options);
+    const cancel = (pg.Client.prototype as unknown as {
+      cancel(client: PoolClient, query: PgQuery): void;
+    }).cancel;
+    cancel.call(cancelClient, activeQuery.client, activeQuery.query);
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {

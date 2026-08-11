@@ -305,35 +305,65 @@ export async function runQueryViaPool(
   pool: Pool,
   sql: string,
   limit: number,
+  onConnection?: (connection: PoolConnection) => (() => void) | undefined,
 ): Promise<QueryResult> {
   const t0 = Date.now();
-  const [rowsOrHeader, fields]: [unknown, FieldPacket[]] = await pool.query({ sql, rowsAsArray: true });
-  const elapsedMs = Date.now() - t0;
+  const connection = await pool.getConnection();
+  let cleanup: (() => void) | undefined;
+  try {
+    cleanup = onConnection?.(connection);
+    const [rowsOrHeader, fields]: [unknown, FieldPacket[]] = await connection.query({ sql, rowsAsArray: true });
+    const elapsedMs = Date.now() - t0;
 
-  if (!Array.isArray(rowsOrHeader) || fields.length === 0) {
-    // DML/DDL sem result set — mysql2 retorna um ResultSetHeader.
-    const header = rowsOrHeader as { affectedRows?: number };
+    if (!Array.isArray(rowsOrHeader) || fields.length === 0) {
+      // DML/DDL sem result set — mysql2 retorna um ResultSetHeader.
+      const header = rowsOrHeader as { affectedRows?: number };
+      return {
+        columns: [],
+        rows: [],
+        ...(header.affectedRows !== undefined ? { rowsAffected: header.affectedRows } : {}),
+        rowsMoreAvailable: false,
+        elapsedMs,
+      };
+    }
+
+    const columns: QueryResultColumn[] = fields.map((f) => ({
+      name: f.name,
+      dataType: mapMysqlTypeToDataType(f.type),
+      nullable: true,
+    }));
+    const rows = rowsOrHeader as unknown[][];
     return {
-      columns: [],
-      rows: [],
-      ...(header.affectedRows !== undefined ? { rowsAffected: header.affectedRows } : {}),
-      rowsMoreAvailable: false,
+      columns,
+      rows: rows.slice(0, limit),
+      rowsMoreAvailable: rows.length > limit,
       elapsedMs,
     };
+  } finally {
+    try {
+      cleanup?.();
+    } finally {
+      connection.release();
+    }
   }
+}
 
-  const columns: QueryResultColumn[] = fields.map((f) => ({
-    name: f.name,
-    dataType: mapMysqlTypeToDataType(f.type),
-    nullable: true,
-  }));
-  const rows = rowsOrHeader as unknown[][];
-  return {
-    columns,
-    rows: rows.slice(0, limit),
-    rowsMoreAvailable: rows.length > limit,
-    elapsedMs,
-  };
+/** Cancela query por thread id usando outra conexão, nunca conexão executando query. */
+export async function cancelQueryViaPool(
+  pool: Pool,
+  threadId: number,
+  isCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  const connection = await pool.getConnection();
+  try {
+    // Evita matar thread reutilizada se query original terminou enquanto killer
+    // aguardava slot no pool.
+    if (!isCurrent()) return false;
+    await connection.query("KILL QUERY ?", [threadId]);
+    return true;
+  } finally {
+    connection.release();
+  }
 }
 
 /**
