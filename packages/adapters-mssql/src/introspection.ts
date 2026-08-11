@@ -316,7 +316,9 @@ export async function runQueryViaPool(
   const request = pool.request();
   request.arrayRowMode = true;
   onRequest?.(request);
-  const result = await request.query<unknown[]>(sqlText);
+  const cappedQuery = rewriteSimpleSelectForRowCap(sqlText, limit);
+  if (cappedQuery) request.input("omni_limit", cappedQuery.cap);
+  const result = await request.query<unknown[]>(cappedQuery?.sqlText ?? sqlText);
   const elapsedMs = Date.now() - t0;
 
   const recordset = result.recordset as (unknown[][] & { columns?: Record<string, { index: number; type: unknown }> }) | undefined;
@@ -336,6 +338,158 @@ export async function runQueryViaPool(
     rowsMoreAvailable: rows.length > limit,
     elapsedMs,
   };
+}
+
+interface CappedQuery {
+  sqlText: string;
+  cap: number;
+}
+
+/**
+ * TOP is safe only for a small, single SELECT batch. Anything we cannot prove
+ * to fit that shape keeps existing client-side behavior.
+ */
+function rewriteSimpleSelectForRowCap(sqlText: string, limit: number): CappedQuery | null {
+  if (!Number.isSafeInteger(limit) || limit < 0 || limit >= Number.MAX_SAFE_INTEGER) return null;
+
+  const tokens = tokenizeSql(sqlText);
+  const first = tokens?.[0];
+  if (!tokens || !first || first.depth !== 0 || first.value !== "SELECT") return null;
+
+  const unsafeTopLevel = new Set([
+    "ALTER", "BEGIN", "COMMIT", "CREATE", "DECLARE", "DELETE", "DROP", "EXEC", "EXECUTE",
+    "GO", "GRANT", "IF", "INSERT", "INTO", "MERGE", "REVOKE", "ROLLBACK", "SET", "TRUNCATE",
+  ]);
+  const unsafeAnywhere = new Set(["EXCEPT", "FETCH", "INTERSECT", "OFFSET", "TOP", "UNION", "WITH"]);
+  if (tokens.some((token, index) => unsafeAnywhere.has(token.value)
+    || (index > 0 && token.depth === 0 && unsafeTopLevel.has(token.value))
+    || (index > 0 && token.depth === 0 && token.value === "SELECT"))) return null;
+
+  const modifier = tokens[1];
+  const insertAt = modifier?.depth === 0 && (modifier.value === "DISTINCT" || modifier.value === "ALL")
+    ? modifier.end
+    : first.end;
+  return {
+    sqlText: `${sqlText.slice(0, insertAt)} TOP (@omni_limit)${sqlText.slice(insertAt)}`,
+    cap: limit + 1,
+  };
+}
+
+interface SqlToken {
+  value: string;
+  end: number;
+  depth: number;
+}
+
+function tokenizeSql(sqlText: string): SqlToken[] | null {
+  const tokens: SqlToken[] = [];
+  let depth = 0;
+  let i = 0;
+
+  while (i < sqlText.length) {
+    const char = sqlText[i];
+    const next = sqlText[i + 1];
+    if (char === undefined) break;
+    if (/\s/.test(char)) {
+      i += 1;
+      continue;
+    }
+    if (char === "-" && next === "-") {
+      i += 2;
+      while (i < sqlText.length && sqlText[i] !== "\n" && sqlText[i] !== "\r") i += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      i += 2;
+      let commentDepth = 1;
+      while (i < sqlText.length && commentDepth > 0) {
+        if (sqlText[i] === "/" && sqlText[i + 1] === "*") {
+          commentDepth += 1;
+          i += 2;
+        } else if (sqlText[i] === "*" && sqlText[i + 1] === "/") {
+          commentDepth -= 1;
+          i += 2;
+        } else {
+          i += 1;
+        }
+      }
+      if (commentDepth !== 0) return null;
+      continue;
+    }
+    if (char === "'") {
+      i += 1;
+      let closed = false;
+      while (i < sqlText.length) {
+        if (sqlText[i] !== "'") {
+          i += 1;
+        } else if (sqlText[i + 1] === "'") {
+          i += 2;
+        } else {
+          i += 1;
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) return null;
+      continue;
+    }
+    if (char === '"') {
+      i += 1;
+      let closed = false;
+      while (i < sqlText.length) {
+        if (sqlText[i] !== '"') {
+          i += 1;
+        } else if (sqlText[i + 1] === '"') {
+          i += 2;
+        } else {
+          i += 1;
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) return null;
+      continue;
+    }
+    if (char === "[") {
+      i += 1;
+      let closed = false;
+      while (i < sqlText.length) {
+        if (sqlText[i] !== "]") {
+          i += 1;
+        } else if (sqlText[i + 1] === "]") {
+          i += 2;
+        } else {
+          i += 1;
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) return null;
+      continue;
+    }
+    if (char === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (char === ")") {
+      depth -= 1;
+      if (depth < 0) return null;
+      i += 1;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(char)) {
+      const start = i;
+      i += 1;
+      while (i < sqlText.length && /[A-Za-z0-9_$#]/.test(sqlText[i] ?? "")) i += 1;
+      tokens.push({ value: sqlText.slice(start, i).toUpperCase(), end: i, depth });
+      continue;
+    }
+    if (char === ";") return null;
+    i += 1;
+  }
+
+  return depth === 0 ? tokens : null;
 }
 
 /**
