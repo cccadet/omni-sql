@@ -94,7 +94,12 @@ test("StatusBar: shows safe MCP launcher configuration", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP connected/ }));
   expect(await screen.findByText("Connected MCP client · Queue: 1")).toBeTruthy();
-  expect(screen.getByDisplayValue(/\/run\/mcp\.json/)).toBeTruthy();
+  expect(screen.queryByText("No MCP client is connected.")).toBeNull();
+  expect(screen.getByText("STDIO command")).toBeTruthy();
+  expect(screen.getByText("/usr/bin/node")).toBeTruthy();
+  expect(screen.getByText("/opt/mcp/index.js")).toBeTruthy();
+  expect(screen.getByText("/run/mcp.json")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: /Copy (command|argument)/ })).toHaveLength(3);
   expect(screen.queryByText(/token/i)).toBeTruthy();
 });
 
@@ -103,6 +108,16 @@ test("StatusBar: clears launcher config when refresh fails", async () => {
   renderWithLanguage(<StatusBar mcpState="listening" />);
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
   expect(await screen.findByText("MCP runtime unavailable")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Copy error" })).toBeTruthy();
   expect(screen.queryByRole("textbox", { name: "Configure client" })).toBeNull();
+});
+
+test("StatusBar: shows HTTP endpoint without exposing descriptor data", async () => {
+  vi.mocked(invoke).mockResolvedValue({ command: "node", args: [], endpoint: "http://127.0.0.1:41920/mcp", token: "secret-token" });
+  renderWithLanguage(<StatusBar mcpState="listening" />);
+
+  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
+  expect(await screen.findByText("HTTP endpoint")).toBeTruthy();
+  expect(screen.getByText("http://127.0.0.1:41920/mcp")).toBeTruthy();
+  expect(screen.queryByText("secret-token")).toBeNull();
+  assert.equal(screen.getAllByRole("button", { name: "Copy HTTP endpoint" }).length, 1);
 });
