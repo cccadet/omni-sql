@@ -1,0 +1,5 @@
+`apps/desktop` is React 19 + Fluent UI React v9 + Monaco under Vite/Tauri. `src/App.tsx` coordinates session, connections, execution, completion, formatting, results, and MCP UI state; backend calls use localhost HTTP JSON-RPC.
+
+Tabs, query history, theme, language, and formatter settings persist in `localStorage`; connection state is restored through backend SQLite records and OS keyring passwords. Monaco configuration in `src/lib/monaco-config.ts` provides SQL syntax, completion, and document formatting. SQL formatting uses `sql-formatter` through `src/lib/format-sql.ts`; current decision: `mem:frontend/formatter-sql`.
+
+Execution supports statement splitting, variables, current/all runs, bounded result limits, diagnostics, EXPLAIN, and cancellation through `query.cancel`. ResultsGrid provides sorting, filtering, client pagination, CSV export, primary-key inline edits, and Data/Messages/Plan tabs. CTE completion is backend-enriched but falls back to tier1 when sidecar resolution fails. Backend map: `mem:backend/core`.
