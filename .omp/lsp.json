@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "rust-analyzer": {
+      "rootMarkers": ["apps/desktop/src-tauri/Cargo.toml"],
+      "settings": {
+        "rust-analyzer": {
+          "linkedProjects": ["apps/desktop/src-tauri/Cargo.toml"]
+        }
+      }
+    },
+    "kotlin-lsp": {
+      "rootMarkers": ["services/jvm-sidecar/build.gradle.kts"]
+    }
+  }
+}
