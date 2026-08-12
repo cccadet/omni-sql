@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "node --test src/**/*.test.ts test/**/*.test.ts",
-    "coverage": "node --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-coverage-exclude='**/*.test.ts' --test src/**/*.test.ts test/**/*.test.ts",
+    "coverage": "mkdir -p coverage && node --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-coverage-include='src/**/*.ts' --test-coverage-exclude='**/*.test.ts' --test src/**/*.test.ts test/**/*.test.ts",
     "start": "tsx ./src/index.ts",
     "start:production": "node ./dist/index.mjs"
   },

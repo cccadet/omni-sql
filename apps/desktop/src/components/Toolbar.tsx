@@ -1,4 +1,4 @@
-import { Toolbar as FluentToolbar, ToolbarButton, Spinner, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogSurface, DialogTitle, Spinner, Toolbar as FluentToolbar, ToolbarButton, tokens } from "@fluentui/react-components";
 import {
   AddRegular,
   PlayRegular,
@@ -155,40 +155,22 @@ export function Toolbar({
       <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} title={t("history")} />
       <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} title={t("moreOptions")} />
       {pendingRunCount && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-          }}
-          onClick={onRunChoiceCancel}
-          role="presentation"
-        >
-          <div
-            style={{
-              background: tokens.colorNeutralBackground1,
-              border: `1px solid ${tokens.colorNeutralStroke1}`,
-              borderRadius: 8,
-              padding: 16,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              minWidth: 280,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontWeight: 600 }}>{t("multipleStatements")}</div>
-            <ToolbarButton onClick={() => onRunChoice?.("current")} appearance="primary">
-              {t("runCurrent")}
-            </ToolbarButton>
-            <ToolbarButton onClick={() => onRunChoice?.("all")}>{t("runAll")} ({pendingRunCount})</ToolbarButton>
-            <ToolbarButton onClick={onRunChoiceCancel}>{t("cancel")}</ToolbarButton>
-          </div>
-        </div>
+        <Dialog open onOpenChange={(_, data) => !data.open && onRunChoiceCancel?.()}>
+          <DialogSurface style={{ minWidth: 280 }}>
+            <DialogBody>
+              <DialogTitle>{t("multipleStatements")}</DialogTitle>
+              <DialogActions>
+                <Button onClick={() => onRunChoice?.("current")} appearance="primary">
+                  {t("runCurrent")}
+                </Button>
+                <Button onClick={() => onRunChoice?.("all")}>
+                  {t("runAll")} ({pendingRunCount})
+                </Button>
+                <Button onClick={onRunChoiceCancel}>{t("cancel")}</Button>
+              </DialogActions>
+            </DialogBody>
+          </DialogSurface>
+        </Dialog>
       )}
     </FluentToolbar>
   );
