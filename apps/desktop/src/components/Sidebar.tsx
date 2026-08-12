@@ -13,7 +13,6 @@ import {
   ChevronDownRegular,
   SearchRegular,
   DismissRegular,
-  ArrowSyncRegular,
   ArrowEnterRegular,
   LinkRegular,
   DatabaseRegular,
@@ -525,9 +524,6 @@ export function Sidebar({
             <span id="omni-connections-heading" className="omni-sidebar-section-title">{tr("connections")}</span>
           </Button>
           {connectionsExpanded && <div className="omni-connection-actions">
-            <Tooltip content={tr("refreshMetadata")} relationship="label">
-              <Button icon={<ArrowSyncRegular fontSize={12} />} appearance="transparent" size="small" onClick={onRefreshMetadata} disabled={!connectionId || loading} aria-label={tr("refreshMetadata")} />
-            </Tooltip>
             <Tooltip content={tr("newConnection")} relationship="label">
               <Button icon={<AddRegular fontSize={12} />} appearance="transparent" size="small" onClick={onAddConnection} aria-label={tr("newConnection")} />
             </Tooltip>
@@ -714,9 +710,14 @@ export function Sidebar({
           {loading && <Spinner size="tiny" />}
           {connection && (
             <Tooltip content={metadataTooltip} relationship="description">
-              <span aria-label={metadataTooltip} style={{ display: "inline-flex", alignItems: "center", padding: 4 }}>
-                {metadataFreshness === "today" ? <CheckmarkCircleRegular fontSize={14} style={{ color: tokens.colorPaletteGreenForeground1 }} /> : metadataFreshness === "stale" ? <WarningRegular fontSize={14} style={{ color: tokens.colorPaletteYellowForeground1 }} /> : <CircleRegular fontSize={13} style={{ color: tokens.colorNeutralForeground3 }} />}
-              </span>
+              <Button
+                icon={metadataFreshness === "today" ? <CheckmarkCircleRegular fontSize={14} style={{ color: tokens.colorPaletteGreenForeground1 }} /> : metadataFreshness === "stale" ? <WarningRegular fontSize={14} style={{ color: tokens.colorPaletteYellowForeground1 }} /> : <CircleRegular fontSize={13} style={{ color: tokens.colorNeutralForeground3 }} />}
+                appearance="transparent"
+                size="small"
+                onClick={onRefreshMetadata}
+                disabled={!connectionId || loading}
+                aria-label={tr("refreshMetadata")}
+              />
             </Tooltip>
           )}
           <SidecarStatus />
