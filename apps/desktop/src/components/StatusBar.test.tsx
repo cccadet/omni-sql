@@ -2,7 +2,7 @@ import { test, assert, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
-import { StatusBar } from "./StatusBar";
+import { createCopilotVsCodeMcpConfig, StatusBar } from "./StatusBar";
 import type { ConnectionEntry } from "../lib/backend";
 import { LanguageProvider } from "../i18n";
 
@@ -88,18 +88,22 @@ test("StatusBar: hides unavailable update", () => {
   assert.equal(screen.queryByRole("button", { name: /Update/ }), null);
 });
 
-test("StatusBar: shows safe MCP launcher configuration", async () => {
-  vi.mocked(invoke).mockResolvedValue({ command: "/usr/bin/node", args: ["/opt/mcp/index.js", "/run/mcp.json"] });
+test("StatusBar: produces the VS Code GitHub Copilot MCP configuration from the safe launcher", async () => {
+  const launcher = { command: "/usr/bin/node", args: ["/opt/mcp/index.js", "/run/mcp.json"] };
+  vi.mocked(invoke).mockResolvedValue(launcher);
   renderWithLanguage(<StatusBar mcpState="connected" mcpStatus={{ uiConnected: true, queueSize: 1, inFlight: 0, maxQueueSize: 8, timeoutMs: 30_000 }} />);
 
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP connected/ }));
-  expect(await screen.findByText("Connected MCP client · Queue: 1")).toBeTruthy();
-  expect(screen.queryByText("No MCP client is connected.")).toBeNull();
-  expect(screen.getByText("STDIO command")).toBeTruthy();
-  expect(screen.getByText("/usr/bin/node")).toBeTruthy();
-  expect(screen.getByText("/opt/mcp/index.js")).toBeTruthy();
-  expect(screen.getByText("/run/mcp.json")).toBeTruthy();
-  expect(screen.getAllByRole("button", { name: /Copy (command|argument)/ })).toHaveLength(3);
+  expect(await screen.findByText("GitHub Copilot (VS Code)")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Copy GitHub Copilot configuration" })).toBeTruthy();
+  assert.deepEqual(JSON.parse(createCopilotVsCodeMcpConfig(launcher)), {
+    servers: {
+      "omni-sql": {
+        command: "/usr/bin/node",
+        args: ["/opt/mcp/index.js", "/run/mcp.json"],
+      },
+    },
+  });
   expect(screen.queryByText(/token/i)).toBeTruthy();
 });
 
