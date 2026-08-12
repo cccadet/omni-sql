@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MCP_LIMITS } from "@omni-sql/ts-types";
 import { McpBridgeError } from "./mcp-bridge.ts";
-import { closeMcpBridge, mcpHandlers, validateMcpRequest } from "./mcp-handlers.ts";
+import { closeMcpBridge, mcpBridge, mcpHandlers, validateMcpRequest } from "./mcp-handlers.ts";
 
 function invalid(value: unknown): void {
   assert.throws(() => validateMcpRequest(value), (error: unknown) =>
@@ -62,6 +62,34 @@ test("mcp.ui.next releases wait when its request signal aborts", async () => {
     );
     controller.abort();
     assert.equal(await waiting, null);
+  } finally {
+    closeMcpBridge();
+  }
+});
+
+test("mcp.history returns recorded proposeSqlEdit entries", async () => {
+  try {
+    assert.deepEqual(await mcpHandlers["mcp.history"](), { entries: [] });
+
+    const waiting = mcpHandlers["mcp.ui.next"]({ listenerId: "handler-history", waitMs: 500 });
+    const pending = mcpBridge.submit("proposeSqlEdit", { sql: "select 1", rationale: "Improve query" });
+    const delivered = await waiting;
+    assert.equal(delivered?.tool, "proposeSqlEdit");
+
+    mcpHandlers["mcp.ui.respond"]({
+      id: delivered!.id,
+      ok: true,
+      result: { approved: true },
+      listenerId: "handler-history",
+    });
+    assert.deepEqual(await pending, { approved: true });
+
+    const history = await mcpHandlers["mcp.history"]();
+    assert.equal(history.entries.length, 1);
+    assert.equal(history.entries[0]!.tool, "proposeSqlEdit");
+    assert.equal(history.entries[0]!.status, "completed");
+    assert.equal(history.entries[0]!.sql, "select 1");
+    assert.equal(history.entries[0]!.rationale, "Improve query");
   } finally {
     closeMcpBridge();
   }

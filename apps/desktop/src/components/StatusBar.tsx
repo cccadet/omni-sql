@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Text, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Tab, TabList, Text, tokens } from "@fluentui/react-components";
 import {
   PlugDisconnectedRegular,
   PlugConnectedRegular,
@@ -8,12 +8,14 @@ import {
   CursorRegular,
   PlugConnectedRegular as McpIcon,
   CopyRegular,
+  ArrowClockwiseRegular,
 } from "@fluentui/react-icons";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueryResult } from "@omni-sql/ts-types";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ConnectionEntry } from "../lib/backend";
-import type { McpStatusResult } from "@omni-sql/ts-types";
+import { backend } from "../lib/backend";
+import type { McpHistoryEntry, McpHistoryResult, McpStatusResult } from "@omni-sql/ts-types";
 import { DialectIcon } from "./DialectIcon";
 import { useLanguage } from "../i18n";
 
@@ -99,6 +101,9 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
   const [mcpOpen, setMcpOpen] = useState(false);
   const [config, setConfig] = useState<McpLauncherConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [mcpTab, setMcpTab] = useState<"copilot" | "stdio" | "history">("copilot");
+  const [mcpHistory, setMcpHistory] = useState<readonly McpHistoryEntry[] | null>(null);
+  const [mcpHistoryError, setMcpHistoryError] = useState<string | null>(null);
   const dialectLabels: Record<string, string> = {
     postgres: "PostgreSQL",
     mysql: "MySQL",
@@ -114,11 +119,25 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
   const mcpColor = mcpState === "connected" ? tokens.colorPaletteGreenForeground1 : mcpState === "error" ? tokens.colorPaletteRedForeground1 : mcpState === "listening" ? tokens.colorPaletteYellowForeground1 : tokens.colorNeutralForegroundOnBrand;
   const mcpClientConnected = mcpState === "connected" || mcpStatus?.uiConnected === true;
   const httpEndpoint = safeHttpEndpoint(config?.endpoint);
+  const copilotJson = config && !httpEndpoint ? createCopilotVsCodeMcpConfig(config) : null;
+
+  const loadMcpHistory = () => {
+    setMcpHistoryError(null);
+    void backend.call<McpHistoryResult>("mcp.history", undefined)
+      .then((result) => setMcpHistory(result.entries))
+      .catch((error: unknown) => {
+        setMcpHistory(null);
+        setMcpHistoryError(error instanceof Error ? error.message : String(error));
+      });
+  };
 
   const openMcp = () => {
     setMcpOpen(true);
     setConfig(null);
     setConfigError(null);
+    setMcpTab("copilot");
+    setMcpHistory(null);
+    setMcpHistoryError(null);
     void invoke<McpLauncherConfig>("get_mcp_launcher_config")
       .then(setConfig)
       .catch((error: unknown) => {
@@ -251,26 +270,66 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
                   <Text style={{ color: tokens.colorPaletteRedForeground1, minWidth: 0, overflowWrap: "anywhere" }}>{mcpError ?? configError}</Text>
                 </div>
               )}
-              {config && (
-                <div style={{ display: "grid", gap: 6 }}>
-                  <Text weight="semibold">{t("configureClient")}</Text>
-                  {httpEndpoint ? (
-                    <McpValue label={t("mcpHttpEndpoint")} value={httpEndpoint} copyLabel={t("copyEndpoint")} copiedLabel={t("copied")} />
-                  ) : (
-                    <>
-                      <McpValue label={t("mcpCommand")} value={config.command} copyLabel={t("copyCommand")} copiedLabel={t("copied")} />
-                      {config.args.map((arg, index) => (
-                        <McpValue key={`${index}-${arg}`} label={`${t("mcpArgument")} ${index + 1}`} value={arg} copyLabel={`${t("copyArgument")} ${index + 1}`} copiedLabel={t("copied")} />
-                      ))}
-                      <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpCopilotVsCodeHelp")}</Text>
-                      <McpValue
-                        label={t("mcpCopilotVsCodeConfig")}
-                        value={createCopilotVsCodeMcpConfig(config)}
-                        copyLabel={t("copyCopilotVsCodeConfig")}
-                        copiedLabel={t("copied")}
-                      />
-                    </>
+              <TabList
+                selectedValue={mcpTab}
+                onTabSelect={(_, data) => {
+                  const value = data.value as "copilot" | "stdio" | "history";
+                  setMcpTab(value);
+                  if (value === "history") loadMcpHistory();
+                }}
+                aria-label={t("mcpStatusTitle")}
+              >
+                <Tab value="copilot">{t("mcpCopilotVsCodeConfig")}</Tab>
+                <Tab value="stdio">{t("mcpStdioTab")}</Tab>
+                <Tab value="history">{t("mcpHistoryTab")}</Tab>
+              </TabList>
+              {mcpTab === "copilot" && (
+                !config ? (
+                  <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpLauncherUnavailable")}</Text>
+                ) : httpEndpoint ? (
+                  <McpValue label={t("mcpHttpEndpoint")} value={httpEndpoint} copyLabel={t("copyEndpoint")} copiedLabel={t("copied")} />
+                ) : (
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpCopilotVsCodeHelp")}</Text>
+                    <McpValue value={copilotJson ?? ""} copyLabel={t("copyCopilotVsCodeConfig")} copiedLabel={t("copied")} multiline />
+                  </div>
+                )
+              )}
+              {mcpTab === "stdio" && (
+                !config ? (
+                  <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpLauncherUnavailable")}</Text>
+                ) : (
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <McpValue label={t("mcpCommand")} value={config.command} copyLabel={t("copyCommand")} copiedLabel={t("copied")} />
+                    {config.args.map((arg, index) => (
+                      <McpValue key={`${index}-${arg}`} label={`${t("mcpArgument")} ${index + 1}`} value={arg} copyLabel={`${t("copyArgument")} ${index + 1}`} copiedLabel={t("copied")} />
+                    ))}
+                  </div>
+                )
+              )}
+              {mcpTab === "history" && (
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <Button appearance="subtle" size="small" icon={<ArrowClockwiseRegular />} aria-label={t("mcpHistoryRefresh")} title={t("mcpHistoryRefresh")} onClick={loadMcpHistory} />
+                  </div>
+                  {mcpHistoryError && <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{mcpHistoryError}</Text>}
+                  {!mcpHistoryError && (mcpHistory ?? []).length === 0 && (
+                    <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpHistoryEmpty")}</Text>
                   )}
+                  {(mcpHistory ?? []).map((entry) => (
+                    <div key={entry.id} style={{ display: "grid", gap: 4, padding: 8, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{new Date(entry.receivedAt).toLocaleTimeString()}</Text>
+                        <Text weight="semibold">{entry.tool}</Text>
+                        <Text size={200} style={{ color: entry.status === "completed" ? tokens.colorPaletteGreenForeground1 : entry.status === "error" ? tokens.colorPaletteRedForeground1 : tokens.colorPaletteYellowForeground1 }}>
+                          {entry.status === "completed" ? t("success") : entry.status === "error" ? t("failure") : t("mcpHistoryPending")}
+                        </Text>
+                      </div>
+                      <Text size={200} style={{ overflowWrap: "anywhere" }}>{t("mcpEditRationale")}: {entry.rationale}</Text>
+                      <pre style={{ margin: 0, padding: 8, maxHeight: 160, overflow: "auto", fontSize: 12, background: tokens.colorNeutralBackground3, borderRadius: 4 }}>{entry.sql}</pre>
+                      {entry.errorMessage && <Text size={200} style={{ color: tokens.colorPaletteRedForeground1, overflowWrap: "anywhere" }}>{entry.errorMessage}</Text>}
+                    </div>
+                  ))}
                 </div>
               )}
             </DialogContent>
@@ -284,11 +343,15 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
   );
 }
 
-function McpValue({ label, value, copyLabel, copiedLabel }: { label: string; value: string; copyLabel: string; copiedLabel: string }) {
+function McpValue({ label, value, copyLabel, copiedLabel, multiline }: { label?: string; value: string; copyLabel: string; copiedLabel: string; multiline?: boolean }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", alignItems: "center", gap: 8, minWidth: 0 }}>
-      <Text size={200} weight="semibold" style={{ minWidth: 0, overflowWrap: "anywhere" }}>{label}</Text>
-      <code style={{ minWidth: 0, overflowWrap: "anywhere", padding: "6px 8px", color: tokens.colorNeutralForeground1, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }}>{value}</code>
+    <div style={{ display: "grid", gridTemplateColumns: label ? "auto minmax(0, 1fr) auto" : "minmax(0, 1fr) auto", alignItems: multiline ? "start" : "center", gap: 8, minWidth: 0 }}>
+      {label && <Text size={200} weight="semibold" style={{ minWidth: 0, overflowWrap: "anywhere" }}>{label}</Text>}
+      {multiline ? (
+        <pre style={{ margin: 0, minWidth: 0, padding: "6px 8px", maxHeight: 280, overflow: "auto", fontSize: 12, color: tokens.colorNeutralForeground1, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }}>{value}</pre>
+      ) : (
+        <code style={{ minWidth: 0, overflowWrap: "anywhere", padding: "6px 8px", color: tokens.colorNeutralForeground1, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4 }}>{value}</code>
+      )}
       <McpCopyButton value={value} label={copyLabel} copiedLabel={copiedLabel} />
     </div>
   );

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   isMcpToolName,
+  MCP_MAX_HISTORY_ENTRIES,
   McpBridge,
   McpBridgeError,
   validateMcpToolResult,
@@ -311,4 +312,88 @@ test("MCP value guards reject invalid required values and size bounds", () => {
     }),
     hasCode("invalid"),
   );
+});
+
+test("MCP bridge records proposeSqlEdit history with outcomes", async () => {
+  let nextId = 0;
+  const bridge = new McpBridge({ timeoutMs: 500, idFactory: () => `request-${++nextId}` });
+  try {
+    assert.deepEqual(bridge.history(), { entries: [] });
+
+    const firstWait = bridge.next({ listenerId: "desktop", waitMs: 500 });
+    const first = bridge.submit("proposeSqlEdit", { sql: "select 1", rationale: "test" });
+    await firstWait;
+    assert.equal(bridge.history().entries.length, 1);
+    const pendingEntry = bridge.history().entries[0]!;
+    assert.equal(pendingEntry.id, "request-1");
+    assert.equal(pendingEntry.tool, "proposeSqlEdit");
+    assert.equal(pendingEntry.status, "pending");
+    assert.equal(pendingEntry.sql, "select 1");
+    assert.equal(pendingEntry.rationale, "test");
+    assert.equal(typeof pendingEntry.receivedAt, "number");
+
+    bridge.respond({ id: "request-1", ok: true, result: { approved: true } }, "desktop");
+    assert.deepEqual(await first, { approved: true });
+    const completedEntry = bridge.history().entries[0]!;
+    assert.equal(completedEntry.status, "completed");
+    assert.equal(typeof completedEntry.completedAt, "number");
+    assert.equal(completedEntry.errorCode, undefined);
+
+    const secondWait = bridge.next({ listenerId: "desktop", waitMs: 500 });
+    const second = bridge.submit("proposeSqlEdit", { sql: "select 2", rationale: "retry" });
+    second.catch(() => undefined);
+    await secondWait;
+    bridge.respond(
+      { id: "request-2", ok: false, error: { code: "rejected", message: "no" } },
+      "desktop",
+    );
+    await assert.rejects(second, hasCode("rejected"));
+    const entries = bridge.history().entries;
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0]!.id, "request-2"); // newest first
+    assert.equal(entries[0]!.status, "error");
+    assert.equal(entries[0]!.errorCode, "rejected");
+    assert.equal(entries[0]!.errorMessage, "no");
+
+    const otherWait = bridge.next({ listenerId: "desktop", waitMs: 500 });
+    const other = bridge.submit("getActiveSql", {});
+    await otherWait;
+    bridge.respond({ id: "request-3", ok: true, result: { sql: "select 1", dialect: "postgres" } }, "desktop");
+    await other;
+    assert.equal(bridge.history().entries.length, 2); // only proposeSqlEdit recorded
+  } finally {
+    bridge.close();
+  }
+});
+
+test("MCP bridge history marks timeouts and bounds entry count", async () => {
+  const bridge = new McpBridge({ timeoutMs: 20, listenerTtlMs: 10_000 });
+  try {
+    const waiting = bridge.next({ listenerId: "desktop", waitMs: 100 });
+    const timedOut = bridge.submit("proposeSqlEdit", { sql: "select 1", rationale: "slow" });
+    timedOut.catch(() => undefined);
+    await waiting;
+    await assert.rejects(timedOut, hasCode("timeout"));
+    const entry = bridge.history().entries[0]!;
+    assert.equal(entry.status, "error");
+    assert.equal(entry.errorCode, "timeout");
+  } finally {
+    bridge.close();
+  }
+
+  const capped = new McpBridge({ timeoutMs: 5, listenerTtlMs: 10_000 });
+  try {
+    await capped.next({ listenerId: "desktop", waitMs: 0 });
+    for (let index = 0; index < MCP_MAX_HISTORY_ENTRIES + 10; index += 1) {
+      await assert.rejects(
+        capped.submit("proposeSqlEdit", { sql: `select ${index}`, rationale: "cap" }),
+        hasCode("timeout"),
+      );
+    }
+    const entries = capped.history().entries;
+    assert.equal(entries.length, MCP_MAX_HISTORY_ENTRIES);
+    assert.equal(entries[0]!.sql, `select ${MCP_MAX_HISTORY_ENTRIES + 9}`); // newest kept
+  } finally {
+    capped.close();
+  }
 });

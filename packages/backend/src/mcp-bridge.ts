@@ -3,6 +3,8 @@ import type {
   McpBridgeRequest,
   McpBridgeResponse,
   McpErrorCode,
+  McpHistoryEntry,
+  McpHistoryResult,
   McpStatusResult,
   McpToolArgs,
   McpToolArgsByName,
@@ -17,6 +19,7 @@ import {
   MCP_LISTENER_LEASE_MS as SHARED_MCP_LISTENER_LEASE_MS,
   MCP_MAX_ARGUMENT_BYTES as SHARED_MCP_MAX_ARGUMENT_BYTES,
   MCP_MAX_BRIDGE_RESULT_BYTES as SHARED_MCP_MAX_BRIDGE_RESULT_BYTES,
+  MCP_MAX_HISTORY_ENTRIES as SHARED_MCP_MAX_HISTORY_ENTRIES,
   MCP_MAX_ERROR_MESSAGE_BYTES as SHARED_MCP_MAX_ERROR_MESSAGE_BYTES,
   MCP_MAX_LISTENER_ID_BYTES as SHARED_MCP_MAX_LISTENER_ID_BYTES,
   MCP_MAX_CONNECTION_ID_BYTES as SHARED_MCP_MAX_CONNECTION_ID_BYTES,
@@ -39,6 +42,7 @@ export const MCP_MAX_LISTENER_ID_BYTES = SHARED_MCP_MAX_LISTENER_ID_BYTES;
 export const MCP_MAX_CONNECTION_ID_BYTES = SHARED_MCP_MAX_CONNECTION_ID_BYTES;
 export const MCP_MAX_SQL_BYTES = SHARED_MCP_MAX_SQL_BYTES;
 export const MCP_MAX_TITLE_BYTES = SHARED_MCP_MAX_TITLE_BYTES;
+export const MCP_MAX_HISTORY_ENTRIES = SHARED_MCP_MAX_HISTORY_ENTRIES;
 export const MCP_LISTENER_LEASE_MS = SHARED_MCP_LISTENER_LEASE_MS;
 
 export const MCP_TOOL_NAMES: readonly McpToolName[] = [
@@ -85,6 +89,9 @@ interface WaitingListener {
   readonly timer: ReturnType<typeof setTimeout>;
   readonly abortCleanup: () => void;
 }
+
+/** Mutable mirror of the readonly wire type so settle can update entries in place. */
+type MutableHistoryEntry = { -readonly [K in keyof McpHistoryEntry]: McpHistoryEntry[K] };
 
 export interface McpBridgeOptions {
   maxQueueSize?: number;
@@ -362,6 +369,7 @@ export class McpBridge {
   private readonly idFactory: () => string;
   private readonly queue: PendingRequest[] = [];
   private readonly pending = new Map<string, PendingRequest>();
+  private readonly historyEntries: MutableHistoryEntry[] = [];
   private listenerId: string | undefined;
   private listenerExpiresAt = 0;
   private listenerTimer: ReturnType<typeof setTimeout> | undefined;
@@ -446,6 +454,7 @@ export class McpBridge {
       const queueIndex = this.queue.indexOf(current);
       if (queueIndex >= 0) this.queue.splice(queueIndex, 1);
       rejectPending(new McpBridgeError("timeout", "desktop UI did not respond before timeout"));
+      this.settleHistory(request.id, { status: "error", code: "timeout" });
     }, this.timeoutMs);
     const pending: PendingRequest = {
       request,
@@ -455,6 +464,7 @@ export class McpBridge {
       state: "queued",
     };
     this.pending.set(request.id, pending);
+    this.recordHistory(request);
 
     if (this.waitingListener?.listenerId === this.listenerId) {
       const waiting = this.waitingListener;
@@ -484,11 +494,13 @@ export class McpBridge {
       try {
         const result = validateMcpToolResult(pending.request.tool, response.result);
         pending.resolve(result);
+        this.settleHistory(response.id, { status: "completed" });
       } catch (error) {
         const invalid = error instanceof McpBridgeError
           ? error
           : new McpBridgeError("invalid", "desktop UI returned an invalid result");
         pending.reject(invalid);
+        this.settleHistory(response.id, { status: "error", code: "invalid" });
         throw invalid;
       }
     } else {
@@ -496,10 +508,12 @@ export class McpBridge {
       if (!error || typeof error.message !== "string" || error.message.length === 0 ||
         Buffer.byteLength(error.message, "utf8") > MCP_MAX_ERROR_MESSAGE_BYTES) {
         pending.reject(new McpBridgeError("invalid", "desktop UI returned an invalid error"));
+        this.settleHistory(response.id, { status: "error", code: "invalid" });
       } else {
         const code = error.code === "invalid" || error.code === "unavailable" || error.code === "rejected" ||
           error.code === "stale" || error.code === "timeout" ? error.code : "rejected";
         pending.reject(new McpBridgeError(code, error.message));
+        this.settleHistory(response.id, { status: "error", code, message: error.message });
       }
     }
     return { accepted: true };
@@ -516,6 +530,10 @@ export class McpBridge {
     };
   }
 
+  history(): McpHistoryResult {
+    return { entries: [...this.historyEntries].reverse() }; // newest first
+  }
+
   close(): void {
     if (this.listenerTimer) clearTimeout(this.listenerTimer);
     this.listenerTimer = undefined;
@@ -523,11 +541,41 @@ export class McpBridge {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new McpBridgeError("unavailable", "desktop UI listener unavailable"));
+      this.settleHistory(pending.request.id, { status: "error", code: "unavailable" });
     }
     this.pending.clear();
     this.queue.length = 0;
     this.listenerId = undefined;
     this.listenerExpiresAt = 0;
+  }
+
+  private recordHistory(request: McpBridgeRequest): void {
+    if (request.tool !== "proposeSqlEdit") return;
+    const args = request.args as { sql?: unknown; rationale?: unknown } | undefined;
+    if (typeof args?.sql !== "string" || typeof args.rationale !== "string") return;
+    this.historyEntries.push({
+      id: request.id,
+      tool: request.tool,
+      receivedAt: Date.now(),
+      status: "pending",
+      sql: args.sql,
+      rationale: args.rationale,
+    });
+    if (this.historyEntries.length > MCP_MAX_HISTORY_ENTRIES) this.historyEntries.shift();
+  }
+
+  private settleHistory(
+    id: string,
+    outcome: { status: "completed" } | { status: "error"; code: McpErrorCode; message?: string },
+  ): void {
+    const entry = this.historyEntries.find((item) => item.id === id);
+    if (!entry) return; // evicted or never recorded
+    entry.status = outcome.status;
+    entry.completedAt = Date.now();
+    if (outcome.status === "error") {
+      entry.errorCode = outcome.code;
+      if (outcome.message) entry.errorMessage = outcome.message;
+    }
   }
 
   private claimListener(listenerId: string): void {
@@ -572,6 +620,7 @@ export class McpBridge {
       if (pending.state === "delivered") continue;
       clearTimeout(pending.timer);
       pending.reject(new McpBridgeError("unavailable", "desktop UI listener unavailable"));
+      this.settleHistory(id, { status: "error", code: "unavailable" });
       this.pending.delete(id);
     }
     this.queue.length = 0;
