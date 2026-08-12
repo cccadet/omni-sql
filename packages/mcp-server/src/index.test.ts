@@ -30,9 +30,9 @@ import {
   isLoopbackHost,
   parseMcpCliOptions,
   proposeSqlEditInputSchema,
+  startMcpHttpServer,
   startMcpServer,
 } from "./index.ts";
-
 const descriptor = {
   endpoint: "http://127.0.0.1:41920",
   token: "test-token",
@@ -55,12 +55,18 @@ async function close(server: HttpServer): Promise<void> {
   await once(server, "close");
 }
 
-async function rawPost(port: number, path: string, headers: Record<string, string>, body: string): Promise<{ status: number; body: string }> {
+async function rawPost(
+  port: number,
+  path: string,
+  headers: Record<string, string>,
+  body: string,
+  method = "POST",
+): Promise<{ status: number; body: string }> {
   const request = httpRequest({
     hostname: "127.0.0.1",
     port,
     path,
-    method: "POST",
+    method,
     headers,
   });
   request.end(body);
@@ -149,6 +155,47 @@ test("STDIO remains default and accepts explicit transport selection", async () 
   } as unknown as StdioServerTransport;
   await startMcpServer(descriptor, transport);
   assert.equal(started, true);
+});
+
+test("CLI and HTTP server option validation reject invalid startup inputs", async () => {
+  const client = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response("{}") });
+  assert.throws(() => createStreamableHttpServer(client));
+  assert.throws(() => createStreamableHttpServer(client, { httpToken: "x".repeat(4_097) }));
+  assert.throws(() => createStreamableHttpServer(client, { httpToken, maxSessions: 0 }));
+  assert.throws(() => createStreamableHttpServer(client, { httpToken, maxSessions: 1.5 }));
+  assert.throws(() => createStreamableHttpServer(client, { httpToken, sessionIdleTimeoutMs: 0 }));
+  assert.throws(() => createStreamableHttpServer(client, { httpToken, sessionIdleTimeoutMs: 1.5 }));
+  assert.throws(() => createStreamableHttpServer(client, { httpToken, port: -1 }));
+  assert.throws(() => createStreamableHttpServer(client, { httpToken, port: 65_536 }));
+  assert.throws(() => createStreamableHttpServer(client, { httpToken, host: "0.0.0.0" }));
+  const server = createStreamableHttpServer(client, { authToken: httpToken, port: 0 });
+  await closeStreamableHttpServer(server);
+
+  const httpEnv = { OMNI_SQL_MCP_HTTP_TOKEN: httpToken };
+  assert.equal(parseMcpCliOptions(["runtime.json", "--streamable-http"], httpEnv).transport, "streamable-http");
+  assert.equal(parseMcpCliOptions(["runtime.json", "--http"], httpEnv).transport, "streamable-http");
+  assert.equal(parseMcpCliOptions(["runtime.json", "--http-transport=http"], httpEnv).transport, "streamable-http");
+  assert.equal(parseMcpCliOptions(["runtime.json", "--http", "--http-host=localhost"], httpEnv).httpHost, "localhost");
+  assert.equal(parseMcpCliOptions(["runtime.json", "--http", "--http-port=65535"], httpEnv).httpPort, 65_535);
+  assert.throws(() => parseMcpCliOptions([] as string[], {}));
+  assert.throws(() => parseMcpCliOptions(["runtime.json", "other.json"], {}));
+  assert.throws(() => parseMcpCliOptions(["runtime.json", "--unknown"], {}));
+  assert.throws(() => parseMcpCliOptions(["runtime.json", "--transport"], {}));
+  assert.throws(() => parseMcpCliOptions(["runtime.json", "--host"], {}));
+  assert.throws(() => parseMcpCliOptions(["runtime.json", "--port"], {}));
+  assert.throws(() => parseMcpCliOptions(["runtime.json", "--http", "--port=-1"], httpEnv));
+  assert.throws(() => parseMcpCliOptions(["runtime.json", "--http", "--port=65536"], httpEnv));
+});
+
+test("HTTP startup binds valid ephemeral listeners and rejects absent token", async () => {
+  await assert.rejects(startMcpHttpServer(descriptor, { port: 0 }));
+  const server = await startMcpHttpServer(descriptor, { httpToken, port: 0 });
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string" && address.port > 0);
+  } finally {
+    await closeStreamableHttpServer(server);
+  }
 });
 
 test("advertises exactly five approved tools", async () => {
@@ -473,9 +520,24 @@ test("Streamable HTTP rejects malformed raw ingress headers and chunked oversize
     await close(server);
   }
 });
+test("Streamable HTTP validates request methods and session requirements", async () => {
+  const client = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response("{}") });
+  const server = createStreamableHttpServer(client, { httpToken });
+  const port = await listen(server);
+  const headers = { authorization: `Bearer ${httpToken}`, "content-type": "application/json" };
+  try {
+    assert.equal((await rawPost(port, "/mcp", headers, "", "GET")).status, 400);
+    assert.equal((await rawPost(port, "/mcp", headers, "", "DELETE")).status, 400);
+    assert.equal((await rawPost(port, "/mcp", headers, "", "PUT")).status, 405);
+    assert.equal((await rawPost(port, "/mcp", headers, JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }))).status, 400);
+  } finally {
+    await close(server);
+  }
+});
 
 test("Streamable HTTP initializes, lists approved tools, and forwards a tool call", async () => {
   let bridgeTool: string | undefined;
+
   const client = new BackendMcpClient(descriptor, {
     fetchImpl: async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { tool: string };
