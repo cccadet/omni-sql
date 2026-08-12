@@ -69,11 +69,11 @@ test("MCP endpoint isolates tokens, rejects generic RPC, and bridges one UI resp
       listenerId: "desktop",
       id: request.id,
       ok: true,
-      result: { sql: "select 1" },
+      result: { sql: "select 1", dialect: null },
     });
     assert.equal(accepted.result.accepted, true);
     const mcpResult = await mcpPromise;
-    assert.deepEqual(mcpResult, { status: 200, body: { result: { sql: "select 1" } } });
+    assert.deepEqual(mcpResult, { status: 200, body: { result: { sql: "select 1", dialect: null } } });
 
     const stale = await rpc("mcp.ui.respond", {
       listenerId: "desktop",

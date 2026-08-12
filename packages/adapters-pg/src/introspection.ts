@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import pg, { type Pool, type PoolClient, type Query as PgQuery, type QueryResult as PgQueryResult } from "pg";
 import type {
   Column,
@@ -472,7 +473,7 @@ export async function runQueryViaPool(
     // no handshake, não documentado no tipo `PoolClient` mas estável em runtime)
     // — é a única forma de cancelar a query via `pg_cancel_backend` de outra conexão.
     onPid?.((client as unknown as { processID: number }).processID);
-    const cursorName = `omni_q_${Math.random().toString(36).slice(2)}`;
+    const cursorName = `omni_q_${randomUUID().replaceAll("-", "")}`;
     try {
       await queryViaClient(client, `DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sqlForExecution}`, onQuery);
     } catch (e) {

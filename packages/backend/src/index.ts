@@ -103,6 +103,11 @@ async function readBody(req: IncomingMessage, maxBytes: number): Promise<string>
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function allowedOrigin(value: string | string[] | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return [...ALLOWED_ORIGINS].find((configuredOrigin) => configuredOrigin === value);
+}
+
 function send(res: ServerResponse, status: number, body: unknown, origin?: string): void {
   const payload = JSON.stringify(body);
   const headers: Record<string, string> = {
@@ -112,7 +117,7 @@ function send(res: ServerResponse, status: number, body: unknown, origin?: strin
     "access-control-allow-headers": "content-type, authorization",
     vary: "Origin",
   };
-  if (origin && ALLOWED_ORIGINS.has(origin)) headers["access-control-allow-origin"] = origin;
+  if (origin) headers["access-control-allow-origin"] = origin;
   res.writeHead(status, headers);
   res.end(payload);
 }
@@ -281,22 +286,22 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         "access-control-allow-headers": "content-type, authorization",
         vary: "Origin",
       };
-      if (req.headers.origin && ALLOWED_ORIGINS.has(req.headers.origin)) {
-        headers["access-control-allow-origin"] = req.headers.origin;
-      }
+      const origin = allowedOrigin(req.headers.origin);
+      if (origin) headers["access-control-allow-origin"] = origin;
       res.writeHead(204, headers);
       res.end();
       return;
     }
 
     const route = req.url;
+    const origin = allowedOrigin(req.headers.origin);
     if (route === "/mcp") {
       if (!mcpAuthorized(req)) {
-        sendMcpError(res, 401, "unauthorized", "unauthorized", req.headers.origin);
+        sendMcpError(res, 401, "unauthorized", "unauthorized", origin);
         return;
       }
       if (req.method !== "POST") {
-        sendMcpError(res, 405, "invalid", "method not allowed", req.headers.origin);
+        sendMcpError(res, 405, "invalid", "method not allowed", origin);
         return;
       }
 
@@ -305,9 +310,9 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         raw = await readBody(req, MCP_MAX_HTTP_BODY_BYTES);
       } catch (error) {
         if (error instanceof BodyTooLargeError) {
-          sendMcpError(res, 413, "invalid", "request body too large", req.headers.origin);
+          sendMcpError(res, 413, "invalid", "request body too large", origin);
         } else {
-          sendMcpError(res, 400, "invalid", "invalid request body", req.headers.origin);
+          sendMcpError(res, 400, "invalid", "invalid request body", origin);
         }
         return;
       }
@@ -316,13 +321,13 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
       try {
         body = JSON.parse(raw) as unknown;
       } catch {
-        sendMcpError(res, 400, "invalid", "invalid JSON body", req.headers.origin);
+        sendMcpError(res, 400, "invalid", "invalid JSON body", origin);
         return;
       }
 
       try {
         const result = await handleMcpRequest(body);
-        send(res, 200, { result }, req.headers.origin);
+        send(res, 200, { result }, origin);
       } catch (error) {
         const mcpError = error instanceof McpBridgeError
           ? error
@@ -331,22 +336,22 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
           res,
           mcpErrorStatus(mcpError.code),
           { error: { code: mcpError.code, message: mcpError.message } },
-          req.headers.origin,
+          origin,
         );
       }
       return;
     }
 
     if (!authorized(req, process.env.OMNI_SQL_AUTH_TOKEN)) {
-      send(res, 401, { error: "unauthorized" }, req.headers.origin);
+      send(res, 401, { error: "unauthorized" }, origin);
       return;
     }
     if (route === "/health") {
-      send(res, 200, { status: "ok", port }, req.headers.origin);
+      send(res, 200, { status: "ok", port }, origin);
       return;
     }
     if (req.method !== "POST" || route !== "/rpc") {
-      send(res, 404, { error: "not found" }, req.headers.origin);
+      send(res, 404, { error: "not found" }, origin);
       return;
     }
     let raw: string;
@@ -354,17 +359,17 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
       raw = await readBody(req, MAX_RPC_BODY_BYTES);
     } catch (e) {
       if (e instanceof BodyTooLargeError) {
-        send(res, 413, errorResponse(null, -32600, "Request too large"), req.headers.origin);
+        send(res, 413, errorResponse(null, -32600, "Request too large"), origin);
         return;
       }
-      send(res, 400, errorResponse(null, -32700, "Parse error"), req.headers.origin);
+      send(res, 400, errorResponse(null, -32700, "Parse error"), origin);
       return;
     }
     let rpc: JsonRpcRequest;
     try {
       rpc = JSON.parse(raw) as JsonRpcRequest;
     } catch {
-      send(res, 400, errorResponse(null, -32700, "Parse error"), req.headers.origin);
+      send(res, 400, errorResponse(null, -32700, "Parse error"), origin);
       return;
     }
     const t0 = Date.now();
@@ -378,17 +383,17 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
       if (rpc.method !== "query.run") {
         console.log(`[omni-sql] rpc → method=${logSafe(rpc.method)} ok (${elapsed}ms)`);
       }
-      send(res, 200, { jsonrpc: "2.0", id: rpc.id, result } satisfies JsonRpcResponse, req.headers.origin);
+      send(res, 200, { jsonrpc: "2.0", id: rpc.id, result } satisfies JsonRpcResponse, origin);
     } catch (e) {
       if (e instanceof UnknownMethodError) {
-        send(res, 200, errorResponse(rpc.id, -32601, "Method not found"), req.headers.origin);
+        send(res, 200, errorResponse(rpc.id, -32601, "Method not found"), origin);
         return;
       }
       logFailure(rpc.method, e, Date.now() - t0);
       const isSafeError = e instanceof RpcValidationError || e instanceof McpBridgeError;
       const message = isSafeError ? e.message : INTERNAL_ERROR_MESSAGE;
       const code = e instanceof McpBridgeError ? -32001 : -32000;
-      send(res, 200, errorResponse(rpc.id, code, message), req.headers.origin);
+      send(res, 200, errorResponse(rpc.id, code, message), origin);
     } finally {
       requestAbort.cleanup();
     }

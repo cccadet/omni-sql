@@ -62,7 +62,7 @@ function parseEndpoint(endpoint: string, defaultPort: string): { host: string; p
 }
 
 function generateId(): string {
-  return `conn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  return `conn-${crypto.randomUUID()}`;
 }
 
 export interface ConnectionDialogProps {

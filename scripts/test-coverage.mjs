@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve, relative } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -17,16 +17,35 @@ const reports = [
   ["packages/metadata-cache", "coverage/lcov.info"],
   ["packages/backend", "coverage/lcov.info"],
   ["packages/mcp-server", "coverage/lcov.info"],
+  ["packages/ts-types", "coverage/lcov.info"],
 ];
+
+function resolveSourcePath(directory, sourceFile, reportPath) {
+  const workspace = resolve(root, directory);
+  const candidates = isAbsolute(sourceFile)
+    ? [resolve(sourceFile)]
+    : [resolve(workspace, sourceFile), resolve(root, sourceFile)];
+  const sourcePath = candidates.find(existsSync);
+  if (!sourcePath) {
+    throw new Error(`Coverage source does not exist: ${sourceFile} in ${relative(root, reportPath)}`);
+  }
+  const sourceRelative = relative(root, sourcePath);
+  if (sourceRelative === "" || sourceRelative === ".." || sourceRelative.startsWith(`..${sep}`) || isAbsolute(sourceRelative)) {
+    throw new Error(`Coverage source is outside the repository: ${sourceFile} in ${relative(root, reportPath)}`);
+  }
+  return sourceRelative;
+}
 
 function normalizeLcovPaths(directory, report) {
   const reportPath = resolve(root, directory, report);
   if (!existsSync(reportPath)) throw new Error(`Coverage report was not created: ${relative(root, reportPath)}`);
 
+  let recordCount = 0;
   const normalized = readFileSync(reportPath, "utf8").replace(/^SF:(.+)$/gm, (_, sourceFile) => {
-    const resolved = resolve(root, directory, sourceFile);
-    return `SF:${relative(root, resolved)}`;
+    recordCount += 1;
+    return `SF:${resolveSourcePath(directory, sourceFile, reportPath)}`;
   });
+  if (recordCount === 0) throw new Error(`Coverage report has no source records: ${relative(root, reportPath)}`);
   writeFileSync(reportPath, normalized);
 }
 

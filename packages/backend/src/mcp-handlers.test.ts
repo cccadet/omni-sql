@@ -35,6 +35,17 @@ test("MCP request uses exact tool/args contract and per-tool allowlists", () => 
   invalid({ tool: "getActiveSql", args: {}, params: {} });
 });
 
+test("MCP request key validation is insertion-order independent and rejects case and Unicode variants", () => {
+  assert.deepEqual(validateMcpRequest({ args: {}, tool: "getActiveSql" }), {
+    tool: "getActiveSql",
+    args: {},
+  });
+
+  invalid({ Args: {}, tool: "getActiveSql" });
+  invalid({ args: {}, Tool: "getActiveSql" });
+  invalid({ args: {}, tool: "getActiveSql", ä: "unexpected" });
+});
+
 test("MCP limits remain shared and bounded", () => {
   assert.equal(MCP_LIMITS.maxHttpBodyBytes, 64 * 1024);
   assert.equal(MCP_LIMITS.maxArgumentBytes, 48 * 1024);

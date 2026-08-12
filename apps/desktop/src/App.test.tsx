@@ -140,6 +140,7 @@ beforeEach(() => {
           rows: [[42]],
           rowsMoreAvailable: false,
           elapsedMs: 3,
+          sql: "SELECT remote_payload_must_not_be_persisted",
         };
       case "query.analyzeEditability":
         return { editable: false, reason: null, table: null, pkColumns: [], selectStar: false, columns: [] };
@@ -156,6 +157,29 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+
+describe("App history persistence", () => {
+  it("drops malformed storage entries while retaining valid legacy history", async () => {
+    localStorage.setItem("omni-sql:history", JSON.stringify([
+      "SELECT legacy",
+      { sql: "SELECT failed", status: "failure" },
+      { sql: "   " },
+      { sql: 42 },
+      { sql: "x".repeat(32 * 1024 + 1) },
+      { sql: "SELECT unknown status", status: "unknown" },
+    ]));
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(JSON.parse(localStorage.getItem("omni-sql:history") ?? "null")).toEqual([
+        { sql: "SELECT legacy" },
+        { sql: "SELECT failed", ok: false },
+        { sql: "SELECT unknown status" },
+      ]);
+    });
+  });
+});
 describe("App execution flow", () => {
   it("runs current SQL and renders returned rows", async () => {
     renderApp();
@@ -171,6 +195,19 @@ describe("App execution flow", () => {
     }, expect.any(AbortSignal)));
     expect(await screen.findByText("42")).toBeTruthy();
     expect(screen.getByText("1 of 1 rows")).toBeTruthy();
+  });
+
+  it("persists only editor SQL when the backend response has untrusted fields", async () => {
+    renderApp();
+    await connectToDatabase();
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(JSON.parse(localStorage.getItem("omni-sql:history") ?? "null")).toEqual([
+        { sql: "SELECT 1", ok: true },
+      ]);
+    });
   });
 
   it("cancels active query from toolbar", async () => {
