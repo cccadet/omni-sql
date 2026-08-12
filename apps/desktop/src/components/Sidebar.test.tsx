@@ -122,6 +122,30 @@ describe("Sidebar", () => {
     await waitFor(() => expect(onMoveConnection).toHaveBeenCalledWith("connection-1", null));
   });
 
+  it("aligns the Move to submenu to its item and closes it on leave", () => {
+    renderSidebar();
+
+    fireEvent.click(screen.getByLabelText("Local database actions"));
+    const contextMenu = document.querySelector<HTMLUListElement>(".context-menu")!;
+    const moveItem = within(contextMenu).getByRole("button", { name: "Move to…" }) as HTMLButtonElement;
+    vi.spyOn(moveItem, "getBoundingClientRect").mockReturnValue({
+      right: 480,
+      top: 140,
+    } as DOMRect);
+
+    fireEvent.mouseEnter(moveItem);
+    const submenu = document.querySelector<HTMLUListElement>(".context-submenu")!;
+    expect(submenu.style.left).toBe("480px");
+    expect(submenu.style.top).toBe("140px");
+
+    fireEvent.mouseEnter(within(contextMenu).getByRole("button", { name: "Edit connection" }).closest("li") as HTMLLIElement);
+    expect(document.querySelector(".context-submenu")).toBeNull();
+
+    fireEvent.mouseEnter(moveItem);
+    fireEvent.mouseLeave(document.querySelector<HTMLDivElement>(".context-menu-container")!);
+    expect(document.querySelector(".context-submenu")).toBeNull();
+  });
+
 
   it("moves connections by dragging them to folders and Root connections", async () => {
     const onMoveConnection = vi.fn().mockResolvedValue(undefined);
