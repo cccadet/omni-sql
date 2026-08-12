@@ -263,7 +263,6 @@ test("introspection helpers preserve schema metadata, function signatures, index
           return this;
         },
         async query(sql: string) {
-          this.sql = sql;
           requests.push({ inputs: this.inputs, sql });
           const response = responses.shift();
           assert.ok(response, "unexpected SQL query");
