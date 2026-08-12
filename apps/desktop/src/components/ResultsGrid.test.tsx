@@ -31,6 +31,15 @@ test("serializes nested values without object coercion", () => {
   expect(serializeCellValue(new Date("2024-01-02T03:04:05.000Z"))).toBe("2024-01-02T03:04:05.000Z");
 });
 
+test("serializes BigInt, circular, callable, and invalid-date values safely", () => {
+  const circular: { self?: unknown; count: bigint } = { count: 1n };
+  circular.self = circular;
+  expect(serializeCellValue(circular)).toBe('{"count":"1n","self":"[Circular]"}');
+  expect(serializeCellValue(Symbol("marker"))).toBe("Symbol(marker)");
+  expect(serializeCellValue(() => undefined)).toContain("=>");
+  expect(serializeCellValue(new Date("invalid"))).toBe("Invalid Date");
+});
+
 test("uses serialized nested values for display, filtering, and sorting", () => {
   renderGrid();
   const serialized = serializeCellValue(firstPayload);
@@ -73,4 +82,51 @@ test("keeps export anchor alive until click before revoking URL", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   }
+});
+
+test("stages editable cells and commits or discards the staged batch", async () => {
+  const stage = vi.fn();
+  const commit = vi.fn();
+  const discard = vi.fn();
+  render(
+    <LanguageProvider>
+      <ResultsGrid
+        result={result}
+        editability={{ editable: true, reason: null, table: { schema: "public", name: "orders" }, pkColumns: ["id"], selectStar: false, columns: [] }}
+        onStageCellEdit={stage}
+        onCommitChanges={commit}
+        onDiscardChanges={discard}
+      />
+    </LanguageProvider>,
+  );
+
+  fireEvent.click(screen.getByText("2").closest("td")!);
+  const editInput = screen.getAllByRole("textbox").at(-1)!;
+  fireEvent.change(editInput, { target: { value: "7" } });
+  fireEvent.keyDown(editInput, { key: "Enter" });
+  expect(stage).toHaveBeenCalledWith(0, 0, "7");
+  fireEvent.click(await screen.findByRole("button", { name: "Apply 1" }));
+  expect(commit).toHaveBeenCalledWith([{ rowIndex: 0, colIndex: 0, value: "7" }]);
+
+  fireEvent.click(screen.getByText("7").closest("td")!);
+  const secondEdit = screen.getAllByRole("textbox").at(-1)!;
+  fireEvent.change(secondEdit, { target: { value: "8" } });
+  fireEvent.keyDown(secondEdit, { key: "Enter" });
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(discard).toHaveBeenCalledOnce();
+});
+
+test("surfaces messages and plans for result and error states", async () => {
+  const resultWithMessages: QueryResult = { ...result, rowsAffected: 2, rowsMoreAvailable: true };
+  render(
+    <LanguageProvider>
+      <ResultsGrid result={resultWithMessages} error="query failed" planText="EXPLAIN SELECT 1" />
+    </LanguageProvider>,
+  );
+
+  expect(await screen.findByText("query failed")).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "Plan" }));
+  expect(screen.getByText("EXPLAIN SELECT 1")).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
+  expect(screen.getByText("query failed")).toBeTruthy();
 });

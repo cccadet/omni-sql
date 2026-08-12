@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getVersion } from "@tauri-apps/api/app";
@@ -6,6 +6,8 @@ import { listen } from "@tauri-apps/api/event";
 import App from "./App";
 import { LanguageProvider } from "./i18n";
 import { backend } from "./lib/backend";
+import { pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
+import { MCP_MAX_ERROR_MESSAGE_BYTES } from "@omni-sql/ts-types";
 
 const editorMockState = vi.hoisted(() => ({
   selection: null as { sql: string; start: number } | null,
@@ -15,6 +17,13 @@ vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("./lib/backend", () => ({ backend: { call: vi.fn() } }));
 vi.mock("./theme", () => ({ useEditorMonacoTheme: () => "test-monaco-theme" }));
+vi.mock("./lib/file-io", () => ({
+  basenameNoExt: (path: string) => path.split("/").at(-1)?.replace(/\.sql$/u, "") ?? path,
+  pickOpenPath: vi.fn(),
+  pickSavePath: vi.fn(),
+  readSqlFile: vi.fn(),
+  writeSqlFile: vi.fn(),
+}));
 vi.mock("./components/Editor", async () => {
   const { createElement, forwardRef, useImperativeHandle } = await import("react");
   const { splitStatements } = await import("./lib/sql-statements");
@@ -104,6 +113,10 @@ beforeEach(() => {
   vi.mocked(getVersion).mockResolvedValue("0.1.0");
   vi.mocked(listen).mockResolvedValue(() => undefined);
   call.mockReset();
+  vi.mocked(pickOpenPath).mockResolvedValue(null);
+  vi.mocked(pickSavePath).mockResolvedValue(null);
+  vi.mocked(readSqlFile).mockResolvedValue("");
+  vi.mocked(writeSqlFile).mockResolvedValue();
   call.mockImplementation(async (method, _params, signal) => {
     switch (method) {
       case "mcp.ui.next":
@@ -331,5 +344,72 @@ describe("App execution flow", () => {
       const session = JSON.parse(localStorage.getItem("omni-sql:session") ?? "null") as { tabs: Array<{ latestSqlExecutionError?: unknown }> };
       expect(session.tabs[0]?.latestSqlExecutionError).toBeNull();
     });
+  });
+
+  it("bounds persisted Unicode execution errors by UTF-8 byte length", async () => {
+    runError = new Error("🚀".repeat(MCP_MAX_ERROR_MESSAGE_BYTES));
+    renderApp();
+
+    await connectToDatabase();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      const session = JSON.parse(localStorage.getItem("omni-sql:session") ?? "null") as {
+        tabs: Array<{ latestSqlExecutionError?: { message?: string } }>;
+      };
+      const message = session.tabs[0]?.latestSqlExecutionError?.message;
+      expect(message).toBeDefined();
+      expect(new TextEncoder().encode(message).byteLength).toBeLessThanOrEqual(MCP_MAX_ERROR_MESSAGE_BYTES);
+      expect(message?.includes("\uFFFD")).toBe(false);
+    });
+  });
+});
+
+  it("refreshes metadata and creates connection folders through the sidebar", async () => {
+    renderApp();
+    await connectToDatabase();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh metadata" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.introspect", { connectionId: "conn-1" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "Reporting" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("connectionGroup.create", { name: "Reporting" }));
+    expect(call).toHaveBeenCalledWith("connectionGroup.list", {});
+  });
+
+  it("writes Save As and opens selected SQL files in new tabs", async () => {
+    vi.mocked(pickSavePath).mockResolvedValue("/tmp/report.sql");
+    vi.mocked(pickOpenPath).mockResolvedValue("/tmp/import.sql");
+    vi.mocked(readSqlFile).mockResolvedValue("SELECT imported");
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Tab" }));
+    await waitFor(() => expect(writeSqlFile).toHaveBeenCalledWith("/tmp/report.sql", "SELECT 1"));
+    expect(await screen.findByText("report")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open saved tab" }));
+    await waitFor(() => expect(readSqlFile).toHaveBeenCalledWith("/tmp/import.sql"));
+    expect(await screen.findByText("import")).toBeTruthy();
+  });
+
+describe("App update event listener", () => {
+  it("reports an event-triggered update check as up to date", async () => {
+    let checkForUpdates: (() => Promise<void>) | null = null;
+    vi.mocked(listen).mockImplementation(async (_event, listener) => {
+      checkForUpdates = listener as unknown as () => Promise<void>;
+      return () => undefined;
+    });
+
+    renderApp();
+    await waitFor(() => expect(checkForUpdates).not.toBeNull());
+
+    await act(async () => {
+      await checkForUpdates!();
+    });
+
+    expect((await screen.findByRole("status")).textContent).toBe("Omni SQL is up to date.");
+    expect(call).toHaveBeenCalledWith("update.check", { currentVersion: "0.1.0" });
   });
 });

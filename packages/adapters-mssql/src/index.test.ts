@@ -2,7 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ConnectionPool, Request } from "mssql";
 import { MssqlAdapter } from "./index.ts";
-import { runQueryViaPool } from "./introspection.ts";
+import {
+  getDefinitionViaPool,
+  introspectSchemas,
+  listFunctionsPerSchema,
+  listIndexesViaPool,
+  listSchemaNames,
+  runQueryViaPool,
+  updateRowViaPool,
+} from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
 // Sem docker/SQL Server local: smoke só valida construção + recusa de dial.
@@ -142,6 +150,203 @@ test("runQueryViaPool bypasses unsafe SQL without changing binds", async () => {
 
   assert.deepEqual(queryTexts, ["SELECT value FROM dbo.items UNION SELECT value FROM dbo.archive"]);
   assert.deepEqual(boundNames, []);
+});
+
+test("runQueryViaPool caps SELECT despite comments and quoted SQL keywords, but fails closed for ambiguous batches", async () => {
+  async function run(sql: string, limit = 1): Promise<{ queryText: string; boundNames: string[] }> {
+    let queryText = "";
+    const boundNames: string[] = [];
+    const request = {
+      arrayRowMode: false,
+      input: (name: string) => {
+        boundNames.push(name);
+        return request;
+      },
+      query: async (text: string) => {
+        queryText = text;
+        const recordset = [] as unknown as { columns: Record<string, unknown> };
+        recordset.columns = {};
+        return { recordset };
+      },
+    } as unknown as Request;
+    const pool = { request: () => request } as unknown as ConnectionPool;
+    await runQueryViaPool(pool, sql, limit);
+    return { queryText, boundNames };
+  }
+
+  const decorated = "/* outer /* nested */ comment */ -- SELECT in a comment\nSELECT 'SELECT ''TOP''' AS \"value\" FROM [items]]archive]";
+  assert.deepEqual(await run(decorated), {
+    queryText: "/* outer /* nested */ comment */ -- SELECT in a comment\nSELECT TOP (@omni_limit) 'SELECT ''TOP''' AS \"value\" FROM [items]]archive]",
+    boundNames: ["omni_limit"],
+  });
+
+  for (const sql of [
+    "/* unclosed SELECT",
+    "SELECT 'unclosed",
+    "SELECT \"unclosed",
+    "SELECT [unclosed",
+    "SELECT (value",
+    "SELECT value;",
+    "SELECT value UNION SELECT archived_value",
+  ]) {
+    assert.deepEqual(await run(sql), { queryText: sql, boundNames: [] }, sql);
+  }
+  assert.deepEqual(await run("SELECT value", -1), { queryText: "SELECT value", boundNames: [] });
+});
+
+test("introspection helpers preserve schema metadata, function signatures, index order, and bound updates", async () => {
+  const requests: Array<{ inputs: Array<[string, unknown]>; sql: string }> = [];
+  const responses = [
+    { recordset: [{ schema_name: "app" }] },
+    {
+      recordset: [
+        { index_name: "pk_orders", is_unique: true, is_primary: true, column_name: "id", ordinal: 1 },
+        { index_name: "idx_orders_customer", is_unique: false, is_primary: false, column_name: "customer_id", ordinal: 2 },
+        { index_name: "idx_orders_customer", is_unique: false, is_primary: false, column_name: "created_at", ordinal: 1 },
+      ],
+    },
+    { recordset: [{ definition: "CREATE VIEW [app].[orders] AS SELECT 1" }] },
+    {
+      recordset: [
+        { table_schema: "app", table_name: "orders", table_type: "BASE TABLE" },
+        { table_schema: "app", table_name: "order_view", table_type: "VIEW" },
+        { table_schema: "ignored", table_name: "audit", table_type: "BASE TABLE" },
+      ],
+    },
+    {
+      recordset: [
+        {
+          table_schema: "app",
+          table_name: "orders",
+          column_name: "id",
+          data_type: "int",
+          is_nullable: "NO",
+          column_default: null,
+          ordinal_position: 1,
+          is_pk: 1,
+          fk_schema: null,
+          fk_table: null,
+          fk_column: null,
+        },
+        {
+          table_schema: "app",
+          table_name: "orders",
+          column_name: "customer_id",
+          data_type: "int",
+          is_nullable: "YES",
+          column_default: "0",
+          ordinal_position: 2,
+          is_pk: 0,
+          fk_schema: "app",
+          fk_table: "customers",
+          fk_column: "id",
+        },
+      ],
+    },
+    { recordset: [{ schema: "app", name: "order_total", ret_type: "decimal" }] },
+    {
+      recordset: [
+        { specific_name: "order_total", parameter_name: "customer", data_type: "int", parameter_mode: "IN", ordinal_position: 1 },
+        { specific_name: "order_total", parameter_name: "total", data_type: "decimal", parameter_mode: "OUT", ordinal_position: 2 },
+      ],
+    },
+    { recordset: undefined, rowsAffected: [2, 3] },
+    { rowsAffected: [1] },
+  ];
+  const pool = {
+    request: () => {
+      const request = {
+        inputs: [] as Array<[string, unknown]>,
+        arrayRowMode: false,
+        input(name: string, value: unknown) {
+          this.inputs.push([name, value]);
+          return this;
+        },
+        async query(sql: string) {
+          this.sql = sql;
+          requests.push({ inputs: this.inputs, sql });
+          const response = responses.shift();
+          assert.ok(response, "unexpected SQL query");
+          return response;
+        },
+      };
+      return request;
+    },
+  } as unknown as ConnectionPool;
+
+  assert.deepEqual(await listSchemaNames(pool), ["app"]);
+  assert.deepEqual(await listIndexesViaPool(pool, "app", "orders"), [
+    { name: "pk_orders", unique: true, primary: true, columns: ["id"] },
+    { name: "idx_orders_customer", unique: false, primary: false, columns: ["created_at", "customer_id"] },
+  ]);
+  assert.equal(
+    await getDefinitionViaPool(pool, "view", "app", "orders"),
+    "CREATE VIEW [app].[orders] AS SELECT 1",
+  );
+  assert.deepEqual(await introspectSchemas(pool, ["app"]), [[
+    0,
+    "app",
+    [
+      {
+        schema: "app",
+        name: "orders",
+        kind: "table",
+        columns: [
+          { name: "id", dataType: "int", nullable: false, isPrimaryKey: true, ordinalPosition: 1 },
+          {
+            name: "customer_id",
+            dataType: "int",
+            nullable: true,
+            isPrimaryKey: false,
+            ordinalPosition: 2,
+            defaultValue: "0",
+            foreignKeyTo: { schema: "app", table: "customers", column: "id" },
+          },
+        ],
+        constraints: [
+          { name: "pk", kind: "primary", columns: ["id"] },
+          {
+            name: "fk_customer_id",
+            kind: "foreign",
+            columns: ["customer_id"],
+            references: { schema: "app", table: "customers", column: "id" },
+          },
+        ],
+      },
+      { schema: "app", name: "order_view", kind: "view", columns: [], constraints: [] },
+    ],
+  ]]);
+  assert.deepEqual(await listFunctionsPerSchema(pool, "app"), [{
+    schema: "app",
+    name: "order_total",
+    overloads: [{
+      parameters: [
+        { name: "customer", dataType: "int", mode: "in", ordinalPosition: 0 },
+        { name: "total", dataType: "decimal", mode: "out", ordinalPosition: 1 },
+      ],
+      returnType: "decimal",
+    }],
+  }]);
+  const nonRowResult = await runQueryViaPool(pool, "UPDATE orders SET state = 'done'", 5);
+  assert.deepEqual({ ...nonRowResult, elapsedMs: 0 }, {
+    columns: [],
+    rows: [],
+    rowsAffected: 5,
+    rowsMoreAvailable: false,
+    elapsedMs: 0,
+  });
+  assert.ok(nonRowResult.elapsedMs >= 0);
+  const rowsAffectedResult = await updateRowViaPool(pool, {
+    schema: "app",
+    table: "orders",
+    set: { state: "done" },
+    where: { id: 7 },
+  });
+  assert.equal(rowsAffectedResult, 1);
+  assert.deepEqual(requests.at(-1), {
+    inputs: [["s0", "done"], ["w0", 7]],
+    sql: "UPDATE [app].[orders] SET [state] = @s0 WHERE [id] = @w0",
+  });
 });
 
 if (MSSQL_CONN) {

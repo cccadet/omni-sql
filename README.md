@@ -14,6 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/cccadet/omni-sql/actions/workflows/ci.yml"><img src="https://github.com/cccadet/omni-sql/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=cccadet_omni-sql"><img src="https://sonarcloud.io/api/project_badges/measure?project=cccadet_omni-sql&metric=alert_status" alt="Quality gate status" /></a>
   <a href="https://github.com/cccadet/omni-sql/releases/latest"><img src="https://img.shields.io/github/v/release/cccadet/omni-sql" alt="Latest release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
 </p>

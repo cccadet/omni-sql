@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OracleAdapter } from "./index.ts";
-import { introspectSchemas, prepareOracleQuery, runQueryViaConnection } from "./introspection.ts";
+import {
+  getDefinitionViaConnection,
+  introspectSchemas,
+  listFunctionsPerSchema,
+  listIndexesViaConnection,
+  listSchemaNames,
+  prepareOracleQuery,
+  runQueryViaConnection,
+  updateRowViaConnection,
+} from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import type { Connection, Pool } from "oracledb";
 
@@ -265,6 +274,76 @@ test("cancelRunning ignora falha de break e deixa runQuery limpar conexão", asy
 
   await assert.rejects(run, /query stopped/);
   assert.equal(closeCalls, 1);
+});
+
+test("Oracle metadata helpers preserve routine overloads, definitions, index order, and bound updates", async () => {
+  const calls: Array<{ sql: string; binds: unknown }> = [];
+  const responses = [
+    { rows: [{ schema_name: "APP" }] },
+    {
+      rows: [
+        { index_name: "PK_ORDERS", uniqueness: "UNIQUE", column_name: "ID", ordinal: 1 },
+        { index_name: "IDX_CUSTOMER", uniqueness: "NONUNIQUE", column_name: "CUSTOMER_ID", ordinal: 2 },
+        { index_name: "IDX_CUSTOMER", uniqueness: "NONUNIQUE", column_name: "CREATED_AT", ordinal: 1 },
+      ],
+    },
+    { rows: [{ index_name: "PK_ORDERS" }] },
+    { rows: [{ text: "SELECT * FROM ORDERS" }] },
+    { rows: [{ text: "CREATE FUNCTION ORDER_TOTAL " }, { text: "RETURN NUMBER" }] },
+    {
+      rows: [
+        { schema: "APP", name: "ORDER_TOTAL", overload: null, argument_name: null, data_type: "NUMBER", in_out: "OUT", position: 0 },
+        { schema: "APP", name: "ORDER_TOTAL", overload: null, argument_name: "CUSTOMER_ID", data_type: "NUMBER", in_out: "IN", position: 1 },
+        { schema: "APP", name: "ORDER_TOTAL", overload: 1, argument_name: null, data_type: "NUMBER", in_out: "OUT", position: 0 },
+        { schema: "APP", name: "ORDER_TOTAL", overload: 1, argument_name: "TOTAL", data_type: "NUMBER", in_out: "IN/OUT", position: 1 },
+      ],
+    },
+    { rowsAffected: 1 },
+  ];
+  const conn = {
+    async execute(sql: string, binds: unknown) {
+      calls.push({ sql, binds });
+      const response = responses.shift();
+      assert.ok(response, "unexpected SQL query");
+      return response;
+    },
+    async commit() {},
+  } as unknown as Connection;
+
+  assert.deepEqual(await listSchemaNames(conn), ["APP"]);
+  assert.deepEqual(await listIndexesViaConnection(conn, "app", "orders"), [
+    { name: "PK_ORDERS", unique: true, primary: true, columns: ["ID"] },
+    { name: "IDX_CUSTOMER", unique: false, primary: false, columns: ["CREATED_AT", "CUSTOMER_ID"] },
+  ]);
+  assert.equal(
+    await getDefinitionViaConnection(conn, "view", "app", "orders"),
+    "CREATE OR REPLACE VIEW \"app\".\"orders\" AS\nSELECT * FROM ORDERS",
+  );
+  assert.equal(await getDefinitionViaConnection(conn, "function", "app", "order_total"), "CREATE FUNCTION ORDER_TOTAL RETURN NUMBER");
+  assert.deepEqual(await listFunctionsPerSchema(conn, "APP"), [{
+    schema: "APP",
+    name: "ORDER_TOTAL",
+    overloads: [
+      {
+        parameters: [{ name: "CUSTOMER_ID", dataType: "NUMBER", mode: "in", ordinalPosition: 0 }],
+        returnType: "NUMBER",
+      },
+      {
+        parameters: [{ name: "TOTAL", dataType: "NUMBER", mode: "inout", ordinalPosition: 0 }],
+        returnType: "NUMBER",
+      },
+    ],
+  }]);
+  assert.equal(await updateRowViaConnection(conn, {
+    schema: "APP",
+    table: "ORDERS",
+    set: { STATE: "done" },
+    where: { ID: 7 },
+  }), 1);
+  assert.deepEqual(calls.at(-1), {
+    sql: "UPDATE \"APP\".\"ORDERS\" SET \"STATE\" = :s0 WHERE \"ID\" = :w0",
+    binds: { s0: "done", w0: 7 },
+  });
 });
 
 test("cancelRunning não limpa query nova quando conexão é reutilizada", async () => {

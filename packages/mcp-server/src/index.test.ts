@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Server as HttpServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -13,7 +16,9 @@ import {
   MAX_REQUEST_BYTES,
   MAX_RESPONSE_BYTES,
   mcpToolNames,
+  normalizeMcpEndpoint,
   parseRuntimeDescriptor,
+  readRuntimeDescriptor,
 } from "./backend-client.ts";
 import {
   createMcpServer,
@@ -176,6 +181,33 @@ test("descriptor has exact endpoint, token, pid, and startNonce shape", () => {
   assert.throws(() => parseRuntimeDescriptor({ ...descriptor, mcp_token: "secret" }));
 });
 
+test("runtime descriptors accept only local MCP endpoints and bounded files", async () => {
+  assert.equal(normalizeMcpEndpoint("https://LOCALHOST:41920"), "https://localhost:41920/mcp");
+  for (const endpoint of [
+    "ftp://127.0.0.1:41920",
+    "http://example.test:41920",
+    "http://user@127.0.0.1:41920",
+    "http://127.0.0.1:41920?token=secret",
+    "http://127.0.0.1:41920/rpc",
+  ]) assert.throws(() => normalizeMcpEndpoint(endpoint));
+
+  const directory = await mkdtemp(join(tmpdir(), "omni-sql-mcp-"));
+  const descriptorPath = join(directory, "runtime.json");
+  const descriptor = { endpoint: "http://localhost:41920", token: "test-token", pid: 1234, startNonce: "run-1" };
+  try {
+    await writeFile(descriptorPath, JSON.stringify(descriptor));
+    assert.deepEqual(await readRuntimeDescriptor(descriptorPath), descriptor);
+    await writeFile(descriptorPath, "{");
+    await assert.rejects(readRuntimeDescriptor(descriptorPath), /not valid JSON/u);
+    await writeFile(descriptorPath, "x".repeat(16 * 1024 + 1));
+    await assert.rejects(readRuntimeDescriptor(descriptorPath), /too large/u);
+    await assert.rejects(readRuntimeDescriptor(directory), /must be a file/u);
+    await assert.rejects(readRuntimeDescriptor(""), /missing or too long/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("backend client posts only approved tool request and unwraps result", async () => {
   let request: Request | undefined;
   const client = new BackendMcpClient(
@@ -303,6 +335,108 @@ test("backend typed errors map to safe client errors", async () => {
   );
 });
 
+test("backend client preserves supported success envelopes and rejects malformed responses", async () => {
+  for (const [body, expected] of [
+    [JSON.stringify({ ok: true, data: { sql: "select 1" } }), { sql: "select 1" }],
+    [JSON.stringify({ column: "value" }), { column: "value" }],
+  ] as const) {
+    const client = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response(body) });
+    assert.deepEqual(await client.call("getActiveSql", {}), expected);
+  }
+  const emptyClient = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response(null) });
+  assert.equal(await emptyClient.call("getActiveSql", {}), null);
+  const malformedClient = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response("{") });
+  await assert.rejects(
+    malformedClient.call("getActiveSql", {}),
+    (error: unknown) => error instanceof BackendClientError && error.message === "backend returned invalid JSON",
+  );
+  const invalidLengthClient = new BackendMcpClient(descriptor, {
+    fetchImpl: async () => new Response("{}", { headers: { "content-length": "not-a-number" } }),
+  });
+  await assert.rejects(
+    invalidLengthClient.call("getActiveSql", {}),
+    (error: unknown) => error instanceof BackendClientError && error.message === "backend returned invalid content length",
+  );
+});
+
+test("backend client maps backend status and error payloads to its stable error contract", async () => {
+  const cases: Array<[number, unknown, BackendClientError["code"]]> = [
+    [401, { error: { code: "UNAUTHORIZED", message: "denied" } }, "unauthorized"],
+    [422, { error: { code: "validation_error", message: "invalid input" } }, "invalid_request"],
+    [404, { error: { code: "NOT_FOUND", message: "missing" } }, "not_found"],
+    [413, { error: { code: "TOO_LARGE", message: "large" } }, "too_large"],
+    [429, { error: { code: "RATE_LIMITED", message: "slow down" } }, "rate_limited"],
+    [503, { error: { code: "TIMEOUT", message: "late" } }, "unavailable"],
+    [418, "unexpected", "backend_error"],
+  ];
+  for (const [status, body, code] of cases) {
+    const client = new BackendMcpClient(descriptor, {
+      fetchImpl: async () => new Response(JSON.stringify(body), { status }),
+    });
+    await assert.rejects(
+      client.call("getActiveSql", {}),
+      (error: unknown) => error instanceof BackendClientError && error.code === code && error.status === status,
+    );
+  }
+  const longMessageClient = new BackendMcpClient(descriptor, {
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: "x".repeat(1_025) } }), { status: 500 }),
+  });
+  await assert.rejects(
+    longMessageClient.call("getActiveSql", {}),
+    (error: unknown) => error instanceof BackendClientError && error.message.endsWith("…"),
+  );
+});
+
+test("backend client rejects unsupported and oversized requests before fetch", async () => {
+  let fetched = false;
+  const client = new BackendMcpClient(descriptor, {
+    fetchImpl: async () => {
+      fetched = true;
+      return new Response("{}");
+    },
+  });
+  await assert.rejects(client.call("unknown" as "getActiveSql", {}), /unsupported MCP tool/u);
+  await assert.rejects(
+    client.call("proposeSqlEdit", { sql: "x".repeat(MAX_REQUEST_BYTES) }),
+    (error: unknown) => error instanceof BackendClientError && error.code === "too_large",
+  );
+  assert.equal(fetched, false);
+});
+
+test("Streamable HTTP rejects invalid ingress before MCP session dispatch", async () => {
+  const client = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response("{}") });
+  const server = createStreamableHttpServer(client, { httpToken });
+  const port = await listen(server);
+  const endpoint = `http://127.0.0.1:${port}/mcp`;
+  const headers = { authorization: `Bearer ${httpToken}`, "content-type": "application/json" };
+  try {
+    const noSession = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+    assert.equal(noSession.status, 400);
+
+    const invalidJson = await fetch(endpoint, { method: "POST", headers, body: "{" });
+    assert.equal(invalidJson.status, 400);
+
+    const invalidOrigin = await fetch(endpoint, {
+      method: "POST",
+      headers: { ...headers, origin: "null" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    assert.equal(invalidOrigin.status, 400);
+
+    const invalidMethod = await fetch(endpoint, { method: "PUT", headers });
+    assert.equal(invalidMethod.status, 405);
+
+    const missingPath = await fetch(`http://127.0.0.1:${port}/other`, { method: "POST", headers });
+    assert.equal(missingPath.status, 404);
+  } finally {
+    await closeStreamableHttpServer(server);
+  }
+});
+
 test("Streamable HTTP initializes, lists approved tools, and forwards a tool call", async () => {
   let bridgeTool: string | undefined;
   const client = new BackendMcpClient(descriptor, {
@@ -326,6 +460,34 @@ test("Streamable HTTP initializes, lists approved tools, and forwards a tool cal
     const result = await mcpClient.callTool({ name: "getActiveSql", arguments: {} });
     assert.deepEqual(result.content, [{ type: "text", text: JSON.stringify({ sql: "select 1" }) }]);
     assert.equal(bridgeTool, "getActiveSql");
+    await transport.terminateSession();
+  } finally {
+    await mcpClient.close();
+    await close(server);
+  }
+});
+
+test("Streamable HTTP exposes backend failures as safe tool errors", async () => {
+  const client = new BackendMcpClient(descriptor, {
+    fetchImpl: async () => new Response(JSON.stringify({
+      error: { code: "unavailable", message: "backend is starting" },
+    }), { status: 503 }),
+  });
+  const server = createStreamableHttpServer(client, { httpToken });
+  const port = await listen(server);
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    requestInit: { headers: { authorization: `Bearer ${httpToken}` } },
+  });
+  const mcpClient = new Client({ name: "test-client", version: "0.0.0" });
+
+  try {
+    await mcpClient.connect(transport);
+    const result = await mcpClient.callTool({ name: "getActiveSql", arguments: {} });
+    assert.equal(result.isError, true);
+    assert.deepEqual(result.content, [{
+      type: "text",
+      text: JSON.stringify({ code: "unavailable", message: "backend is starting" }),
+    }]);
     await transport.terminateSession();
   } finally {
     await mcpClient.close();

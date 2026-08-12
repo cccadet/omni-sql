@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { McpBridge, McpBridgeError } from "./mcp-bridge.ts";
+import {
+  isMcpToolName,
+  McpBridge,
+  McpBridgeError,
+  validateMcpToolResult,
+  validateSafePayload,
+} from "./mcp-bridge.ts";
 import { MCP_REQUEST_TIMEOUT_MS } from "@omni-sql/ts-types";
 
 function hasCode(code: string) {
@@ -179,4 +185,130 @@ test("latest execution error result keeps only bounded error fields", async () =
   } finally {
     bridge.close();
   }
+});
+
+test("MCP result schemas retain valid nested data and reject unsafe payloads", () => {
+  assert.equal(isMcpToolName("getSchemaSummary"), true);
+  assert.equal(isMcpToolName("unknown"), false);
+  assert.equal(isMcpToolName(null), false);
+
+  assert.deepEqual(
+    validateMcpToolResult("getActiveConnectionContext", {
+      connectionId: "connection-1",
+      label: "Production",
+      dialect: "postgres",
+    }),
+    { connectionId: "connection-1", label: "Production", dialect: "postgres" },
+  );
+  assert.deepEqual(
+    validateMcpToolResult("getSchemaSummary", {
+      connectionId: "connection-1",
+      schemas: [{
+        name: "public",
+        relations: [{
+          name: "orders",
+          kind: "table",
+          columns: [{ name: "id", dataType: "integer" }],
+        }],
+      }],
+    }),
+    {
+      connectionId: "connection-1",
+      schemas: [{
+        name: "public",
+        relations: [{
+          name: "orders",
+          kind: "table",
+          columns: [{ name: "id", dataType: "integer" }],
+        }],
+      }],
+    },
+  );
+  assert.deepEqual(
+    validateMcpToolResult("getLatestSqlExecutionError", { error: null }),
+    { error: null },
+  );
+  assert.deepEqual(
+    validateMcpToolResult("getLatestSqlExecutionError", {
+      error: { message: "syntax error", position: { start: 4 } },
+    }),
+    { error: { message: "syntax error", position: { start: 4 } } },
+  );
+  assert.deepEqual(validateMcpToolResult("proposeSqlEdit", { approved: false }), { approved: false });
+
+  assert.throws(
+    () => validateMcpToolResult("getActiveConnectionContext", {
+      connectionId: "connection-1",
+      label: "Production",
+      dialect: "unsupported",
+    }),
+    hasCode("invalid"),
+  );
+  assert.throws(
+    () => validateMcpToolResult("getSchemaSummary", {
+      connectionId: "connection-1",
+      schemas: [{ name: "public", relations: [{ name: "orders", kind: "index", columns: [] }] }],
+    }),
+    hasCode("invalid"),
+  );
+  assert.throws(
+    () => validateMcpToolResult("getLatestSqlExecutionError", {
+      error: { message: "syntax error", position: { start: 4, end: 3 } },
+    }),
+    hasCode("invalid"),
+  );
+
+  const cycle: { child?: unknown } = {};
+  cycle.child = cycle;
+  assert.throws(() => validateSafePayload(cycle, 1_000, "MCP result"), hasCode("invalid"));
+  assert.throws(
+    () => validateSafePayload({ password: "secret" }, 1_000, "MCP result"),
+    hasCode("invalid"),
+  );
+});
+
+test("MCP bridge rejects invalid listener options and releases pending work on close", async () => {
+  const bridge = new McpBridge({ timeoutMs: 500, maxUiWaitMs: 5, idFactory: () => "reject-1" });
+  try {
+    await assert.rejects(bridge.next({ listenerId: "", waitMs: 0 }), hasCode("invalid"));
+    await assert.rejects(bridge.next({ listenerId: "desktop", waitMs: 6 }), hasCode("invalid"));
+    await bridge.next({ listenerId: "desktop" });
+    await assert.rejects(
+      bridge.next({ listenerId: "other" }),
+      hasCode("rejected"),
+    );
+
+    const rejected = bridge.submit("getActiveSql", {});
+    const request = await bridge.next({ listenerId: "desktop" });
+    assert.deepEqual(
+      bridge.respond({ id: request!.id, ok: false, error: { code: "unknown", message: "declined" } }, "desktop"),
+      { accepted: true },
+    );
+    await assert.rejects(rejected, hasCode("rejected"));
+
+    const pending = bridge.submit("getActiveSql", {});
+    bridge.close();
+    await assert.rejects(pending, hasCode("unavailable"));
+  } finally {
+    bridge.close();
+  }
+});
+
+test("MCP value guards reject invalid required values and size bounds", () => {
+  assert.throws(() => validateSafePayload("x".repeat(33_000), 1_000_000, "MCP result"), hasCode("invalid"));
+  assert.throws(() => validateSafePayload({ value: "x".repeat(1_001) }, 1_000, "MCP result"), hasCode("invalid"));
+  assert.throws(
+    () => validateMcpToolResult("getActiveSql", { sql: 1, dialect: "postgres" }),
+    hasCode("invalid"),
+  );
+  assert.throws(
+    () => validateMcpToolResult("proposeSqlEdit", { approved: "yes" }),
+    hasCode("invalid"),
+  );
+  assert.throws(
+    () => validateMcpToolResult("getLatestSqlExecutionError", {
+      error: { message: "syntax error", position: { start: -1 } },
+    }),
+    hasCode("invalid"),
+  );
 });
