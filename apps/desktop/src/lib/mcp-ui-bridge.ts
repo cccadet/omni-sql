@@ -45,7 +45,10 @@ export interface McpUiBridgeHandlers {
 }
 
 export function makeListenerId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `omni-ui-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const crypto = globalThis.crypto;
+  if (!crypto) throw new Error("Web Crypto API is required to create an MCP UI listener");
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return `omni-ui-${crypto.getRandomValues(new Uint32Array(4)).join("-")}`;
 }
 
 export class McpUiBridge {

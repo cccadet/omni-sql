@@ -12,6 +12,7 @@
     "typecheck": "pnpm -r --parallel typecheck",
     "lint": "pnpm -r --parallel lint",
     "test": "pnpm -r --parallel test",
+    "test:coverage": "node ./scripts/test-coverage.mjs",
     "verify": "pnpm -r typecheck && pnpm -r lint && pnpm -r test",
     "build": "pnpm -r --filter './packages/**' build",
     "dev:frontend": "pnpm --filter desktop dev",
