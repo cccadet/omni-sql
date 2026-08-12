@@ -3,13 +3,19 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { createCopilotVsCodeMcpConfig, StatusBar } from "./StatusBar";
+import { backend } from "../lib/backend";
 import type { ConnectionEntry } from "../lib/backend";
+import type * as BackendModule from "../lib/backend";
 import { LanguageProvider } from "../i18n";
 
 const renderWithLanguage = (ui: React.ReactElement) => render(<LanguageProvider>{ui}</LanguageProvider>);
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("../lib/backend", async (importOriginal) => {
+  const actual = await importOriginal<typeof BackendModule>();
+  return { ...actual, backend: { call: vi.fn() } };
+});
 
 test("StatusBar: shows connection and result info", () => {
   const connection: ConnectionEntry = {
@@ -124,4 +130,47 @@ test("StatusBar: shows HTTP endpoint without exposing descriptor data", async ()
   expect(screen.getByText("http://127.0.0.1:41920/mcp")).toBeTruthy();
   expect(screen.queryByText("secret-token")).toBeNull();
   assert.equal(screen.getAllByRole("button", { name: "Copy HTTP endpoint" }).length, 1);
+});
+
+test("StatusBar: organizes MCP dialog into tabs and shows request history", async () => {
+  const launcher = { command: "/usr/bin/node", args: ["/opt/mcp/index.js", "/run/mcp.json"] };
+  vi.mocked(invoke).mockResolvedValue(launcher);
+  vi.mocked(backend.call).mockResolvedValue({
+    entries: [{
+      id: "1",
+      tool: "proposeSqlEdit",
+      receivedAt: 1700000000000,
+      status: "completed",
+      sql: "SELECT 1",
+      rationale: "Improve query",
+    }],
+  });
+  renderWithLanguage(<StatusBar mcpState="connected" mcpStatus={{ uiConnected: true, queueSize: 1, inFlight: 0, maxQueueSize: 8, timeoutMs: 30_000 }} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP connected/ }));
+  // Default tab: GitHub Copilot JSON, formatted and copyable.
+  expect(await screen.findByRole("button", { name: "Copy GitHub Copilot configuration" })).toBeTruthy();
+  expect(screen.queryByText("STDIO command")).toBeNull();
+
+  fireEvent.click(screen.getByRole("tab", { name: "STDIO" }));
+  expect(await screen.findByText("STDIO command")).toBeTruthy();
+  expect(screen.getByText("Argument 1")).toBeTruthy();
+  expect(screen.getByText("/usr/bin/node")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("tab", { name: "History" }));
+  expect(await screen.findByText("proposeSqlEdit")).toBeTruthy();
+  expect(screen.getByText(/Improve query/)).toBeTruthy();
+  expect(screen.getByText("SELECT 1")).toBeTruthy();
+  expect(screen.getByText("Success")).toBeTruthy();
+  assert.equal(vi.mocked(backend.call).mock.calls.filter(([method]) => method === "mcp.history").length, 1);
+});
+
+test("StatusBar: shows empty state when no MCP requests were recorded", async () => {
+  vi.mocked(invoke).mockResolvedValue({ command: "node", args: [] });
+  vi.mocked(backend.call).mockResolvedValue({ entries: [] });
+  renderWithLanguage(<StatusBar mcpState="listening" />);
+
+  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
+  fireEvent.click(await screen.findByRole("tab", { name: "History" }));
+  expect(await screen.findByText("No MCP requests received yet.")).toBeTruthy();
 });

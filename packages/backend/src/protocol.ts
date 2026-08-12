@@ -10,6 +10,7 @@ import type {
   ExplainResult,
   SqlDiagnostic,
   McpStatusResult,
+  McpHistoryResult,
   McpUiNextParams,
   McpUiNextResult,
   McpUiRespondParams,
@@ -238,6 +239,7 @@ export interface McpUiRouter {
   "mcp.ui.next": (p?: McpUiNextParams, context?: McpUiRequestContext) => Promise<McpUiNextResult>;
   "mcp.ui.respond": (p: McpUiRespondParams) => Promise<McpUiRespondResult>;
   "mcp.status": () => Promise<McpStatusResult>;
+  "mcp.history": () => Promise<McpHistoryResult>;
 }
 
 export interface McpUiRequestContext {
@@ -274,6 +276,7 @@ export interface RpcRouter {
   "mcp.ui.next": (p?: McpUiNextParams, context?: McpUiRequestContext) => Promise<McpUiNextResult>;
   "mcp.ui.respond": (p: McpUiRespondParams) => Promise<McpUiRespondResult>;
   "mcp.status": () => Promise<McpStatusResult>;
+  "mcp.history": () => Promise<McpHistoryResult>;
 }
 
 export type BackendRpcRouter = Omit<RpcRouter, keyof McpUiRouter>;

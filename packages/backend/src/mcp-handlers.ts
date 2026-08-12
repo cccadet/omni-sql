@@ -1,4 +1,5 @@
 import type {
+  McpHistoryResult,
   McpHttpRequest,
   McpToolArgsByName,
   McpToolName,
@@ -137,5 +138,9 @@ export const mcpHandlers: McpUiRouter = {
 
   async "mcp.status"() {
     return mcpBridge.status();
+  },
+
+  async "mcp.history"(): Promise<McpHistoryResult> {
+    return mcpBridge.history();
   },
 };
