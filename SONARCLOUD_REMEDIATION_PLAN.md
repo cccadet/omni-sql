@@ -168,6 +168,10 @@ Não inclui:
   MCP, helpers nativos de arquivo, ícones de tipo, freshness de metadata, tema,
   abas e painel de histórico. A cobertura global local do frontend passou de
   57,9% para 60,8% de statements (89 testes).
+- O primeiro CI do commit `93ba7e4` não alcançou o scanner: o `cargo llvm-cov`
+  exigiu GLib/GObject, ausentes no job SonarCloud. O mesmo conjunto de
+  dependências Linux já usado pelo `cargo check` foi adicionado antes da geração
+  de cobertura; o próximo CI deve executar o scan.
 - O scanner anterior falhou durante a análise TypeScript com bridge Node sem
   resposta. `sonar.javascript.node.maxspace=4096` foi configurado para o
   subprocesso do analisador; a publicação e o Quality Gate continuam pendentes
