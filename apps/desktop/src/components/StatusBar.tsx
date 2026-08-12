@@ -57,6 +57,17 @@ interface McpLauncherConfig {
   endpoint?: string;
 }
 
+export function createCopilotVsCodeMcpConfig(config: Pick<McpLauncherConfig, "command" | "args">): string {
+  return JSON.stringify({
+    servers: {
+      "omni-sql": {
+        command: config.command,
+        args: config.args,
+      },
+    },
+  }, null, 2);
+}
+
 function McpCopyButton({ value, label, copiedLabel }: { value: string; label: string; copiedLabel: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -251,6 +262,13 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
                       {config.args.map((arg, index) => (
                         <McpValue key={`${index}-${arg}`} label={`${t("mcpArgument")} ${index + 1}`} value={arg} copyLabel={`${t("copyArgument")} ${index + 1}`} copiedLabel={t("copied")} />
                       ))}
+                      <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpCopilotVsCodeHelp")}</Text>
+                      <McpValue
+                        label={t("mcpCopilotVsCodeConfig")}
+                        value={createCopilotVsCodeMcpConfig(config)}
+                        copyLabel={t("copyCopilotVsCodeConfig")}
+                        copiedLabel={t("copied")}
+                      />
                     </>
                   )}
                 </div>
