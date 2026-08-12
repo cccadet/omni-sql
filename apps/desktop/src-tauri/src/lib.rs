@@ -1678,4 +1678,69 @@ mod tests {
         );
         assert!(!connect_src.contains("https:") && !connect_src.contains("ws:"));
     }
+
+    #[test]
+    fn malformed_health_status_lines_are_rejected() {
+        for response in [b"HTTP/1.1\r\n\r\n".as_slice(), b"HTTP/1.1 nope\r\n\r\n".as_slice()] {
+            let listener = std::net::TcpListener::bind((LOCALHOST, 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                use std::io::{Read, Write};
+                let mut request = [0_u8; 512];
+                stream.read(&mut request).unwrap();
+                stream.write_all(response).unwrap();
+            });
+
+            let error = http_get(port, "/health", "test-token").unwrap_err();
+            assert!(
+                error == "health response has no HTTP status"
+                    || error.starts_with("invalid health HTTP status:"),
+                "unexpected parser error: {error}"
+            );
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn descriptor_rejects_non_directory_runtime_paths_without_leaving_a_temporary_file() {
+        let path = std::env::temp_dir().join(format!(
+            "omni-sql-mcp-runtime-file-{}-{}",
+            std::process::id(),
+            generate_auth_token().unwrap()
+        ));
+        std::fs::File::create(&path).unwrap();
+
+        let error = write_mcp_runtime_descriptor(&path, "mcp-secret", 1234, "run-nonce")
+            .unwrap_err();
+
+        assert!(error.contains("failed to create temporary MCP runtime descriptor"));
+        assert!(std::fs::metadata(&path).unwrap().is_file());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn child_processes_cannot_inherit_runtime_security_overrides() {
+        let mut command = std::process::Command::new("env");
+        command
+            .env("NODE_OPTIONS", "--require=/tmp/untrusted.js")
+            .env("OMNI_SQL_AUTH_TOKEN", "leaked-token");
+        clear_inherited_child_overrides(&mut command);
+
+        let output = command.output().unwrap();
+        let environment = String::from_utf8(output.stdout).unwrap();
+        assert!(!environment.contains("NODE_OPTIONS="));
+        assert!(!environment.contains("OMNI_SQL_AUTH_TOKEN="));
+    }
+
+    #[test]
+    fn development_runtime_paths_resolve_to_real_project_dependencies() {
+        let root = workspace_root();
+        assert!(root.join("packages/mcp-server").is_dir());
+        assert!(resolve_dev_node_executable().unwrap().is_file());
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from("packages/mcp-server/dist/index.js")),
+            PathBuf::from("packages/mcp-server/dist/index.js")
+        );
+    }
 }

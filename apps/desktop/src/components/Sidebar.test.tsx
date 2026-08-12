@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "../i18n";
@@ -108,5 +108,48 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByLabelText("Local database actions"));
     fireEvent.click(screen.getByRole("button", { name: "Root" }));
     await waitFor(() => expect(onMoveConnection).toHaveBeenCalledWith("connection-1", null));
+  });
+
+  it("opens definitions and keeps failures in a visible new tab", async () => {
+    const onOpenInNewTab = vi.fn();
+    renderSidebar({ onOpenInNewTab });
+
+    fireEvent.change(screen.getByPlaceholderText("Search tables, columns…"), { target: { value: "orders" } });
+    fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Gerar DDL em nova aba" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.getDefinition", {
+      connectionId: "connection-1", kind: "table", schema: "public", name: "orders",
+    }));
+    await waitFor(() => expect(onOpenInNewTab).toHaveBeenCalledWith("DDL: orders", undefined));
+
+    call.mockRejectedValueOnce(new Error("permission denied"));
+    fireEvent.contextMenu(screen.getByText("recent_orders").closest(".obj-row")!);
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "View definition in new tab" }));
+    await waitFor(() => expect(onOpenInNewTab).toHaveBeenCalledWith(
+      "Def: recent_orders",
+      "-- Falha ao obter definição de public.recent_orders\n-- permission denied",
+    ));
+  });
+
+  it("routes context-menu connection actions and persists keyboard resizing", () => {
+    const onEditConnection = vi.fn();
+    const onDuplicateConnection = vi.fn();
+    const onRemoveConnection = vi.fn();
+    renderSidebar({ onEditConnection, onDuplicateConnection, onRemoveConnection });
+
+    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit connection" }));
+    expect(onEditConnection).toHaveBeenCalledWith("connection-1");
+    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Duplicate connection" }));
+    expect(onDuplicateConnection).toHaveBeenCalledWith("connection-1");
+    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Remove connection" }));
+    expect(onRemoveConnection).toHaveBeenCalledWith("connection-1");
+
+    fireEvent.keyDown(screen.getByLabelText("Resize object panel"), { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByLabelText("Resize connections panel"), { key: "ArrowDown" });
+    expect(localStorage.getItem("omni-sql:sidebarWidth")).toBeTruthy();
+    expect(localStorage.getItem("omni-sql:connectionsHeight")).toBeTruthy();
   });
 });
