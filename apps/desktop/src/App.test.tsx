@@ -365,11 +365,16 @@ describe("App execution flow", () => {
   });
 });
 
-  it("refreshes metadata and creates connection folders through the sidebar", async () => {
+  it("confirms metadata refresh in an application dialog", async () => {
     renderApp();
     await connectToDatabase();
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh metadata" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Do you want to force refresh this connection's metadata?")).toBeTruthy();
+    expect(call).not.toHaveBeenCalledWith("metadata.introspect", { connectionId: "conn-1" });
+
+    fireEvent.click(within(dialog).getByText("Refresh", { selector: "button" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.introspect", { connectionId: "conn-1" }));
 
     fireEvent.click(screen.getByRole("button", { name: "New folder" }));

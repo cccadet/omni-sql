@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Title1, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
@@ -164,6 +164,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [formatterSettings, setFormatterSettings] = useState<FormatterSettings>(loadFormatterSettings);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number } | null>(null);
   const [busyMsg, setBusyMsg] = useState<string | null>(null);
+  const [metadataRefreshConfirmOpen, setMetadataRefreshConfirmOpen] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [editability, setEditability] = useState<RowEditability | null>(null);
@@ -366,6 +367,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       setBusyMsg(null);
     }
   }, [activeConnectionId, activeTab.id, loadConnections, loadSidebarData, updateTab, t]);
+
+  const onRefreshMetadata = useCallback(() => {
+    if (!activeConnectionId) return;
+    setMetadataRefreshConfirmOpen(true);
+  }, [activeConnectionId]);
 
   const onSelectConnection = useCallback(
     async (id: string) => {
@@ -937,7 +943,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onEditConnection={onEditConnection}
           onDuplicateConnection={onDuplicateConnection}
           onRemoveConnection={onRemoveConnection}
-          onRefreshMetadata={introspectActive}
+          onRefreshMetadata={onRefreshMetadata}
           onSelectConnection={onSelectConnection}
           onCreateConnectionGroup={onCreateConnectionGroup}
           onRenameConnectionGroup={onRenameConnectionGroup}
@@ -998,6 +1004,27 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         onClose={() => setDialogOpen(false)}
         onSaved={onConnectionSaved}
       />
+
+      <Dialog open={metadataRefreshConfirmOpen} onOpenChange={(_, data) => setMetadataRefreshConfirmOpen(data.open)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>{t("refreshMetadata")}</DialogTitle>
+            <DialogContent>{t("refreshMetadataConfirm")}</DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setMetadataRefreshConfirmOpen(false)}>{t("cancel")}</Button>
+              <Button
+                appearance="primary"
+                onClick={() => {
+                  setMetadataRefreshConfirmOpen(false);
+                  void introspectActive();
+                }}
+              >
+                {t("refresh")}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
 
       <FormatSettings
         open={formatSettingsOpen}
