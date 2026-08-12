@@ -413,3 +413,23 @@ export interface McpStatusResult {
   readonly maxQueueSize: number;
   readonly timeoutMs: number;
 }
+
+export const MCP_MAX_HISTORY_ENTRIES = 50;
+
+export type McpHistoryStatus = "pending" | "completed" | "error";
+
+export interface McpHistoryEntry {
+  readonly id: string;
+  readonly tool: McpToolName;
+  readonly receivedAt: number;
+  readonly status: McpHistoryStatus;
+  readonly completedAt?: number;
+  readonly errorCode?: McpErrorCode;
+  readonly errorMessage?: string;
+  readonly sql: string;
+  readonly rationale: string;
+}
+
+export interface McpHistoryResult {
+  readonly entries: readonly McpHistoryEntry[];
+}

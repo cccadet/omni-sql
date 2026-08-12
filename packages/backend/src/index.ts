@@ -224,6 +224,8 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return mcpHandlers["mcp.ui.respond"](params as never);
     case "mcp.status":
       return mcpHandlers["mcp.status"]();
+    case "mcp.history":
+      return mcpHandlers["mcp.history"]();
     default:
       throw new UnknownMethodError(method);
   }
