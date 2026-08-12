@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { test, expect, vi } from "vitest";
 import { LanguageProvider } from "../i18n";
 import { Toolbar } from "./Toolbar";
@@ -42,4 +42,16 @@ test("renders multi-statement modal and row limit in English", () => {
   expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("title")).toBe("Toggle sidebar");
   expect(screen.getByRole("button", { name: "Run" }).getAttribute("title")).toBe("Run current statement (Ctrl+Enter)");
   expect(screen.getByRole("button", { name: "Explain query" }).getAttribute("title")).toBe("Explain query");
+});
+
+test("exposes the multi-statement chooser as a dismissible dialog", () => {
+  const onRunChoiceCancel = vi.fn();
+  render(
+    <LanguageProvider>
+      <Toolbar activeConnectionId={null} pendingRunCount={2} onRunChoiceCancel={onRunChoiceCancel} />
+    </LanguageProvider>,
+  );
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(onRunChoiceCancel).toHaveBeenCalledOnce();
 });

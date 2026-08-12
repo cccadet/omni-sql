@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SqlExecutionError } from "@omni-sql/ts-types";
-import { McpUiBridge, McpUiError, type McpUiState } from "./mcp-ui-bridge";
+import { McpUiBridge, McpUiError, makeListenerId, type McpUiState } from "./mcp-ui-bridge";
 
 function setup(state: McpUiState) {
   return new McpUiBridge({
@@ -99,5 +99,32 @@ describe("MCP UI bridge tools", () => {
     });
     const request = { id: "3", tool: "proposeSqlEdit", args: { sql: "SELECT new", rationale: "Improve query" }, expiresAt: Date.now() + 500 } as const;
     await expect(bridge.handleRequest(request)).rejects.toMatchObject({ code: "timeout" });
+  });
+});
+
+describe("MCP UI listener IDs", () => {
+  it("uses randomUUID when Web Crypto provides it", () => {
+    const randomUUID = vi.fn(() => "listener-uuid");
+    vi.stubGlobal("crypto", { randomUUID });
+    try {
+      expect(makeListenerId()).toBe("listener-uuid");
+      expect(randomUUID).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses getRandomValues when randomUUID is unavailable", () => {
+    const getRandomValues = vi.fn((values: Uint32Array) => {
+      values.set([1, 2, 3, 4]);
+      return values;
+    });
+    vi.stubGlobal("crypto", { getRandomValues });
+    try {
+      expect(makeListenerId()).toBe("omni-ui-1-2-3-4");
+      expect(getRandomValues).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

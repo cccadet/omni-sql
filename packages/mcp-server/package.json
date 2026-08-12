@@ -12,7 +12,8 @@
     "build": "node ./build.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "node --test src/**/*.test.ts"
+    "test": "node --test src/**/*.test.ts",
+    "coverage": "mkdir -p coverage && node --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-coverage-include='src/**/*.ts' --test-coverage-exclude='**/*.test.ts' --test src/**/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
