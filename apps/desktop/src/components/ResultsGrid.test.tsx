@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import type { QueryResult } from "@omni-sql/ts-types";
 import { LanguageProvider } from "../i18n";
@@ -46,15 +46,48 @@ test("uses serialized nested values for display, filtering, and sorting", () => 
 
   expect(screen.getByText(serialized)).toBeTruthy();
 
-  fireEvent.change(screen.getByPlaceholderText("Data..."), { target: { value: "needle" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter data…" }), { target: { value: "needle" } });
   expect(screen.getByText(serialized)).toBeTruthy();
   expect(screen.queryByText('{"nested":{"label":"other"},"values":["y",3]}')).toBeNull();
 
-  fireEvent.change(screen.getByPlaceholderText("Data..."), { target: { value: "" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter data…" }), { target: { value: "" } });
   fireEvent.click(screen.getByText("id").closest("th") as HTMLElement);
   const rows = screen.getAllByRole("row");
   expect(within(rows[1]!).getByText("2")).toBeTruthy();
   expect(within(rows[2]!).getByText("10")).toBeTruthy();
+});
+
+test("finds a column, scrolls it into focus, and temporarily highlights it", () => {
+  vi.useFakeTimers();
+  try {
+    renderGrid();
+    const header = screen.getByRole("columnheader", { name: /payload/ });
+    const grid = header.closest("div[style*='overflow']")!;
+    const scrollTo = vi.fn();
+    Object.defineProperties(header, {
+      offsetLeft: { value: 400 },
+      offsetWidth: { value: 100 },
+    });
+    Object.defineProperties(grid, {
+      clientWidth: { value: 200 },
+      scrollTo: { value: scrollTo },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search columns…" }), { target: { value: "payload" } });
+    fireEvent.click(screen.getByRole("button", { name: "payload" }));
+
+    expect(scrollTo).toHaveBeenCalledWith({ left: 350, behavior: "smooth" });
+    expect(header.getAttribute("data-column-focused")).toBe("true");
+    expect(screen.getByText(serializeCellValue(firstPayload)).closest("td")?.getAttribute("data-column-focused")).toBe("true");
+
+    act(() => vi.advanceTimersByTime(2_500));
+    expect(header.getAttribute("data-column-focused")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Columns: payload" }));
+    expect(screen.queryByRole("columnheader", { name: /payload/ })).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("keeps export anchor alive until click before revoking URL", () => {

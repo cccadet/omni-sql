@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
+  Checkbox,
   Input,
+  Popover,
+  PopoverSurface,
+  PopoverTrigger,
   Tab,
   TabList,
   Text,
@@ -16,6 +20,7 @@ import {
   DismissRegular,
   EditRegular,
   CalendarLtrRegular,
+  FilterRegular,
   TableRegular,
   ChatRegular,
   WrenchRegular,
@@ -136,13 +141,18 @@ export function ResultsGrid({
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan">("data");
   const [globalFilter, setGlobalFilter] = useState("");
+  const [columnFinder, setColumnFinder] = useState("");
+  const [hiddenColumnIndexes, setHiddenColumnIndexes] = useState<ReadonlySet<number>>(() => new Set());
   const [sortColumn, setSortColumn] = useState<string | undefined>(undefined);
   const [sortDirection, setSortDirection] = useState<"ascending" | "descending">("ascending");
   const [page, setPage] = useState(0);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number; value: string } | null>(null);
   const [localChanges, setLocalChanges] = useState<StagedCellEdit[]>([]);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [focusedColumnIndex, setFocusedColumnIndex] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const gridScrollRef = useRef<HTMLDivElement | null>(null);
+  const columnFocusTimerRef = useRef<number | null>(null);
   const previousResultRef = useRef<QueryResult | null | undefined>(result);
   const applyingChangesRef = useRef(false);
   const editFinalizedRef = useRef(false);
@@ -154,6 +164,9 @@ export function ResultsGrid({
     setSortColumn(undefined);
     setPage(0);
     setSelectedRow(null);
+    setColumnFinder("");
+    setFocusedColumnIndex(null);
+    setHiddenColumnIndexes(new Set());
     if (error) {
       setActiveTab("messages");
     } else if (result) {
@@ -331,6 +344,63 @@ export function ResultsGrid({
     [result?.columns, isColumnEditable],
   );
 
+  const columnFinderOptions = useMemo(() => {
+    const nameCounts = new Map<string, number>();
+    for (const column of columns) {
+      nameCounts.set(column.name, (nameCounts.get(column.name) ?? 0) + 1);
+    }
+    return columns.map((column) => ({
+      ...column,
+      label: (nameCounts.get(column.name) ?? 0) > 1 ? `${column.name} (${column.index + 1})` : column.name,
+    }));
+  }, [columns]);
+  const visibleColumns = useMemo(
+    () => columns.filter((column) => !hiddenColumnIndexes.has(column.index)),
+    [columns, hiddenColumnIndexes],
+  );
+
+  const filteredColumnOptions = useMemo(() => {
+    const term = columnFinder.trim().toLocaleLowerCase();
+    if (!term) return columnFinderOptions;
+    return columnFinderOptions.filter((column) => column.label.toLocaleLowerCase().includes(term));
+  }, [columnFinder, columnFinderOptions]);
+
+  const toggleColumnVisibility = useCallback((columnIndex: number) => {
+    setHiddenColumnIndexes((current) => {
+      const next = new Set(current);
+      if (next.has(columnIndex)) {
+        next.delete(columnIndex);
+      } else {
+        next.add(columnIndex);
+      }
+      return next;
+    });
+  }, []);
+
+  const focusColumn = useCallback((columnIndex: number) => {
+    if (hiddenColumnIndexes.has(columnIndex)) return;
+    setFocusedColumnIndex(columnIndex);
+    if (columnFocusTimerRef.current !== null) window.clearTimeout(columnFocusTimerRef.current);
+
+    const grid = gridScrollRef.current;
+    const header = grid?.querySelector<HTMLTableCellElement>(`th[data-column-index="${columnIndex}"]`);
+    if (grid && header) {
+      grid.scrollTo({
+        left: Math.max(0, header.offsetLeft - grid.clientWidth / 2 + header.offsetWidth / 2),
+        behavior: "smooth",
+      });
+    }
+
+    columnFocusTimerRef.current = window.setTimeout(() => {
+      setFocusedColumnIndex(null);
+      columnFocusTimerRef.current = null;
+    }, 2_500);
+  }, [hiddenColumnIndexes]);
+
+  useEffect(() => () => {
+    if (columnFocusTimerRef.current !== null) window.clearTimeout(columnFocusTimerRef.current);
+  }, []);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (activeTab !== "data" || pageRows.length === 0) return;
@@ -388,28 +458,76 @@ export function ResultsGrid({
               </Text>
             )}
             <Input
-              placeholder={`${t("data")}...`}
+              aria-label={t("filterData")}
+              placeholder={t("filterData")}
               value={globalFilter}
               onChange={(_, data) => {
                 setGlobalFilter(data.value);
                 setPage(0);
               }}
               contentAfter={
-                globalFilter ? (
-                  <Button
-                    appearance="transparent"
-                    icon={<DismissRegular />}
-                    aria-label={t("clearSearch")}
-                    title={t("clearSearch")}
-                    onClick={() => {
-                      setGlobalFilter("");
-                      setPage(0);
-                    }}
-                  />
-                ) : undefined
+                <>
+                  {globalFilter && (
+                    <Button
+                      appearance="transparent"
+                      icon={<DismissRegular />}
+                      aria-label={t("clearSearch")}
+                      title={t("clearSearch")}
+                      onClick={() => {
+                        setGlobalFilter("");
+                        setPage(0);
+                      }}
+                    />
+                  )}
+                  <FilterRegular aria-hidden="true" />
+                </>
               }
-              style={{ minWidth: 160, maxWidth: 240 }}
+              style={{ minWidth: 180, maxWidth: 240 }}
             />
+            <Popover positioning="below-end">
+              <PopoverTrigger disableButtonEnhancement>
+                <Button appearance="outline" icon={<TableRegular />}>{t("columns")}</Button>
+              </PopoverTrigger>
+              <PopoverSurface
+                style={{
+                  width: 280,
+                  padding: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                <Text weight="semibold">{t("columns")}</Text>
+                <Input
+                  aria-label={t("searchColumns")}
+                  placeholder={t("searchColumns")}
+                  value={columnFinder}
+                  onChange={(_, data) => setColumnFinder(data.value)}
+                />
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 280, overflowY: "auto" }}>
+                  {filteredColumnOptions.map((column) => (
+                    <div key={column.index} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <Checkbox
+                        aria-label={`${t("columns")}: ${column.label}`}
+                        checked={!hiddenColumnIndexes.has(column.index)}
+                        onChange={() => toggleColumnVisibility(column.index)}
+                      />
+                      <Button
+                        appearance="transparent"
+                        disabled={hiddenColumnIndexes.has(column.index)}
+                        onClick={() => focusColumn(column.index)}
+                        style={{ justifyContent: "flex-start", flex: 1, minWidth: 0 }}
+                      >
+                        {column.label}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
+                  {t("columnsHint")}
+                </Text>
+              </PopoverSurface>
+            </Popover>
             {changes.length > 0 && (
               <Button
                 appearance="subtle"
@@ -436,7 +554,7 @@ export function ResultsGrid({
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+      <div ref={gridScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {activeTab === "data" && (
           <>
             {!result ? (
@@ -454,19 +572,24 @@ export function ResultsGrid({
               >
                 <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
                   <tr>
-                    {columns.map((col) => (
+                    {visibleColumns.map((col) => (
                       (() => {
                         const typeLabel = columnTypeLabel(col.dataType);
                         return (
                           <th
-                            key={col.key}
+                            key={`${col.key}:${col.index}`}
+                            data-column-index={col.index}
+                            data-column-focused={focusedColumnIndex === col.index || undefined}
                             onClick={() => handleSort(col.name)}
                             title={`Tipo: ${col.dataType}`}
                             style={{
                               padding: "8px 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
                               textAlign: "left",
-                              background: tokens.colorNeutralBackground3,
+                              background:
+                                focusedColumnIndex === col.index
+                                  ? tokens.colorPaletteYellowBackground2
+                                  : tokens.colorNeutralBackground3,
                               whiteSpace: "nowrap",
                               cursor: "pointer",
                               fontWeight: 600,
@@ -514,21 +637,29 @@ export function ResultsGrid({
                         cursor: "pointer",
                       }}
                     >
-                      {columns.map((col) => {
+                      {visibleColumns.map((col) => {
                         const cellKey = `${originalRowIndex}:${col.index}`;
                         const cellValue = changeByCell.get(cellKey) ?? row[col.index];
                         const isEditing =
                           editingCell && editingCell.row === originalRowIndex && editingCell.col === col.index;
                         return (
                           <td
-                            key={col.key}
+                            key={`${col.key}:${col.index}`}
+                            data-column-focused={focusedColumnIndex === col.index || undefined}
                             style={{
                               padding: "4px 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
                               whiteSpace: "nowrap",
-                              color: selectedRow === displayRowIndex && !changeByCell.has(cellKey)
-                                ? tokens.colorNeutralForegroundOnBrand
-                                : tokens.colorNeutralForeground1,
+                              background:
+                                focusedColumnIndex === col.index
+                                  ? tokens.colorPaletteYellowBackground2
+                                  : undefined,
+                              color:
+                                selectedRow === displayRowIndex &&
+                                !changeByCell.has(cellKey) &&
+                                focusedColumnIndex !== col.index
+                                  ? tokens.colorNeutralForegroundOnBrand
+                                  : tokens.colorNeutralForeground1,
                             }}
                             onClick={(e) => {
                               // Input clicks must not bubble back into the cell
