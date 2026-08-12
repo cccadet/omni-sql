@@ -634,11 +634,11 @@ fn sidecar_log_stdio<R: tauri::Runtime>(
 }
 
 fn json_string_field(body: &str, field: &str) -> Option<String> {
-    let marker = format!("\"{field}\"");
-    let value = body.split_once(&marker)?.1.trim_start();
-    let value = value.strip_prefix(':')?.trim_start();
-    let value = value.strip_prefix('"')?;
-    Some(value.split('"').next()?.to_string())
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()?
+        .get(field)?
+        .as_str()
+        .map(ToOwned::to_owned)
 }
 
 fn backend_health_is_expected(status: u16, body: &str) -> bool {
@@ -1431,6 +1431,72 @@ mod tests {
             backend_health_probe_error(503, r#"{"status":"starting"}"#),
             "unexpected /health response: HTTP 503, status field Some(\"starting\")"
         );
+    }
+
+    #[test]
+    fn health_response_parser_requires_a_valid_http_response() {
+        let listener = std::net::TcpListener::bind((LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            use std::io::{Read, Write};
+            let mut request = [0_u8; 512];
+            let request_length = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..request_length]);
+            assert!(request.starts_with("GET /health HTTP/1.1\r\n"));
+            assert!(request.contains("Authorization: Bearer test-token\r\n"));
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}")
+                .unwrap();
+        });
+
+        assert_eq!(
+            http_get(port, "/health", "test-token").unwrap(),
+            (200, r#"{"status":"ok"}"#.to_string())
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn health_response_parser_rejects_malformed_responses() {
+        let listener = std::net::TcpListener::bind((LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            use std::io::{Read, Write};
+            let mut request = [0_u8; 512];
+            stream.read(&mut request).unwrap();
+            stream.write_all(b"not an HTTP response").unwrap();
+        });
+
+        assert_eq!(
+            http_get(port, "/health", "test-token").unwrap_err(),
+            "health response has no HTTP header/body separator"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn only_unused_loopback_ports_are_accepted() {
+        let listener = std::net::TcpListener::bind((LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let error = ensure_port_is_free(port, "backend").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse);
+        assert!(error.to_string().contains("cannot start backend"));
+
+        drop(listener);
+        ensure_port_is_free(port, "backend").unwrap();
+    }
+
+    #[test]
+    fn health_json_field_parser_accepts_only_quoted_fields() {
+        assert_eq!(
+            json_string_field(r#"{"status":"ok","service":"sidecar"}"#, "status"),
+            Some("ok".to_string())
+        );
+        assert_eq!(json_string_field(r#"{"status": "ok"}"#, "service"), None);
+        assert_eq!(json_string_field(r#"{"status":true}"#, "status"), None);
+        assert_eq!(json_string_field(r#"{"status":"ok}"#, "status"), None);
     }
 
     #[test]

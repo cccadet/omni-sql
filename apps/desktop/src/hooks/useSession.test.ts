@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, test, assert, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useSession } from "./useSession";
+import { makeTab, useSession } from "./useSession";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -10,6 +10,16 @@ beforeEach(() => {
 afterEach(() => {
   window.localStorage.clear();
   vi.unstubAllGlobals();
+});
+
+test("makeTab generates unique UUID tab IDs while accepting persisted IDs", () => {
+  const first = makeTab();
+  const second = makeTab();
+  const persisted = makeTab({ id: "tab-legacy-123" });
+
+  assert.match(first.id, /^tab-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  assert.notEqual(first.id, second.id);
+  assert.equal(persisted.id, "tab-legacy-123");
 });
 
 test("useSession: starts with one tab and can add/close tabs", () => {

@@ -333,6 +333,46 @@ test("Streamable HTTP initializes, lists approved tools, and forwards a tool cal
   }
 });
 
+test("Streamable HTTP forwards every remaining approved tool with validated arguments", async () => {
+  const forwarded: Array<{ tool: string; args: unknown }> = [];
+  const client = new BackendMcpClient(descriptor, {
+    fetchImpl: async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { tool: string; args: unknown };
+      forwarded.push(body);
+      return new Response(JSON.stringify({ result: body }), { status: 200 });
+    },
+  });
+  const server = createStreamableHttpServer(client, { httpToken });
+  const port = await listen(server);
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    requestInit: { headers: { authorization: `Bearer ${httpToken}` } },
+  });
+  const mcpClient = new Client({ name: "test-client", version: "0.0.0" });
+
+  try {
+    await mcpClient.connect(transport);
+    for (const [name, args] of [
+      ["getActiveConnectionContext", {}],
+      ["getSchemaSummary", {}],
+      ["getLatestSqlExecutionError", {}],
+      ["proposeSqlEdit", { sql: "SELECT 1", rationale: "Use a literal" }],
+    ] as const) {
+      const result = await mcpClient.callTool({ name, arguments: args });
+      assert.deepEqual(result.content, [{ type: "text", text: JSON.stringify({ tool: name, args }) }]);
+    }
+    assert.deepEqual(forwarded, [
+      { tool: "getActiveConnectionContext", args: {} },
+      { tool: "getSchemaSummary", args: {} },
+      { tool: "getLatestSqlExecutionError", args: {} },
+      { tool: "proposeSqlEdit", args: { sql: "SELECT 1", rationale: "Use a literal" } },
+    ]);
+    await transport.terminateSession();
+  } finally {
+    await mcpClient.close();
+    await close(server);
+  }
+});
+
 test("Streamable HTTP rejects missing authorization and oversized payloads", async () => {
   const client = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response("{}") });
   const server = createStreamableHttpServer(client, { httpToken });

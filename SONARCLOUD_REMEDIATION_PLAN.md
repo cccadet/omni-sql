@@ -54,6 +54,8 @@ Não inclui:
 5. Ajustar a configuração de cobertura do Vitest apenas se a execução total sob Node 22 falhar. Reproduzir com o menor conjunto de workers necessário; não mascarar testes com timeouts maiores.
 6. Atualizar `sonar-project.properties` para listar somente relatórios que o passo anterior garante produzir.
 
+
+**Estado:** cobertura local reproduzível e relatórios LCOV/JaCoCo disponíveis. O scan de `2026-08-12` ainda apontou `apps/desktop/src/monaco-env.d.ts`; o exclude de declarations foi corrigido e aguarda o próximo relatório completo.
 **Aceite:** um runner limpo reproduz `pnpm test:coverage`, todos os relatórios existem e o scanner não registra `No LCOV files were found` nem `Could not resolve ... file paths`.
 
 ### 0.2 Manter CI como fonte de verdade
@@ -154,6 +156,22 @@ Não inclui:
 4. Adicionar teste de equivalência antes da extração quando houver mais de um chamador.
 
 **Aceite:** `new_duplicated_lines_density <=3%`; todos os chamadores usam a implementação única e os testes preservam respostas e status HTTP existentes.
+
+## Progresso em 2026-08-12
+
+- A geração local de relatórios está determinística: `pnpm test:coverage` executa
+  26 arquivos/89 testes frontend em worker único, exige LCOV de cada workspace e
+  normaliza todos os caminhos `SF:` para o root do monorepo.
+- Os artefatos JaCoCo e Rust LCOV foram regenerados com sucesso; `cargo llvm-cov`
+  executou 17 testes em `apps/desktop/src-tauri`.
+- Foram adicionados contratos observáveis para IDs e histórico persistido, CORS,
+  MCP, helpers nativos de arquivo, ícones de tipo, freshness de metadata, tema,
+  abas e painel de histórico. A cobertura global local do frontend passou de
+  57,9% para 60,8% de statements (89 testes).
+- O scanner anterior falhou durante a análise TypeScript com bridge Node sem
+  resposta. `sonar.javascript.node.maxspace=4096` foi configurado para o
+  subprocesso do analisador; a publicação e o Quality Gate continuam pendentes
+  de uma análise completa no SonarCloud.
 
 ## Fase 4 — fechamento
 

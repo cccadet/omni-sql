@@ -21,7 +21,7 @@ import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } 
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
-import { MCP_MAX_ERROR_MESSAGE_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
+import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
@@ -32,6 +32,9 @@ const HISTORY_KEY = "omni-sql:history";
 const CHECK_FOR_UPDATES_EVENT = "check-for-updates";
 const MCP_PROPOSAL_SAFETY_WINDOW_MS = 1_000;
 
+const HISTORY_MAX_ENTRIES = 200;
+const historyTextEncoder = new TextEncoder();
+
 interface ActiveQuery {
   sequence: number;
   connectionId: string;
@@ -39,6 +42,36 @@ interface ActiveQuery {
   cancelPromise: Promise<void> | null;
   cancelSettled: boolean;
   finished: boolean;
+}
+
+
+function makeHistoryId(): string {
+  return `hist-${crypto.randomUUID()}`;
+}
+
+function isHistorySql(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 &&
+    historyTextEncoder.encode(value).byteLength <= MCP_MAX_SQL_BYTES;
+}
+
+function restoreHistoryEntry(value: unknown): Omit<HistoryEntry, "id"> | null {
+  if (typeof value === "string") return isHistorySql(value) ? { sql: value } : null;
+  if (value === null || typeof value !== "object" || Array.isArray(value) || !("sql" in value)) return null;
+  const record = value as { sql: unknown; ok?: unknown; status?: unknown };
+  if (!isHistorySql(record.sql)) return null;
+  const ok = typeof record.ok === "boolean"
+    ? record.ok
+    : record.status === "success" || record.status === "ok"
+      ? true
+      : record.status === "failure" || record.status === "error"
+        ? false
+        : undefined;
+  return { sql: record.sql, ...(ok === undefined ? {} : { ok }) };
+}
+
+function persistableHistoryEntry(value: HistoryEntry): Omit<HistoryEntry, "id"> | null {
+  if (!isHistorySql(value.sql)) return null;
+  return { sql: value.sql, ...(typeof value.ok === "boolean" ? { ok: value.ok } : {}) };
 }
 
 function loadHistory(): HistoryEntry[] {
@@ -49,20 +82,9 @@ function loadHistory(): HistoryEntry[] {
     if (!Array.isArray(parsed)) return [];
     // History used to contain execution metadata. Keep only its SQL when
     // reading older sessions, while preserving a known success/failure value.
-    return parsed.flatMap((item, index) => {
-      if (typeof item === "string") {
-        return item.trim() ? [{ id: `hist-${index}-${Math.random().toString(36).slice(2)}`, sql: item }] : [];
-      }
-      if (!item || typeof item !== "object" || !("sql" in item) || typeof item.sql !== "string" || !item.sql.trim()) return [];
-      const record = item as { sql: string; ok?: unknown; status?: unknown };
-      const ok = typeof record.ok === "boolean"
-        ? record.ok
-        : record.status === "success" || record.status === "ok"
-          ? true
-          : record.status === "failure" || record.status === "error"
-            ? false
-            : undefined;
-      return [{ id: `hist-${index}-${Math.random().toString(36).slice(2)}`, sql: record.sql, ...(ok === undefined ? {} : { ok }) }];
+    return parsed.slice(0, HISTORY_MAX_ENTRIES).flatMap((item) => {
+      const restored = restoreHistoryEntry(item);
+      return restored ? [{ id: makeHistoryId(), ...restored }] : [];
     });
   } catch {
     return [];
@@ -71,7 +93,13 @@ function loadHistory(): HistoryEntry[] {
 
 function saveHistory(entries: HistoryEntry[]) {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, 200).map((entry) => ({ sql: entry.sql, ...(entry.ok === undefined ? {} : { ok: entry.ok }) }))));
+    const stored = entries
+      .slice(0, HISTORY_MAX_ENTRIES)
+      .flatMap((entry) => {
+        const safeEntry = persistableHistoryEntry(entry);
+        return safeEntry ? [safeEntry] : [];
+      });
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(stored));
   } catch {
     // localStorage indisponível/cheio
   }
@@ -443,7 +471,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const pushHistory = useCallback((sql: string, ok: boolean) => {
     const entry: HistoryEntry = {
-      id: `hist-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id: makeHistoryId(),
       sql,
       ok,
     };

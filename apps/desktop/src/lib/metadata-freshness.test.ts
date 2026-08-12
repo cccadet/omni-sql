@@ -1,9 +1,17 @@
-import { test, assert } from "vitest";
-import { getMetadataFreshness } from "./metadata-freshness";
+import { expect, it } from "vitest";
+import { formatLastSyncedAt, getMetadataFreshness } from "./metadata-freshness";
 
-test("metadata freshness uses the local calendar date", () => {
-  const now = new Date(2026, 6, 18, 10, 30);
-  assert.equal(getMetadataFreshness(new Date(2026, 6, 18, 1).getTime(), now), "today");
-  assert.equal(getMetadataFreshness(new Date(2026, 6, 17, 23).getTime(), now), "stale");
-  assert.equal(getMetadataFreshness(undefined, now), "unsynced");
+const now = new Date(2026, 7, 12, 15, 30);
+
+it("classifies absent, invalid, same-day, and stale metadata timestamps", () => {
+  expect(getMetadataFreshness(undefined, now)).toBe("unsynced");
+  expect(getMetadataFreshness(Number.NaN, now)).toBe("unsynced");
+  expect(getMetadataFreshness(now.getTime(), now)).toBe("today");
+  expect(getMetadataFreshness(new Date(2026, 7, 11, 23, 59).getTime(), now)).toBe("stale");
+});
+
+it("formats only finite valid metadata timestamps", () => {
+  expect(formatLastSyncedAt(undefined)).toBeNull();
+  expect(formatLastSyncedAt(Number.POSITIVE_INFINITY)).toBeNull();
+  expect(formatLastSyncedAt(now.getTime())).toBeTruthy();
 });
