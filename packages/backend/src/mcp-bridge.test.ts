@@ -281,7 +281,7 @@ test("MCP bridge rejects invalid listener options and releases pending work on c
     const rejected = bridge.submit("getActiveSql", {});
     const request = await bridge.next({ listenerId: "desktop" });
     assert.deepEqual(
-      bridge.respond({ id: request!.id, ok: false, error: { code: "unknown", message: "declined" } }, "desktop"),
+      bridge.respond({ id: request!.id, ok: false, error: { code: "rejected", message: "declined" } }, "desktop"),
       { accepted: true },
     );
     await assert.rejects(rejected, hasCode("rejected"));

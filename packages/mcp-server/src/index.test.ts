@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import type { Server as HttpServer } from "node:http";
+import { request as httpRequest, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -53,6 +53,22 @@ async function close(server: HttpServer): Promise<void> {
   if (!server.listening) return;
   server.close();
   await once(server, "close");
+}
+
+async function rawPost(port: number, path: string, headers: Record<string, string>, body: string): Promise<{ status: number; body: string }> {
+  const request = httpRequest({
+    hostname: "127.0.0.1",
+    port,
+    path,
+    method: "POST",
+    headers,
+  });
+  request.end(body);
+  const [response] = await once(request, "response") as [IncomingMessage];
+  response.setEncoding("utf8");
+  let responseBody = "";
+  for await (const chunk of response) responseBody += chunk;
+  return { status: response.statusCode ?? 0, body: responseBody };
 }
 
 async function initializeSession(port: number, token = httpToken, headers: Record<string, string> = {}): Promise<string> {
@@ -434,6 +450,27 @@ test("Streamable HTTP rejects invalid ingress before MCP session dispatch", asyn
     assert.equal(missingPath.status, 404);
   } finally {
     await closeStreamableHttpServer(server);
+  }
+});
+
+test("Streamable HTTP rejects malformed raw ingress headers and chunked oversized bodies", async () => {
+  const client = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response("{}") });
+  const server = createStreamableHttpServer(client, { httpToken });
+  const port = await listen(server);
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  try {
+    const headers = {
+      authorization: `Bearer ${httpToken}`,
+      "content-type": "application/json",
+    };
+    assert.equal((await rawPost(port, "/mcp", { ...headers, host: "tunnel.example/path" }, body)).status, 400);
+    assert.equal((await rawPost(port, "/mcp", { ...headers, origin: "file:///tmp/mcp" }, body)).status, 400);
+    assert.equal((await rawPost(port, "//mcp", headers, body)).status, 400);
+    const oversized = await rawPost(port, "/mcp", headers, "x".repeat(MAX_REQUEST_BYTES + 1));
+    assert.equal(oversized.status, 413);
+    assert.match(oversized.body, /request is too large/u);
+  } finally {
+    await close(server);
   }
 });
 
