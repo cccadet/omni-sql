@@ -161,8 +161,7 @@ select option {
   text-transform: uppercase;
 }
 
-.omni-connection-actions,
-.omni-connection-management {
+.omni-connection-actions {
   display: flex;
   align-items: center;
   gap: 1px;
@@ -305,8 +304,7 @@ select option {
   margin-left: 16px;
 }
 
-.omni-connection-actions .fui-Button,
-.omni-connection-management .fui-Button {
+.omni-connection-actions .fui-Button {
   min-width: 24px;
   padding: 2px;
 }
@@ -376,10 +374,8 @@ select option {
   color: var(--colorBrandForeground1);
 }
 
-.omni-connection-management {
-  justify-content: flex-end;
-  border-top: 1px solid var(--colorNeutralStroke2);
-  padding-top: 2px;
+.omni-root-connections {
+  min-height: 26px;
 }
 
 .omni-sidebar-tree {

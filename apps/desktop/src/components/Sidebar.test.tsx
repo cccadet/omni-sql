@@ -55,6 +55,16 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
   );
 }
 
+function createDataTransfer(): DataTransfer {
+  const entries = new Map<string, string>();
+  return {
+    dropEffect: "none",
+    effectAllowed: "none",
+    getData: (format: string) => entries.get(format) ?? "",
+    setData: (format: string, data: string) => { entries.set(format, data); },
+  } as unknown as DataTransfer;
+}
+
 describe("Sidebar", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -106,10 +116,38 @@ describe("Sidebar", () => {
     expect(onDeleteConnectionGroup).toHaveBeenCalledWith("group-1");
 
     fireEvent.click(screen.getByLabelText("Local database actions"));
+    expect(screen.queryByRole("button", { name: "Root" })).toBeNull();
+    fireEvent.mouseEnter(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Move to…" }));
     fireEvent.click(screen.getByRole("button", { name: "Root" }));
     await waitFor(() => expect(onMoveConnection).toHaveBeenCalledWith("connection-1", null));
   });
 
+
+  it("moves connections by dragging them to folders and Root connections", async () => {
+    const onMoveConnection = vi.fn().mockResolvedValue(undefined);
+    renderSidebar({
+      connectionGroups: [
+        { id: "group-1", name: "Production" },
+        { id: "group-2", name: "Staging" },
+      ],
+      onMoveConnection,
+    });
+
+    const connectionItem = document.querySelector<HTMLButtonElement>(".omni-connection-item")!;
+    const stagingFolder = screen.getByText("Staging").closest(".omni-connection-folder")!;
+    const folderTransfer = createDataTransfer();
+    fireEvent.dragStart(connectionItem, { dataTransfer: folderTransfer });
+    fireEvent.dragOver(stagingFolder, { dataTransfer: folderTransfer });
+    fireEvent.drop(stagingFolder, { dataTransfer: folderTransfer });
+    await waitFor(() => expect(onMoveConnection).toHaveBeenCalledWith("connection-1", "group-2"));
+
+    const rootConnections = screen.getByText("Root connections").closest(".omni-root-connections")!;
+    const rootTransfer = createDataTransfer();
+    fireEvent.dragStart(connectionItem, { dataTransfer: rootTransfer });
+    fireEvent.dragOver(rootConnections, { dataTransfer: rootTransfer });
+    fireEvent.drop(rootConnections, { dataTransfer: rootTransfer });
+    await waitFor(() => expect(onMoveConnection).toHaveBeenLastCalledWith("connection-1", null));
+  });
   it("opens definitions and keeps failures in a visible new tab", async () => {
     const onOpenInNewTab = vi.fn();
     renderSidebar({ onOpenInNewTab });
@@ -141,6 +179,9 @@ describe("Sidebar", () => {
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit connection" }));
     expect(onEditConnection).toHaveBeenCalledWith("connection-1");
     fireEvent.click(screen.getByLabelText("Local database actions"));
+    expect(screen.queryByLabelText("Edit connection")).toBeNull();
+    expect(screen.queryByLabelText("Duplicate connection")).toBeNull();
+    expect(screen.queryByLabelText("Remove connection")).toBeNull();
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Duplicate connection" }));
     expect(onDuplicateConnection).toHaveBeenCalledWith("connection-1");
     fireEvent.click(screen.getByLabelText("Local database actions"));

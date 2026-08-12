@@ -25,7 +25,6 @@ import {
   CircleRegular,
   AddRegular,
   EditRegular,
-  CopyRegular,
   DeleteRegular,
   MoreVerticalRegular,
 } from "@fluentui/react-icons";
@@ -198,7 +197,7 @@ export function Sidebar({
   const [resizingConnections, setResizingConnections] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [indexCache, setIndexCache] = useState<Record<string, { loading: boolean; error: string | null; indexes: IndexInfo[] }>>({});
-  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string; moveSubmenuOpen: boolean } | null>(null);
   const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(connectionId ?? null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(connectionGroups.map((group) => group.id)));
@@ -316,7 +315,7 @@ export function Sidebar({
     e.preventDefault();
     const x = Math.min(e.clientX, window.innerWidth - 220);
     const y = Math.min(e.clientY, window.innerHeight - items.length * 28 - 16);
-    setMenu({ x, y, items, moveOptions, moveConnectionId });
+    setMenu({ x, y, items, moveOptions, moveConnectionId, moveSubmenuOpen: false });
   }, []);
 
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -422,13 +421,6 @@ export function Sidebar({
       <div
         key={item.id}
         className={`omni-connection-row${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
-        draggable
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", item.id);
-          setDraggedConnectionId(item.id);
-        }}
-        onDragEnd={() => setDraggedConnectionId(null)}
         onContextMenu={(event) => openMenu(event, [
           { label: tr("editConnection"), action: () => onEditConnection?.(item.id) },
           { label: tr("duplicateConnection"), action: () => onDuplicateConnection?.(item.id) },
@@ -441,6 +433,13 @@ export function Sidebar({
           role="option"
           aria-selected={isSelected}
           className="omni-connection-item"
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", item.id);
+            setDraggedConnectionId(item.id);
+          }}
+          onDragEnd={() => setDraggedConnectionId(null)}
           onClick={() => setSelectedConnectionId(item.id)}
           onDragOver={(event) => event.preventDefault()}
         >
@@ -655,11 +654,6 @@ export function Sidebar({
                   </div>
                 </>
               )}
-            </div>
-            <div className="omni-connection-management" role="group" aria-label={tr("connections")}>
-              <Button icon={<EditRegular fontSize={12} />} appearance="transparent" size="small" onClick={() => selectedConnectionId && onEditConnection?.(selectedConnectionId)} disabled={!selectedConnectionId} aria-label={tr("editConnection")} title={tr("editConnection")} />
-              <Button icon={<CopyRegular fontSize={12} />} appearance="transparent" size="small" onClick={() => selectedConnectionId && onDuplicateConnection?.(selectedConnectionId)} disabled={!selectedConnectionId} aria-label={tr("duplicateConnection")} title={tr("duplicateConnection")} />
-              <Button icon={<DeleteRegular fontSize={12} />} appearance="transparent" size="small" onClick={() => selectedConnectionId && onRemoveConnection?.(selectedConnectionId)} disabled={!selectedConnectionId} aria-label={tr("removeConnection")} title={tr("removeConnection")} />
             </div>
           </div>
         )}
@@ -1043,8 +1037,16 @@ export function Sidebar({
                 <button
                   type="button"
                   className={item.label === "Move to…" ? "has-submenu" : undefined}
+                  onMouseEnter={() => {
+                    if (item.label === "Move to…" && menu.moveOptions) {
+                      setMenu((current) => current ? { ...current, moveSubmenuOpen: true } : current);
+                    }
+                  }}
                   onClick={() => {
-                    if (item.label === "Move to…" && menu.moveOptions) return;
+                    if (item.label === "Move to…" && menu.moveOptions) {
+                      setMenu((current) => current ? { ...current, moveSubmenuOpen: true } : current);
+                      return;
+                    }
                     item.action();
                     closeMenu();
                   }}
@@ -1054,7 +1056,7 @@ export function Sidebar({
               </li>
             ))}
           </ul>
-          {menu.moveOptions && menu.moveConnectionId && (
+          {menu.moveSubmenuOpen && menu.moveOptions && menu.moveConnectionId && (
             <ul className="context-menu context-submenu" style={{ left: menu.x + 188, top: menu.y }}>
               {menu.moveOptions.map((option) => (
                 <li key={option.id ?? "root"}>
