@@ -197,7 +197,7 @@ export function Sidebar({
   const [resizingConnections, setResizingConnections] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [indexCache, setIndexCache] = useState<Record<string, { loading: boolean; error: string | null; indexes: IndexInfo[] }>>({});
-  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string; moveSubmenuOpen: boolean } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string; moveSubmenuOpen: boolean; moveSubmenuPosition?: { left: number; top: number } } | null>(null);
   const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(connectionId ?? null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(connectionGroups.map((group) => group.id)));
@@ -319,6 +319,15 @@ export function Sidebar({
   }, []);
 
   const closeMenu = useCallback(() => setMenu(null), []);
+
+  const openMoveSubmenu = useCallback((target: HTMLElement) => {
+    const { right: left, top } = target.getBoundingClientRect();
+    setMenu((current) => current ? {
+      ...current,
+      moveSubmenuOpen: true,
+      moveSubmenuPosition: { left, top },
+    } : current);
+  }, []);
 
   useEffect(() => {
     if (!menu) return;
@@ -1031,48 +1040,60 @@ export function Sidebar({
               closeMenu();
             }}
           />
-          <ul className="context-menu" style={{ left: menu.x, top: menu.y }}>
-            {menu.items.map((item, i) => (
-              <li key={i}>
-                <button
-                  type="button"
-                  className={item.label === "Move to…" ? "has-submenu" : undefined}
+          <div
+            className="context-menu-container"
+            onMouseLeave={() => setMenu((current) => current?.moveSubmenuOpen ? { ...current, moveSubmenuOpen: false } : current)}
+          >
+            <ul className="context-menu" style={{ left: menu.x, top: menu.y }}>
+              {menu.items.map((item, i) => (
+                <li
+                  key={i}
                   onMouseEnter={() => {
-                    if (item.label === "Move to…" && menu.moveOptions) {
-                      setMenu((current) => current ? { ...current, moveSubmenuOpen: true } : current);
+                    if (item.label !== "Move to…") {
+                      setMenu((current) => current?.moveSubmenuOpen ? { ...current, moveSubmenuOpen: false } : current);
                     }
-                  }}
-                  onClick={() => {
-                    if (item.label === "Move to…" && menu.moveOptions) {
-                      setMenu((current) => current ? { ...current, moveSubmenuOpen: true } : current);
-                      return;
-                    }
-                    item.action();
-                    closeMenu();
                   }}
                 >
-                  {item.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {menu.moveSubmenuOpen && menu.moveOptions && menu.moveConnectionId && (
-            <ul className="context-menu context-submenu" style={{ left: menu.x + 188, top: menu.y }}>
-              {menu.moveOptions.map((option) => (
-                <li key={option.id ?? "root"}>
                   <button
                     type="button"
-                    onClick={() => {
-                      void onMoveConnection?.(menu.moveConnectionId!, option.id);
+                    className={item.label === "Move to…" ? "has-submenu" : undefined}
+                    onMouseEnter={(event) => {
+                      if (item.label === "Move to…" && menu.moveOptions) {
+                        openMoveSubmenu(event.currentTarget);
+                      }
+                    }}
+                    onClick={(event) => {
+                      if (item.label === "Move to…" && menu.moveOptions) {
+                        openMoveSubmenu(event.currentTarget);
+                        return;
+                      }
+                      item.action();
                       closeMenu();
                     }}
                   >
-                    {option.label}
+                    {item.label}
                   </button>
                 </li>
               ))}
             </ul>
-          )}
+            {menu.moveSubmenuOpen && menu.moveOptions && menu.moveConnectionId && menu.moveSubmenuPosition && (
+              <ul className="context-menu context-submenu" style={menu.moveSubmenuPosition}>
+                {menu.moveOptions.map((option) => (
+                  <li key={option.id ?? "root"}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void onMoveConnection?.(menu.moveConnectionId!, option.id);
+                        closeMenu();
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </>
       )}
     </Card>
