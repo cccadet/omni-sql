@@ -2,7 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import pg, { type Pool, type PoolClient, type Query as PgQuery } from "pg";
 import { PostgresAdapter } from "./index.ts";
-import { applyServerRowCap, runQueryViaPool } from "./introspection.ts";
+import {
+  applyServerRowCap,
+  getDefinitionViaPool,
+  introspectSchemas,
+  listFunctionsPerSchema,
+  listIndexesViaPool,
+  listSchemaNames,
+  runQueryViaPool,
+  updateRowViaPool,
+} from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
 // Sem docker/Postgres local: smoke só valida construção + dial refusal.
@@ -164,6 +173,144 @@ test("cancelRunning cancela query ativa e não deixa estado após cleanup", asyn
     }).cancel = originalCancel;
     await a.close();
   }
+});
+
+test("PostgreSQL metadata helpers preserve filtered relations, overloads, definitions, and bound updates", async () => {
+  const calls: Array<{ sql: string; values: readonly unknown[] | undefined }> = [];
+  const responses = [
+    { rows: [{ schema_name: "public" }] },
+    {
+      rows: [
+        { index_name: "pk_orders", is_unique: true, is_primary: true, column_name: "id", ordinal: 1 },
+        { index_name: "idx_orders_customer", is_unique: false, is_primary: false, column_name: "customer_id", ordinal: 2 },
+        { index_name: "idx_orders_customer", is_unique: false, is_primary: false, column_name: "created_at", ordinal: 1 },
+      ],
+    },
+    { rows: [{ definition: "SELECT * FROM orders" }] },
+    { rows: [{ def: "CREATE FUNCTION public.order_total() RETURNS integer AS $$ SELECT 1 $$ LANGUAGE sql" }] },
+    {
+      rows: [
+        { table_schema: "public", table_name: "orders", table_type: "BASE TABLE" },
+        { table_schema: "ignored", table_name: "audit", table_type: "BASE TABLE" },
+      ],
+    },
+    {
+      rows: [
+        {
+          table_schema: "public",
+          table_name: "orders",
+          column_name: "id",
+          data_type: "integer",
+          is_nullable: "NO",
+          column_default: null,
+          ordinal_position: 1,
+          is_pk: true,
+          fk_schema: null,
+          fk_table: null,
+          fk_column: null,
+        },
+        {
+          table_schema: "public",
+          table_name: "orders",
+          column_name: "customer_id",
+          data_type: "integer",
+          is_nullable: "YES",
+          column_default: "0",
+          ordinal_position: 2,
+          is_pk: false,
+          fk_schema: "public",
+          fk_table: "customers",
+          fk_column: "id",
+        },
+      ],
+    },
+    {
+      rows: [{
+        schema: "public",
+        name: "order_total",
+        arg_names: ["customer", "total"],
+        arg_types: ["integer", "numeric"],
+        arg_modes: ["i", "b"],
+        ret_type: "numeric",
+      }],
+    },
+    { rowCount: 1 },
+  ];
+  const query = async (sql: string, values?: readonly unknown[]) => {
+    calls.push({ sql, values });
+    const response = responses.shift();
+    assert.ok(response, "unexpected SQL query");
+    return response;
+  };
+  const pool = {
+    query,
+    connect: async () => ({ query, release: () => undefined }),
+  } as unknown as Pool;
+  const client = pool as unknown as PoolClient;
+
+  assert.deepEqual(await listSchemaNames(client), ["public"]);
+  assert.deepEqual(await listIndexesViaPool(pool, "public", "orders"), [
+    { name: "pk_orders", unique: true, primary: true, columns: ["id"] },
+    { name: "idx_orders_customer", unique: false, primary: false, columns: ["created_at", "customer_id"] },
+  ]);
+  assert.equal(
+    await getDefinitionViaPool(pool, "view", "public", "orders"),
+    "CREATE OR REPLACE VIEW \"public\".\"orders\" AS\nSELECT * FROM orders",
+  );
+  assert.match(await getDefinitionViaPool(pool, "function", "public", "order_total"), /^CREATE FUNCTION/u);
+  assert.deepEqual(await introspectSchemas(client, ["public"]), [[
+    0,
+    "public",
+    [{
+      schema: "public",
+      name: "orders",
+      kind: "table",
+      columns: [
+        { name: "id", dataType: "integer", nullable: false, isPrimaryKey: true, ordinalPosition: 1 },
+        {
+          name: "customer_id",
+          dataType: "integer",
+          nullable: true,
+          isPrimaryKey: false,
+          ordinalPosition: 2,
+          defaultValue: "0",
+          foreignKeyTo: { schema: "public", table: "customers", column: "id" },
+        },
+      ],
+      constraints: [
+        { name: "pk", kind: "primary", columns: ["id"] },
+        {
+          name: "fk_customer_id",
+          kind: "foreign",
+          columns: ["customer_id"],
+          references: { schema: "public", table: "customers", column: "id" },
+        },
+      ],
+    }],
+  ]]);
+  assert.deepEqual(await listFunctionsPerSchema(client, "public"), [{
+    schema: "public",
+    name: "order_total",
+    overloads: [{
+      parameters: [
+        { name: "customer", dataType: "integer", mode: "in", ordinalPosition: 0 },
+        { name: "total", dataType: "numeric", mode: "inout", ordinalPosition: 1 },
+      ],
+      returnType: "numeric",
+    }],
+  }]);
+  assert.equal(await updateRowViaPool(pool, {
+    schema: "public",
+    table: "orders",
+    set: { state: "done" },
+    where: { id: 7 },
+  }), 1);
+  assert.deepEqual(calls.at(-1), {
+    sql: "UPDATE \"public\".\"orders\" SET \"state\" = $1 WHERE \"id\" = $2",
+    values: ["done", 7],
+  });
+  assert.equal(applyServerRowCap("SELECT $$LIMIT$$ AS value", 1), "SELECT $$LIMIT$$ AS value LIMIT 2");
+  assert.equal(applyServerRowCap("SELECT 1; SELECT 2", 1), "SELECT 1; SELECT 2");
 });
 
 if (PG_CONN) {

@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { FieldPacket, Pool, PoolConnection, QueryOptions } from "mysql2/promise";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
-import { cancelQueryViaPool, prepareMysqlQuery, runQueryViaPool } from "./introspection.ts";
+import {
+  cancelQueryViaPool,
+  getDefinitionViaPool,
+  introspectSchemas,
+  listFunctionsPerSchema,
+  listIndexesViaPool,
+  listSchemaNames,
+  prepareMysqlQuery,
+  runQueryViaPool,
+  updateRowViaPool,
+} from "./introspection.ts";
 import { MysqlAdapter } from "./index.ts";
 
 // Sem docker/MySQL local: smoke só valida construção + recusa de dial.
@@ -185,6 +195,120 @@ test("cancelQuery ignora token obsoleto antes de KILL QUERY", async () => {
   assert.equal(await cancellation, false);
   assert.deepEqual(calls, []);
   assert.equal(releasedKiller, true);
+});
+
+test("MySQL metadata helpers preserve filtered relations, routine parameters, definitions, indexes, and bound updates", async () => {
+  const calls: Array<{ sql: string; values: readonly unknown[] | undefined }> = [];
+  const responses: unknown[] = [
+    [{ schema_name: "app" }],
+    [
+      { index_name: "PRIMARY", non_unique: 0, column_name: "id", seq_in_index: 1 },
+      { index_name: "idx_customer", non_unique: 1, column_name: "customer_id", seq_in_index: 2 },
+      { index_name: "idx_customer", non_unique: 1, column_name: "created_at", seq_in_index: 1 },
+    ],
+    [{ "Create View": "CREATE VIEW `app`.`orders` AS SELECT 1" }],
+    [
+      { table_schema: "app", table_name: "orders", table_type: "BASE TABLE" },
+      { table_schema: "ignored", table_name: "audit", table_type: "BASE TABLE" },
+    ],
+    [
+      {
+        table_schema: "app",
+        table_name: "orders",
+        column_name: "id",
+        data_type: "int",
+        is_nullable: "NO",
+        column_default: null,
+        ordinal_position: 1,
+        is_pk: 1,
+        fk_schema: null,
+        fk_table: null,
+        fk_column: null,
+      },
+      {
+        table_schema: "app",
+        table_name: "orders",
+        column_name: "customer_id",
+        data_type: "int",
+        is_nullable: "YES",
+        column_default: "0",
+        ordinal_position: 2,
+        is_pk: 0,
+        fk_schema: "app",
+        fk_table: "customers",
+        fk_column: "id",
+      },
+    ],
+    [{ schema: "app", name: "order_total", ret_type: "decimal" }],
+    [
+      { specific_name: "order_total", parameter_name: "customer", data_type: "int", parameter_mode: "IN", ordinal_position: 1 },
+      { specific_name: "order_total", parameter_name: "total", data_type: "decimal", parameter_mode: "OUT", ordinal_position: 2 },
+    ],
+    { affectedRows: 1 },
+  ];
+  const query = async (sql: string, values?: readonly unknown[]) => {
+    calls.push({ sql, values });
+    const rows = responses.shift();
+    assert.ok(rows, "unexpected SQL query");
+    return [rows, []] as never;
+  };
+  const pool = { query } as unknown as Pool;
+  const connection = pool as unknown as PoolConnection;
+
+  assert.deepEqual(await listSchemaNames(connection), ["app"]);
+  assert.deepEqual(await listIndexesViaPool(pool, "app", "orders"), [
+    { name: "PRIMARY", unique: true, primary: true, columns: ["id"] },
+    { name: "idx_customer", unique: false, primary: false, columns: ["created_at", "customer_id"] },
+  ]);
+  assert.equal(await getDefinitionViaPool(pool, "view", "app", "orders"), "CREATE VIEW `app`.`orders` AS SELECT 1");
+  const schemas = await introspectSchemas(connection, ["app"]);
+  assert.deepEqual(schemas[0]?.[2]?.[0], {
+    schema: "app",
+    name: "orders",
+    kind: "table",
+    columns: [
+      { name: "id", dataType: "int", nullable: false, isPrimaryKey: true, ordinalPosition: 1 },
+      {
+        name: "customer_id",
+        dataType: "int",
+        nullable: true,
+        isPrimaryKey: false,
+        ordinalPosition: 2,
+        defaultValue: "0",
+        foreignKeyTo: { schema: "app", table: "customers", column: "id" },
+      },
+    ],
+    constraints: [
+      { name: "pk", kind: "primary", columns: ["id"] },
+      {
+        name: "fk_customer_id",
+        kind: "foreign",
+        columns: ["customer_id"],
+        references: { schema: "app", table: "customers", column: "id" },
+      },
+    ],
+  });
+  assert.deepEqual(await listFunctionsPerSchema(connection, "app"), [{
+    schema: "app",
+    name: "order_total",
+    overloads: [{
+      parameters: [
+        { name: "customer", dataType: "int", mode: "in", ordinalPosition: 0 },
+        { name: "total", dataType: "decimal", mode: "out", ordinalPosition: 1 },
+      ],
+      returnType: "decimal",
+    }],
+  }]);
+  assert.equal(await updateRowViaPool(pool, {
+    schema: "app",
+    table: "orders",
+    set: { state: "done" },
+    where: { id: 7 },
+  }), 1);
+  assert.deepEqual(calls.at(-1), {
+    sql: "UPDATE `app`.`orders` SET `state` = ? WHERE `id` = ?",
+    values: ["done", 7],
+  });
 });
 
 if (MYSQL_CONN) {

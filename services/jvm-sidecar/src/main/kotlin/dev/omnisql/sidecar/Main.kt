@@ -26,13 +26,32 @@ fun main() {
     val port = (System.getenv("OMNI_SIDE_CAR_PORT") ?: "41921").toInt()
     val pid = ProcessHandle.current().pid()
     val startMs = System.currentTimeMillis()
-    val requestCount = AtomicLong(0)
-    val instanceId = UUID.randomUUID().toString()
     // Fail closed when the sidecar was started without a token. The token is
     // deliberately read once at boot, so it cannot change during the life of
     // the process and is never included in a response or log message.
     val authToken = System.getenv("OMNI_SQL_AUTH_TOKEN")?.takeIf { it.isNotEmpty() }
+    val server = createSidecarServer(port, authToken, startMs, pid)
+    server.start()
+    val bootMs = System.currentTimeMillis() - startMs
+    println("[omni-sql-sidecar] listening on http://127.0.0.1:$port/health (boot=${bootMs}ms pid=$pid)")
+    Runtime.getRuntime().addShutdownHook(Thread {
+        try {
+            server.stop(0)
+        } finally {
+            JdbcConnectionManager.closeAll()
+        }
+        println("[omni-sql-sidecar] shut down cleanly")
+    })
+}
 
+internal fun createSidecarServer(
+    port: Int,
+    authToken: String?,
+    startMs: Long = System.currentTimeMillis(),
+    pid: Long = ProcessHandle.current().pid(),
+    instanceId: String = UUID.randomUUID().toString(),
+): HttpServer {
+    val requestCount = AtomicLong(0)
     val server = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
     server.createAuthenticatedContext("/health", authToken) { exchange ->
         requestCount.incrementAndGet()
@@ -249,17 +268,7 @@ fun main() {
     }
 
     server.executor = null // blocking dispatcher — suficiente p/ spike
-    server.start()
-    val bootMs = System.currentTimeMillis() - startMs
-    println("[omni-sql-sidecar] listening on http://127.0.0.1:$port/health (boot=${bootMs}ms pid=$pid)")
-    Runtime.getRuntime().addShutdownHook(Thread {
-        try {
-            server.stop(0)
-        } finally {
-            JdbcConnectionManager.closeAll()
-        }
-        println("[omni-sql-sidecar] shut down cleanly")
-    })
+    return server
 }
 
 private fun JSONObject.optStringOrNull(key: String): String? = if (has(key) && !isNull(key)) getString(key) else null
