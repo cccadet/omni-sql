@@ -15,8 +15,8 @@ export interface QueryTab {
 
 const SESSION_KEY = "omni-sql:session";
 
-function makeId() {
-  return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function makeId(): string {
+  return `tab-${crypto.randomUUID()}`;
 }
 
 export function makeTab(partial?: Partial<QueryTab>): QueryTab {

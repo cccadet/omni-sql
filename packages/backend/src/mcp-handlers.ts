@@ -76,7 +76,7 @@ function validateToolArgs<K extends McpToolName>(tool: K, value: unknown): McpTo
 
 export function validateMcpRequest(value: unknown): McpHttpRequest {
   const body = requireRecord(value, "MCP request");
-  const keys = Object.keys(body).sort();
+  const keys = Object.keys(body).sort((left, right) => left.localeCompare(right));
   if (keys.length !== 2 || keys[0] !== "args" || keys[1] !== "tool") {
     throw new McpBridgeError("invalid", "MCP request must contain only tool and args");
   }

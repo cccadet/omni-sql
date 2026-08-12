@@ -11,7 +11,8 @@ export function createEditorActions(monacoInstance: typeof monaco, editor: monac
   const keybinding = formatterSettings?.keybinding;
   if (keybinding) {
     const parsed = parseKeybinding(keybinding);
-    const keyCode = monacoInstance.KeyCode[parsed.key as keyof typeof monacoInstance.KeyCode];
+    const keyCodes = monacoInstance.KeyCode as unknown as Record<string, number | undefined>;
+    const keyCode = keyCodes[parsed.key] ?? keyCodes[`Key${parsed.key}`];
     if (keyCode !== undefined) {
       let mod = 0;
       if (parsed.ctrl) mod |= monacoInstance.KeyMod.CtrlCmd;

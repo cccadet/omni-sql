@@ -117,6 +117,7 @@ jobs:
         run: |
           pnpm test:coverage
           ./services/jvm-sidecar/gradlew -p services/jvm-sidecar test jacocoTestReport
+          mkdir -p apps/desktop/src-tauri/coverage
           cargo llvm-cov --manifest-path apps/desktop/src-tauri/Cargo.toml --lcov --output-path apps/desktop/src-tauri/coverage/lcov.info
 
 

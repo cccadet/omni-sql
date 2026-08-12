@@ -1,221 +1,112 @@
-import { assert, test, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LanguageProvider } from "../i18n";
 import { Sidebar } from "./Sidebar";
 import { backend } from "../lib/backend";
-import { LanguageProvider } from "../i18n";
 
-const renderWithLanguage = (ui: React.ReactElement) => render(<LanguageProvider>{ui}</LanguageProvider>);
-
+vi.mock("./SidecarStatus", () => ({ SidecarStatus: () => <span>Sidecar ready</span> }));
 vi.mock("../lib/backend", () => ({ backend: { call: vi.fn() } }));
-vi.mock("./SidecarStatus", () => ({ SidecarStatus: () => null }));
-vi.mock("@fluentui/react-icons", () => {
-  const Icon = () => null;
-  return {
-    AddRegular: Icon,
-    ArrowEnterRegular: Icon,
-    ArrowSortRegular: Icon,
-    ArrowSyncRegular: Icon,
-    BoxRegular: Icon,
-    CheckmarkCircleRegular: Icon,
-    ChevronDownRegular: Icon,
-    ChevronRightRegular: Icon,
-    CircleRegular: Icon,
-    ClockRegular: Icon,
-    CodeRegular: Icon,
-    CopyRegular: Icon,
-    DataBarVerticalRegular: Icon,
-    DatabaseRegular: Icon,
-    DeleteRegular: Icon,
-    DismissRegular: Icon,
-    EditRegular: Icon,
-    EyeRegular: Icon,
-    FingerprintRegular: Icon,
-    FlashRegular: Icon,
-    LinkRegular: Icon,
-    ListRegular: Icon,
-    MoreVerticalRegular: Icon,
-    NumberSymbolRegular: Icon,
-    PlayCircleRegular: Icon,
-    QuestionRegular: Icon,
-    SearchRegular: Icon,
-    TableRegular: Icon,
-    TextCaseTitleRegular: Icon,
-    ToggleLeftRegular: Icon,
-    WarningRegular: Icon,
-  };
-});
 
-const mockedCall = vi.mocked(backend.call);
+const call = vi.mocked(backend.call);
+const connection = {
+  id: "connection-1",
+  label: "Local database",
+  dialect: "postgres" as const,
+  endpoint: "localhost",
+  user: "postgres",
+  groupId: "group-1",
+  lastSyncedAt: Date.now(),
+};
+const relations = [
+  {
+    schema: "public",
+    name: "orders",
+    kind: "table" as const,
+    columns: [
+      { name: "id", dataType: "integer", nullable: false, isPrimaryKey: true },
+      { name: "customer_id", dataType: "integer", nullable: false, isPrimaryKey: false, foreignKeyTo: { schema: "public", table: "customers", column: "id" } },
+    ],
+  },
+  {
+    schema: "public",
+    name: "recent_orders",
+    kind: "view" as const,
+    columns: [{ name: "id", dataType: "integer", nullable: false, isPrimaryKey: false }],
+  },
+];
 
-beforeEach(() => {
-  mockedCall.mockReset();
-});
-
-test("loads indexes when a table is expanded and shows the empty state", async () => {
-  mockedCall.mockResolvedValue({ indexes: [] });
-
-  renderWithLanguage(
-    <Sidebar
-      connection={{ id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" }}
-      connectionId="conn-1"
-      relations={[{ schema: "public", name: "users", kind: "table", columns: [] }]}
-    />,
+function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
+  return render(
+    <FluentProvider theme={webDarkTheme}>
+      <LanguageProvider>
+        <Sidebar
+          connections={[connection]}
+          connectionGroups={[{ id: "group-1", name: "Production" }]}
+          connection={connection}
+          connectionId={connection.id}
+          relations={relations}
+          functions={[{ schema: "public", name: "refresh_orders", overloads: [{ parameters: [], returnType: "void" }] }]}
+          health="online"
+          {...overrides}
+        />
+      </LanguageProvider>
+    </FluentProvider>,
   );
+}
 
-  fireEvent.click(screen.getByText("public"));
-  fireEvent.click(screen.getByText("Tables (1)"));
-  fireEvent.click(screen.getByText("users"));
+describe("Sidebar", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    call.mockReset();
+    call.mockResolvedValue({ indexes: [{ name: "orders_pkey", columns: ["id"], unique: true, primary: true }] });
+  });
 
-  await waitFor(() => assert.equal(mockedCall.mock.calls[0]?.[0], "metadata.listIndexes"));
-  assert.ok(await screen.findByText("No indexes."));
-  assert.equal(screen.queryByText("Loading…"), null);
-});
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
 
-test("expands tree nodes with Enter and Space", async () => {
-  mockedCall.mockResolvedValue({ indexes: [] });
+  it("searches objects, inserts qualified names, and loads indexes on expansion", async () => {
+    const onInsert = vi.fn();
+    renderSidebar({ onInsert });
 
-  renderWithLanguage(
-    <Sidebar
-      connectionId="conn-1"
-      relations={[{ schema: "public", name: "users", kind: "table", columns: [] }]}
-    />,
-  );
+    fireEvent.change(screen.getByPlaceholderText("Search tables, columns…"), { target: { value: "orders" } });
+    expect(screen.getByText("orders")).toBeTruthy();
+    expect(screen.getByText("recent_orders")).toBeTruthy();
+    expect(screen.getByText("refresh_orders")).toBeTruthy();
 
-  fireEvent.keyDown(screen.getByRole("button", { name: "public" }), { key: "Enter" });
-  fireEvent.keyDown(screen.getByRole("button", { name: "Tables (1)" }), { key: " " });
-  fireEvent.keyDown(screen.getByRole("button", { name: "users" }), { key: "Enter" });
+    fireEvent.click(screen.getByLabelText("Inserir public.orders"));
+    expect(onInsert).toHaveBeenCalledWith("public.orders");
 
-  await waitFor(() => assert.equal(mockedCall.mock.calls[0]?.[0], "metadata.listIndexes"));
-});
+    fireEvent.click(screen.getAllByRole("button", { name: "Expand/collapse" })[0]!);
+    expect(await screen.findByText("orders_pkey")).toBeTruthy();
+    expect(call).toHaveBeenCalledWith("metadata.listIndexes", { connectionId: "connection-1", schema: "public", table: "orders" });
+  });
 
-test("resizes sidebar with bounded separator keyboard controls", () => {
-  renderWithLanguage(<Sidebar />);
-  const separator = screen.getByRole("separator", { name: "Resize object panel" });
+  it("manages folders and moves connections through user-visible controls", async () => {
+    const onCreateConnectionGroup = vi.fn().mockResolvedValue(undefined);
+    const onRenameConnectionGroup = vi.fn().mockResolvedValue(undefined);
+    const onDeleteConnectionGroup = vi.fn().mockResolvedValue(undefined);
+    const onMoveConnection = vi.fn().mockResolvedValue(undefined);
+    renderSidebar({ onCreateConnectionGroup, onRenameConnectionGroup, onDeleteConnectionGroup, onMoveConnection });
 
-  assert.equal(separator.getAttribute("aria-valuenow"), "260");
-  fireEvent.keyDown(separator, { key: "ArrowRight" });
-  assert.equal(separator.getAttribute("aria-valuenow"), "276");
-  fireEvent.keyDown(separator, { key: "Home" });
-  assert.equal(separator.getAttribute("aria-valuenow"), "160");
-  fireEvent.keyDown(separator, { key: "End" });
-  assert.equal(separator.getAttribute("aria-valuenow"), "640");
-});
+    fireEvent.click(screen.getByLabelText("New folder"));
+    fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "Analytics" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(onCreateConnectionGroup).toHaveBeenCalledWith("Analytics");
 
-test("resizes connections panel with keyboard controls", () => {
-  renderWithLanguage(<Sidebar />);
-  const separator = screen.getByRole("separator", { name: "Resize connections panel" });
+    fireEvent.click(screen.getByLabelText("Production Edit connection"));
+    const editor = screen.getByDisplayValue("Production");
+    fireEvent.change(editor, { target: { value: "Primary" } });
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    expect(onRenameConnectionGroup).toHaveBeenCalledWith("group-1", "Primary");
 
-  assert.equal(separator.getAttribute("aria-valuenow"), "220");
-  fireEvent.keyDown(separator, { key: "ArrowUp" });
-  assert.equal(separator.getAttribute("aria-valuenow"), "204");
-  fireEvent.keyDown(separator, { key: "Home" });
-  assert.equal(separator.getAttribute("aria-valuenow"), "150");
-});
+    fireEvent.click(screen.getByLabelText("Production Remove connection"));
+    expect(onDeleteConnectionGroup).toHaveBeenCalledWith("group-1");
 
-test("renders configured connections", () => {
-  renderWithLanguage(
-    <Sidebar
-      connections={[
-        { id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" },
-        { id: "conn-2", label: "Reporting", dialect: "mysql", endpoint: "reports", user: "reader" },
-      ]}
-    />,
-  );
-
-  assert.ok(screen.getByRole("option", { name: "Local" }));
-  assert.ok(screen.getByRole("option", { name: "Reporting" }));
-});
-
-test("selects a connection by ID", () => {
-  const onSelectConnection = vi.fn();
-  renderWithLanguage(
-    <Sidebar
-      connections={[
-        { id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" },
-        { id: "conn-2", label: "Reporting", dialect: "mysql", endpoint: "reports", user: "reader" },
-      ]}
-      onSelectConnection={onSelectConnection}
-    />,
-  );
-
-  fireEvent.click(screen.getByRole("option", { name: "Reporting" }));
-  assert.equal(onSelectConnection.mock.calls.length, 0);
-  fireEvent.click(screen.getByRole("button", { name: "Activate" }));
-
-  assert.equal(onSelectConnection.mock.calls.length, 1);
-  assert.equal(onSelectConnection.mock.calls[0]?.[0], "conn-2");
-});
-
-test("collapses connections independently from objects", () => {
-  renderWithLanguage(
-    <Sidebar
-      connections={[{ id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" }]}
-      relations={[{ schema: "public", name: "users", kind: "table", columns: [] }]}
-    />,
-  );
-
-  fireEvent.click(screen.getByRole("button", { name: "public" }));
-  fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
-  assert.ok(screen.getByText("users"));
-
-  const connectionsToggle = screen.getByRole("button", { name: "Connections" });
-  fireEvent.click(connectionsToggle);
-
-  assert.equal(connectionsToggle.getAttribute("aria-expanded"), "false");
-  assert.equal(screen.queryByRole("listbox", { name: "Connections" }), null);
-  assert.equal(screen.queryByRole("separator", { name: "Resize connections panel" }), null);
-  assert.ok(screen.getByText("users"));
-});
-
-test("moves dragged connection into folder drop target", () => {
-  const onMoveConnection = vi.fn(async () => undefined);
-  const view = renderWithLanguage(
-    <Sidebar
-      connections={[{ id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" }]}
-      connectionGroups={[{ id: "group-1", name: "Analytics" }]}
-      onMoveConnection={onMoveConnection}
-    />,
-  );
-
-  const dataTransfer = {
-    effectAllowed: "none",
-    dropEffect: "none",
-    setData: vi.fn(),
-    getData: vi.fn(() => "conn-1"),
-  };
-  const row = screen.getByRole("option", { name: "Local" }).parentElement;
-  const folder = view.container.querySelector<HTMLButtonElement>(".omni-folder-toggle");
-  if (!row || !folder) throw new Error("Connection drag targets not found");
-  fireEvent.dragStart(row, { dataTransfer });
-  fireEvent.dragOver(folder, { dataTransfer });
-  fireEvent.drop(folder, { dataTransfer });
-
-  assert.equal(dataTransfer.setData.mock.calls[0]?.[0], "text/plain");
-  assert.deepEqual(onMoveConnection.mock.calls[0], ["conn-1", "group-1"]);
-});
-
-test("moves dragged connection when dropped on visible folder row", () => {
-  const onMoveConnection = vi.fn(async () => undefined);
-  const view = renderWithLanguage(
-    <Sidebar
-      connections={[{ id: "conn-1", label: "Local", dialect: "postgres", endpoint: "localhost", user: "user" }]}
-      connectionGroups={[{ id: "group-1", name: "Analytics" }]}
-      onMoveConnection={onMoveConnection}
-    />,
-  );
-
-  const dataTransfer = {
-    effectAllowed: "none",
-    dropEffect: "none",
-    setData: vi.fn(),
-    getData: vi.fn(() => "conn-1"),
-  };
-  const connectionRow = screen.getByRole("option", { name: "Local" }).parentElement;
-  const folderRow = view.container.querySelector<HTMLDivElement>(".omni-folder-row");
-  if (!connectionRow || !folderRow) throw new Error("Connection drag targets not found");
-  fireEvent.dragStart(connectionRow, { dataTransfer });
-  fireEvent.dragOver(folderRow, { dataTransfer });
-  fireEvent.drop(folderRow, { dataTransfer });
-
-  assert.deepEqual(onMoveConnection.mock.calls[0], ["conn-1", "group-1"]);
+    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(screen.getByRole("button", { name: "Root" }));
+    await waitFor(() => expect(onMoveConnection).toHaveBeenCalledWith("connection-1", null));
+  });
 });

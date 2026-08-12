@@ -50,8 +50,10 @@ test("duplicates editable fields with a new ID and empty password", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
   await waitFor(() => assert.ok(call.mock.calls.length > 0));
   const [, params] = call.mock.calls.at(-1)!;
-  assert.equal((params as { password?: string }).password, "");
-  assert.notEqual((params as { config: { id: string } }).config.id, "conn-saved");
+  const duplicatedParams = params as { password?: string; config: { id: string } };
+  assert.equal(duplicatedParams.password, "");
+  assert.notEqual(duplicatedParams.config.id, "conn-saved");
+  assert.match(duplicatedParams.config.id, /^conn-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 });
 
 test("does not show the internal ID for a new connection", () => {
