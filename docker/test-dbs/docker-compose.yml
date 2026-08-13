@@ -87,3 +87,44 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
+
+  # Banco "JDBC custom": sem adaptador nativo no omni-sql, só alcançável via
+  # jdbc-generic (options.jarPath + driverClassName). O jar do driver é
+  # copiado pelo container para ./drivers (bind mount) — o sidecar JVM roda
+  # no host e carrega esse arquivo. Ver jdbc-h2/Dockerfile.
+  h2:
+    build: ./jdbc-h2
+    ports:
+      - "9092:9092"
+    volumes:
+      - h2-data:/data
+      - ./drivers:/drivers
+    healthcheck:
+      # Shell abre conexão JDBC real; o 1º acesso cria o banco (-ifNotExists).
+      test: ["CMD-SHELL", "java -cp /opt/h2.jar org.h2.tools.Shell -url 'jdbc:h2:tcp://localhost:9092/./omni_test' -user omni -password omni -sql 'SELECT 1' > /dev/null"]
+      interval: 10s
+      timeout: 15s
+      retries: 12
+      start_period: 20s
+
+  h2-init:
+    build: ./jdbc-h2
+    depends_on:
+      h2:
+        condition: service_healthy
+    entrypoint: ["java", "-cp", "/opt/h2.jar", "org.h2.tools.RunScript"]
+    command:
+      - "-url"
+      - "jdbc:h2:tcp://h2:9092/./omni_test"
+      - "-user"
+      - "omni"
+      - "-password"
+      - "omni"
+      - "-script"
+      - "/init.sql"
+    volumes:
+      - ./init/05-h2.sql:/init.sql:ro
+    restart: "no"
+
+volumes:
+  h2-data:

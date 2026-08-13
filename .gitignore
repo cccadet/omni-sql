@@ -44,6 +44,9 @@ services/jvm-sidecar/build
 services/jvm-sidecar/.gradle
 services/jvm-sidecar/out
 
+# Drivers JDBC materializados pelos containers de teste (ver docker/test-dbs)
+docker/test-dbs/drivers/
+
 # OS
 .DS_Store
 Thumbs.db

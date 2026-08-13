@@ -12,6 +12,15 @@
  *   node --test --import ./integration-test.ts -- mysql # só MySQL
  *   node --test --import ./integration-test.ts -- mssql # só SQL Server
  *   node --test --import ./integration-test.ts -- oracle# só Oracle
+ *   node --test --import ./integration-test.ts -- h2    # só H2 (JDBC genérico)
+ *
+ * O filtro `-- <alvo>` depende de `process.argv`, que só chega ao arquivo na
+ * forma `--import` (preload). Sob `node --test ./integration-test.ts` (ou
+ * tsx) o runner consome o posicional e roda TODOS os alvos — nesse caso use
+ * `--test-name-pattern`, ex.: `--test-name-pattern=JDBC` para o H2.
+ *
+ * O alvo `h2` exige o sidecar JVM no ar (porta 41921) com o mesmo
+ * OMNI_SQL_AUTH_TOKEN — é ele quem carrega o jar do driver e fala JDBC.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -19,6 +28,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { JsonRpcResponse } from "@omni-sql/backend/protocol";
 
 const RUN_INTEGRATION = process.env.OMNI_SQL_RUN_INTEGRATION === "1";
@@ -75,7 +85,20 @@ interface Target {
   password: string;
   /** Schema público (public/dbo/OMNI) — Oracle usa o próprio user como schema. */
   schema: string;
+  /** Opções extras do ConnectionConfig — jdbc-generic exige jarPath/driverClassName. */
+  options?: Record<string, string>;
 }
+
+/**
+ * Jar do driver H2, materializado em ./drivers pelo container `h2`
+ * (bind mount — ver docker-compose.yml). O sidecar JVM roda no host e
+ * carrega este arquivo via options.jarPath.
+ */
+const H2_JAR_PATH = path.resolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "drivers",
+  "h2.jar",
+);
 
 const TARGETS: Record<string, Target> = {
   pg: {
@@ -109,6 +132,21 @@ const TARGETS: Record<string, Target> = {
     user: "OMNI",
     password: "omni",
     schema: "OMNI",
+  },
+  // Banco sem adaptador nativo: exercita o pipeline jdbc-generic completo —
+  // connection.add com options.jarPath/driverClassName, carregamento do jar
+  // no sidecar JVM, introspecção via DatabaseMetaData e queries via JDBC.
+  h2: {
+    label: "H2 (JDBC genérico)",
+    dialect: "jdbc-generic",
+    endpoint: "jdbc:h2:tcp://127.0.0.1:9092/./omni_test",
+    user: "omni",
+    password: "omni",
+    schema: "PUBLIC",
+    options: {
+      jarPath: H2_JAR_PATH,
+      driverClassName: "org.h2.Driver",
+    },
   },
 };
 
@@ -165,6 +203,22 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
   for (const [key, target] of targets) {
     describe(target.label, () => {
       const connId = `integ-${key}`;
+      // JdbcAdapter não introspeciona funções/índices/definições por design
+      // (DatabaseMetaData não é confiável entre drivers arbitrários) — esses
+      // testes são pulados para jdbc-generic.
+      const itJdbcSkip = target.dialect === "jdbc-generic" ? it.skip : it;
+
+      before(async () => {
+        if (target.dialect !== "jdbc-generic") return;
+        assert.ok(
+          cteCompletionAvailable,
+          "jdbc-generic exige o sidecar JVM no ar (porta 41921) com o mesmo OMNI_SQL_AUTH_TOKEN — é ele quem atende /jdbc/*",
+        );
+        assert.ok(
+          fs.existsSync(H2_JAR_PATH),
+          `jar do driver não encontrado em ${H2_JAR_PATH} — rode \`docker compose up -d h2\` para materializá-lo`,
+        );
+      });
 
       it("connection.add", async () => {
         const res = await rpc("connection.add", {
@@ -174,6 +228,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
             dialect: target.dialect,
             endpoint: target.endpoint,
             user: target.user,
+            ...(target.options ? { options: target.options } : {}),
           },
           password: target.password,
         });
@@ -190,6 +245,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
             dialect: target.dialect,
             endpoint: target.endpoint,
             user: target.user,
+            ...(target.options ? { options: target.options } : {}),
           },
           password: target.password,
         });
@@ -296,7 +352,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
         assert.equal(String(result.rows[0]?.[2]), "high");
       });
 
-      it("metadata.listFunctions", async () => {
+      itJdbcSkip("metadata.listFunctions", async () => {
         const res = await rpc("metadata.listFunctions", { connectionId: connId });
         const result = res.result as { functions: { name: string }[] };
         const fnNames = result.functions.map((f) => f.name.toLowerCase());
@@ -306,7 +362,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
         );
       });
 
-      it("metadata.listIndexes (orders)", async () => {
+      itJdbcSkip("metadata.listIndexes (orders)", async () => {
         const res = await rpc("metadata.listIndexes", { connectionId: connId, schema: target.schema, table: "orders" });
         const result = res.result as { indexes: { columns: string[] }[] };
         assert.ok(result.indexes.length >= 1, `expected 1+ indexes, got ${result.indexes.length}`);
@@ -317,7 +373,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
         );
       });
 
-      it("metadata.getDefinition (view)", async () => {
+      itJdbcSkip("metadata.getDefinition (view)", async () => {
         const res = await rpc("metadata.getDefinition", {
           connectionId: connId,
           kind: "view",
@@ -332,7 +388,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
         );
       });
 
-      it("metadata.getDefinition (function)", async () => {
+      itJdbcSkip("metadata.getDefinition (function)", async () => {
         const res = await rpc("metadata.getDefinition", {
           connectionId: connId,
           kind: "function",
@@ -350,7 +406,8 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
           cursor: "SELECT 1 FROM ".length,
         });
         const result = res.result as { suggestions: { label: string }[] };
-        const labels = result.suggestions.map((s) => s.label);
+        // Oracle/H2 dobram identificadores para maiúsculas — compara case-insensitive.
+        const labels = result.suggestions.map((s) => s.label.toLowerCase());
         assert.ok(labels.includes("customers"), `customers missing from completion, got: ${labels}`);
         assert.ok(labels.includes("orders"), `orders missing from completion`);
       });

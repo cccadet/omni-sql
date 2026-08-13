@@ -7,7 +7,11 @@
  *   OMNI_SQL_BACKEND_URL=http://127.0.0.1:41920/rpc pnpm -w run seed:test-connections
  */
 
+import { fileURLToPath } from "node:url";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
+
+/** Jar do driver H2 materializado em ./drivers pelo container `h2` (bind mount — ver docker-compose.yml). */
+const h2JarPath = fileURLToPath(new URL("./drivers/h2.jar", import.meta.url));
 
 interface Target {
   readonly key: string;
@@ -72,6 +76,22 @@ const targets: readonly Target[] = [
       user: "OMNI",
     },
   },
+  {
+    key: "h2",
+    passwordEnv: "OMNI_SQL_TEST_H2_PASSWORD",
+    password: "omni",
+    config: {
+      id: "test-h2",
+      label: "Test H2 (JDBC genérico)",
+      dialect: "jdbc-generic",
+      endpoint: "jdbc:h2:tcp://127.0.0.1:9092/./omni_test",
+      user: "omni",
+      options: {
+        jarPath: h2JarPath,
+        driverClassName: "org.h2.Driver",
+      },
+    },
+  },
 ];
 
 async function rpc<T>(method: string, params?: unknown): Promise<T> {
@@ -96,7 +116,7 @@ async function rpc<T>(method: string, params?: unknown): Promise<T> {
 
 const requested = process.argv.slice(2).filter((arg) => arg !== "--");
 if (requested.includes("--help") || requested.includes("-h")) {
-  console.log("Uso: pnpm -w run seed:test-connections [pg] [mysql] [mssql] [oracle]");
+  console.log("Uso: pnpm -w run seed:test-connections [pg] [mysql] [mssql] [oracle] [h2]");
   console.log(`Backend: ${backendUrl}`);
   process.exit(0);
 }
@@ -106,7 +126,7 @@ const selected = requested.length === 0
   : targets.filter((target) => requested.includes(target.key));
 const unknown = requested.filter((key) => !targets.some((target) => target.key === key));
 if (unknown.length > 0 || selected.length === 0) {
-  throw new Error(`dialeto(s) inválido(s): ${unknown.join(", ") || requested.join(", ")}. Use pg, mysql, mssql ou oracle.`);
+  throw new Error(`dialeto(s) inválido(s): ${unknown.join(", ") || requested.join(", ")}. Use pg, mysql, mssql, oracle ou h2.`);
 }
 
 for (const target of selected) {
