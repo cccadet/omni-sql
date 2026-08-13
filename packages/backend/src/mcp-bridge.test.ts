@@ -226,6 +226,20 @@ test("MCP result schemas retain valid nested data and reject unsafe payloads", (
     },
   );
   assert.deepEqual(
+    validateMcpToolResult("getTableIndexes", {
+      connectionId: "connection-1",
+      indexes: [{ name: "orders_pkey", unique: true, primary: true, columns: ["id"] }],
+    }),
+    {
+      connectionId: "connection-1",
+      indexes: [{ name: "orders_pkey", unique: true, primary: true, columns: ["id"] }],
+    },
+  );
+  assert.deepEqual(
+    validateMcpToolResult("explainSql", { textual: "Seq Scan on orders", format: "text" }),
+    { textual: "Seq Scan on orders", format: "text" },
+  );
+  assert.deepEqual(
     validateMcpToolResult("getLatestSqlExecutionError", { error: null }),
     { error: null },
   );
@@ -256,6 +270,17 @@ test("MCP result schemas retain valid nested data and reject unsafe payloads", (
     () => validateMcpToolResult("getLatestSqlExecutionError", {
       error: { message: "syntax error", position: { start: 4, end: 3 } },
     }),
+    hasCode("invalid"),
+  );
+  assert.throws(
+    () => validateMcpToolResult("getTableIndexes", {
+      connectionId: "connection-1",
+      indexes: [{ name: "orders_pkey", unique: true, primary: true, columns: ["id"], definition: "secret" }],
+    }),
+    hasCode("invalid"),
+  );
+  assert.throws(
+    () => validateMcpToolResult("explainSql", { textual: "plan", format: "yaml" }),
     hasCode("invalid"),
   );
 

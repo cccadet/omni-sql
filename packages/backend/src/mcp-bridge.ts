@@ -49,6 +49,8 @@ export const MCP_TOOL_NAMES: readonly McpToolName[] = [
   "getActiveSql",
   "getActiveConnectionContext",
   "getSchemaSummary",
+  "getTableIndexes",
+  "explainSql",
   "getLatestSqlExecutionError",
   "proposeSqlEdit",
 ];
@@ -274,6 +276,44 @@ function validateSchemaSummaryResult(value: unknown): McpToolResultByName["getSc
   };
 }
 
+function validateTableIndexesResult(value: unknown): McpToolResultByName["getTableIndexes"] {
+  const result = resultObject(value, ["connectionId", "indexes"], ["connectionId", "indexes"], "getTableIndexes result");
+  const indexes = resultArray(result.indexes, "getTableIndexes.indexes").map((indexValue, indexPosition) => {
+    const index = resultObject(
+      indexValue,
+      ["name", "unique", "primary", "columns"],
+      ["name", "unique", "primary", "columns"],
+      `getTableIndexes.indexes[${indexPosition}]`,
+    );
+    if (typeof index.unique !== "boolean" || typeof index.primary !== "boolean") {
+      throw new McpBridgeError("invalid", "getTableIndexes index flags must be boolean");
+    }
+    return {
+      name: resultString(index.name, "getTableIndexes index name"),
+      unique: index.unique,
+      primary: index.primary,
+      columns: resultArray(index.columns, "getTableIndexes index columns")
+        .map((column, columnPosition) => resultString(column, `getTableIndexes index column ${columnPosition}`)),
+    };
+  });
+  return {
+    connectionId: resultString(result.connectionId, "getTableIndexes.connectionId", MCP_MAX_CONNECTION_ID_BYTES),
+    indexes,
+  };
+}
+
+function validateExplainSqlResult(value: unknown): McpToolResultByName["explainSql"] {
+  const result = resultObject(value, ["textual", "format"], ["textual", "format"], "explainSql result");
+  const format = resultString(result.format, "explainSql.format");
+  if (format !== "text" && format !== "json" && format !== "xml" && format !== "dot") {
+    throw new McpBridgeError("invalid", "explainSql.format is invalid");
+  }
+  return {
+    textual: resultString(result.textual, "explainSql.textual", MCP_MAX_STRING_BYTES, true),
+    format,
+  };
+}
+
 
 function validateProposalResult(value: unknown): McpToolResultByName["proposeSqlEdit"] {
   const result = resultObject(value, ["approved"], ["approved"], "proposeSqlEdit result");
@@ -335,6 +375,10 @@ export function validateMcpToolResult<K extends McpToolName>(
       return validateActiveConnectionContextResult(value) as McpToolResultByName[K];
     case "getSchemaSummary":
       return validateSchemaSummaryResult(value) as McpToolResultByName[K];
+    case "getTableIndexes":
+      return validateTableIndexesResult(value) as McpToolResultByName[K];
+    case "explainSql":
+      return validateExplainSqlResult(value) as McpToolResultByName[K];
     case "getLatestSqlExecutionError":
       return validateExecutionErrorResult(value) as McpToolResultByName[K];
     case "proposeSqlEdit":

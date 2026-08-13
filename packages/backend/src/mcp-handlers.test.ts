@@ -19,6 +19,20 @@ test("MCP request uses exact tool/args contract and per-tool allowlists", () => 
     args: {},
   });
   assert.deepEqual(validateMcpRequest({
+    tool: "getTableIndexes",
+    args: { schema: "public", table: "orders" },
+  }), {
+    tool: "getTableIndexes",
+    args: { schema: "public", table: "orders" },
+  });
+  assert.deepEqual(validateMcpRequest({
+    tool: "explainSql",
+    args: { sql: "select * from orders" },
+  }), {
+    tool: "explainSql",
+    args: { sql: "select * from orders" },
+  });
+  assert.deepEqual(validateMcpRequest({
     tool: "proposeSqlEdit",
     args: { sql: "select 1", rationale: "Improve query" },
   }), {
@@ -32,6 +46,10 @@ test("MCP request uses exact tool/args contract and per-tool allowlists", () => 
   invalid({ tool: "openSqlTab", args: { title: "Draft", sql: "select 1" } });
   invalid({ tool: "proposeSqlEdit", args: { sql: "select 1" } });
   invalid({ tool: "proposeSqlEdit", args: { sql: "select 1", rationale: "test", connectionId: "arbitrary" } });
+  invalid({ tool: "getTableIndexes", args: { schema: "public" } });
+  invalid({ tool: "getTableIndexes", args: { schema: "public", table: "orders", connectionId: "arbitrary" } });
+  invalid({ tool: "explainSql", args: {} });
+  invalid({ tool: "explainSql", args: { sql: "select 1", analyze: true } });
   invalid({ tool: "getActiveSql", args: {}, params: {} });
 });
 
