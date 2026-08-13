@@ -12,6 +12,15 @@ dados fictícios.
 | MySQL         | `mysql:8`                       | 3306  | `omni` / `omni`      |
 | SQL Server    | `mssql/server:2022-latest`      | 1433  | `sa` / `Omni!2024`   |
 | Oracle XE     | `gvenzl/oracle-xe:21-slim`      | 1521  | `OMNI` / `omni`      |
+| H2 (JDBC)     | build local (`./jdbc-h2/`)      | 9092  | `omni` / `omni`      |
+
+> **H2** é o banco "JDBC custom": não há adaptador nativo no omni-sql, então a
+> conexão só é possível via dialeto `jdbc-generic` (`options.jarPath` +
+> `options.driverClassName`). A imagem é buildada localmente a partir de
+> `eclipse-temurin:21-jre` + jar oficial do Maven Central, e roda o H2 em modo
+> servidor TCP. No boot, o container copia o jar do driver para
+> `./drivers/h2.jar` (bind mount) — o sidecar JVM roda no host e carrega esse
+> arquivo. O primeiro `docker compose up -d` demora mais por causa do build.
 
 > Oracle XE requer aceitação da Oracle License Agreement. O `gvenzl/oracle-xe:21-slim`
 > é a imagem mais leve (~2GB). Ao usar, você aceita os termos da Oracle.
@@ -113,6 +122,38 @@ O Oracle XE é o banco mais lento para inicializar. Aguarde o status
 docker compose ps oracle
 ```
 
+### H2 (JDBC genérico)
+
+```bash
+docker compose up -d h2   # inclui h2-init, que semeia os dados
+OMNI_SQL_RUN_INTEGRATION=1 pnpm exec tsx --test --test-name-pattern=JDBC ./integration-test.ts
+# ou: pnpm test:integration:h2
+```
+
+Configuração usada pelo teste:
+
+- JDBC URL: `jdbc:h2:tcp://127.0.0.1:9092/./omni_test`
+- Usuário/senha: `omni` / `omni`
+- `options.jarPath`: `./drivers/h2.jar` (copiado pelo container no boot)
+- `options.driverClassName`: `org.h2.Driver`
+- Schema: `PUBLIC`
+
+**Pré-requisito extra:** o sidecar JVM precisa estar no ar na porta 41921 com
+o mesmo `OMNI_SQL_AUTH_TOKEN` do teste — é ele quem carrega o jar e fala JDBC
+(endpoints `/jdbc/*`):
+
+```bash
+cd services/jvm-sidecar && ./gradlew jar
+OMNI_SQL_AUTH_TOKEN=integration-auth-token java -jar build/libs/omni-sql-sidecar.jar
+```
+
+O H2 roda o **mesmo teste de integração** dos demais bancos, com quatro
+exceções puladas por design do `JdbcAdapter` (`DatabaseMetaData` não é
+confiável entre drivers JDBC arbitrários): `metadata.listFunctions`,
+`metadata.listIndexes` e os dois `metadata.getDefinition`. Pelo mesmo motivo
+o seed `init/05-h2.sql` não cria a função `get_customer_total` (H2 2.x não tem
+funções SQL-bodied).
+
 ## Cadastrar conexões no Tauri
 
 Com o Tauri/backend já rodando, cadastre as quatro conexões de teste no
@@ -168,7 +209,7 @@ docker compose down -v
 docker compose up -d
 ```
 
-As portas `5432`, `3306`, `1433` e `1521` precisam estar livres no host.
+As portas `5432`, `3306`, `1433`, `1521` e `9092` precisam estar livres no host.
 
 <!--
 # Comandos antigos, mantidos apenas como referência:

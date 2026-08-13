@@ -8,6 +8,7 @@
     "restart": "docker compose down -v && docker compose up -d",
     "test": "node --test ./smoke-test.ts",
     "test:integration": "OMNI_SQL_RUN_INTEGRATION=1 node --test ./integration-test.ts",
+    "test:integration:h2": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern=JDBC ./integration-test.ts",
     "test:smoke": "OMNI_SQL_RUN_INTEGRATION=1 node --test ./smoke-test.ts",
     "test:pg": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern=PostgreSQL ./smoke-test.ts",
     "test:mysql": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern=MySQL ./smoke-test.ts",
