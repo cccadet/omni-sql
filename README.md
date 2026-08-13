@@ -110,85 +110,47 @@ Complete columns from common table expressions while writing queries.
 
 Turn a dialect diagnostic into PostgreSQL-compatible SQL without leaving editor.
 
-## MCP STDIO / Streamable HTTP (Codex / Claude Desktop / ChatGPT Desktop)
+## MCP
 
-MCP integration is local-only by default: server runs via STDIO and talks to a
-running Omni SQL instance over authenticated loopback HTTP. Build server with:
+Omni SQL includes a local MCP server for an AI client to inspect the active
+database workspace and propose SQL changes.
 
-```bash
-pnpm --filter @omni-sql/mcp-server build
-```
+### Tools
 
-STDIO remains default. Opt into Streamable HTTP with
-`--transport streamable-http` or `OMNI_SQL_MCP_TRANSPORT=streamable-http`; listener
-defaults to `127.0.0.1:41922/mcp` and rejects non-loopback host values. HTTP mode
-requires separate ingress bearer secret in `OMNI_SQL_MCP_HTTP_TOKEN`; descriptor
-token remains backend-bridge credential and is never used for HTTP ingress.
+| Tool | Description |
+| --- | --- |
+| `getActiveSql` | Read the SQL from the active tab and its dialect. |
+| `getActiveConnectionContext` | Read the active connection's safe context. |
+| `getSchemaSummary` | Read schemas, tables, views, and columns available to the active connection. |
+| `getTableIndexes` | Read the indexes for a specified schema and table. |
+| `getLatestSqlExecutionError` | Read the latest failed SQL execution error from the active tab. |
+| `explainSql` | Generate a non-executing query plan on the active connection. |
+| `proposeSqlEdit` | Propose a SQL edit for explicit approval in Omni SQL. |
 
-For public access, use Secure MCP Tunnel as public HTTPS/auth boundary. Tunnel
-must inject `Authorization: Bearer $OMNI_SQL_MCP_HTTP_TOKEN` upstream without
-exposing secret, and preserve Streamable HTTP `POST`, `GET`, and `DELETE`, MCP
-headers (`Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `Accept`,
-`Content-Type`), and streaming SSE responses without buffering or method rewrite.
-Tunnel owns public HTTPS/auth; this listener does not add OAuth.
+### STDIO and VS Code
 
-Start Omni SQL first. Open the MCP status menu in the IDE and copy its generated
-`command` and `args`; the runtime descriptor exists only while that IDE process
-is running. The launcher contract is exactly:
+Start Omni SQL, open its MCP status menu, and copy the generated `command` and
+`args`. They are valid only while that Omni SQL instance is running.
+
+In VS Code, create `.vscode/mcp.json`:
 
 ```json
 {
-  "command": "<copy generated command>",
-  "args": ["<copy generated args[0]>", "<copy generated args[1]>"]
-}
-```
-
-Do not replace generated values with `node`, guessed paths, a working directory,
-environment variables, or descriptor contents. For Codex, map those exact fields
-to its MCP configuration or CLI, then verify with `codex mcp list`:
-
-```bash
-codex mcp add omni-sql -- "<generated command>" \
-  "<generated args[0]>" "<generated args[1]>"
-```
-
-Six tools are exposed: active SQL, active connection context, active schema
-summary, latest SQL execution error, opening a SQL tab, and proposing a SQL edit.
-No tool executes SQL or
-exposes passwords, tokens, connection strings, arbitrary files, or a shell.
-Opening a tab is non-executing; edits require explicit desktop approval and
-stale-state checks. Returned SQL and metadata are still visible to the connected
-local MCP client.
-
-### Claude Desktop STDIO configuration
-
-Start Omni SQL, then copy generated `command` and `args` fields from Omni SQL
-MCP status UI. In Claude Desktop, open **Settings > Developer > Edit Config** and
-merge this entry into existing JSON:
-
-```json
-{
-  "mcpServers": {
+  "servers": {
     "omni-sql": {
-      "command": "<copied command from Omni SQL UI>",
-      "args": ["<copied args[0]>", "<copied args[1]>"]
+      "type": "stdio",
+      "command": "<command copied from Omni SQL>",
+      "args": ["<args[0] copied from Omni SQL>", "<args[1] copied from Omni SQL>"]
     }
   }
 }
 ```
 
-Preserve existing `mcpServers` entries; add `omni-sql` inside that object, never
-create duplicate `mcpServers` keys. In Windows JSON, escape each backslash as
-`\\`. Fully quit and reopen Claude Desktop. Under **Connectors**, Omni SQL should
-show **Running**. If it does not, inspect **Developer logs** for launcher errors.
-Never copy or expose runtime descriptor contents or any descriptor/backend/HTTP
-token; copy only generated launcher fields and keep their values private.
+Use the generated values exactly; do not replace them with guessed paths or
+runtime descriptor contents.
 
-ChatGPT Desktop and Codex can use this local STDIO launcher. ChatGPT in a
-browser cannot connect to a local STDIO process; it requires a separate remote
-HTTPS app integration.
-
-See the [MCP integration and security notes](docs/MCP.md).
+> ChatGPT Desktop does not support a direct local STDIO connection. It requires
+> an MCP tunnel to expose a remote HTTPS endpoint.
 
 ## Documentation
 
