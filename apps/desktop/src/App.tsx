@@ -772,6 +772,41 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     return { connectionId, schemas: [...schemas.values()] };
   }, []);
 
+  const getMcpTableIndexes = useCallback(async (
+    connectionId: string,
+    schema: string,
+    table: string,
+  ): Promise<McpToolResultByName["getTableIndexes"]> => {
+    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
+      throw new McpUiError("stale", "Active connection changed before index read");
+    }
+    const response = await backend.call<{ indexes: McpToolResultByName["getTableIndexes"]["indexes"] }>(
+      "metadata.listIndexes",
+      { connectionId, schema, table },
+    );
+    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
+      throw new McpUiError("stale", "Active connection changed during index read");
+    }
+    return { connectionId, indexes: response.indexes };
+  }, []);
+
+  const explainMcpSql = useCallback(async (
+    connectionId: string,
+    sql: string,
+  ): Promise<McpToolResultByName["explainSql"]> => {
+    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
+      throw new McpUiError("stale", "Active connection changed before SQL explain");
+    }
+    const response = await backend.call<McpToolResultByName["explainSql"] & { raw: unknown }>(
+      "query.explain",
+      { connectionId, sql },
+    );
+    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
+      throw new McpUiError("stale", "Active connection changed during SQL explain");
+    }
+    return { textual: response.textual, format: response.format };
+  }, []);
+
   const proposeMcpEdit = useCallback((args: { sql: string; rationale: string; tabId: string; originalSql: string; expiresAt?: number }) => {
     return new Promise<"approved" | "rejected" | "stale">((resolve) => {
       if (args.expiresAt !== undefined && args.expiresAt <= Date.now() + MCP_PROPOSAL_SAFETY_WINDOW_MS) {
@@ -829,6 +864,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const bridge = new McpUiBridge({
       readState: () => ({ ...mcpStateRef.current, editor: editorRef.current }),
       getSchemaSummary: getMcpSchemaSummary,
+      getTableIndexes: getMcpTableIndexes,
+      explainSql: explainMcpSql,
       proposeEdit: proposeMcpEdit,
       onStatus: (status, error) => {
         setMcpStatus(status);
@@ -844,7 +881,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       mcpProposalResolverRef.current?.("rejected");
       mcpProposalResolverRef.current = null;
     };
-  }, [getMcpSchemaSummary, proposeMcpEdit]);
+  }, [explainMcpSql, getMcpSchemaSummary, getMcpTableIndexes, proposeMcpEdit]);
 
   const mcpActive = Boolean(mcpStatus?.uiConnected && (mcpStatus.queueSize > 0 || mcpStatus.inFlight > 0));
   const mcpState: McpVisualState = mcpError ? "error" : !mcpStarted ? "inactive" : mcpActive ? "connected" : "listening";

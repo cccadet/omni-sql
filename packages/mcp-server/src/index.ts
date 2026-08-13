@@ -64,6 +64,15 @@ export const proposeSqlEditInputSchema = z.object({
   rationale: boundedText(MAX_RATIONALE_BYTES, "rationale"),
 }).strict();
 
+const tableIndexesInputSchema = z.object({
+  schema: boundedText(MAX_SQL_BYTES, "schema"),
+  table: boundedText(MAX_SQL_BYTES, "table"),
+}).strict();
+
+const explainSqlInputSchema = z.object({
+  sql: boundedText(MAX_SQL_BYTES, "sql"),
+}).strict();
+
 type ToolResult = {
   content: [{ type: "text"; text: string }];
   isError?: boolean;
@@ -136,6 +145,30 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     async (input) => invoke(() => {
       emptyInputSchema.parse(input);
       return client.call("getSchemaSummary", {});
+    }),
+  );
+
+  server.registerTool(
+    "getTableIndexes",
+    {
+      description: "Read indexes for a table in the active Omni SQL connection.",
+      inputSchema: tableIndexesInputSchema,
+    },
+    async (input) => invoke(() => {
+      const parsed = tableIndexesInputSchema.parse(input);
+      return client.call("getTableIndexes", parsed);
+    }),
+  );
+
+  server.registerTool(
+    "explainSql",
+    {
+      description: "Generate a non-executing query plan using the active Omni SQL connection.",
+      inputSchema: explainSqlInputSchema,
+    },
+    async (input) => invoke(() => {
+      const parsed = explainSqlInputSchema.parse(input);
+      return client.call("explainSql", parsed);
     }),
   );
 

@@ -198,11 +198,13 @@ test("HTTP startup binds valid ephemeral listeners and rejects absent token", as
   }
 });
 
-test("advertises exactly five approved tools", async () => {
+test("advertises exactly seven approved tools", async () => {
   const expectedTools = [
     "getActiveSql",
     "getActiveConnectionContext",
     "getSchemaSummary",
+    "getTableIndexes",
+    "explainSql",
     "getLatestSqlExecutionError",
     "proposeSqlEdit",
   ];
@@ -615,6 +617,8 @@ test("Streamable HTTP forwards every remaining approved tool with validated argu
     for (const [name, args] of [
       ["getActiveConnectionContext", {}],
       ["getSchemaSummary", {}],
+      ["getTableIndexes", { schema: "public", table: "orders" }],
+      ["explainSql", { sql: "SELECT * FROM orders" }],
       ["getLatestSqlExecutionError", {}],
       ["proposeSqlEdit", { sql: "SELECT 1", rationale: "Use a literal" }],
     ] as const) {
@@ -624,6 +628,8 @@ test("Streamable HTTP forwards every remaining approved tool with validated argu
     assert.deepEqual(forwarded, [
       { tool: "getActiveConnectionContext", args: {} },
       { tool: "getSchemaSummary", args: {} },
+      { tool: "getTableIndexes", args: { schema: "public", table: "orders" } },
+      { tool: "explainSql", args: { sql: "SELECT * FROM orders" } },
       { tool: "getLatestSqlExecutionError", args: {} },
       { tool: "proposeSqlEdit", args: { sql: "SELECT 1", rationale: "Use a literal" } },
     ]);
