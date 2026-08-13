@@ -6,6 +6,11 @@ function setup(state: McpUiState) {
   return new McpUiBridge({
     readState: () => state,
     getSchemaSummary: vi.fn(async (connectionId) => ({ connectionId, schemas: [] })),
+    getTableIndexes: vi.fn(async (connectionId) => ({
+      connectionId,
+      indexes: [{ name: "orders_pkey", unique: true, primary: true, columns: ["id"] }],
+    })),
+    explainSql: vi.fn(async () => ({ textual: "Seq Scan on orders", format: "text" as const })),
     proposeEdit: vi.fn(async () => "approved" as const),
     onStatus: vi.fn(),
   }, "test-listener");
@@ -67,6 +72,8 @@ describe("MCP UI bridge tools", () => {
         if (changeDuringRead) connectionId = "conn-2";
         return { connectionId: id, schemas: [{ name: "public", relations: [] }] };
       }),
+      getTableIndexes: vi.fn(),
+      explainSql: vi.fn(),
       proposeEdit: vi.fn(),
       onStatus: vi.fn(),
     }, "test-listener");
@@ -76,6 +83,30 @@ describe("MCP UI bridge tools", () => {
     changeDuringRead = true;
     connectionId = "conn-1";
     await expect(bridge.handleRequest({ id: "2", tool: "getSchemaSummary", args: {}, expiresAt: Date.now() + 60_000 })).rejects.toMatchObject({ code: "stale" });
+  });
+
+  it("explains SQL and lists targeted indexes through the active connection", async () => {
+    const bridge = setup({
+      activeTab: { id: "tab-1", title: "Query", sql: "SELECT 1" },
+      activeConnection: { id: "conn-1", label: "DB", dialect: "postgres" },
+      editor: null,
+    });
+
+    await expect(bridge.handleRequest({
+      id: "1",
+      tool: "explainSql",
+      args: { sql: "SELECT * FROM orders" },
+      expiresAt: Date.now() + 60_000,
+    })).resolves.toEqual({ textual: "Seq Scan on orders", format: "text" });
+    await expect(bridge.handleRequest({
+      id: "2",
+      tool: "getTableIndexes",
+      args: { schema: "public", table: "orders" },
+      expiresAt: Date.now() + 60_000,
+    })).resolves.toEqual({
+      connectionId: "conn-1",
+      indexes: [{ name: "orders_pkey", unique: true, primary: true, columns: ["id"] }],
+    });
   });
 
   it("returns proposal approval and exposes stale guard errors", async () => {

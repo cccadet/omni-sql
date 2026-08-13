@@ -63,10 +63,15 @@ function validateToolArgs<K extends McpToolName>(tool: K, value: unknown): McpTo
   const args = requireRecord(value, "args");
   validateSafePayload(args, MCP_MAX_ARGUMENT_BYTES, "MCP args");
 
-  if (tool === "getActiveSql" || tool === "getActiveConnectionContext" || tool === "getLatestSqlExecutionError") {
+  if (tool === "getActiveSql" || tool === "getActiveConnectionContext" || tool === "getSchemaSummary" || tool === "getLatestSqlExecutionError") {
     requireExactKeys(args, [], tool);
-  } else if (tool === "getSchemaSummary") {
-    requireExactKeys(args, [], tool);
+  } else if (tool === "getTableIndexes") {
+    requireExactKeys(args, ["schema", "table"], tool);
+    requireText(args.schema, "getTableIndexes.schema");
+    requireText(args.table, "getTableIndexes.table");
+  } else if (tool === "explainSql") {
+    requireExactKeys(args, ["sql"], tool);
+    requireText(args.sql, "explainSql.sql", MCP_MAX_SQL_BYTES);
   } else if (tool === "proposeSqlEdit") {
     requireExactKeys(args, ["sql", "rationale"], tool);
     requireText(args.sql, "proposeSqlEdit.sql", MCP_MAX_SQL_BYTES);

@@ -40,6 +40,8 @@ type SchemaSummary = McpToolResultByName["getSchemaSummary"];
 export interface McpUiBridgeHandlers {
   readState: () => McpUiState;
   getSchemaSummary: (connectionId: string) => Promise<SchemaSummary>;
+  getTableIndexes: (connectionId: string, schema: string, table: string) => Promise<McpToolResultByName["getTableIndexes"]>;
+  explainSql: (connectionId: string, sql: string) => Promise<McpToolResultByName["explainSql"]>;
   proposeEdit: (args: { sql: string; rationale: string; tabId: string; originalSql: string; expiresAt?: number }) => Promise<"approved" | "rejected" | "stale">;
   onStatus: (status: McpStatusResult | null, error?: string) => void;
 }
@@ -149,6 +151,24 @@ export class McpUiBridge {
         const result = await this.handlers.getSchemaSummary(connectionId);
         if (this.handlers.readState().activeConnection?.id !== connectionId) {
           throw new McpUiError("stale", "Active connection changed while reading schema");
+        }
+        return result;
+      }
+      case "getTableIndexes": {
+        const connectionId = state.activeConnection?.id;
+        if (!connectionId) throw new McpUiError("unavailable", "No database connection is active");
+        const result = await this.handlers.getTableIndexes(connectionId, request.args.schema, request.args.table);
+        if (this.handlers.readState().activeConnection?.id !== connectionId) {
+          throw new McpUiError("stale", "Active connection changed while reading indexes");
+        }
+        return result;
+      }
+      case "explainSql": {
+        const connectionId = state.activeConnection?.id;
+        if (!connectionId) throw new McpUiError("unavailable", "No database connection is active");
+        const result = await this.handlers.explainSql(connectionId, request.args.sql);
+        if (this.handlers.readState().activeConnection?.id !== connectionId) {
+          throw new McpUiError("stale", "Active connection changed while explaining SQL");
         }
         return result;
       }

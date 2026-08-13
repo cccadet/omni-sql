@@ -242,7 +242,9 @@ export type McpToolName =
   | "getActiveSql"
   | "getActiveConnectionContext"
   | "getSchemaSummary"
+  | "getTableIndexes"
   | "getLatestSqlExecutionError"
+  | "explainSql"
   | "proposeSqlEdit";
 
 export const MCP_MAX_HTTP_BODY_BYTES = 64 * 1024;
@@ -283,7 +285,14 @@ export interface McpToolArgsByName {
   getActiveSql: Record<string, never>;
   getActiveConnectionContext: Record<string, never>;
   getSchemaSummary: Record<string, never>;
+  getTableIndexes: {
+    readonly schema: string;
+    readonly table: string;
+  };
   getLatestSqlExecutionError: Record<string, never>;
+  explainSql: {
+    readonly sql: string;
+  };
   proposeSqlEdit: {
     readonly sql: string;
     readonly rationale: string;
@@ -331,8 +340,16 @@ export interface McpToolResultByName {
     readonly connectionId: string;
     readonly schemas: readonly McpSchemaSummarySchema[];
   };
+  getTableIndexes: {
+    readonly connectionId: string;
+    readonly indexes: readonly IndexInfo[];
+  };
   getLatestSqlExecutionError: {
     readonly error: SqlExecutionError | null;
+  };
+  explainSql: {
+    readonly textual: string;
+    readonly format: ExplainResult["format"];
   };
   proposeSqlEdit: {
     readonly approved: boolean;
