@@ -9,8 +9,10 @@ use std::path::PathBuf;
 #[cfg(windows)]
 use std::ptr::null_mut;
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use serde::Serialize;
@@ -45,7 +47,10 @@ use tauri_plugin_dialog::DialogExt;
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
 struct SidecarStatusState(Mutex<&'static str>);
-struct AuthToken(String);
+struct AuthToken {
+    token: Mutex<Option<String>>,
+    ready: Condvar,
+}
 struct McpDescriptorPath(Mutex<Option<PathBuf>>);
 
 #[derive(Serialize)]
@@ -336,7 +341,9 @@ const CHILD_ENV_OVERRIDES: &[&str] = &[
     "DYLD_INSERT_LIBRARIES",
     "OMNI_SQL_PORT",
     "OMNI_SQL_AUTH_TOKEN",
+    "OMNI_SQL_HEALTH_TOKEN",
     "OMNI_SQL_MCP_AUTH_TOKEN",
+    "OMNI_SQL_SIDECAR_AUTH_TOKEN",
     "OMNI_SQL_ALLOWED_ORIGIN",
     "OMNI_SQL_DEV_KEYRING",
     "OMNI_SQL_DEV_KEYRING_FILE",
@@ -355,7 +362,7 @@ fn ensure_port_is_free(port: u16, name: &str) -> Result<(), std::io::Error> {
     })
 }
 
-fn http_get(port: u16, path: &str, auth_token: &str) -> Result<(u16, String), String> {
+fn http_get(port: u16, path: &str, auth_token: Option<&str>) -> Result<(u16, String), String> {
     use std::io::{Read, Write};
 
     let mut stream = std::net::TcpStream::connect_timeout(
@@ -367,10 +374,10 @@ fn http_get(port: u16, path: &str, auth_token: &str) -> Result<(u16, String), St
         .set_read_timeout(Some(Duration::from_millis(500)))
         .map_err(|err| err.to_string())?;
     stream
-        .write_all(
-            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {auth_token}\r\nConnection: close\r\n\r\n")
-                .as_bytes(),
-        )
+        .write_all(format!(
+            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{}Connection: close\r\n\r\n",
+            auth_token.map(|token| format!("Authorization: Bearer {token}\r\n")).unwrap_or_default(),
+        ).as_bytes())
         .map_err(|err| err.to_string())?;
 
     let mut response = Vec::new();
@@ -397,6 +404,13 @@ fn generate_auth_token() -> Result<String, String> {
     let mut bytes = [0_u8; 32];
     getrandom::fill(&mut bytes).map_err(|err| format!("failed to generate auth token: {err}"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn health_proof(challenge: &str, health_token: &str) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(health_token.as_bytes())
+        .expect("HMAC accepts keys of any length");
+    mac.update(challenge.as_bytes());
+    mac.finalize().into_bytes().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn mcp_runtime_dir<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<Option<PathBuf>, String> {
@@ -641,8 +655,10 @@ fn json_string_field(body: &str, field: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn backend_health_is_expected(status: u16, body: &str) -> bool {
-    status == 200 && json_string_field(body, "status").as_deref() == Some("ok")
+fn backend_health_is_expected(status: u16, body: &str, expected_proof: &str) -> bool {
+    status == 200
+        && json_string_field(body, "status").as_deref() == Some("ok")
+        && json_string_field(body, "proof").as_deref() == Some(expected_proof)
 }
 
 fn backend_health_probe_error(status: u16, body: &str) -> String {
@@ -682,8 +698,15 @@ fn get_sidecar_status(state: tauri::State<'_, SidecarStatusState>) -> String {
 }
 
 #[tauri::command]
-fn get_auth_token(state: tauri::State<'_, AuthToken>) -> String {
-    state.0.clone()
+fn get_auth_token(state: tauri::State<'_, AuthToken>) -> Result<String, String> {
+    let token = state.token.lock().unwrap();
+    let (token, _) = state
+        .ready
+        .wait_timeout_while(token, Duration::from_secs(30), |token| token.is_none())
+        .map_err(|_| "backend readiness lock poisoned".to_string())?;
+    token
+        .clone()
+        .ok_or_else(|| "backend did not become ready before timeout".to_string())
 }
 
 #[tauri::command]
@@ -1000,6 +1023,8 @@ pub fn run() {
     }
 
     let auth_token = generate_auth_token().expect("failed to create per-run auth token");
+    let backend_health_token = generate_auth_token().expect("failed to create backend health token");
+    let sidecar_auth_token = generate_auth_token().expect("failed to create sidecar auth token");
     let mcp_auth_token = generate_auth_token().expect("failed to create per-run MCP auth token");
     let mcp_start_nonce = generate_auth_token().expect("failed to create MCP start nonce");
 
@@ -1020,7 +1045,10 @@ pub fn run() {
             get_auth_token,
             get_mcp_launcher_config
         ])
-        .manage(AuthToken(auth_token.clone()))
+        .manage(AuthToken {
+            token: Mutex::new(None),
+            ready: Condvar::new(),
+        })
         .manage(McpDescriptorPath(Mutex::new(None)))
         .manage(BackendChild(Mutex::new(None)))
         .manage(SidecarChild(Mutex::new(None)))
@@ -1129,6 +1157,8 @@ pub fn run() {
                     .current_dir(&backend_cwd)
                     .env("OMNI_SQL_PORT", BACKEND_PORT.to_string())
                     .env("OMNI_SQL_AUTH_TOKEN", &auth_token)
+                    .env("OMNI_SQL_HEALTH_TOKEN", &backend_health_token)
+                    .env("OMNI_SQL_SIDECAR_AUTH_TOKEN", &sidecar_auth_token)
                     .env("OMNI_SQL_MCP_AUTH_TOKEN", &mcp_auth_token)
                     .env(
                         "OMNI_SQL_ALLOWED_ORIGIN",
@@ -1161,6 +1191,8 @@ pub fn run() {
             // the readiness thread observes its exit through that same state.
             let app_handle = app.handle().clone();
             let backend_auth_token = auth_token.clone();
+            let backend_health_token = backend_health_token.clone();
+            let backend_health_challenge = generate_auth_token().expect("failed to create backend health challenge");
             let descriptor_runtime_dir = runtime_dir.clone();
             let descriptor_token = mcp_auth_token.clone();
             let descriptor_start_nonce = mcp_start_nonce.clone();
@@ -1193,8 +1225,12 @@ pub fn run() {
                         }
                     }
 
-                    match http_get(BACKEND_PORT, "/health", &backend_auth_token) {
-                        Ok((status, body)) if backend_health_is_expected(status, &body) => {
+                    let expected_health_proof = health_proof(&backend_health_challenge, &backend_health_token);
+                    match http_get(BACKEND_PORT, &format!("/health?challenge={backend_health_challenge}"), None) {
+                        Ok((status, body)) if backend_health_is_expected(status, &body, &expected_health_proof) => {
+                            let token_state: tauri::State<'_, AuthToken> = app_handle.state();
+                            *token_state.token.lock().unwrap() = Some(backend_auth_token.clone());
+                            token_state.ready.notify_all();
                             let publish_error = {
                                 let state: tauri::State<'_, BackendChild> = app_handle.state();
                                 let mut guard = state.0.lock().unwrap();
@@ -1299,7 +1335,7 @@ pub fn run() {
                 cmd.arg("-jar").arg(&sidecar_jar);
                 cmd.current_dir(&sidecar_dir)
                     .env("OMNI_SIDE_CAR_PORT", SIDECAR_PORT.to_string())
-                    .env("OMNI_SQL_AUTH_TOKEN", &auth_token)
+                    .env("OMNI_SQL_AUTH_TOKEN", &sidecar_auth_token)
                     .stdin(Stdio::null())
                     .stdout(sidecar_log_stdio(app.handle(), "sidecar.log"))
                     .stderr(sidecar_log_stdio(app.handle(), "sidecar.log"));
@@ -1313,7 +1349,7 @@ pub fn run() {
                         // HTTP health validation runs asynchronously and verifies
                         // identity, not merely that some process owns the port.
                         let app_handle = app.handle().clone();
-                        let sidecar_auth_token = auth_token.clone();
+                        let sidecar_auth_token = sidecar_auth_token.clone();
                         emit_sidecar_status(&app_handle, SIDECAR_STATUS_CHECKING);
                         std::thread::spawn(move || {
                             let deadline = Instant::now() + Duration::from_secs(30);
@@ -1345,7 +1381,7 @@ pub fn run() {
                                     }
                                 }
 
-                                match http_get(SIDECAR_PORT, "/health", &sidecar_auth_token) {
+                                match http_get(SIDECAR_PORT, "/health", Some(&sidecar_auth_token)) {
                                     Ok((status, body))
                                         if status == 200 && sidecar_health_is_expected(&body) =>
                                     {
@@ -1426,7 +1462,9 @@ mod tests {
 
     #[test]
     fn backend_health_probe_reports_non_ready_responses() {
-        assert!(backend_health_is_expected(200, r#"{"status":"ok"}"#));
+        let proof = health_proof("challenge", "health-token");
+        assert!(backend_health_is_expected(200, &format!(r#"{{"status":"ok","proof":"{proof}"}}"#), &proof));
+        assert!(!backend_health_is_expected(200, r#"{"status":"ok"}"#, &proof));
         assert_eq!(
             backend_health_probe_error(503, r#"{"status":"starting"}"#),
             "unexpected /health response: HTTP 503, status field Some(\"starting\")"
@@ -1451,7 +1489,7 @@ mod tests {
         });
 
         assert_eq!(
-            http_get(port, "/health", "test-token").unwrap(),
+            http_get(port, "/health", Some("test-token")).unwrap(),
             (200, r#"{"status":"ok"}"#.to_string())
         );
         server.join().unwrap();
@@ -1470,7 +1508,7 @@ mod tests {
         });
 
         assert_eq!(
-            http_get(port, "/health", "test-token").unwrap_err(),
+            http_get(port, "/health", Some("test-token")).unwrap_err(),
             "health response has no HTTP header/body separator"
         );
         server.join().unwrap();
@@ -1692,7 +1730,7 @@ mod tests {
                 stream.write_all(response).unwrap();
             });
 
-            let error = http_get(port, "/health", "test-token").unwrap_err();
+            let error = http_get(port, "/health", Some("test-token")).unwrap_err();
             assert!(
                 error == "health response has no HTTP status"
                     || error.starts_with("invalid health HTTP status:"),

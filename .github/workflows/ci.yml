@@ -17,6 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -29,6 +31,15 @@ jobs:
 
       - name: Verify
         run: pnpm verify
+
+      - name: Reject mutable Actions in release workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          if rg --pcre2 -n '^\s*uses:\s*[^@\s]+@(?![0-9a-f]{40}(?:\s|$|#))' .github/workflows/release.yml; then
+            echo "Release workflow actions must be pinned to a full commit SHA." >&2
+            exit 1
+          fi
 
       - name: Validate Oracle backend build
         run: pnpm --filter @omni-sql/backend build:validate

@@ -51,6 +51,7 @@ docker/test-dbs/drivers/
 .DS_Store
 Thumbs.db
 .claude/.headroom_wrap_marker.json
+.codex-security/
 layout_transpilar.png
 layout2.png
 docs/images/tela_settings_formater.png

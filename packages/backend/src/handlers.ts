@@ -20,6 +20,11 @@ import {
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
 import { RpcValidationError } from "./rpc-errors.ts";
+import {
+  assertEndpointHasNoEmbeddedCredentials,
+  assertSafeExplainSql,
+  extractLegacyEndpointCredentials,
+} from "./security-policy.ts";
 
 import { resolveCteRelations, analyzeQueryEditability } from "./sidecar-client.ts";
 import { diagnoseDialectFunctions, diagnosePolyglotSyntaxError, mergeDiagnostics } from "./sql-diagnostics.ts";
@@ -225,7 +230,8 @@ async function readStoredPassword(
 }
 
 async function restoreConnections(): Promise<void> {
-  for (const cfg of cache.listConnections()) {
+  for (const persistedConfig of cache.listConnections()) {
+    let cfg = persistedConfig;
     let password: string | undefined;
     try {
       password = await getPassword(cfg);
@@ -234,6 +240,21 @@ async function restoreConnections(): Promise<void> {
         `[omni-sql] skipped restore for connection; keyring read failed: ${errorMessage(error)}`,
       );
       continue;
+    }
+    const legacy = extractLegacyEndpointCredentials(cfg);
+    if (legacy) {
+      try {
+        if (password === undefined && legacy.password !== undefined) {
+          await setPassword(legacy.config, legacy.password);
+          password = legacy.password;
+        }
+        cfg = { ...legacy.config, groupId: cfg.groupId };
+        cache.upsertConnection({ ...cfg, passwordSlot: passwordSlotFor(cfg) });
+        console.log(`[omni-sql] migrated credential-bearing endpoint for connection ${logValue(cfg.id)}`);
+      } catch (error) {
+        console.warn(`[omni-sql] skipped legacy endpoint migration; keyring write failed: ${errorMessage(error)}`);
+        continue;
+      }
     }
     try {
       const configWithSlot = { ...cfg, passwordSlot: passwordSlotFor(cfg) };
@@ -503,6 +524,7 @@ export function metaSourceOf(
 export const handlers: BackendRpcRouter = {
   async "connection.add"({ config, password }: AddConnectionParams): Promise<AddConnectionResult> {
     await connectionsRestored;
+    assertEndpointHasNoEmbeddedCredentials(config);
     const configWithSlot: ConnectionConfig = {
       ...config,
       passwordSlot: passwordSlotFor(config),
@@ -664,6 +686,7 @@ export const handlers: BackendRpcRouter = {
   async "query.explain"({ connectionId, sql }: ExplainQueryParams): Promise<ExplainQueryResult> {
     await connectionsRestored;
     const s = requireSession(connectionId);
+    assertSafeExplainSql(sql, s.config.dialect);
     await s.adapter.connect();
     return s.adapter.explain(sql);
   },
