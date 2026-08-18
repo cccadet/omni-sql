@@ -117,6 +117,33 @@ test("keeps export anchor alive until click before revoking URL", () => {
   }
 });
 
+test("exports formula-like headers and cells as spreadsheet text", async () => {
+  let exported: Blob | undefined;
+  const createObjectURL = vi.fn((blob: Blob) => {
+    exported = blob;
+    return "blob:test";
+  });
+  vi.stubGlobal("URL", { createObjectURL, revokeObjectURL: vi.fn() });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  const formulaResult: QueryResult = {
+    columns: [{ name: "=header", dataType: "text", nullable: true }],
+    rows: [["  @SUM(A1:A2)"], ["-42"], ["normal"]],
+    rowsMoreAvailable: false,
+    elapsedMs: 1,
+  };
+  try {
+    render(<LanguageProvider><ResultsGrid result={formulaResult} /></LanguageProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(createObjectURL).toHaveBeenCalledWith(expect.objectContaining({
+      type: "text/csv;charset=utf-8;",
+    }));
+    expect(await exported?.text()).toBe("'=header\n'  @SUM(A1:A2)\n'-42\nnormal");
+  } finally {
+    click.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
 test("stages editable cells and commits or discards the staged batch", async () => {
   const stage = vi.fn();
   const commit = vi.fn();

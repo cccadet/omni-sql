@@ -3,7 +3,7 @@ import { postgresDescriptor, type DialectDescriptor } from "@omni-sql/dialect-de
 import { findStatement } from "@omni-sql/autocomplete-engine";
 
 const SIDECAR_URL = validatedSidecarUrl();
-const AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
+const AUTH_TOKEN = process.env.OMNI_SQL_SIDECAR_AUTH_TOKEN ?? process.env.OMNI_SQL_AUTH_TOKEN;
 const TIMEOUT_MS = 250;
 // A análise de editabilidade pode disparar o carregamento inicial do Calcite.
 // Diferentemente do autocomplete, ela acontece após a query e pode esperar um pouco mais.

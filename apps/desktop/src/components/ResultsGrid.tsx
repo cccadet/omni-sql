@@ -83,7 +83,10 @@ export function serializeCellValue(value: unknown): string {
 }
 
 function escapeCsv(value: unknown): string {
-  const s = serializeCellValue(value);
+  const serialized = serializeCellValue(value);
+  // Spreadsheet programs evaluate a formula even when a cell is valid CSV.
+  // Preserve the value as text for all formula-like prefixes.
+  const s = /^[\t\r ]*[=+\-@]/.test(serialized) ? `'${serialized}` : serialized;
   if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
     return `"${s.replace(/"/g, '""')}"`;
   }

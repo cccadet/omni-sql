@@ -43,6 +43,12 @@ test("MssqlAdapter: factory via construtor produz instância Adapter", () => {
   assert.equal(a.dialect, "sqlserver");
 });
 
+test("MssqlAdapter: usa TLS validado por padrão", () => {
+  const a = new MssqlAdapter(cfg());
+  const poolConfig = (a as unknown as { poolConfig: { options: { encrypt: boolean; trustServerCertificate: boolean } } }).poolConfig;
+  assert.deepEqual(poolConfig.options, { encrypt: true, trustServerCertificate: false });
+});
+
 test("test() retorna ok:false quando não consegue conectar", async () => {
   const a = new MssqlAdapter(cfg("127.0.0.1:1/dummy"), "nobody");
   const t = await a.test();
