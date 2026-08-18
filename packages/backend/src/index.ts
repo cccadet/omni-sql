@@ -6,7 +6,7 @@ import type {
   JsonRpcError,
 } from "./protocol.ts";
 import { closeBackendResources, handlers } from "./handlers.ts";
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { RpcValidationError } from "./rpc-errors.ts";
 import { closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
 import { McpBridgeError } from "./mcp-bridge.ts";
@@ -19,6 +19,7 @@ import {
 const DEFAULT_PORT = Number(process.env.OMNI_SQL_PORT ?? 41920);
 const AUTH_HEADER = "authorization";
 const MAX_RPC_BODY_BYTES = 1_048_576;
+const HEALTH_CHALLENGE_RE = /^[a-f0-9]{64}$/i;
 export function defaultAllowedOrigin(
   nodeEnv = process.env.NODE_ENV,
   platform = process.platform,
@@ -344,12 +345,24 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
       return;
     }
 
-    if (!authorized(req, process.env.OMNI_SQL_AUTH_TOKEN)) {
-      send(res, 401, { error: "unauthorized" }, origin);
+    const requestUrl = new URL(route ?? "/", "http://127.0.0.1");
+    if (requestUrl.pathname === "/health") {
+      const challenge = requestUrl.searchParams.get("challenge");
+      const healthToken = process.env.OMNI_SQL_HEALTH_TOKEN;
+      if (challenge && healthToken && HEALTH_CHALLENGE_RE.test(challenge)) {
+        const proof = createHmac("sha256", healthToken).update(challenge).digest("hex");
+        send(res, 200, { status: "ok", port, proof }, origin);
+        return;
+      }
+      if (!authorized(req, process.env.OMNI_SQL_AUTH_TOKEN)) {
+        send(res, 401, { error: "unauthorized" }, origin);
+        return;
+      }
+      send(res, 200, { status: "ok", port }, origin);
       return;
     }
-    if (route === "/health") {
-      send(res, 200, { status: "ok", port }, origin);
+    if (!authorized(req, process.env.OMNI_SQL_AUTH_TOKEN)) {
+      send(res, 401, { error: "unauthorized" }, origin);
       return;
     }
     if (req.method !== "POST" || route !== "/rpc") {

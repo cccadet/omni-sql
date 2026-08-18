@@ -185,7 +185,7 @@ function parseEndpoint(
     password: password ?? "",
     server: endpoint,
     database: "",
-    options: { trustServerCertificate: true, encrypt: false, ...(options ?? {}) },
+    options: { trustServerCertificate: false, encrypt: true, ...(options ?? {}) },
     pool: { max: 4 },
   };
   // host:port/db ou host/db — mssql exige `server`/`port`/`database` separados.
