@@ -132,7 +132,7 @@ object JdbcConnectionManager {
             val allow = schemaFilter?.takeIf { it.isNotEmpty() }?.toSet()
             return discoverSchemas(meta)
                 .filter { allow == null || it in allow }
-                .map { schema -> JdbcSchema(schema, tablesForSchema(meta, schema)) }
+                .map { schema -> JdbcSchema(schema, tablesForSchema(handle.connection, meta, schema)) }
         } catch (e: SQLException) {
             throw toJdbcError(e)
         }
@@ -143,11 +143,27 @@ object JdbcConnectionManager {
 
     private fun discoverSchemas(meta: DatabaseMetaData): List<String> {
         val names = mutableListOf<String>()
-        meta.schemas.use { rs -> while (rs.next()) names.add(rs.getString("TABLE_SCHEM")) }
+        // Drivers JDBC genéricos não são consistentes aqui: alguns retornam
+        // TABLE_SCHEM nulo (quando só têm catálogo) e outros não suportam
+        // getSchemas() apesar de suportarem getTables/getColumns. Nenhum dos
+        // dois casos deve impedir a introspecção inteira.
+        runCatching {
+            meta.schemas.use { rs ->
+                while (rs.next()) {
+                    rs.getString("TABLE_SCHEM")
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let(names::add)
+                }
+            }
+        }
         return names.ifEmpty { listOf(DEFAULT_SCHEMA) }
     }
 
-    private fun tablesForSchema(meta: DatabaseMetaData, schema: String): List<JdbcTable> {
+    private fun tablesForSchema(connection: Connection, meta: DatabaseMetaData, schema: String): List<JdbcTable> {
+        if (runCatching { meta.driverName }.getOrDefault("").contains("openedge", ignoreCase = true)) {
+            return openEdgeTablesForSchema(connection, schema)
+        }
         val schemaPattern = if (schema == DEFAULT_SCHEMA) null else schema
         val tables = mutableListOf<Pair<String, String>>()
         meta.getTables(null, schemaPattern, "%", arrayOf("TABLE", "VIEW")).use { rs ->
@@ -159,8 +175,46 @@ object JdbcConnectionManager {
         return tables.map { (name, kind) -> JdbcTable(name, kind, columnsForTable(meta, schemaPattern, name)) }
     }
 
+    private fun openEdgeTablesForSchema(connection: Connection, schema: String): List<JdbcTable> {
+        val sql =
+            """
+            SELECT t.tbl, t.tbltype, c.col, c.coltype, c.nullflag, c.id
+            FROM SYSPROGRESS.SYSTABLES t
+            JOIN SYSPROGRESS.SYSCOLUMNS c ON c.owner = t.owner AND c.tbl = t.tbl
+            WHERE t.owner = ? AND t.tbltype IN ('T', 'V')
+            ORDER BY t.tbl, c.id
+            """.trimIndent()
+        val tables = linkedMapOf<String, Pair<String, MutableList<JdbcColumn>>>()
+        connection.prepareStatement(sql).use { statement ->
+            statement.setString(1, schema)
+            statement.executeQuery().use { rs ->
+                while (rs.next()) {
+                    val tableName = rs.getString("tbl")
+                    val table =
+                        tables.getOrPut(tableName) {
+                            val kind = if (rs.getString("tbltype").equals("V", ignoreCase = true)) "view" else "table"
+                            kind to mutableListOf()
+                        }
+                    table.second.add(
+                        JdbcColumn(
+                            name = rs.getString("col"),
+                            dataType = rs.getString("coltype") ?: "unknown",
+                            nullable = rs.getString("nullflag").equals("Y", ignoreCase = true),
+                            ordinalPosition = rs.getInt("id"),
+                            isPrimaryKey = false,
+                        ),
+                    )
+                }
+            }
+        }
+        if (System.getenv("OMNI_SQL_DEBUG_JDBC") == "1") {
+            System.err.println("[omni-sql] JDBC OpenEdge catalog schema=$schema tables=${tables.size}")
+        }
+        return tables.map { (name, value) -> JdbcTable(name, value.first, value.second) }
+    }
+
     private fun columnsForTable(meta: DatabaseMetaData, schemaPattern: String?, table: String): List<JdbcColumn> {
-        // ponytail: getPrimaryKeys não é suportado por todo driver JDBC (ex.: pontes ODBC) —
+        // getPrimaryKeys não é suportado por todo driver JDBC (ex.: pontes ODBC) —
         // nunca deve derrubar a introspecção inteira por isto, só perde o flag de PK.
         val pkNames =
             runCatching {

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 
-process.env.OMNI_SQL_AUTH_TOKEN = "jdbc-test-token";
+process.env.OMNI_SQL_SIDECAR_AUTH_TOKEN = "jdbc-test-token";
 const { JdbcAdapter } = await import("./index.ts");
 
 const cfg = (options?: ConnectionConfig["options"]): ConnectionConfig => ({
@@ -216,6 +216,18 @@ test("JdbcAdapter: introspect() mapeia schemas/tabelas/colunas do sidecar pro sh
       { name: "name", dataType: "CHARACTER", nullable: true, isPrimaryKey: false, ordinalPosition: 2 },
     ]);
     assert.deepEqual(a.listFunctions("PUB"), []);
+  } finally {
+    restore();
+  }
+});
+
+test("JdbcAdapter: resposta de introspecção sem schemas informa erro útil", async () => {
+  const restore = mockFetch(() => ({ ok: true }));
+  try {
+    await assert.rejects(
+      () => new JdbcAdapter(cfg()).introspect(),
+      /metadados JDBC inválidos: campo schemas ausente/,
+    );
   } finally {
     restore();
   }

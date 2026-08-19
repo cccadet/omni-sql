@@ -20,6 +20,7 @@ import {
   EyeRegular,
   NumberSymbolRegular,
   CheckmarkCircleRegular,
+  ErrorCircleRegular,
   WarningRegular,
   CircleRegular,
   AddRegular,
@@ -58,6 +59,7 @@ export interface SidebarProps {
   onMoveConnection?: (id: string, groupId: string | null) => Promise<void>;
   onOpenInNewTab?: (title: string, sql: string) => void;
   health?: ConnectionHealth;
+  metadataRefreshFailed?: boolean;
 }
 
 interface SchemaGroup {
@@ -187,6 +189,7 @@ export function Sidebar({
   onMoveConnection,
   onOpenInNewTab,
   health = "unknown",
+  metadataRefreshFailed = false,
 }: SidebarProps) {
   const { t: tr } = useLanguage();
   const [search, setSearch] = useState("");
@@ -487,7 +490,7 @@ export function Sidebar({
   const insertQualified = (schema: string, name: string) => onInsert?.(`${schema}.${name}`);
   const metadataFreshness = getMetadataFreshness(connection?.lastSyncedAt);
   const metadataTimestamp = formatLastSyncedAt(connection?.lastSyncedAt);
-  const metadataTooltip = `${metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
+  const metadataTooltip = `${metadataRefreshFailed ? `${tr("error")}: ${tr("refreshMetadata")}` : metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
   const healthLabel = health === "online" ? "Online" : health === "offline" ? "Offline" : health === "verifying" ? "Verifying…" : "Unknown";
 
   return (
@@ -711,7 +714,7 @@ export function Sidebar({
           {connection && (
             <Tooltip content={metadataTooltip} relationship="description">
               <Button
-                icon={metadataFreshness === "today" ? <CheckmarkCircleRegular fontSize={14} style={{ color: tokens.colorPaletteGreenForeground1 }} /> : metadataFreshness === "stale" ? <WarningRegular fontSize={14} style={{ color: tokens.colorPaletteYellowForeground1 }} /> : <CircleRegular fontSize={13} style={{ color: tokens.colorNeutralForeground3 }} />}
+                icon={metadataRefreshFailed ? <ErrorCircleRegular fontSize={14} style={{ color: tokens.colorPaletteRedForeground1 }} /> : metadataFreshness === "today" ? <CheckmarkCircleRegular fontSize={14} style={{ color: tokens.colorPaletteGreenForeground1 }} /> : metadataFreshness === "stale" ? <WarningRegular fontSize={14} style={{ color: tokens.colorPaletteYellowForeground1 }} /> : <CircleRegular fontSize={13} style={{ color: tokens.colorNeutralForeground3 }} />}
                 appearance="transparent"
                 size="small"
                 onClick={onRefreshMetadata}

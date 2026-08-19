@@ -164,7 +164,22 @@ function logSafe(value: unknown): string {
 function logFailure(method: string, error: unknown, elapsedMs: number): void {
   const name = error instanceof Error ? error.name : "NonError";
   // Deliberately omit error details: NODE_ENV is not guaranteed by release launchers.
-  console.error(`[omni-sql] rpc failed method=${logSafe(method)} error=${logSafe(name)} elapsedMs=${elapsedMs}`);
+  const jdbcDetail = jdbcDebugDetail(method, error);
+  console.error(`[omni-sql] rpc failed method=${logSafe(method)} error=${logSafe(name)} elapsedMs=${elapsedMs}${jdbcDetail}`);
+}
+
+/** Opt-in local diagnosis for JDBC metadata drivers; never enabled by release launchers. */
+function jdbcDebugDetail(method: string, error: unknown): string {
+  if (process.env.OMNI_SQL_DEBUG_JDBC !== "1") return "";
+  if (method !== "metadata.introspect" && method !== "connection.listSchemas") return "";
+  if (!(error instanceof Error) || !error.message) return "";
+  return ` detail=${logSafe(redactJdbcError(error.message))}`;
+}
+
+function redactJdbcError(message: string): string {
+  return message
+    .replace(/(jdbc:[^\s]*\/\/[^\s:;@]+:)[^@\s;]+@/gi, "$1***@")
+    .replace(/\b(password|pwd)\s*=\s*[^;\s]*/gi, "$1=***");
 }
 
 // ─────────────────────────── Method dispatch (typed by RpcRouter)
