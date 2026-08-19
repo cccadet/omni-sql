@@ -326,9 +326,11 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </>
             )}
 
-            {mode !== "demo" && mode !== "jdbc-generic" && (
+            {mode !== "demo" && (
               <>
-                <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />
+                {mode !== "jdbc-generic" && (
+                  <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />
+                )}
                 <div
                   style={{
                     border: `1px solid ${tokens.colorNeutralStroke1}`,

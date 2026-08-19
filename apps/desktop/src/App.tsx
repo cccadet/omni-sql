@@ -165,6 +165,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number } | null>(null);
   const [busyMsg, setBusyMsg] = useState<string | null>(null);
   const [metadataRefreshConfirmOpen, setMetadataRefreshConfirmOpen] = useState(false);
+  const [metadataRefreshFailures, setMetadataRefreshFailures] = useState<Record<string, true>>({});
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [editability, setEditability] = useState<RowEditability | null>(null);
@@ -356,12 +357,18 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     setBusyMsg(t("refreshMetadata"));
     try {
       await backend.call("metadata.introspect", { connectionId: activeConnectionId });
+      setMetadataRefreshFailures((previous) => {
+        const remaining = { ...previous };
+        delete remaining[activeConnectionId];
+        return remaining;
+      });
       ++connectionHealthCheckRef.current;
       setConnectionHealth("online");
       await loadConnections();
       await loadSidebarData(activeConnectionId);
       updateTab(activeTab.id, { error: null });
     } catch (e) {
+      setMetadataRefreshFailures((previous) => ({ ...previous, [activeConnectionId]: true }));
       updateTab(activeTab.id, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
     } finally {
       setBusyMsg(null);
@@ -975,6 +982,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           relations={sidebarData?.relations ?? []}
           functions={sidebarData?.functions ?? []}
           loading={sidebarLoading}
+          metadataRefreshFailed={activeConnectionId !== null && metadataRefreshFailures[activeConnectionId] === true}
           onInsert={(text) => editorRef.current?.insertAtCursor(text)}
           onAddConnection={onAddConnection}
           onEditConnection={onEditConnection}
