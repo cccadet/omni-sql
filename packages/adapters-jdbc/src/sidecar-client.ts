@@ -1,7 +1,10 @@
 import type { QueryResult } from "@omni-sql/ts-types";
 
 const SIDECAR_URL = validatedSidecarUrl();
-const AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
+// O sidecar JVM tem uma capability própria, separada do bearer que protege o
+// RPC do backend. O Tauri injeta esse token em ambos os processos com nomes
+// diferentes; usar OMNI_SQL_AUTH_TOKEN aqui fazia o sidecar responder 401.
+const AUTH_TOKEN = process.env.OMNI_SQL_SIDECAR_AUTH_TOKEN;
 
 export interface JdbcConnectParams {
   readonly connectionId: string;
@@ -62,9 +65,22 @@ async function callSidecar(path: string, body: unknown): Promise<Record<string, 
       { cause: e },
     );
   }
-  const parsed = (await res.json()) as Record<string, unknown>;
+  const text = await res.text();
+  let parsed: Record<string, unknown>;
+  try {
+    const value: unknown = JSON.parse(text);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError("JSON root is not an object");
+    }
+    parsed = value as Record<string, unknown>;
+  } catch (e) {
+    throw new Error(`sidecar JVM retornou uma resposta JSON inválida em ${path}`, { cause: e });
+  }
   if (parsed.ok === false) {
     throw new Error(`[${parsed.causeTag}] ${parsed.message}`);
+  }
+  if (process.env.OMNI_SQL_DEBUG_JDBC === "1") {
+    console.log(`[omni-sql] jdbc sidecar response path=${path} fields=${Object.keys(parsed).sort().join(",")}`);
   }
   return parsed;
 }
@@ -110,7 +126,10 @@ export async function jdbcIntrospect(
   schemaFilter?: readonly string[],
 ): Promise<readonly JdbcSchemaBody[]> {
   const body = (await callSidecar("/jdbc/introspect", { connectionId, schemaFilter })) as unknown as {
-    schemas: readonly JdbcSchemaBody[];
+    schemas?: unknown;
   };
+  if (!Array.isArray(body.schemas)) {
+    throw new Error(`sidecar JVM retornou metadados JDBC inválidos: campo schemas ausente (campos: ${Object.keys(body).sort().join(",")})`);
+  }
   return body.schemas;
 }
