@@ -69,7 +69,10 @@ describe("Sidebar", () => {
   beforeEach(() => {
     localStorage.clear();
     call.mockReset();
-    call.mockResolvedValue({ indexes: [{ name: "orders_pkey", columns: ["id"], unique: true, primary: true }] });
+    call.mockImplementation(async (method) => {
+      if (method === "metadata.listRelations") return { relations };
+      return { indexes: [{ name: "orders_pkey", columns: ["id"], unique: true, primary: true }] };
+    });
   });
 
   afterEach(() => {
@@ -92,6 +95,28 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Expand/collapse" })[0]!);
     expect(await screen.findByText("orders_pkey")).toBeTruthy();
     expect(call).toHaveBeenCalledWith("metadata.listIndexes", { connectionId: "connection-1", schema: "public", table: "orders" });
+  });
+
+  it("loads columns from metadata cache only when a relation is expanded", async () => {
+    call.mockImplementation(async (method) => {
+      if (method === "metadata.listColumns") {
+        return { columns: [{ name: "id", dataType: "integer", nullable: false, isPrimaryKey: true }] };
+      }
+      return { indexes: [] };
+    });
+    renderSidebar({ relations: relations.map(({ columns: _columns, ...relation }) => relation) });
+
+    expect(screen.queryByText("id")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Expand/collapse" })[0]!);
+
+    expect(await screen.findByText("id")).toBeTruthy();
+    expect(call).toHaveBeenCalledWith("metadata.listColumns", {
+      connectionId: "connection-1",
+      schema: "public",
+      table: "orders",
+    });
   });
 
   it("manages folders and moves connections through user-visible controls", async () => {

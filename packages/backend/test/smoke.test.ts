@@ -217,7 +217,11 @@ test("smoke: add connection → introspect → list relations → run query → 
     assert.ok(listRes.relations.length >= 1, "no relations returned");
     const usersTable = listRes.relations.find((r) => r.name === "users");
     assert.ok(usersTable, "users table missing");
-    assert.equal(usersTable!.columns.length, 3);
+    assert.equal(usersTable!.columns, undefined);
+    const columns = await rpc("metadata.listColumns", { connectionId: "smoke", schema: "public", table: "users" });
+    assert.equal((columns.result as { columns: unknown[] }).columns.length, 3);
+    const columnSearch = await rpc("metadata.listRelations", { connectionId: "smoke", search: "email" });
+    assert.ok((columnSearch.result as ListRelationsResult).relations.some((relation) => relation.name === "users"));
 
     // 4. run query
     const q = await rpc("query.run", {

@@ -69,6 +69,8 @@ import type {
   IntrospectResult,
   ListRelationsParams,
   ListRelationsResult,
+  ListColumnsParams,
+  ListColumnsResult,
   ListFunctionsParams,
   ListFunctionsResult,
   ListIndexesParams,
@@ -839,27 +841,49 @@ export const handlers: BackendRpcRouter = {
 
   async "metadata.listRelations"({
     connectionId,
+    includeColumns = false,
+    search,
   }: ListRelationsParams): Promise<ListRelationsResult> {
     const s = requireSession(connectionId);
+    const query = search?.trim().toLocaleLowerCase();
     const all: ListRelationsResult["relations"][number][] = [];
     for (const schemaName of cache.listSchemas(s.config.id).map((x) => x.name)) {
       const rels = cache.getTablesBySchema(s.config.id, schemaName);
       for (const r of rels) {
+        if (query && !r.name.toLocaleLowerCase().includes(query) &&
+            !r.columns.some((column) => column.name.toLocaleLowerCase().includes(query))) continue;
         all.push({
           schema: r.schema,
           name: r.name,
           kind: r.kind,
-          columns: r.columns.map((c) => ({
-            name: c.name,
-            dataType: c.dataType,
-            nullable: c.nullable,
-            isPrimaryKey: c.isPrimaryKey,
-            ...(c.foreignKeyTo ? { foreignKeyTo: c.foreignKeyTo } : {}),
-          })),
+          ...(includeColumns
+            ? {
+                columns: r.columns.map((c) => ({
+                  name: c.name,
+                  dataType: c.dataType,
+                  nullable: c.nullable,
+                  isPrimaryKey: c.isPrimaryKey,
+                  ...(c.foreignKeyTo ? { foreignKeyTo: c.foreignKeyTo } : {}),
+                })),
+              }
+            : {}),
         });
       }
     }
     return { relations: all };
+  },
+
+  async "metadata.listColumns"({ connectionId, schema, table }: ListColumnsParams): Promise<ListColumnsResult> {
+    requireSession(connectionId);
+    return {
+      columns: cache.getColumnsByTable(connectionId, schema, table).map((column) => ({
+        name: column.name,
+        dataType: column.dataType,
+        nullable: column.nullable,
+        isPrimaryKey: column.isPrimaryKey,
+        ...(column.foreignKeyTo ? { foreignKeyTo: column.foreignKeyTo } : {}),
+      })),
+    };
   },
 
   async "metadata.listFunctions"({

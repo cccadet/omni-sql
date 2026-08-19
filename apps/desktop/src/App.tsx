@@ -762,7 +762,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     if (mcpStateRef.current.activeConnection?.id !== connectionId) {
       throw new McpUiError("stale", "Active connection changed before schema read");
     }
-    const response = await backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId });
+    const response = await backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", {
+      connectionId,
+      includeColumns: true,
+    });
     if (mcpStateRef.current.activeConnection?.id !== connectionId) {
       throw new McpUiError("stale", "Active connection changed during schema read");
     }
@@ -772,7 +775,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       schema.relations.push({
         name: relation.name,
         kind: relation.kind,
-        columns: relation.columns.map((column) => ({ name: column.name, dataType: column.dataType })),
+        columns: (relation.columns ?? []).map((column) => ({ name: column.name, dataType: column.dataType })),
       });
       schemas.set(relation.schema, schema);
     }
