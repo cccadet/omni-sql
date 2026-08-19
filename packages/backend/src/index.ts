@@ -171,7 +171,7 @@ function logFailure(method: string, error: unknown, elapsedMs: number): void {
 /** Opt-in local diagnosis for JDBC metadata drivers; never enabled by release launchers. */
 function jdbcDebugDetail(method: string, error: unknown): string {
   if (process.env.OMNI_SQL_DEBUG_JDBC !== "1") return "";
-  if (method !== "metadata.introspect" && method !== "connection.listSchemas") return "";
+  if (method !== "metadata.introspect" && method !== "connection.listSchemas" && method !== "query.run") return "";
   if (!(error instanceof Error) || !error.message) return "";
   return ` detail=${logSafe(redactJdbcError(error.message))}`;
 }
