@@ -6,6 +6,10 @@ const SIDECAR_URL = validatedSidecarUrl();
 // diferentes; usar OMNI_SQL_AUTH_TOKEN aqui fazia o sidecar responder 401.
 const AUTH_TOKEN = process.env.OMNI_SQL_SIDECAR_AUTH_TOKEN;
 
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export interface JdbcConnectParams {
   readonly connectionId: string;
   readonly jarPath: string;
@@ -80,7 +84,7 @@ async function callSidecar(path: string, body: unknown): Promise<Record<string, 
     throw new Error(`[${parsed.causeTag}] ${parsed.message}`);
   }
   if (process.env.OMNI_SQL_DEBUG_JDBC === "1") {
-    console.log(`[omni-sql] jdbc sidecar response path=${path} fields=${Object.keys(parsed).sort().join(",")}`);
+    console.log(`[omni-sql] jdbc sidecar response path=${path} fields=${Object.keys(parsed).sort(compareStrings).join(",")}`);
   }
   return parsed;
 }
@@ -129,7 +133,7 @@ export async function jdbcIntrospect(
     schemas?: unknown;
   };
   if (!Array.isArray(body.schemas)) {
-    throw new Error(`sidecar JVM retornou metadados JDBC inválidos: campo schemas ausente (campos: ${Object.keys(body).sort().join(",")})`);
+    throw new Error(`sidecar JVM retornou metadados JDBC inválidos: campo schemas ausente (campos: ${Object.keys(body).sort(compareStrings).join(",")})`);
   }
   return body.schemas;
 }
