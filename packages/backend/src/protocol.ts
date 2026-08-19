@@ -166,13 +166,15 @@ export type IntrospectResult = Database;
 export interface ListRelationsParams {
   connectionId: string;
   schema?: string;
+  includeColumns?: boolean;
+  search?: string;
 }
 export interface ListRelationsResult {
   relations: ReadonlyArray<{
     schema: string;
     name: string;
     kind: "table" | "view";
-    columns: ReadonlyArray<{
+    columns?: ReadonlyArray<{
       name: string;
       dataType: string;
       nullable: boolean;
@@ -180,6 +182,14 @@ export interface ListRelationsResult {
       foreignKeyTo?: { schema: string; table: string; column: string };
     }>;
   }>;
+}
+export interface ListColumnsParams {
+  connectionId: string;
+  schema: string;
+  table: string;
+}
+export interface ListColumnsResult {
+  columns: NonNullable<ListRelationsResult["relations"][number]["columns"]>;
 }
 
 export interface ListSchemasParams {
@@ -268,6 +278,7 @@ export interface RpcRouter {
   "row.update": (p: UpdateRowParams) => Promise<UpdateRowResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;
   "metadata.listRelations": (p: ListRelationsParams) => Promise<ListRelationsResult>;
+  "metadata.listColumns": (p: ListColumnsParams) => Promise<ListColumnsResult>;
   "metadata.listFunctions": (p: ListFunctionsParams) => Promise<ListFunctionsResult>;
   "metadata.listIndexes": (p: ListIndexesParams) => Promise<ListIndexesResult>;
   "metadata.getDefinition": (p: GetDefinitionParams) => Promise<GetDefinitionResult>;

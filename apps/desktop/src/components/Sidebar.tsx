@@ -31,7 +31,7 @@ import {
 import { DialectIcon } from "./DialectIcon";
 import { SidecarStatus } from "./SidecarStatus";
 import { typeIcon } from "../lib/type-icon";
-import { backend, type ConnectionEntry, type RelationInfo } from "../lib/backend";
+import { backend, type ConnectionEntry, type RelationColumn, type RelationInfo } from "../lib/backend";
 import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
 import type { ConnectionHealth } from "./StatusBar";
 import { formatLastSyncedAt, getMetadataFreshness } from "../lib/metadata-freshness";
@@ -193,12 +193,14 @@ export function Sidebar({
 }: SidebarProps) {
   const { t: tr } = useLanguage();
   const [search, setSearch] = useState("");
+  const [searchMatches, setSearchMatches] = useState<Set<string> | null>(null);
   const [width, setWidth] = useState(loadWidth);
   const [connectionsHeight, setConnectionsHeight] = useState(loadConnectionsHeight);
   const [resizing, setResizing] = useState(false);
   const [resizingConnections, setResizingConnections] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [indexCache, setIndexCache] = useState<Record<string, { loading: boolean; error: string | null; indexes: IndexInfo[] }>>({});
+  const [columnCache, setColumnCache] = useState<Record<string, { loading: boolean; error: string | null; columns: RelationColumn[] }>>({});
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string; moveSubmenuOpen: boolean; moveSubmenuPosition?: { left: number; top: number } } | null>(null);
   const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(connectionId ?? null);
@@ -210,6 +212,35 @@ export function Sidebar({
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const connectionsHeightRef = useRef(connectionsHeight);
+
+  useEffect(() => {
+    setExpanded(new Set());
+    setIndexCache({});
+    setColumnCache({});
+    setSearchMatches(null);
+  }, [connectionId]);
+
+  useEffect(() => {
+    const query = search.trim();
+    if (!query || !connectionId) {
+      setSearchMatches(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId, search: query })
+        .then(({ relations: matches }) => {
+          if (!cancelled) setSearchMatches(new Set(matches.map((relation) => relationKey(relation.schema, relation.name))));
+        })
+        .catch(() => {
+          if (!cancelled) setSearchMatches(new Set());
+        });
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [connectionId, search]);
 
   useEffect(() => {
     if (selectedConnectionId && !connections.some((item) => item.id === selectedConnectionId)) {
@@ -253,16 +284,38 @@ export function Sidebar({
     return list
       .map((g) => ({
         ...g,
-        tables: g.tables.filter(
-          (t) => t.name.toLowerCase().includes(q) || t.columns.some((c) => c.name.toLowerCase().includes(q)),
-        ),
-        views: g.views.filter(
-          (v) => v.name.toLowerCase().includes(q) || v.columns.some((c) => c.name.toLowerCase().includes(q)),
-        ),
+        tables: g.tables.filter((t) =>
+          t.name.toLowerCase().includes(q) ||
+          searchMatches?.has(relationKey(t.schema, t.name)) ||
+          (columnCache[relationKey(t.schema, t.name)]?.columns ?? t.columns ?? []).some((c) => c.name.toLowerCase().includes(q))),
+        views: g.views.filter((v) =>
+          v.name.toLowerCase().includes(q) ||
+          searchMatches?.has(relationKey(v.schema, v.name)) ||
+          (columnCache[relationKey(v.schema, v.name)]?.columns ?? v.columns ?? []).some((c) => c.name.toLowerCase().includes(q))),
         functions: g.functions.filter((f) => f.name.toLowerCase().includes(q)),
       }))
       .filter((g) => g.tables.length > 0 || g.views.length > 0 || g.functions.length > 0);
-  }, [relations, functions, search]);
+  }, [relations, functions, search, searchMatches, columnCache]);
+
+  const ensureColumns = useCallback(async (schema: string, table: string) => {
+    const key = relationKey(schema, table);
+    const bundledColumns = relations.find((relation) => relation.schema === schema && relation.name === table)?.columns;
+    if (columnCache[key] || bundledColumns !== undefined || !connectionId) return;
+    setColumnCache((previous) => ({ ...previous, [key]: { loading: true, error: null, columns: [] } }));
+    try {
+      const { columns } = await backend.call<{ columns: RelationColumn[] }>("metadata.listColumns", {
+        connectionId,
+        schema,
+        table,
+      });
+      setColumnCache((previous) => ({ ...previous, [key]: { loading: false, error: null, columns } }));
+    } catch (error) {
+      setColumnCache((previous) => ({
+        ...previous,
+        [key]: { loading: false, error: error instanceof Error ? error.message : String(error), columns: [] },
+      }));
+    }
+  }, [columnCache, connectionId, relations]);
 
   const ensureIndexes = useCallback(async (schema: string, table: string) => {
     const key = relationKey(schema, table);
@@ -291,11 +344,12 @@ export function Sidebar({
         next.delete(key);
       } else {
         next.add(key);
+        void ensureColumns(schema, name);
         if (withIndexes) void ensureIndexes(schema, name);
       }
       return next;
     });
-  }, [ensureIndexes]);
+  }, [ensureColumns, ensureIndexes]);
 
   const openDefinition = useCallback(async (kind: ObjectDefinitionKind, schema: string, name: string) => {
     if (!connectionId) return;
@@ -768,8 +822,10 @@ export function Sidebar({
                 >
                   {g.tables.map((t) => {
                     const key = relationKey(g.name, t.name);
-                    const isOpen = isSearching || expanded.has(key);
+                    const isOpen = expanded.has(key);
                     const indexState = indexCache[key];
+                    const columnState = columnCache[key];
+                    const columns = columnState?.columns ?? t.columns ?? [];
                     return (
                       <div key={key} style={{ marginLeft: 10 }}>
                         <div
@@ -791,10 +847,13 @@ export function Sidebar({
                                 </span>
                               </span>
                             }
-                            defaultExpanded={isSearching}
+                            defaultExpanded={false}
                             forceExpanded={isOpen || undefined}
                             onExpandedChange={(nextExpanded) => {
-                              if (nextExpanded) void ensureIndexes(g.name, t.name);
+                              if (nextExpanded) {
+                                void ensureColumns(g.name, t.name);
+                                void ensureIndexes(g.name, t.name);
+                              }
                             }}
                             actions={
                               <Tooltip content={`Inserir ${g.name}.${t.name}`} relationship="label">
@@ -813,8 +872,10 @@ export function Sidebar({
                             }
                           >
                             <div className="columns">
-                              <div className="sub-header"><span>{tr("columns")} ({t.columns.length})</span></div>
-                              {t.columns.map((c) => {
+                              <div className="sub-header"><span>{tr("columns")}{(columnState && !columnState.loading && !columnState.error) || t.columns !== undefined ? ` (${columns.length})` : ""}</span></div>
+                              {((columnState?.loading ?? t.columns === undefined)) && <p className="sub-hint">{tr("loading")}</p>}
+                              {columnState?.error && <p className="sub-hint error">{columnState.error}</p>}
+                              {!columnState?.loading && !columnState?.error && columns.map((c) => {
                                 const ColumnIcon = typeIcon(c.dataType);
                                 return (
                                   <div
@@ -904,7 +965,9 @@ export function Sidebar({
                 >
                   {g.views.map((v) => {
                     const key = relationKey(g.name, v.name);
-                    const isOpen = isSearching || expanded.has(key);
+                    const isOpen = expanded.has(key);
+                    const columnState = columnCache[key];
+                    const columns = columnState?.columns ?? v.columns ?? [];
                     return (
                       <div key={key} style={{ marginLeft: 10 }}>
                         <div
@@ -926,8 +989,11 @@ export function Sidebar({
                                 </span>
                               </span>
                             }
-                            defaultExpanded={isSearching}
+                            defaultExpanded={false}
                             forceExpanded={isOpen || undefined}
+                            onExpandedChange={(nextExpanded) => {
+                              if (nextExpanded) void ensureColumns(g.name, v.name);
+                            }}
                             actions={
                               <Tooltip content={`Inserir ${g.name}.${v.name}`} relationship="label">
                                 <Button
@@ -945,7 +1011,9 @@ export function Sidebar({
                             }
                           >
                             <div className="columns">
-                              {v.columns.map((c) => {
+                              {(columnState?.loading ?? v.columns === undefined) && <p className="sub-hint">{tr("loading")}</p>}
+                              {columnState?.error && <p className="sub-hint error">{columnState.error}</p>}
+                              {!columnState?.loading && !columnState?.error && columns.map((c) => {
                                 const ColumnIcon = typeIcon(c.dataType);
                                 return (
                                   <div key={c.name} className="column">
