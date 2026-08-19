@@ -35,7 +35,7 @@ export interface RelationInfo {
   schema: string;
   name: string;
   kind: "table" | "view";
-  columns: RelationColumn[];
+  columns?: RelationColumn[];
 }
 
 export interface ColumnRef {
