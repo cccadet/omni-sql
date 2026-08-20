@@ -165,15 +165,16 @@ test("runQuery aplica cap Oracle server-side com bind e mantém cap client-side"
   assert.equal(result.rowsMoreAvailable, true);
 });
 
-test("prepareOracleQuery não envolve DML, CTE mutante ou SELECT FOR UPDATE", () => {
+test("prepareOracleQuery não envolve DML, DCL, CTE mutante ou SELECT FOR UPDATE", () => {
   const statements = [
-    "UPDATE users SET name = 'x'",
+    "UPDATE users SET name = 'x';",
+    "GRANT SELECT, INSERT, DELETE ON BIDW.LAUDOS_ESTATISTICA TO DREMIO;",
     "WITH changed AS (SELECT 1 FROM DUAL) UPDATE users SET name = 'x'",
     "SELECT id FROM users FOR UPDATE",
   ];
   for (const sql of statements) {
     assert.deepEqual(prepareOracleQuery(sql, 100), {
-      sql,
+      sql: sql.endsWith(";") ? sql.slice(0, -1) : sql,
       binds: {},
       serverSideLimitApplied: false,
     });
@@ -195,7 +196,7 @@ test("runQuery mantém execução direta e commit para instrução sem result se
 
   const result = await runQueryViaConnection(conn, "UPDATE users SET name = 'x';", 100);
 
-  assert.equal(executedSql, "UPDATE users SET name = 'x';");
+  assert.equal(executedSql, "UPDATE users SET name = 'x'");
   assert.deepEqual(executedBinds, []);
   assert.equal(commitCalls, 1);
   assert.deepEqual(result.rows, []);

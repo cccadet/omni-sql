@@ -510,7 +510,10 @@ export interface PreparedOracleQuery {
 
 export function prepareOracleQuery(sql: string, limit: number): PreparedOracleQuery {
   const normalized = stripTrailingStatementDelimiter(sql);
-  if (!isReadQuery(normalized)) return { sql, binds: {}, serverSideLimitApplied: false };
+  // O ponto-e-vírgula é um delimitador do cliente (SQL*Plus/IDE), não parte
+  // do SQL enviado pela API node-oracledb. Isso vale também para DDL/DCL,
+  // como GRANT, que não passam pelo wrapper de SELECT abaixo.
+  if (!isReadQuery(normalized)) return { sql: normalized, binds: {}, serverSideLimitApplied: false };
   return {
     sql: `SELECT * FROM (\n${normalized}\n)\nWHERE ROWNUM <= :${ORACLE_LIMIT_BIND}`,
     binds: { [ORACLE_LIMIT_BIND]: limit + 1 },
