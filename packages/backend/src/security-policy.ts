@@ -1,7 +1,17 @@
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import { dialectDescriptor } from "@omni-sql/dialect-descriptors";
-import { tokenize } from "@omni-sql/autocomplete-engine";
+import { analyzeExecutionRisk, tokenize } from "@omni-sql/autocomplete-engine";
 import { RpcValidationError } from "./rpc-errors.ts";
+
+export function assertExecutionRiskAccepted(
+  sql: string,
+  dialect: ConnectionConfig["dialect"],
+  accepted: boolean | undefined,
+): void {
+  if (analyzeExecutionRisk(sql, dialect).level !== "none" && accepted !== true) {
+    throw new RpcValidationError("query.run requires explicit confirmation for destructive SQL");
+  }
+}
 
 export function assertSafeExplainSql(sql: string, dialect: ConnectionConfig["dialect"]): void {
   const descriptor = dialectDescriptor(dialect);

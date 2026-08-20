@@ -11,6 +11,7 @@ import {
   HistoryRegular,
   WrenchRegular,
   MoreVerticalRegular,
+  BookRegular,
 } from "@fluentui/react-icons";
 import { useLanguage } from "../i18n";
 
@@ -33,6 +34,7 @@ export interface ToolbarProps {
   onOpenFormatSettings?: () => void;
   onToggleSidebar?: () => void;
   onToggleHistory?: () => void;
+  onOpenCommandLibrary?: () => void;
 }
 
 const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
@@ -56,6 +58,7 @@ export function Toolbar({
   onOpenFormatSettings,
   onToggleSidebar,
   onToggleHistory,
+  onOpenCommandLibrary,
 }: ToolbarProps) {
   const { t } = useLanguage();
   return (
@@ -152,6 +155,7 @@ export function Toolbar({
       {busyMsg && <Spinner size="tiny" label={busyMsg} labelPosition="after" style={{ marginRight: 8 }} />}
 
       <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} title={t("toggleSidebar")} />
+      <ToolbarButton icon={<BookRegular fontSize={14} />} onClick={onOpenCommandLibrary} aria-label={t("commandLibrary")} title={t("commandLibrary")} />
       <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} title={t("history")} />
       <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} title={t("moreOptions")} />
       {pendingRunCount && (

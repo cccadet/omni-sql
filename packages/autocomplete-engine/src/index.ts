@@ -16,3 +16,10 @@ export {
   type Suggestion,
   type SuggestionKind,
 } from "./engine.ts";
+export {
+  analyzeExecutionRisk,
+  type ExecutionRiskAnalysis,
+  type ExecutionRiskFinding,
+  type ExecutionRiskKind,
+  type ExecutionRiskLevel,
+} from "./execution-risk.ts";

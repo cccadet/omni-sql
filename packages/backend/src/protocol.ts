@@ -116,6 +116,8 @@ export interface RunQueryParams {
   connectionId: string;
   sql: string;
   limit?: number;
+  /** Explicit acknowledgement required when the server detects destructive SQL. */
+  executionRiskAccepted?: boolean;
 }
 export type RunQueryResult = QueryResult;
 

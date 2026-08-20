@@ -22,6 +22,7 @@ import { MetadataCache } from "@omni-sql/metadata-cache";
 import { RpcValidationError } from "./rpc-errors.ts";
 import {
   assertEndpointHasNoEmbeddedCredentials,
+  assertExecutionRiskAccepted,
   assertSafeExplainSql,
   extractLegacyEndpointCredentials,
 } from "./security-policy.ts";
@@ -670,9 +671,10 @@ export const handlers: BackendRpcRouter = {
     }
   },
 
-  async "query.run"({ connectionId, sql, limit }: RunQueryParams): Promise<RunQueryResult> {
+  async "query.run"({ connectionId, sql, limit, executionRiskAccepted }: RunQueryParams): Promise<RunQueryResult> {
     await connectionsRestored;
     const s = requireSession(connectionId);
+    assertExecutionRiskAccepted(sql, s.config.dialect, executionRiskAccepted);
     await s.adapter.connect();
     return s.adapter.runQuery(sql, normalizeQueryLimit(limit));
   },
