@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mysqlDescriptor, oracleDescriptor, postgresDescriptor, sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
 import type { DialectDescriptor } from "@omni-sql/dialect-descriptors";
 import { autocompleteTier1, type MetadataSource } from "./engine.ts";
+import { analyzeExecutionRisk } from "./execution-risk.ts";
 import { findStatement, resolveContext, type ScopeRef } from "./context.ts";
 import type { FunctionDef, Relation } from "@omni-sql/ts-types";
 
@@ -611,3 +612,23 @@ test("CTE injetada pelo tier2 sugere colunas no SELECT externo e não usa insert
 });
 
 test.todo("caso 8: subqueries correlacionadas herdam escopo externo");
+
+test("execution risk detects destructive statements without matching comments or strings", () => {
+  assert.equal(analyzeExecutionRisk("DELETE FROM users", "postgres").findings[0]?.kind, "delete-without-where");
+  assert.equal(analyzeExecutionRisk("UPDATE users SET active = false", "postgres").findings[0]?.kind, "update-without-where");
+  assert.equal(analyzeExecutionRisk("TRUNCATE TABLE users", "postgres").level, "critical");
+  assert.equal(analyzeExecutionRisk("ALTER TABLE users DROP COLUMN email", "postgres").level, "critical");
+  assert.equal(analyzeExecutionRisk("DROP TABLE users", "postgres").level, "critical");
+  assert.equal(analyzeExecutionRisk("DELETE FROM users WHERE id = 1", "postgres").level, "none");
+  assert.equal(analyzeExecutionRisk("SELECT 'DELETE FROM users'; -- TRUNCATE users", "postgres").level, "none");
+  assert.equal(analyzeExecutionRisk("INSERT INTO users VALUES (1) ON CONFLICT (id) DO UPDATE SET name = 'x'", "postgres").level, "none");
+  assert.equal(analyzeExecutionRisk("CREATE TABLE children (parent_id INT REFERENCES parents(id) ON DELETE CASCADE)", "postgres").level, "none");
+});
+
+test("execution risk examines every statement and modifying CTEs", () => {
+  const batch = analyzeExecutionRisk("SELECT 1; UPDATE users SET active = false; DELETE FROM logs WHERE id = 1", "postgres");
+  assert.equal(batch.findings.length, 1);
+  assert.equal(batch.findings[0]?.kind, "update-without-where");
+  assert.equal(analyzeExecutionRisk("WITH gone AS (DELETE FROM users RETURNING id) SELECT * FROM gone", "postgres").findings[0]?.kind, "delete-without-where");
+  assert.equal(analyzeExecutionRisk("DELETE FROM users\nGO\nSELECT 1", "sqlserver").findings[0]?.kind, "delete-without-where");
+});
