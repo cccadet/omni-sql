@@ -3,9 +3,16 @@ import { test } from "node:test";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import {
   assertEndpointHasNoEmbeddedCredentials,
+  assertExecutionRiskAccepted,
   assertSafeExplainSql,
   extractLegacyEndpointCredentials,
 } from "./security-policy.ts";
+
+test("query run policy requires explicit acknowledgement for destructive SQL", () => {
+  assert.doesNotThrow(() => assertExecutionRiskAccepted("SELECT 1", "postgres", undefined));
+  assert.throws(() => assertExecutionRiskAccepted("DELETE FROM users", "postgres", undefined), /explicit confirmation/u);
+  assert.doesNotThrow(() => assertExecutionRiskAccepted("DELETE FROM users", "postgres", true));
+});
 
 test("explain policy permits one read-only SELECT", () => {
   assert.doesNotThrow(() => assertSafeExplainSql("WITH totals AS (SELECT 1) SELECT * FROM totals;", "postgres"));

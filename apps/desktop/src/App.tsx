@@ -17,12 +17,14 @@ import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
 import { VariablesDialog } from "./components/VariablesDialog";
+import { SqlCommandLibrary } from "./components/SqlCommandLibrary";
+import { ExecutionRiskDialog } from "./components/ExecutionRiskDialog";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
-import type { Suggestion } from "@omni-sql/autocomplete-engine";
+import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
 import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
@@ -31,9 +33,27 @@ import type { McpStatusResult } from "@omni-sql/ts-types";
 const HISTORY_KEY = "omni-sql:history";
 const CHECK_FOR_UPDATES_EVENT = "check-for-updates";
 const MCP_PROPOSAL_SAFETY_WINDOW_MS = 1_000;
+const TRUSTED_WARNING_CONNECTIONS_KEY = "omni-sql:trusted-warning-connections";
 
 const HISTORY_MAX_ENTRIES = 200;
 const historyTextEncoder = new TextEncoder();
+
+function loadTrustedWarningConnections(): Set<string> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(TRUSTED_WARNING_CONNECTIONS_KEY) ?? "[]");
+    return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveTrustedWarningConnections(connections: ReadonlySet<string>): void {
+  try {
+    localStorage.setItem(TRUSTED_WARNING_CONNECTIONS_KEY, JSON.stringify([...connections]));
+  } catch {
+    // localStorage can be unavailable in restricted webviews.
+  }
+}
 
 interface ActiveQuery {
   sequence: number;
@@ -161,6 +181,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
   const [formatSettingsOpen, setFormatSettingsOpen] = useState(false);
+  const [commandLibraryOpen, setCommandLibraryOpen] = useState(false);
   const [formatterSettings, setFormatterSettings] = useState<FormatterSettings>(loadFormatterSettings);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number } | null>(null);
   const [busyMsg, setBusyMsg] = useState<string | null>(null);
@@ -178,6 +199,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variableNames, setVariableNames] = useState<string[]>([]);
   const [runAfterVariables, setRunAfterVariables] = useState<{ sqls: string[]; label: string } | null>(null);
+  const [pendingRiskRun, setPendingRiskRun] = useState<{ sqls: string[]; label: string; analysis: ExecutionRiskAnalysis } | null>(null);
+  const [trustedWarningConnections, setTrustedWarningConnections] = useState(loadTrustedWarningConnections);
   const [diagnostics, setDiagnostics] = useState<SqlDiagnostic[]>([]);
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("unknown");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -499,7 +522,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   }, []);
 
   const runSqlSequence = useCallback(
-    async (sqls: string[], label: string) => {
+    async (sqls: string[], label: string, executionRiskAccepted = false) => {
       if (!activeConnectionId || !activeTab) return;
       const variables = extractVariablesUnion(sqls);
       if (variables.length > 0) {
@@ -508,6 +531,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         setVariablesOpen(true);
         return;
       }
+      const joinedSql = sqls.join(";\n");
+      const risk = analyzeExecutionRisk(joinedSql, activeDialect);
+      const warningTrusted = risk.level === "warning" && trustedWarningConnections.has(activeConnectionId);
+      if (risk.level !== "none" && !executionRiskAccepted && !warningTrusted) {
+        setPendingRiskRun({ sqls, label, analysis: risk });
+        return;
+      }
+      const riskAccepted = executionRiskAccepted || warningTrusted;
       if (activeQueryRef.current) return;
       updateTab(activeTab.id, { error: null });
       const executionSequence = ++executionSequenceRef.current;
@@ -528,8 +559,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       try {
         const lastResult = await backend.call<QueryResult>("query.run", {
           connectionId: activeConnectionId,
-          sql: sqls.join(";\n"),
+          sql: joinedSql,
           limit: activeTab.queryLimit,
+          ...(riskAccepted ? { executionRiskAccepted: true } : {}),
         }, activeQuery.abortController.signal);
         setResult(lastResult);
         updateTab(activeTab.id, { error: null, latestSqlExecutionError: null });
@@ -581,7 +613,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         finishQuery(activeQuery);
       }
     },
-    [activeConnectionId, activeTab, finishQuery, pushHistory, updateTab, t],
+    [activeConnectionId, activeDialect, activeTab, finishQuery, pushHistory, trustedWarningConnections, updateTab, t],
   );
 
   const handleCancelRun = useCallback(() => {
@@ -972,6 +1004,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onToggleHistory={() => setHistoryOpen((v) => !v)}
+          onOpenCommandLibrary={() => setCommandLibraryOpen(true)}
         />
       </div>
 
@@ -1080,6 +1113,31 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         settings={formatterSettings}
         onClose={() => setFormatSettingsOpen(false)}
         onSave={onSaveFormatSettings}
+      />
+
+      <SqlCommandLibrary
+        open={commandLibraryOpen}
+        dialect={activeDialect}
+        onClose={() => setCommandLibraryOpen(false)}
+        onInsert={(sql) => editorRef.current?.insertAtCursor(sql)}
+      />
+
+      <ExecutionRiskDialog
+        analysis={pendingRiskRun?.analysis ?? null}
+        onCancel={() => setPendingRiskRun(null)}
+        onConfirm={(suppressWarningsForConnection) => {
+          if (!pendingRiskRun) return;
+          const { sqls, label } = pendingRiskRun;
+          if (suppressWarningsForConnection && activeConnectionId) {
+            setTrustedWarningConnections((current) => {
+              const next = new Set(current).add(activeConnectionId);
+              saveTrustedWarningConnections(next);
+              return next;
+            });
+          }
+          setPendingRiskRun(null);
+          void runSqlSequence(sqls, label, true);
+        }}
       />
 
       <HistoryPanel open={historyOpen} entries={history} onClose={() => setHistoryOpen(false)} onClear={onClearHistory} />
