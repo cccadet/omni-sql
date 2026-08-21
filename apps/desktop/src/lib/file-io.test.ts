@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { basenameNoExt, pickJarPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./file-io";
+import { basenameNoExt, exportCsvFile, pickJarPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./file-io";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -34,4 +34,11 @@ it("uses native invoke for SQL reads and writes and JAR selection", async () => 
   expect(invoke).toHaveBeenNthCalledWith(1, "write_text_file", { path: "/tmp/query.sql", contents: "SELECT 1" });
   expect(invoke).toHaveBeenNthCalledWith(2, "read_text_file", { path: "/tmp/query.sql" });
   expect(open).toHaveBeenCalledWith({ filters: [{ name: "JAR", extensions: ["jar"] }], multiple: false });
+});
+
+it("uses the native CSV export command", async () => {
+  vi.mocked(invoke).mockResolvedValueOnce(true);
+
+  await expect(exportCsvFile("id,name\n1,Ada")).resolves.toBe(true);
+  expect(invoke).toHaveBeenCalledWith("write_csv_file", { contents: "id,name\n1,Ada" });
 });
