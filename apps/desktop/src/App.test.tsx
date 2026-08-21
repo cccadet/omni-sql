@@ -269,11 +269,44 @@ describe("App execution flow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Editor run all" }));
 
-    await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", {
-      connectionId: "conn-1",
-      sql: "SELECT 1;\nSELECT 2",
-      limit: 1000,
-    }, expect.any(AbortSignal)));
+    await waitFor(() => {
+      const runs = call.mock.calls.filter(([method]) => method === "query.run");
+      expect(runs).toHaveLength(2);
+      expect(runs[0]).toEqual(["query.run", {
+        connectionId: "conn-1",
+        sql: "SELECT 1",
+        limit: 1000,
+      }, expect.any(AbortSignal)]);
+      expect(runs[1]).toEqual(["query.run", {
+        connectionId: "conn-1",
+        sql: "SELECT 2",
+        limit: 1000,
+      }, expect.any(AbortSignal)]);
+    });
+  });
+
+  it("runs adjacent inserts as separate statements", async () => {
+    seedSession("INSERT INTO SCHEMA.DOCUMENTO (ID_VERSAO, NM_DOCUMENTO) VALUES (1, 'TESTE_1.pdf');INSERT INTO SCHEMA.DOCUMENTO (ID_VERSAO, NM_DOCUMENTO) VALUES (1, 'TESTE_2.pdf')");
+    renderApp();
+    await connectToDatabase();
+
+    fireEvent.click(screen.getByRole("button", { name: "Editor run all" }));
+
+    await waitFor(() => {
+      const runs = call.mock.calls.filter(([method]) => method === "query.run");
+      expect(runs.map(([, params]) => params)).toEqual([
+        {
+          connectionId: "conn-1",
+          sql: "INSERT INTO SCHEMA.DOCUMENTO (ID_VERSAO, NM_DOCUMENTO) VALUES (1, 'TESTE_1.pdf')",
+          limit: 1000,
+        },
+        {
+          connectionId: "conn-1",
+          sql: "INSERT INTO SCHEMA.DOCUMENTO (ID_VERSAO, NM_DOCUMENTO) VALUES (1, 'TESTE_2.pdf')",
+          limit: 1000,
+        },
+      ]);
+    });
   });
 
   it("collects variables before running and substitutes submitted values", async () => {
