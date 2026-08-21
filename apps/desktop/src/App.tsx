@@ -557,19 +557,23 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       setEditability(null);
       setPlanText(null);
       try {
-        const lastResult = await backend.call<QueryResult>("query.run", {
-          connectionId: activeConnectionId,
-          sql: joinedSql,
-          limit: activeTab.queryLimit,
-          ...(riskAccepted ? { executionRiskAccepted: true } : {}),
-        }, activeQuery.abortController.signal);
+        let lastResult: QueryResult | null = null;
+        for (const sql of sqls) {
+          lastResult = await backend.call<QueryResult>("query.run", {
+            connectionId: activeConnectionId,
+            sql,
+            limit: activeTab.queryLimit,
+            ...(riskAccepted ? { executionRiskAccepted: true } : {}),
+          }, activeQuery.abortController.signal);
+        }
+        if (!lastResult) return;
         setResult(lastResult);
         updateTab(activeTab.id, { error: null, latestSqlExecutionError: null });
         ++connectionHealthCheckRef.current;
         setConnectionHealth("online");
         pushHistory(sqls.join(";\n"), true);
         void backend
-          .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: sqls.join(";\n") })
+          .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: joinedSql })
           .then((nextEditability) => {
             if (executionSequence === executionSequenceRef.current) setEditability(nextEditability);
           })
