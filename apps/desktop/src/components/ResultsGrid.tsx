@@ -27,6 +27,7 @@ import {
 } from "@fluentui/react-icons";
 import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
 import { useLanguage } from "../i18n";
+import { exportCsvFile } from "../lib/file-io";
 
 export interface ResultsGridProps {
   result?: QueryResult | null;
@@ -153,6 +154,7 @@ export function ResultsGrid({
   const [localChanges, setLocalChanges] = useState<StagedCellEdit[]>([]);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [focusedColumnIndex, setFocusedColumnIndex] = useState<number | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const gridScrollRef = useRef<HTMLDivElement | null>(null);
   const columnFocusTimerRef = useRef<number | null>(null);
@@ -253,22 +255,19 @@ export function ResultsGrid({
     [sortColumn],
   );
 
-  const handleExportCsv = useCallback(() => {
+  const handleExportCsv = useCallback(async () => {
     if (!result) return;
     const header = result.columns.map((c) => escapeCsv(c.name)).join(",");
     const body = sortedRows
       .map(({ row, rowIndex }) => row.map((value, colIndex) => escapeCsv(changeByCell.get(`${rowIndex}:${colIndex}`) ?? value)).join(","))
       .join("\n");
-    const blob = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "resultados.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  }, [result, sortedRows, changeByCell]);
+    setExportError(null);
+    try {
+      await exportCsvFile(`${header}\n${body}`);
+    } catch (error) {
+      setExportError(`${t("saveFailed")}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [result, sortedRows, changeByCell, t]);
 
   const isColumnEditable = useCallback((colIndex: number) => {
     if (!editability?.editable) return false;
@@ -549,10 +548,11 @@ export function ResultsGrid({
               {committing ? t("applying") : `${t("apply")}${changes.length ? ` ${changes.length}` : ""}`}
             </Button>
             <Tooltip content={t("exportCsv")} relationship="label">
-              <Button icon={<ArrowDownloadRegular />} onClick={handleExportCsv} disabled={!result || rows.length === 0}>
+              <Button icon={<ArrowDownloadRegular />} onClick={() => void handleExportCsv()} disabled={!result || rows.length === 0}>
                 {t("export")}
               </Button>
             </Tooltip>
+            {exportError && <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{exportError}</Text>}
           </div>
         )}
       </div>

@@ -17,6 +17,10 @@ export async function writeSqlFile(path: string, contents: string): Promise<void
   await invoke("write_text_file", { path, contents });
 }
 
+export async function exportCsvFile(contents: string): Promise<boolean> {
+  return invoke<boolean>("write_csv_file", { contents });
+}
+
 export async function pickOpenPath(): Promise<string | null> {
   const result = await openDialog({ filters: FILTERS, multiple: false });
   return typeof result === "string" ? result : null;
