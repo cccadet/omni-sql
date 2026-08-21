@@ -3,6 +3,9 @@ import { expect, test, vi } from "vitest";
 import type { QueryResult } from "@omni-sql/ts-types";
 import { LanguageProvider } from "../i18n";
 import { ResultsGrid, serializeCellValue } from "./ResultsGrid";
+import { exportCsvFile } from "../lib/file-io";
+
+vi.mock("../lib/file-io", () => ({ exportCsvFile: vi.fn() }));
 
 const result: QueryResult = {
   columns: [
@@ -90,58 +93,31 @@ test("finds a column, scrolls it into focus, and temporarily highlights it", () 
   }
 });
 
-test("keeps export anchor alive until click before revoking URL", () => {
-  vi.useFakeTimers();
-  const createObjectURL = vi.fn(() => "blob:test");
-  const revokeObjectURL = vi.fn();
-  vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
-  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-  const remove = vi.spyOn(HTMLAnchorElement.prototype, "remove");
-
-  try {
-    renderGrid();
-    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-
-    expect(click).toHaveBeenCalledOnce();
-    expect(remove).toHaveBeenCalledOnce();
-    expect(revokeObjectURL).not.toHaveBeenCalled();
-
-    vi.runAllTimers();
-    expect(revokeObjectURL).toHaveBeenCalledOnce();
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
-  } finally {
-    click.mockRestore();
-    remove.mockRestore();
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  }
+test("exports through the native save flow", async () => {
+  vi.mocked(exportCsvFile).mockResolvedValueOnce(true);
+  renderGrid();
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+  expect(exportCsvFile).toHaveBeenCalledWith('id,payload\n2,"{""nested"":{""label"":""needle""},""values"":[""x"",2]}"\n10,"{""nested"":{""label"":""other""},""values"":[""y"",3]}"');
 });
 
 test("exports formula-like headers and cells as spreadsheet text", async () => {
-  let exported: Blob | undefined;
-  const createObjectURL = vi.fn((blob: Blob) => {
-    exported = blob;
-    return "blob:test";
-  });
-  vi.stubGlobal("URL", { createObjectURL, revokeObjectURL: vi.fn() });
-  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  vi.mocked(exportCsvFile).mockResolvedValueOnce(true);
   const formulaResult: QueryResult = {
     columns: [{ name: "=header", dataType: "text", nullable: true }],
     rows: [["  @SUM(A1:A2)"], ["-42"], ["normal"]],
     rowsMoreAvailable: false,
     elapsedMs: 1,
   };
-  try {
-    render(<LanguageProvider><ResultsGrid result={formulaResult} /></LanguageProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-    expect(createObjectURL).toHaveBeenCalledWith(expect.objectContaining({
-      type: "text/csv;charset=utf-8;",
-    }));
-    expect(await exported?.text()).toBe("'=header\n'  @SUM(A1:A2)\n'-42\nnormal");
-  } finally {
-    click.mockRestore();
-    vi.unstubAllGlobals();
-  }
+  render(<LanguageProvider><ResultsGrid result={formulaResult} /></LanguageProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+  expect(exportCsvFile).toHaveBeenCalledWith("'=header\n'  @SUM(A1:A2)\n'-42\nnormal");
+});
+
+test("shows native CSV export failures", async () => {
+  vi.mocked(exportCsvFile).mockRejectedValueOnce(new Error("disk full"));
+  renderGrid();
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+  expect(await screen.findByText("Could not save: disk full")).toBeTruthy();
 });
 
 test("stages editable cells and commits or discards the staged batch", async () => {

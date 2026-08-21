@@ -829,6 +829,27 @@ fn write_text_file<R: tauri::Runtime>(
 }
 
 #[tauri::command]
+fn write_csv_file<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    contents: String,
+) -> Result<bool, String> {
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .add_filter("CSV files", &["csv"])
+        .set_file_name("resultados.csv")
+        .blocking_save_file()
+    else {
+        return Ok(false);
+    };
+    let path: PathBuf = selected
+        .try_into()
+        .map_err(|err| format!("selected file is unavailable: {err}"))?;
+    std::fs::write(path, contents).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
 fn read_text_file<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String) -> Result<String, String> {
     let selected_path = selected_file_path(&app, &path, false)?;
     std::fs::read_to_string(selected_path).map_err(|e| e.to_string())
@@ -1040,6 +1061,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             write_text_file,
+            write_csv_file,
             read_text_file,
             get_sidecar_status,
             get_auth_token,
