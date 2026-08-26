@@ -22,6 +22,9 @@ test("mssql supports square brackets and GO batch terminator", () => {
 
 test("oracle accepts alternative slash separator", () => {
   assert.ok(oracleDescriptor.alternativeStatementSeparators.includes("/"));
+  for (const keyword of ["GRANT", "REVOKE", "PRIVILEGES", "ROLE", "ADMIN", "OPTION"]) {
+    assert.ok(oracleDescriptor.keywords.has(keyword));
+  }
 });
 
 test("registry lookup returns descriptor by id", () => {
