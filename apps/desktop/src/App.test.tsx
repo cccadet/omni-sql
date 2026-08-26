@@ -417,6 +417,32 @@ describe("App execution flow", () => {
     expect(call).toHaveBeenCalledWith("connectionGroup.list", {});
   });
 
+  it("introspects and loads metadata for the first saved connection", async () => {
+    const defaultImplementation = call.getMockImplementation();
+    let saved = false;
+    call.mockImplementation(async (method, params, signal) => {
+      if (method === "connection.list") {
+        return { configs: saved
+          ? [{ id: "conn-new", label: "First database", dialect: "postgres", endpoint: "localhost:5432/postgres", user: "postgres" }]
+          : [] };
+      }
+      if (method === "connection.add") {
+        saved = true;
+        return { ok: true, connectionId: "conn-new" };
+      }
+      return defaultImplementation?.(method, params, signal);
+    });
+
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "New connection" }));
+    fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "First database" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+
+    await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.introspect", { connectionId: "conn-new" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.listRelations", { connectionId: "conn-new" }));
+    expect(call).toHaveBeenCalledWith("metadata.listFunctions", { connectionId: "conn-new" });
+  });
+
   it("writes Save As and opens selected SQL files in new tabs", async () => {
     vi.mocked(pickSavePath).mockResolvedValue("/tmp/report.sql");
     vi.mocked(pickOpenPath).mockResolvedValue("/tmp/import.sql");
