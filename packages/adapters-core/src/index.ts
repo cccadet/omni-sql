@@ -67,6 +67,8 @@ export interface Adapter {
    * monta e executa o SQL parametrizado). Retorna `rowsAffected`.
    */
   updateRow(spec: RowUpdateSpec): Promise<number>;
+  /** `INSERT` parametrizado de uma linha; colunas omitidas usam o default do banco. */
+  insertRow(spec: RowInsertSpec): Promise<number>;
 
   /** Descritor de dialeto consumido pelo lexer. */
   dialectDescriptor(): DialectDescriptor;
@@ -106,6 +108,12 @@ export class AdapterError extends Error {
     this.name = "AdapterError";
     this.causeTag = causeTag;
   }
+}
+
+export interface RowInsertSpec {
+  readonly schema: string | null;
+  readonly table: string;
+  readonly values: Readonly<Record<string, unknown>>;
 }
 
 export function databaseDiagnostic(sql: string, error: unknown, dialect: ConnectionConfig["dialect"]): SqlDiagnostic {

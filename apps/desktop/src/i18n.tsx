@@ -249,6 +249,9 @@ const english = {
   "executionRisk.delete-without-where": "DELETE has no WHERE clause",
   "executionRisk.update-without-where": "UPDATE has no WHERE clause",
   "executionRisk.alter-drop": "ALTER TABLE removes part of the table definition",
+  addRow: "Add row",
+  newRowValue: "New row value",
+  defaultValue: "DEFAULT if untouched",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -267,6 +270,7 @@ const portugueseBrazil = [
   "Digite {object} para confirmar", "Entendo, executar", "Não alertar novamente para instruções de nível aviso nesta conexão", "TRUNCATE remove todas as linhas de uma tabela",
   "DROP remove um objeto do banco", "DELETE não possui cláusula WHERE", "UPDATE não possui cláusula WHERE",
   "ALTER TABLE remove parte da definição da tabela",
+  "Adicionar linha", "Valor da nova linha", "DEFAULT se não alterado",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

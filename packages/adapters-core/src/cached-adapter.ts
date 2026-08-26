@@ -9,7 +9,7 @@ import type {
   Schema,
 } from "@omni-sql/ts-types";
 import type { DialectDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, RowUpdateSpec, TestResult } from "./index.ts";
+import type { Adapter, RowInsertSpec, RowUpdateSpec, TestResult } from "./index.ts";
 
 /**
  * Base comum para adaptadores que cacheiam metadados após introspecção.
@@ -87,5 +87,6 @@ export abstract class CachedAdapter implements Adapter {
   abstract listIndexes(schema: string, table: string): Promise<readonly IndexInfo[]>;
   abstract getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string>;
   abstract updateRow(spec: RowUpdateSpec): Promise<number>;
+  abstract insertRow(spec: RowInsertSpec): Promise<number>;
   abstract dialectDescriptor(): DialectDescriptor;
 }

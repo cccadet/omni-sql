@@ -177,6 +177,9 @@ export class InMemoryAdapter implements Adapter {
   async updateRow(): Promise<number> {
     throw new Error("InMemoryAdapter: edição de linhas não suportada (dados sintéticos, sem storage real).");
   }
+  async insertRow(): Promise<number> {
+    throw new Error("InMemoryAdapter: inserção de linhas não suportada (dados sintéticos, sem storage real).");
+  }
 
   dialectDescriptor(): DialectDescriptor {
     return dialectDescriptor(this.dialect === "postgres" ? "postgres" : "jdbc-generic");

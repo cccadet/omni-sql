@@ -15,6 +15,7 @@ import {
 } from "@fluentui/react-components";
 import {
   ArrowDownloadRegular,
+  AddRegular,
   ChevronLeftRegular,
   ChevronRightRegular,
   DismissRegular,
@@ -44,6 +45,7 @@ export interface ResultsGridProps {
   committing?: boolean;
   /** Kept for compatibility; it is now called only when applying all edits. */
   onCellEdit?: (rowIndex: number, colIndex: number, value: unknown) => Promise<void>;
+  onInsertRow?: (values: Readonly<Record<number, unknown>>) => void | Promise<void>;
 }
 
 export interface StagedCellEdit {
@@ -141,6 +143,7 @@ export function ResultsGrid({
   commitPending,
   committing = false,
   onCellEdit,
+  onInsertRow,
 }: ResultsGridProps) {
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan">("data");
@@ -155,6 +158,8 @@ export function ResultsGrid({
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [focusedColumnIndex, setFocusedColumnIndex] = useState<number | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [addingRow, setAddingRow] = useState(false);
+  const [newRowValues, setNewRowValues] = useState<Record<number, string>>({});
   const gridRef = useRef<HTMLDivElement | null>(null);
   const gridScrollRef = useRef<HTMLDivElement | null>(null);
   const columnFocusTimerRef = useRef<number | null>(null);
@@ -332,6 +337,13 @@ export function ResultsGrid({
     setLocalChanges([]);
     await onDiscardChanges?.();
   }, [onDiscardChanges]);
+
+  const insertRow = useCallback(async () => {
+    if (!onInsertRow || Object.keys(newRowValues).length === 0 || committing) return;
+    await onInsertRow(newRowValues);
+    setAddingRow(false);
+    setNewRowValues({});
+  }, [onInsertRow, newRowValues, committing]);
 
   const columns = useMemo(
     () =>
@@ -540,6 +552,17 @@ export function ResultsGrid({
                 {t("discard")}
               </Button>
             )}
+            {editability?.editable && onInsertRow && (
+              <Button
+                appearance="outline"
+                icon={<AddRegular />}
+                aria-label={t("addRow")}
+                disabled={committing || addingRow}
+                onClick={() => { setAddingRow(true); setNewRowValues({}); }}
+              >
+                {t("addRow")}
+              </Button>
+            )}
             <Button
               appearance="primary"
               onClick={() => void applyChanges()}
@@ -627,6 +650,27 @@ export function ResultsGrid({
                   </tr>
                 </thead>
                 <tbody>
+                  {addingRow && (
+                    <tr data-testid="new-row" style={{ background: tokens.colorPaletteYellowBackground2 }}>
+                      {visibleColumns.map((col) => (
+                        <td key={`new:${col.index}`} style={{ padding: "4px 10px", borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>
+                          {col.editable ? (
+                            <Input
+                              aria-label={`${t("newRowValue")} ${col.name}`}
+                              placeholder={t("defaultValue")}
+                              value={newRowValues[col.index] ?? ""}
+                              onChange={(_, data) => setNewRowValues((current) => ({ ...current, [col.index]: data.value }))}
+                              onKeyDown={(event) => { if (event.key === "Enter") void insertRow(); }}
+                            />
+                          ) : <Text size={200}>—</Text>}
+                        </td>
+                      ))}
+                      <td style={{ padding: 4, whiteSpace: "nowrap" }}>
+                        <Button appearance="primary" onClick={() => void insertRow()} disabled={Object.keys(newRowValues).length === 0 || committing}>{t("insert")}</Button>
+                        <Button appearance="subtle" onClick={() => { setAddingRow(false); setNewRowValues({}); }}>{t("cancel")}</Button>
+                      </td>
+                    </tr>
+                  )}
                   {pageRows.map(({ row, rowIndex: originalRowIndex }, displayRowIndex) => (
                     <tr
                       key={originalRowIndex}

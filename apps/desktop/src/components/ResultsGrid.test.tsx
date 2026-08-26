@@ -152,6 +152,25 @@ test("stages editable cells and commits or discards the staged batch", async () 
   expect(discard).toHaveBeenCalledOnce();
 });
 
+test("adds a row from an empty editable result and omits untouched columns", async () => {
+  const insertRow = vi.fn().mockResolvedValue(undefined);
+  render(
+    <LanguageProvider>
+      <ResultsGrid
+        result={{ ...result, rows: [] }}
+        editability={{ editable: true, reason: null, table: { schema: "public", name: "orders" }, pkColumns: ["id"], selectStar: true, columns: [] }}
+        onInsertRow={insertRow}
+      />
+    </LanguageProvider>,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "New row value payload" }), { target: { value: "hello" } });
+  fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+
+  expect(insertRow).toHaveBeenCalledWith({ 1: "hello" });
+});
+
 test("surfaces messages and plans for result and error states", async () => {
   const resultWithMessages: QueryResult = { ...result, rowsAffected: 2, rowsMoreAvailable: true };
   render(

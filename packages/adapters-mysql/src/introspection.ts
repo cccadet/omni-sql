@@ -10,7 +10,7 @@ import type {
   QueryResultColumn,
   Relation,
 } from "@omni-sql/ts-types";
-import type { RowUpdateSpec } from "@omni-sql/adapters-core";
+import type { RowInsertSpec, RowUpdateSpec } from "@omni-sql/adapters-core";
 import { mysqlDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 
 // ─────────────────────────── Types
@@ -541,6 +541,18 @@ export async function cancelQueryViaPool(
  * valores diretamente no SQL. `spec.where`/`spec.set` já vêm validados pela
  * camada de backend; aqui só quotamos identificadores e montamos os binds.
  */
+export async function insertRowViaPool(pool: Pool, spec: RowInsertSpec): Promise<number> {
+  const entries = Object.entries(spec.values);
+  if (entries.length === 0) throw new Error("insertRow: values vazio");
+  const tableRef = spec.schema
+    ? `${quoteIdentifier(mysqlDescriptor, spec.schema)}.${quoteIdentifier(mysqlDescriptor, spec.table)}`
+    : quoteIdentifier(mysqlDescriptor, spec.table);
+  const columns = entries.map(([column]) => quoteIdentifier(mysqlDescriptor, column)).join(", ");
+  const params = entries.map(() => "?").join(", ");
+  const [result] = await pool.query<ResultSetHeader>(`INSERT INTO ${tableRef} (${columns}) VALUES (${params})`, entries.map(([, value]) => value));
+  return result.affectedRows ?? 0;
+}
+
 export async function updateRowViaPool(pool: Pool, spec: RowUpdateSpec): Promise<number> {
   const setEntries = Object.entries(spec.set);
   const whereEntries = Object.entries(spec.where);

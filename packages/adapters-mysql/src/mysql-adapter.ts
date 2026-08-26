@@ -8,10 +8,11 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { mysqlDescriptor, mariadbDescriptor } from "@omni-sql/dialect-descriptors";
-import { databaseDiagnostic, type Adapter, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
+  insertRowViaPool,
   cancelQueryViaPool,
   introspectSchemas,
   listFunctionsPerSchema,
@@ -125,6 +126,7 @@ export class MysqlAdapter extends CachedAdapter implements Adapter {
   async updateRow(spec: RowUpdateSpec): Promise<number> {
     return updateRowViaPool(this.pool, spec);
   }
+  async insertRow(spec: RowInsertSpec): Promise<number> { return insertRowViaPool(this.pool, spec); }
 
   async explain(sql: string): Promise<ExplainResult> {
     const [rows] = await this.pool.query<(RowDataPacket & { EXPLAIN: string })[]>(
