@@ -64,7 +64,9 @@ test("does not show the internal ID for a new connection", () => {
 
 test("tests and saves a new connection", async () => {
   const call = vi.mocked(backend.call);
-  call.mockResolvedValue({ ok: true, latencyMs: 12 });
+  call.mockImplementation(async (method) => method === "connection.add"
+    ? { ok: true, connectionId: "conn-new" }
+    : { ok: true, latencyMs: 12 });
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
 
   const dialog = screen.getByRole("dialog");
@@ -87,6 +89,7 @@ test("tests and saves a new connection", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
   await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  assert.deepEqual(saved.mock.calls[0], ["conn-new"]);
   assert.ok(call.mock.calls.some(([method]) => method === "connection.add"));
 });
 

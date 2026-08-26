@@ -70,7 +70,7 @@ export interface ConnectionDialogProps {
   editing?: ConnectionConfig | null;
   duplicating?: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (connectionId: string) => void | Promise<void>;
 }
 
 export function ConnectionDialog({ open, editing, duplicating = false, onClose, onSaved }: ConnectionDialogProps) {
@@ -211,8 +211,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setBusy(true);
     setError(null);
     try {
-      await backend.call("connection.add", { config: buildConfig(), password });
-      onSaved();
+      const result = await backend.call<{ connectionId: string }>("connection.add", { config: buildConfig(), password });
+      await onSaved(result.connectionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);

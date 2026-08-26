@@ -375,28 +375,32 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     }
   }, [activeConnectionId, loadSidebarData, sidebarCache]);
 
-  const introspectActive = useCallback(async () => {
-    if (!activeConnectionId) return;
+  const introspectConnection = useCallback(async (connectionId: string, tabId: string) => {
     setBusyMsg(t("refreshMetadata"));
     try {
-      await backend.call("metadata.introspect", { connectionId: activeConnectionId });
+      await backend.call("metadata.introspect", { connectionId });
       setMetadataRefreshFailures((previous) => {
         const remaining = { ...previous };
-        delete remaining[activeConnectionId];
+        delete remaining[connectionId];
         return remaining;
       });
       ++connectionHealthCheckRef.current;
       setConnectionHealth("online");
       await loadConnections();
-      await loadSidebarData(activeConnectionId);
-      updateTab(activeTab.id, { error: null });
+      await loadSidebarData(connectionId);
+      updateTab(tabId, { error: null });
     } catch (e) {
-      setMetadataRefreshFailures((previous) => ({ ...previous, [activeConnectionId]: true }));
-      updateTab(activeTab.id, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
+      setMetadataRefreshFailures((previous) => ({ ...previous, [connectionId]: true }));
+      updateTab(tabId, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
     } finally {
       setBusyMsg(null);
     }
-  }, [activeConnectionId, activeTab.id, loadConnections, loadSidebarData, updateTab, t]);
+  }, [loadConnections, loadSidebarData, updateTab, t]);
+
+  const introspectActive = useCallback(async () => {
+    if (!activeConnectionId) return;
+    await introspectConnection(activeConnectionId, activeTab.id);
+  }, [activeConnectionId, activeTab.id, introspectConnection]);
 
   const onRefreshMetadata = useCallback(() => {
     if (!activeConnectionId) return;
@@ -467,14 +471,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     await loadConnections();
   }, [loadConnections]);
 
-  const onConnectionSaved = useCallback(async () => {
+  const onConnectionSaved = useCallback(async (connectionId: string) => {
     setDialogOpen(false);
-    await loadConnections();
-    if (!activeTab.connectionId && connections.length > 0) {
-      updateTab(activeTab.id, { connectionId: connections[0]!.id });
+    if (!activeTab.connectionId) {
+      updateTab(activeTab.id, { connectionId });
     }
-    await introspectActive();
-  }, [activeTab.connectionId, activeTab.id, connections, introspectActive, loadConnections, updateTab]);
+    await loadConnections();
+    await introspectConnection(connectionId, activeTab.id);
+  }, [activeTab.connectionId, activeTab.id, introspectConnection, loadConnections, updateTab]);
 
   const handleAutocomplete = useCallback(
     async (cursor: number, sql = "", signal?: AbortSignal): Promise<Suggestion[]> => {
