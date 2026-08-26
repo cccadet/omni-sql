@@ -8,7 +8,7 @@ import type {
 } from "@omni-sql/ts-types";
 import { randomUUID } from "node:crypto";
 import { jdbcGenericDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import type { Adapter, RowInsertSpec, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import { jdbcClose, jdbcConnect, jdbcIntrospect, jdbcListSchemas, jdbcQuery, type JdbcTableBody } from "./sidecar-client.ts";
 
@@ -141,6 +141,7 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
       "edição de célula não é suportada para jdbc-generic ainda — precisaria de um endpoint de statement parametrizado no sidecar",
     );
   }
+  async insertRow(_spec: RowInsertSpec): Promise<number> { throw new Error("inserção de linha não é suportada pelo adaptador JDBC genérico"); }
 
   dialectDescriptor() {
     return jdbcGenericDescriptor;

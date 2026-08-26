@@ -8,10 +8,11 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
-import { databaseDiagnostic, type Adapter, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
+  insertRowViaPool,
   introspectSchemas,
   listFunctionsPerSchema,
   listIndexesViaPool,
@@ -133,6 +134,7 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
   async updateRow(spec: RowUpdateSpec): Promise<number> {
     return updateRowViaPool(this.pool, spec);
   }
+  async insertRow(spec: RowInsertSpec): Promise<number> { return insertRowViaPool(this.pool, spec); }
 
   async explain(sql: string): Promise<ExplainResult> {
     const client = await this.pool.connect();

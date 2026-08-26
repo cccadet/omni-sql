@@ -12,7 +12,7 @@ import type {
   QueryResultColumn,
   Relation,
 } from "@omni-sql/ts-types";
-import type { RowUpdateSpec } from "@omni-sql/adapters-core";
+import type { RowInsertSpec, RowUpdateSpec } from "@omni-sql/adapters-core";
 import { postgresDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 
 // ─────────────────────────── Types
@@ -568,6 +568,18 @@ function isQueryCancellation(error: unknown): boolean {
  * validados pela camada de backend (colunas reais, `where` cobrindo
  * exatamente a PK); aqui só quotamos identificadores e montamos os binds.
  */
+export async function insertRowViaPool(pool: Pool, spec: RowInsertSpec): Promise<number> {
+  const entries = Object.entries(spec.values);
+  if (entries.length === 0) throw new Error("insertRow: values vazio");
+  const tableRef = spec.schema
+    ? `${quoteIdentifier(postgresDescriptor, spec.schema)}.${quoteIdentifier(postgresDescriptor, spec.table)}`
+    : quoteIdentifier(postgresDescriptor, spec.table);
+  const columns = entries.map(([column]) => quoteIdentifier(postgresDescriptor, column)).join(", ");
+  const params = entries.map((_, index) => `$${index + 1}`).join(", ");
+  const result = await pool.query(`INSERT INTO ${tableRef} (${columns}) VALUES (${params})`, entries.map(([, value]) => value));
+  return result.rowCount ?? 0;
+}
+
 export async function updateRowViaPool(pool: Pool, spec: RowUpdateSpec): Promise<number> {
   const setEntries = Object.entries(spec.set);
   const whereEntries = Object.entries(spec.where);

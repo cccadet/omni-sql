@@ -736,6 +736,25 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     [activeConnectionId, activeTab.id, editability, result, updateTab],
   );
 
+  const handleInsertRow = useCallback(async (valuesByColumn: Readonly<Record<number, unknown>>) => {
+    if (!activeConnectionId || !result || !editability?.editable || !editability.table) return;
+    const values: Record<string, unknown> = {};
+    for (const [rawIndex, value] of Object.entries(valuesByColumn)) {
+      const columnIndex = Number(rawIndex);
+      const sourceColumn = editability.columns.length === 0
+        ? result.columns[columnIndex]?.name
+        : editability.columns[columnIndex]?.sourceColumn;
+      if (sourceColumn) values[sourceColumn] = value;
+    }
+    try {
+      await backend.call("row.insert", { connectionId: activeConnectionId, table: editability.table, values });
+      await runSqlSequence([activeTab.sql], t("running"));
+    } catch (e) {
+      updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
+  }, [activeConnectionId, activeTab.id, activeTab.sql, editability, result, runSqlSequence, t, updateTab]);
+
   const onSaveTab = useCallback(async () => {
     if (!activeTab.filePath) {
       const path = await pickSavePath(activeTab.title);
@@ -1075,7 +1094,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid result={result} error={activeTab.error} planText={planText} editability={editability} onCellEdit={handleCellEdit} />
+        <ResultsGrid result={result} error={activeTab.error} planText={planText} editability={editability} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} />
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>

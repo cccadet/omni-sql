@@ -66,6 +66,8 @@ import type {
   AnalyzeEditabilityResult,
   UpdateRowParams,
   UpdateRowResult,
+  InsertRowParams,
+  InsertRowResult,
   IntrospectParams,
   IntrospectResult,
   ListRelationsParams,
@@ -791,6 +793,26 @@ export const handlers: BackendRpcRouter = {
           : `atualização afetou ${rowsAffected} linhas — abortada por segurança`,
       );
     }
+    return { rowsAffected };
+  },
+
+  async "row.insert"({ connectionId, table, values }: InsertRowParams): Promise<InsertRowResult> {
+    const s = requireSession(connectionId);
+    const relation = resolveRelationByName(connectionId, table.name, table.schema);
+    if (!relation || relation.kind !== "table") throw new RpcValidationError("tabela não encontrada");
+    const validColumns = new Set(relation.columns.map((column) => column.name));
+    const columns = Object.keys(values);
+    if (columns.length === 0) throw new RpcValidationError("informe ao menos um valor para inserir");
+    for (const column of columns) {
+      if (!validColumns.has(column)) throw new RpcValidationError("coluna desconhecida");
+    }
+    await s.adapter.connect();
+    const rowsAffected = await s.adapter.insertRow({
+      schema: relation.schema,
+      table: relation.name,
+      values,
+    });
+    if (rowsAffected !== 1) throw new RpcValidationError(`inserção afetou ${rowsAffected} linhas`);
     return { rowsAffected };
   },
 

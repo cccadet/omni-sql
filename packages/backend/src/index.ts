@@ -218,6 +218,8 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["query.analyzeEditability"](params as never);
     case "row.update":
       return handlers["row.update"](params as never);
+    case "row.insert":
+      return handlers["row.insert"](params as never);
     case "metadata.introspect":
       return handlers["metadata.introspect"](params as never);
     case "metadata.listRelations":

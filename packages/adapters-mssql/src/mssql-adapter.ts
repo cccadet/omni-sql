@@ -8,10 +8,11 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
-import { databaseDiagnostic, type Adapter, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
+  insertRowViaPool,
   introspectSchemas,
   listFunctionsPerSchema,
   listIndexesViaPool,
@@ -120,6 +121,10 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
   async updateRow(spec: RowUpdateSpec): Promise<number> {
     const pool = await this.getPool();
     return updateRowViaPool(pool, spec);
+  }
+  async insertRow(spec: RowInsertSpec): Promise<number> {
+    const pool = await this.getPool();
+    return insertRowViaPool(pool, spec);
   }
 
   /**

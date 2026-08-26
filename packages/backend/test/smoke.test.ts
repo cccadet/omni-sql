@@ -647,6 +647,30 @@ test("row editability: query.analyzeEditability resolves real PK, row.update val
     );
     assert.ok(valid.error);
     assert.equal(valid.error!.message, "Internal error");
+
+    const emptyInsert = await rpc(
+      "row.insert",
+      { connectionId: "edit-demo", table: { schema: "public", name: "users" }, values: {} },
+      editUrl,
+    );
+    assert.ok(emptyInsert.error);
+    assert.match(emptyInsert.error!.message, /ao menos um valor/);
+
+    const unknownInsertColumn = await rpc(
+      "row.insert",
+      { connectionId: "edit-demo", table: { schema: "public", name: "users" }, values: { imaginary: 1 } },
+      editUrl,
+    );
+    assert.ok(unknownInsertColumn.error);
+    assert.match(unknownInsertColumn.error!.message, /coluna desconhecida/);
+
+    const validInsert = await rpc(
+      "row.insert",
+      { connectionId: "edit-demo", table: { schema: "public", name: "users" }, values: { name: "Grace" } },
+      editUrl,
+    );
+    assert.ok(validInsert.error);
+    assert.equal(validInsert.error!.message, "Internal error");
   } finally {
     globalThis.fetch = originalFetch;
     server.close();
