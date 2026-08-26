@@ -502,6 +502,14 @@ function isReadQuery(sql: string): boolean {
   );
 }
 
+/** Oracle EXPLAIN PLAN accepts DML queries, but not DDL/DCL such as GRANT. */
+export function isOracleExplainableStatement(sql: string): boolean {
+  const tokens = tokenizeOracleSql(stripTrailingStatementDelimiter(sql));
+  const first = tokens[0]?.value;
+  const statement = first === "WITH" ? withMainStatement(tokens) : first;
+  return statement !== undefined && ["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE"].includes(statement);
+}
+
 export interface PreparedOracleQuery {
   readonly sql: string;
   readonly binds: Record<string, number>;

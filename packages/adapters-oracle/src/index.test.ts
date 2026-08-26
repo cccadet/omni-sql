@@ -4,6 +4,7 @@ import { OracleAdapter } from "./index.ts";
 import {
   getDefinitionViaConnection,
   introspectSchemas,
+  isOracleExplainableStatement,
   listFunctionsPerSchema,
   listIndexesViaConnection,
   listSchemaNames,
@@ -42,6 +43,28 @@ test("OracleAdapter: constrói sem disparar conexão", () => {
 test("OracleAdapter: factory via construtor produz instância Adapter", () => {
   const a = new OracleAdapter(cfg());
   assert.equal(a.dialect, "oracle");
+});
+
+test("OracleAdapter: diagnóstico não tenta EXPLAIN PLAN em GRANT", async () => {
+  const adapter = new OracleAdapter(cfg());
+  let explainCalls = 0;
+  adapter.explain = async () => {
+    explainCalls += 1;
+    throw new Error("EXPLAIN PLAN não deveria ser chamado para DCL");
+  };
+
+  assert.deepEqual(
+    await adapter.validateQuery("GRANT SELECT ON BIDW.DIM_ORIGEM TO DREMIO;"),
+    [],
+  );
+  assert.equal(explainCalls, 0);
+});
+
+test("classificação Oracle envia apenas statements explicáveis ao EXPLAIN PLAN", () => {
+  assert.equal(isOracleExplainableStatement("SELECT * FROM BIDW.DIM_ORIGEM;"), true);
+  assert.equal(isOracleExplainableStatement("UPDATE BIDW.DIM_ORIGEM SET ID = 1;"), true);
+  assert.equal(isOracleExplainableStatement("/* segurança */ GRANT SELECT ON BIDW.DIM_ORIGEM TO DREMIO;"), false);
+  assert.equal(isOracleExplainableStatement("REVOKE SELECT ON BIDW.DIM_ORIGEM FROM DREMIO;"), false);
 });
 
 test("introspectSchemas ignora FK incompleta e preserva FK válida", async () => {

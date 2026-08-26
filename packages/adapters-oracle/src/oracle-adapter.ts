@@ -14,6 +14,7 @@ import {
   getDefinitionViaConnection,
   insertRowViaConnection,
   introspectSchemas,
+  isOracleExplainableStatement,
   listFunctionsPerSchema,
   listIndexesViaConnection,
   listSchemaNames,
@@ -200,6 +201,7 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
   }
 
   async validateQuery(sql: string) {
+    if (!isOracleExplainableStatement(sql)) return [];
     try { await this.explain(sql); return []; }
     catch (e) { return [databaseDiagnostic(sql, e, this.dialect)] as const; }
   }
