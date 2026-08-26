@@ -53,6 +53,48 @@ struct AuthToken {
 }
 struct McpDescriptorPath(Mutex<Option<PathBuf>>);
 
+/// Stops a child owned by this app and reaps it before an updater can replace
+/// its executable. `kill` only requests termination; waiting here makes the
+/// lifetime of the child explicit and surfaces failures in the app log.
+fn stop_child(child: &mut Child, name: &str) {
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            log::info!("{name} had already exited with status {status}");
+            return;
+        }
+        Ok(None) => {}
+        Err(err) => {
+            log::warn!("failed to check {name} before shutdown: {err}");
+        }
+    }
+
+    if let Err(err) = child.kill() {
+        log::warn!("failed to terminate {name}: {err}");
+        return;
+    }
+    match child.wait() {
+        Ok(status) => log::info!("{name} stopped with status {status}"),
+        Err(err) => log::warn!("failed to reap {name} after termination: {err}"),
+    }
+}
+
+/// This is intentionally callable from both window destruction and the global
+/// application-exit event. Either event may be absent depending on how the
+/// process is closed (notably during an installer-driven update).
+fn stop_managed_sidecars<R: tauri::Runtime>(app: &AppHandle<R>) {
+    let state: tauri::State<'_, BackendChild> = app.state();
+    let backend_child = state.0.lock().unwrap().take();
+    if let Some(mut child) = backend_child {
+        stop_child(&mut child, "Node backend sidecar");
+    }
+
+    let sidecar_state: tauri::State<'_, SidecarChild> = app.state();
+    let sidecar_child = sidecar_state.0.lock().unwrap().take();
+    if let Some(mut child) = sidecar_child {
+        stop_child(&mut child, "JVM sidecar");
+    }
+}
+
 #[derive(Serialize)]
 struct McpRuntimeDescriptor {
     endpoint: String,
@@ -1200,10 +1242,7 @@ pub fn run() {
             let runtime_dir = match mcp_runtime_dir(app.handle()) {
                 Ok(dir) => dir,
                 Err(err) => {
-                    let state: tauri::State<'_, BackendChild> = app.state();
-                    if let Some(mut child) = state.0.lock().unwrap().take() {
-                        let _ = child.kill();
-                    }
+                    stop_managed_sidecars(app.handle());
                     return Err(err.into());
                 }
             };
@@ -1441,19 +1480,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                let state: tauri::State<'_, BackendChild> = window.state();
-                let mut guard = state.0.lock().unwrap();
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    log::info!("backend sidecar killed");
-                }
-
-                let sidecar_state: tauri::State<'_, SidecarChild> = window.state();
-                let mut sidecar_guard = sidecar_state.0.lock().unwrap();
-                if let Some(mut child) = sidecar_guard.take() {
-                    let _ = child.kill();
-                    log::info!("JVM sidecar killed");
-                }
+                stop_managed_sidecars(window.app_handle());
                 remove_mcp_runtime_descriptor(window.app_handle());
             }
         })
@@ -1461,6 +1488,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
+                stop_managed_sidecars(app_handle);
                 remove_mcp_runtime_descriptor(app_handle);
             }
         })
