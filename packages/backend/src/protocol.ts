@@ -159,6 +159,12 @@ export interface UpdateRowParams {
 export interface UpdateRowResult {
   rowsAffected: number;
 }
+export interface InsertRowParams {
+  connectionId: string;
+  table: { schema: string; name: string };
+  values: Record<string, unknown>;
+}
+export interface InsertRowResult { rowsAffected: number; }
 
 export interface IntrospectParams {
   connectionId: string;
@@ -278,6 +284,7 @@ export interface RpcRouter {
   "query.diagnose": (p: DiagnoseQueryParams) => Promise<DiagnoseQueryResult>;
   "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;
   "row.update": (p: UpdateRowParams) => Promise<UpdateRowResult>;
+  "row.insert": (p: InsertRowParams) => Promise<InsertRowResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;
   "metadata.listRelations": (p: ListRelationsParams) => Promise<ListRelationsResult>;
   "metadata.listColumns": (p: ListColumnsParams) => Promise<ListColumnsResult>;

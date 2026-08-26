@@ -10,7 +10,7 @@ import type {
   QueryResultColumn,
   Relation,
 } from "@omni-sql/ts-types";
-import type { RowUpdateSpec } from "@omni-sql/adapters-core";
+import type { RowInsertSpec, RowUpdateSpec } from "@omni-sql/adapters-core";
 import { quoteIdentifier, sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
 
 // ─────────────────────────── Types
@@ -498,6 +498,19 @@ function tokenizeSql(sqlText: string): SqlToken[] | null {
  * já vêm validados pela camada de backend; aqui só quotamos identificadores e
  * montamos os binds.
  */
+export async function insertRowViaPool(pool: ConnectionPool, spec: RowInsertSpec): Promise<number> {
+  const entries = Object.entries(spec.values);
+  if (entries.length === 0) throw new Error("insertRow: values vazio");
+  const request = pool.request();
+  const tableRef = spec.schema
+    ? `${quoteIdentifier(sqlserverDescriptor, spec.schema)}.${quoteIdentifier(sqlserverDescriptor, spec.table)}`
+    : quoteIdentifier(sqlserverDescriptor, spec.table);
+  const columns = entries.map(([column]) => quoteIdentifier(sqlserverDescriptor, column)).join(", ");
+  const params = entries.map(([, value], index) => { request.input(`v${index}`, value); return `@v${index}`; }).join(", ");
+  const result = await request.query(`INSERT INTO ${tableRef} (${columns}) VALUES (${params})`);
+  return result.rowsAffected?.[0] ?? 0;
+}
+
 export async function updateRowViaPool(pool: ConnectionPool, spec: RowUpdateSpec): Promise<number> {
   const setEntries = Object.entries(spec.set);
   const whereEntries = Object.entries(spec.where);

@@ -8,10 +8,11 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { oracleDescriptor } from "@omni-sql/dialect-descriptors";
-import { databaseDiagnostic, type Adapter, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaConnection,
+  insertRowViaConnection,
   introspectSchemas,
   listFunctionsPerSchema,
   listIndexesViaConnection,
@@ -156,6 +157,18 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
     const conn = await pool.getConnection();
     try {
       return await updateRowViaConnection(conn, spec);
+    } catch (e) {
+      await conn.rollback().catch(() => undefined);
+      throw e;
+    } finally {
+      await conn.close();
+    }
+  }
+  async insertRow(spec: RowInsertSpec): Promise<number> {
+    const pool = await this.getPool();
+    const conn = await pool.getConnection();
+    try {
+      return await insertRowViaConnection(conn, spec);
     } catch (e) {
       await conn.rollback().catch(() => undefined);
       throw e;

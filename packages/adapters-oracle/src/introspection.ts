@@ -10,7 +10,7 @@ import type {
   QueryResultColumn,
   Relation,
 } from "@omni-sql/ts-types";
-import type { RowUpdateSpec } from "@omni-sql/adapters-core";
+import type { RowInsertSpec, RowUpdateSpec } from "@omni-sql/adapters-core";
 import { oracleDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 
 // ─────────────────────────── Types
@@ -579,6 +579,20 @@ export async function runQueryViaConnection(
  * já vêm validados pela camada de backend (colunas reais, `where` cobrindo
  * exatamente a PK); aqui só quotamos identificadores e montamos os binds.
  */
+export async function insertRowViaConnection(conn: Connection, spec: RowInsertSpec): Promise<number> {
+  const entries = Object.entries(spec.values);
+  if (entries.length === 0) throw new Error("insertRow: values vazio");
+  const tableRef = spec.schema
+    ? `${quoteIdentifier(oracleDescriptor, spec.schema)}.${quoteIdentifier(oracleDescriptor, spec.table)}`
+    : quoteIdentifier(oracleDescriptor, spec.table);
+  const binds: Record<string, unknown> = {};
+  const columns = entries.map(([column]) => quoteIdentifier(oracleDescriptor, column)).join(", ");
+  const params = entries.map(([, value], index) => { binds[`v${index}`] = value; return `:v${index}`; }).join(", ");
+  const result = await conn.execute(`INSERT INTO ${tableRef} (${columns}) VALUES (${params})`, binds as Record<string, oracledb.BindParameter>);
+  await conn.commit();
+  return result.rowsAffected ?? 0;
+}
+
 export async function updateRowViaConnection(conn: Connection, spec: RowUpdateSpec): Promise<number> {
   const setEntries = Object.entries(spec.set);
   const whereEntries = Object.entries(spec.where);
