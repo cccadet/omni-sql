@@ -150,6 +150,10 @@ jobs:
       - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@v6
         with:
-          args: -Dsonar.qualitygate.wait=true
+          # Java 21 is provisioned above. Reuse it instead of asking the scanner
+          # bootstrap API to download another JRE before analysis.
+          args: >-
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.scanner.skipJreProvisioning=true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
