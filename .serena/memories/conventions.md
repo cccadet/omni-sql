@@ -1,7 +1,7 @@
-Use functional React components with hooks and Fluent UI React v9. Keep TypeScript strict. Preserve backend RPC type safety through `packages/backend/src/protocol.ts`; cross-package imports use `workspace:*` and explicit `.ts` extensions.
-
-Autocomplete tier1 consumes dialect descriptors and metadata. CTE completion may call JVM `/scope/resolve`; sidecar unavailable, timeout, invalid JSON, or invalid SQL response must return to tier1 without breaking completion. Scope resolver isolates balanced CTE bodies and parses them with Calcite; real schema/catalog, `SELECT *` expansion, and correlated subquery scope remain outside current scope.
-
-Validate untrusted query limits and MCP payloads before adapters/UI bridge. `query.run` defaults to 1,000 rows and caps at 10,000; `query.cancel` delegates to adapter cancellation where supported. MCP HTTP stays loopback, authenticated, session-bounded, and payload-bounded.
-
-Frontend tabs/history/theme persist in `localStorage`; connection records persist in SQLite and passwords come from OS keyring. Frontend/backend communication stays localhost JSON-RPC. Related maps: `mem:frontend/core`, `mem:backend/core`, `mem:mcp-server/core`.
+# Conventions
+- Functional React components/hooks; do not use experimental React 19 APIs. Use Fluent UI v9 in the desktop UI.
+- Preserve strict TypeScript constraints and explicit `.ts` in cross-package imports. Contracts belong in `packages/backend/src/protocol.ts`; do not invent incompatible UI/backend payloads.
+- Tests: backend and packages use Node's test runner; desktop uses Vitest/jsdom. ESLint 9 flat config.
+- SQL completion is context-sensitive lexer + metadata; CTE relations originate from sidecar scope resolution and must retain tier-1 fallback behavior.
+- Metadata SQL respects database dialects; PostgreSQL metadata uses information_schema/pg_catalog, query execution uses cursors and JSON EXPLAIN. SQL Server planning uses SHOWPLAN in a separate transaction.
+- Do not assume production file keyring fallback: it needs `OMNI_SQL_DEV_KEYRING_FILE` or `OMNI_SQL_DEV_KEYRING=1`.
