@@ -59,3 +59,6 @@ apps/desktop/src-tauri/resultados.csv
 .agents/
 .windsurf/
 skills-lock.json
+.claude/
+.playwright/
+security-scan-results/
