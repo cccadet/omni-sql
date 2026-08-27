@@ -141,6 +141,16 @@ test("JdbcAdapter: erro do sidecar (ok:false) vira Error com causeTag/message", 
   }
 });
 
+test("JdbcAdapter: resposta sem confirmação de sucesso é rejeitada", async () => {
+  const restore = mockFetch(() => ({ error: "unauthorized" }));
+  try {
+    const a = new JdbcAdapter(cfg());
+    await assert.rejects(a.connect(), /resposta inesperada.*error/);
+  } finally {
+    restore();
+  }
+});
+
 test("JdbcAdapter: test() fecha a conexão depois de testar", async () => {
   const calls: string[] = [];
   const restore = mockFetch((url) => {

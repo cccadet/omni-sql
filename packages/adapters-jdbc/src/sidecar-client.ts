@@ -80,8 +80,16 @@ async function callSidecar(path: string, body: unknown): Promise<Record<string, 
   } catch (e) {
     throw new Error(`sidecar JVM retornou uma resposta JSON inválida em ${path}`, { cause: e });
   }
+  if (!res.ok) {
+    throw new Error(`sidecar JVM recusou a requisição em ${path} (HTTP ${res.status})`);
+  }
   if (parsed.ok === false) {
     throw new Error(`[${parsed.causeTag}] ${parsed.message}`);
+  }
+  if (parsed.ok !== true) {
+    throw new Error(
+      `sidecar JVM retornou uma resposta inesperada em ${path} (campos: ${Object.keys(parsed).sort(compareStrings).join(",")})`,
+    );
   }
   if (process.env.OMNI_SQL_DEBUG_JDBC === "1") {
     console.log(`[omni-sql] jdbc sidecar response path=${path} fields=${Object.keys(parsed).sort(compareStrings).join(",")}`);

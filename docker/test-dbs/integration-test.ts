@@ -40,6 +40,9 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "omni-integration-"));
 process.env.OMNI_SQL_METADATA_DB = path.join(tmpDir, "metadata.db");
 process.env.OMNI_SQL_DEV_KEYRING_FILE = path.join(tmpDir, "keyring.json");
 process.env.OMNI_SQL_AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN ?? "integration-auth-token";
+// O backend e o sidecar usam capabilities separadas no desktop. Nesta suíte
+// os dois processos compartilham deliberadamente o mesmo token conhecido.
+process.env.OMNI_SQL_SIDECAR_AUTH_TOKEN = process.env.OMNI_SQL_AUTH_TOKEN;
 const RPC_AUTH_HEADERS = {
   authorization: `Bearer ${process.env.OMNI_SQL_AUTH_TOKEN}`,
 };
@@ -86,7 +89,7 @@ interface Target {
   /** Schema público (public/dbo/OMNI) — Oracle usa o próprio user como schema. */
   schema: string;
   /** Opções extras do ConnectionConfig — jdbc-generic exige jarPath/driverClassName. */
-  options?: Record<string, string>;
+  options?: Record<string, string | number | boolean>;
 }
 
 /**
@@ -124,6 +127,9 @@ const TARGETS: Record<string, Target> = {
     user: "sa",
     password: "Omni!2024",
     schema: "dbo",
+    // A imagem local usa certificado autoassinado. Tedious 20 também exige
+    // um nome DNS explícito para SNI quando o endpoint é um IP literal.
+    options: { trustServerCertificate: true, serverName: "localhost" },
   },
   oracle: {
     label: "Oracle XE",
@@ -262,7 +268,10 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
       });
 
       it("metadata.listRelations", async () => {
-        const res = await rpc("metadata.listRelations", { connectionId: connId });
+        const res = await rpc("metadata.listRelations", {
+          connectionId: connId,
+          includeColumns: true,
+        });
         const result = res.result as {
           relations: {
             name: string;
@@ -433,7 +442,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
           cursor: "WITH cte AS (SELECT id, name FROM customers) SELECT * FROM ".length,
         });
         const result = res.result as { suggestions: { label: string }[] };
-        const labels = result.suggestions.map((s) => s.label);
+        const labels = result.suggestions.map((s) => s.label.toLowerCase());
         assert.ok(labels.includes("cte"), `cte missing from completion, got: ${labels}`);
       });
 
