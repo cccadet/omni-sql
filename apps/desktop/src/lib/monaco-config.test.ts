@@ -1,7 +1,29 @@
 import { assert, test, vi } from "vitest";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import { createEditorActions } from "./editor-actions";
-import { configureAutocomplete } from "./monaco-config";
+import { configureAutocomplete, registerSqlLanguage } from "./monaco-config";
+
+test("SQL highlighting recognizes keywords from every supported dialect", () => {
+  let provider: monaco.languages.IMonarchLanguage | undefined;
+  const monacoInstance = {
+    languages: {
+      getLanguages: () => [],
+      register: vi.fn(),
+      setLanguageConfiguration: vi.fn(),
+      setMonarchTokensProvider: vi.fn(
+        (_languageId: string, registeredProvider: monaco.languages.IMonarchLanguage) => {
+          provider = registeredProvider;
+        },
+      ),
+    },
+  } as never;
+
+  registerSqlLanguage(monacoInstance);
+
+  assert.ok(provider);
+  assert.ok(provider.keywords.includes("SELECT"));
+  assert.ok(provider.keywords.includes("GRANT"));
+});
 
 test("editor actions invoke latest run callback", () => {
   const initialRun = vi.fn();

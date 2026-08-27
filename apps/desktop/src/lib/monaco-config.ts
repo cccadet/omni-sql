@@ -1,5 +1,13 @@
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
-import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
+import {
+  jdbcGenericDescriptor,
+  mariadbDescriptor,
+  mysqlDescriptor,
+  odbcDescriptor,
+  oracleDescriptor,
+  postgresDescriptor,
+  sqlserverDescriptor,
+} from "@omni-sql/dialect-descriptors";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import type { DialectId } from "@omni-sql/ts-types";
 import {
@@ -143,7 +151,15 @@ export function registerSqlLanguage(monacoInstance: typeof monaco): void {
       { open: "'", close: "'" },
     ],
   });
-  const kw = [...postgresDescriptor.keywords];
+  const kw = [...new Set([
+    ...postgresDescriptor.keywords,
+    ...mysqlDescriptor.keywords,
+    ...mariadbDescriptor.keywords,
+    ...sqlserverDescriptor.keywords,
+    ...oracleDescriptor.keywords,
+    ...jdbcGenericDescriptor.keywords,
+    ...odbcDescriptor.keywords,
+  ])];
   const kwPattern = new RegExp(`\\b(?:${kw.join("|")})\\b`, "i");
   const fnPattern = new RegExp(`\\b(?:${COMMON_FUNCTIONS.join("|")})\\b(?=\\s*\\()`, "i");
   const dateLiteralPattern = /\bDATE(?=\s*')/i;
