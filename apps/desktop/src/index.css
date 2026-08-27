@@ -108,7 +108,6 @@ select option {
 
 /* Sidebar tree polish */
 .omni-connections-section {
-  border-bottom: 1px solid var(--colorNeutralStroke1);
   box-sizing: border-box;
   display: flex;
   flex: 0 0 auto;
@@ -128,17 +127,26 @@ select option {
 .connections-resize-handle {
   box-sizing: border-box;
   flex: 0 0 6px;
+  position: relative;
   cursor: row-resize;
   background: transparent;
-  border-top: 1px solid transparent;
-  border-bottom: 1px solid transparent;
 }
 
-.connections-resize-handle:hover,
-.connections-resize-handle.resizing {
+.connections-resize-handle::before {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--colorNeutralStroke1);
+  content: "";
+  transform: translateY(-50%);
+}
+
+.connections-resize-handle:hover::before,
+.connections-resize-handle.resizing::before {
+  height: 2px;
   background: var(--colorBrandStroke1);
-  border-color: var(--colorBrandStroke1);
-  opacity: 0.5;
 }
 
 .omni-sidebar-section-header {
