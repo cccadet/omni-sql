@@ -150,6 +150,9 @@ jobs:
       - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@v6
         with:
+          # Scanner 7.2 bundles Java 17, which SonarCloud stopped accepting in
+          # July 2026. Scanner 8.1 bundles the required Java 21 runtime.
+          scannerVersion: 8.1.0.6389
           # Java 21 is provisioned above. Reuse it instead of asking the scanner
           # bootstrap API to download another JRE before analysis.
           args: >-
