@@ -135,6 +135,8 @@ beforeEach(() => {
         return { online: true };
       case "metadata.listRelations":
         return { relations: [] };
+      case "metadata.listSchemas":
+        return { schemas: ["public"] };
       case "metadata.listFunctions":
         return { functions: [] };
       case "query.run":

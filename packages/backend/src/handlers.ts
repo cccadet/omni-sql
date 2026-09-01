@@ -887,6 +887,7 @@ export const handlers: BackendRpcRouter = {
                   dataType: c.dataType,
                   nullable: c.nullable,
                   isPrimaryKey: c.isPrimaryKey,
+                  ...(c.defaultValue !== undefined ? { defaultValue: c.defaultValue } : {}),
                   ...(c.foreignKeyTo ? { foreignKeyTo: c.foreignKeyTo } : {}),
                 })),
               }
@@ -897,6 +898,11 @@ export const handlers: BackendRpcRouter = {
     return { relations: all };
   },
 
+  async "metadata.listSchemas"({ connectionId }: { connectionId: string }) {
+    const s = requireSession(connectionId);
+    return { schemas: cache.listSchemas(s.config.id).map((schema) => schema.name) };
+  },
+
   async "metadata.listColumns"({ connectionId, schema, table }: ListColumnsParams): Promise<ListColumnsResult> {
     requireSession(connectionId);
     return {
@@ -905,6 +911,7 @@ export const handlers: BackendRpcRouter = {
         dataType: column.dataType,
         nullable: column.nullable,
         isPrimaryKey: column.isPrimaryKey,
+        ...(column.defaultValue !== undefined ? { defaultValue: column.defaultValue } : {}),
         ...(column.foreignKeyTo ? { foreignKeyTo: column.foreignKeyTo } : {}),
       })),
     };

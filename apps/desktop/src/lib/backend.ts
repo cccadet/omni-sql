@@ -29,6 +29,7 @@ export interface RelationColumn {
   nullable: boolean;
   isPrimaryKey: boolean;
   foreignKeyTo?: ColumnRef;
+  defaultValue?: string;
 }
 
 export interface RelationInfo {
