@@ -222,8 +222,10 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["row.insert"](params as never);
     case "metadata.introspect":
       return handlers["metadata.introspect"](params as never);
-    case "metadata.listRelations":
-      return handlers["metadata.listRelations"](params as never);
+      case "metadata.listRelations":
+        return handlers["metadata.listRelations"](params as never);
+      case "metadata.listSchemas":
+        return handlers["metadata.listSchemas"](params as never);
     case "metadata.listColumns":
       return handlers["metadata.listColumns"](params as never);
     case "metadata.listFunctions":

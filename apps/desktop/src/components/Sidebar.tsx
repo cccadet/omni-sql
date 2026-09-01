@@ -36,6 +36,7 @@ import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-
 import type { ConnectionHealth } from "./StatusBar";
 import { formatLastSyncedAt, getMetadataFreshness } from "../lib/metadata-freshness";
 import { useLanguage } from "../i18n";
+import { CreateTableDialog, EditTableDialog, TableStructureDialog } from "./TableDialogs";
 
 export interface SidebarProps {
   open?: boolean;
@@ -44,6 +45,7 @@ export interface SidebarProps {
   connection?: ConnectionEntry | null;
   connectionId?: string | null;
   relations?: RelationInfo[];
+  schemas?: string[];
   functions?: FunctionDef[];
   loading?: boolean;
   onInsert?: (text: string) => void;
@@ -174,6 +176,7 @@ export function Sidebar({
   connection,
   connectionId,
   relations = [],
+  schemas = [],
   functions = [],
   loading = false,
   onInsert,
@@ -210,6 +213,9 @@ export function Sidebar({
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [groupDraft, setGroupDraft] = useState("");
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
+  const [createTableSchema, setCreateTableSchema] = useState<string | null>(null);
+  const [structureTable, setStructureTable] = useState<{ schema: string; table: string } | null>(null);
+  const [editTable, setEditTable] = useState<{ schema: string; table: string } | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const connectionsHeightRef = useRef(connectionsHeight);
 
@@ -272,6 +278,7 @@ export function Sidebar({
       }
       return g;
     };
+    for (const schema of schemas) ensure(schema);
     for (const r of relations) {
       ensure(r.schema)[r.kind === "view" ? "views" : "tables"].push(r);
     }
@@ -295,7 +302,7 @@ export function Sidebar({
         functions: g.functions.filter((f) => f.name.toLowerCase().includes(q)),
       }))
       .filter((g) => g.tables.length > 0 || g.views.length > 0 || g.functions.length > 0);
-  }, [relations, functions, search, searchMatches, columnCache]);
+  }, [relations, functions, schemas, search, searchMatches, columnCache]);
 
   const ensureColumns = useCallback(async (schema: string, table: string) => {
     const key = relationKey(schema, table);
@@ -812,13 +819,18 @@ export function Sidebar({
               icon={<DatabaseRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
               defaultExpanded={isSearching}
               forceExpanded={isSearching || undefined}
+              onContextMenu={(event) => openMenu(event, [
+                { label: "Criar tabela…", action: () => setCreateTableSchema(g.name) },
+              ])}
             >
-              {g.tables.length > 0 && (
-                <TreeNode
+              <TreeNode
                   label={`${tr("tables")} (${g.tables.length})`}
                   icon={<TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
+                  onContextMenu={(event) => openMenu(event, [
+                    { label: "Criar tabela…", action: () => setCreateTableSchema(g.name) },
+                  ])}
                 >
                   {g.tables.map((t) => {
                     const key = relationKey(g.name, t.name);
@@ -834,6 +846,8 @@ export function Sidebar({
                           onContextMenu={(e) =>
                             openMenu(e, [
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
+                              { label: "Visualizar estrutura…", action: () => setStructureTable({ schema: g.name, table: t.name }) },
+                              { label: "Editar tabela…", action: () => setEditTable({ schema: g.name, table: t.name }) },
                               { label: "Gerar DDL em nova aba", action: () => void openDefinition("table", g.name, t.name) },
                             ])
                           }
@@ -955,7 +969,6 @@ export function Sidebar({
                     );
                   })}
                 </TreeNode>
-              )}
               {g.views.length > 0 && (
                 <TreeNode
                   label={`${tr("views")} (${g.views.length})`}
@@ -1088,6 +1101,30 @@ export function Sidebar({
           ))
         )}
       </div>
+      {connection && <CreateTableDialog
+        open={createTableSchema !== null}
+        dialect={connection.dialect}
+        schemas={schemas}
+        initialSchema={createTableSchema ?? undefined}
+        onClose={() => setCreateTableSchema(null)}
+        onOpenSql={(title, sql) => onOpenInNewTab?.(title, sql)}
+      />}
+      <TableStructureDialog
+        open={structureTable !== null}
+        connectionId={connectionId ?? null}
+        schema={structureTable?.schema ?? ""}
+        table={structureTable?.table ?? ""}
+        onClose={() => setStructureTable(null)}
+      />
+      {connection && <EditTableDialog
+        open={editTable !== null}
+        connectionId={connectionId ?? null}
+        dialect={connection.dialect}
+        schema={editTable?.schema ?? ""}
+        table={editTable?.table ?? ""}
+        onClose={() => setEditTable(null)}
+        onOpenSql={(title, sql) => onOpenInNewTab?.(title, sql)}
+      />}
       <div
         className={`resize-handle ${resizing ? "resizing" : ""}`}
         role="separator"

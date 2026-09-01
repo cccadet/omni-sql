@@ -176,7 +176,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [editingConfig, setEditingConfig] = useState<ConnectionEntry | null>(null);
   const [duplicatingConnection, setDuplicatingConnection] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarCache, setSidebarCache] = useState<Record<string, { relations: RelationInfo[]; functions: FunctionDef[] }>>({});
+  const [sidebarCache, setSidebarCache] = useState<Record<string, { schemas: string[]; relations: RelationInfo[]; functions: FunctionDef[] }>>({});
   const [sidebarLoading, setSidebarLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
@@ -357,11 +357,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     if (!connectionId) return;
     setSidebarLoading(true);
     try {
-      const [relRes, fnRes] = await Promise.all([
+      const [schemaRes, relRes, fnRes] = await Promise.all([
+        backend.call<{ schemas: string[] }>("metadata.listSchemas", { connectionId }),
         backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId }),
         backend.call<{ functions: FunctionDef[] }>("metadata.listFunctions", { connectionId }),
       ]);
-      setSidebarCache((prev) => ({ ...prev, [connectionId]: { relations: relRes.relations, functions: fnRes.functions } }));
+      setSidebarCache((prev) => ({ ...prev, [connectionId]: { schemas: schemaRes.schemas, relations: relRes.relations, functions: fnRes.functions } }));
     } catch {
       // best-effort
     } finally {
@@ -1043,6 +1044,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           connection={activeConnection}
           connectionId={activeConnectionId}
           relations={sidebarData?.relations ?? []}
+          schemas={sidebarData?.schemas ?? []}
           functions={sidebarData?.functions ?? []}
           loading={sidebarLoading}
           metadataRefreshFailed={activeConnectionId !== null && metadataRefreshFailures[activeConnectionId] === true}

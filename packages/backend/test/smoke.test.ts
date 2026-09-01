@@ -210,6 +210,8 @@ test("smoke: add connection → introspect → list relations → run query → 
     const intro = await rpc("metadata.introspect", { connectionId: "smoke" });
     assert.ok(intro.result, "introspect returned no result");
     assert.ok((intro.result as { schemas: { name: string }[] }).schemas.some((s) => s.name === "public"));
+    const schemas = await rpc("metadata.listSchemas", { connectionId: "smoke" });
+    assert.deepEqual(schemas.result, { schemas: ["public"] });
 
     // 3. list relations
     const list = await rpc("metadata.listRelations", { connectionId: "smoke" });
