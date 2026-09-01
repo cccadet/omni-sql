@@ -218,6 +218,54 @@ describe("Sidebar", () => {
     ));
   });
 
+  it("creates the first table from an empty schema as reviewable SQL", async () => {
+    const onOpenInNewTab = vi.fn();
+    renderSidebar({ schemas: ["empty_schema"], relations: [], functions: [], onOpenInNewTab });
+
+    fireEvent.click(screen.getByRole("button", { name: "empty_schema" }));
+    fireEvent.contextMenu(screen.getByText("Tables (0)").closest("div")!);
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Criar tabela…" }));
+    fireEvent.change(await screen.findByLabelText("Nome da tabela"), { target: { value: "customers" } });
+    fireEvent.click(screen.getByRole("button", { name: "Abrir SQL" }));
+
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Criar customers", expect.stringContaining('CREATE TABLE "empty_schema"."customers"'));
+  });
+
+  it("opens table structure with columns, indexes, and DDL", async () => {
+    call.mockImplementation(async (method) => {
+      if (method === "metadata.listColumns") return { columns: relations[0]!.columns };
+      if (method === "metadata.listIndexes") return { indexes: [{ name: "orders_pkey", columns: ["id"], unique: true, primary: true }] };
+      if (method === "metadata.getDefinition") return { sql: "CREATE TABLE public.orders (id integer);" };
+      return { relations };
+    });
+    renderSidebar();
+
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+    fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Visualizar estrutura…" }));
+
+    expect(await screen.findByText("Estrutura: public.orders")).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: "Colunas (2)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "DDL" }));
+    expect(screen.getByDisplayValue("CREATE TABLE public.orders (id integer);")).toBeTruthy();
+  });
+
+  it("opens existing table changes as reviewable ALTER TABLE SQL", async () => {
+    call.mockImplementation(async (method) => method === "metadata.listColumns" ? { columns: relations[0]!.columns } : { indexes: [] });
+    const onOpenInNewTab = vi.fn();
+    renderSidebar({ onOpenInNewTab });
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+    fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Editar tabela…" }));
+
+    const typeInput = await screen.findByLabelText("Tipo de customer_id");
+    fireEvent.change(typeInput, { target: { value: "bigint" } });
+    fireEvent.click(screen.getByRole("button", { name: "Abrir SQL" }));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alterar orders", expect.stringContaining('ALTER COLUMN "customer_id" TYPE bigint'));
+  });
+
   it("routes context-menu connection actions and persists keyboard resizing", () => {
     const onEditConnection = vi.fn();
     const onDuplicateConnection = vi.fn();

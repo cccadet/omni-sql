@@ -187,10 +187,13 @@ export interface ListRelationsResult {
       dataType: string;
       nullable: boolean;
       isPrimaryKey: boolean;
+      defaultValue?: string;
       foreignKeyTo?: { schema: string; table: string; column: string };
     }>;
   }>;
 }
+export interface ListCachedSchemasParams { connectionId: string; }
+export interface ListCachedSchemasResult { schemas: readonly string[]; }
 export interface ListColumnsParams {
   connectionId: string;
   schema: string;
@@ -286,6 +289,7 @@ export interface RpcRouter {
   "row.update": (p: UpdateRowParams) => Promise<UpdateRowResult>;
   "row.insert": (p: InsertRowParams) => Promise<InsertRowResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;
+  "metadata.listSchemas": (p: ListCachedSchemasParams) => Promise<ListCachedSchemasResult>;
   "metadata.listRelations": (p: ListRelationsParams) => Promise<ListRelationsResult>;
   "metadata.listColumns": (p: ListColumnsParams) => Promise<ListColumnsResult>;
   "metadata.listFunctions": (p: ListFunctionsParams) => Promise<ListFunctionsResult>;
