@@ -118,7 +118,13 @@ export class InMemoryAdapter implements Adapter {
         isPrimaryKey: c.isPrimaryKey,
         ordinalPosition: c.ordinal,
       })),
-      constraints: [],
+      constraints: t.columns.some((column) => column.isPrimaryKey)
+        ? [{
+            name: `${t.name}_pkey`,
+            kind: "primary" as const,
+            columns: t.columns.filter((column) => column.isPrimaryKey).map((column) => column.name),
+          }]
+        : [],
     }));
   }
   listColumns(schema: string, table: string): Relation["columns"] {

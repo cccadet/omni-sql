@@ -905,6 +905,8 @@ export const handlers: BackendRpcRouter = {
 
   async "metadata.listColumns"({ connectionId, schema, table }: ListColumnsParams): Promise<ListColumnsResult> {
     requireSession(connectionId);
+    const relation = resolveRelationByName(connectionId, table, schema);
+    if (!relation) throw new RpcValidationError("tabela não encontrada");
     return {
       columns: cache.getColumnsByTable(connectionId, schema, table).map((column) => ({
         name: column.name,
@@ -913,6 +915,11 @@ export const handlers: BackendRpcRouter = {
         isPrimaryKey: column.isPrimaryKey,
         ...(column.defaultValue !== undefined ? { defaultValue: column.defaultValue } : {}),
         ...(column.foreignKeyTo ? { foreignKeyTo: column.foreignKeyTo } : {}),
+      })),
+      constraints: relation.constraints.map((constraint) => ({
+        name: constraint.name,
+        kind: constraint.kind,
+        columns: constraint.columns,
       })),
     };
   },
