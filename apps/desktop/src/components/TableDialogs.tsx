@@ -5,7 +5,7 @@ import {
 } from "@fluentui/react-components";
 import { AddRegular, DeleteRegular } from "@fluentui/react-icons";
 import type { DialectId, IndexInfo } from "@omni-sql/ts-types";
-import { backend, type RelationColumn } from "../lib/backend";
+import { backend, type RelationColumn, type RelationConstraint } from "../lib/backend";
 
 interface DraftColumn {
   id: number;
@@ -59,16 +59,37 @@ function columnDefinition(dialect: DialectId, column: Pick<DraftColumn, "name" |
   return parts.join(" ");
 }
 
-export function buildAlterTableSql(dialect: DialectId, schema: string, table: string, original: readonly RelationColumn[], draft: readonly EditDraftColumn[]): string {
+export function buildAlterTableSql(dialect: DialectId, schema: string, table: string, original: readonly RelationColumn[], draft: readonly EditDraftColumn[], constraints: readonly RelationConstraint[] = []): string {
   const q = (value: string) => quoteIdentifier(value, dialect);
   const target = schema.trim() ? `${q(schema.trim())}.${q(table)}` : q(table);
   const statements: string[] = [];
   const draftByOriginal = new Map(draft.filter((column) => column.originalName).map((column) => [column.originalName!, column]));
+  const primaryConstraint = constraints.find((constraint) => constraint.kind === "primary");
+  const originalPrimary = original.filter((column) => column.isPrimaryKey).map((column) => draftByOriginal.get(column.name)?.name ?? column.name);
+  const nextPrimary = draft.filter((column) => column.primaryKey).map((column) => column.name);
+  const primaryChanged = originalPrimary.length !== nextPrimary.length || originalPrimary.some((name, index) => name !== nextPrimary[index]);
+  if (primaryChanged && originalPrimary.length > 0) {
+    if (dialect === "mysql" || dialect === "mariadb" || dialect === "oracle") {
+      statements.push(`ALTER TABLE ${target} DROP PRIMARY KEY;`);
+    } else if (primaryConstraint) {
+      statements.push(`ALTER TABLE ${target} DROP CONSTRAINT ${q(primaryConstraint.name)};`);
+    } else {
+      statements.push("-- Não foi possível identificar o nome da constraint de chave primária para removê-la.");
+    }
+  }
   for (const previous of original) {
     const current = draftByOriginal.get(previous.name);
     if (!current) {
       statements.push(`ALTER TABLE ${target} DROP COLUMN ${q(previous.name)};`);
       continue;
+    }
+    if (current.name !== previous.name) {
+      if (dialect === "sqlserver") {
+        const path = [schema, table, previous.name].filter(Boolean).join(".").replaceAll("'", "''");
+        statements.push(`EXEC sp_rename N'${path}', N'${current.name.replaceAll("'", "''")}', 'COLUMN';`);
+      } else {
+        statements.push(`ALTER TABLE ${target} RENAME COLUMN ${q(previous.name)} TO ${q(current.name)};`);
+      }
     }
     const changed = current.dataType.trim() !== previous.dataType || current.nullable !== previous.nullable || current.defaultValue.trim() !== (previous.defaultValue ?? "").trim();
     if (!changed) continue;
@@ -88,6 +109,13 @@ export function buildAlterTableSql(dialect: DialectId, schema: string, table: st
   for (const column of draft.filter((item) => !item.originalName && item.name.trim() && item.dataType.trim())) {
     const keyword = dialect === "oracle" ? "ADD" : "ADD COLUMN";
     statements.push(`ALTER TABLE ${target} ${keyword} ${dialect === "oracle" ? `(${columnDefinition(dialect, column)})` : columnDefinition(dialect, column)};`);
+  }
+  if (primaryChanged && nextPrimary.length > 0) {
+    const columns = nextPrimary.map(q).join(", ");
+    const namedConstraint = primaryConstraint && dialect !== "mysql" && dialect !== "mariadb" && dialect !== "oracle"
+      ? `CONSTRAINT ${q(primaryConstraint.name)} `
+      : "";
+    statements.push(`ALTER TABLE ${target} ADD ${namedConstraint}PRIMARY KEY (${columns});`);
   }
   return statements.join("\n");
 }
@@ -142,6 +170,7 @@ export function CreateTableDialog({ open, dialect, schemas, initialSchema, onClo
 interface EditTableDialogProps { open: boolean; connectionId: string | null; dialect: DialectId; schema: string; table: string; onClose: () => void; onOpenSql: (title: string, sql: string) => void; }
 export function EditTableDialog({ open, connectionId, dialect, schema, table, onClose, onOpenSql }: EditTableDialogProps) {
   const [original, setOriginal] = useState<RelationColumn[]>([]);
+  const [constraints, setConstraints] = useState<RelationConstraint[]>([]);
   const [columns, setColumns] = useState<EditDraftColumn[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,22 +178,26 @@ export function EditTableDialog({ open, connectionId, dialect, schema, table, on
   useEffect(() => {
     if (!open || !connectionId) return;
     setLoading(true); setError(null);
-    void backend.call<{ columns: RelationColumn[] }>("metadata.listColumns", { connectionId, schema, table }).then(({ columns: loaded }) => {
+    void backend.call<{ columns: RelationColumn[]; constraints?: RelationConstraint[] }>("metadata.listColumns", { connectionId, schema, table }).then(({ columns: loaded, constraints: loadedConstraints }) => {
       setOriginal(loaded);
+      setConstraints(loadedConstraints ?? []);
       setColumns(loaded.map((column, index) => ({ id: index + 1, originalName: column.name, name: column.name, dataType: column.dataType, nullable: column.nullable, primaryKey: column.isPrimaryKey, defaultValue: column.defaultValue ?? "" })));
       setNextId(loaded.length + 1);
     }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason))).finally(() => setLoading(false));
   }, [connectionId, open, schema, table]);
-  const sql = buildAlterTableSql(dialect, schema, table, original, columns);
+  const normalizedNames = columns.map((column) => column.name.trim().toLocaleLowerCase());
+  const draftValid = columns.every((column) => column.name.trim() && column.dataType.trim()) && new Set(normalizedNames).size === normalizedNames.length;
+  const sql = draftValid ? buildAlterTableSql(dialect, schema, table, original, columns, constraints) : "";
   const updateColumn = (id: number, patch: Partial<EditDraftColumn>) => setColumns((current) => current.map((column) => column.id === id ? { ...column, ...patch } : column));
   return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}><DialogSurface style={{ width: "min(920px, calc(100vw - 24px))", maxWidth: "none" }}><DialogBody>
     <DialogTitle>Editar tabela: {schema}.{table}</DialogTitle><DialogContent style={{ display: "grid", gap: 12 }}>{loading ? <Spinner label="Carregando colunas…" /> : error ? <Text>{error}</Text> : <>
       <Text size={200}>A remoção de uma coluna gera DROP COLUMN. Revise cuidadosamente o SQL antes de executar.</Text>
+      {!draftValid && <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>Todas as colunas precisam ter nome e tipo, sem nomes duplicados.</Text>}
       <div style={{ overflowX: "auto" }}><table className="table-designer-grid"><thead><tr><th>Nome</th><th>Tipo</th><th>Nulo</th><th>PK</th><th>Default</th><th /></tr></thead><tbody>{columns.map((column) => <tr key={column.id}>
-        <td><Input aria-label="Nome da coluna" value={column.name} disabled={column.originalName !== undefined} onChange={(_, data) => updateColumn(column.id, { name: data.value })} /></td>
+        <td><Input aria-label={`Nome da coluna ${column.originalName ?? "nova"}`} value={column.name} onChange={(_, data) => updateColumn(column.id, { name: data.value })} /></td>
         <td><Input aria-label={`Tipo de ${column.name}`} value={column.dataType} onChange={(_, data) => updateColumn(column.id, { dataType: data.value })} /></td>
         <td><Checkbox aria-label={`Permitir nulo em ${column.name}`} checked={column.nullable} disabled={column.primaryKey} onChange={(_, data) => updateColumn(column.id, { nullable: data.checked === true })} /></td>
-        <td><Checkbox aria-label={`Chave primária ${column.name}`} checked={column.primaryKey} disabled /></td>
+        <td><Checkbox aria-label={`Chave primária ${column.name}`} checked={column.primaryKey} onChange={(_, data) => updateColumn(column.id, { primaryKey: data.checked === true, nullable: data.checked === true ? false : column.nullable })} /></td>
         <td><Input aria-label={`Default de ${column.name}`} value={column.defaultValue} onChange={(_, data) => updateColumn(column.id, { defaultValue: data.value })} /></td>
         <td><Button appearance="transparent" icon={<DeleteRegular />} aria-label={`Remover ${column.name || "coluna"}`} onClick={() => setColumns((current) => current.filter((item) => item.id !== column.id))} /></td>
       </tr>)}</tbody></table></div>

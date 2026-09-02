@@ -36,4 +36,21 @@ describe("buildAlterTableSql", () => {
     ]);
     expect(sql).toBe("ALTER TABLE `shop`.`items` MODIFY COLUMN `id` bigint NOT NULL;");
   });
+
+  it("renames columns and replaces a named PostgreSQL primary key", () => {
+    const sql = buildAlterTableSql("postgres", "public", "orders", original, [
+      { id: 1, originalName: "id", name: "order_id", dataType: "integer", nullable: false, primaryKey: false, defaultValue: "" },
+      { id: 2, originalName: "note", name: "note", dataType: "text", nullable: false, primaryKey: true, defaultValue: "" },
+    ], [{ name: "orders_pkey", kind: "primary", columns: ["id"] }]);
+    expect(sql).toContain('DROP CONSTRAINT "orders_pkey"');
+    expect(sql).toContain('RENAME COLUMN "id" TO "order_id"');
+    expect(sql).toContain('ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("note")');
+  });
+
+  it("uses sp_rename for SQL Server columns", () => {
+    const sql = buildAlterTableSql("sqlserver", "dbo", "orders", original.slice(0, 1), [
+      { id: 1, originalName: "id", name: "order_id", dataType: "integer", nullable: false, primaryKey: true, defaultValue: "" },
+    ]);
+    expect(sql).toBe("EXEC sp_rename N'dbo.orders.id', N'order_id', 'COLUMN';");
+  });
 });

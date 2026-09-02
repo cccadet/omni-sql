@@ -222,6 +222,7 @@ test("smoke: add connection → introspect → list relations → run query → 
     assert.equal(usersTable!.columns, undefined);
     const columns = await rpc("metadata.listColumns", { connectionId: "smoke", schema: "public", table: "users" });
     assert.equal((columns.result as { columns: unknown[] }).columns.length, 3);
+    assert.ok((columns.result as { constraints: { kind: string }[] }).constraints.some((constraint) => constraint.kind === "primary"));
     const columnSearch = await rpc("metadata.listRelations", { connectionId: "smoke", search: "email" });
     assert.ok((columnSearch.result as ListRelationsResult).relations.some((relation) => relation.name === "users"));
 
