@@ -607,8 +607,19 @@ select option {
 .omni-settings-title { flex-shrink: 0; padding-bottom: 8px; }
 .omni-settings-tabs { flex-shrink: 0; overflow-x: auto; padding: 0 24px; border-bottom: 1px solid var(--colorNeutralStroke1); }
 .omni-settings-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; padding-top: 14px; }
+.omni-settings-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.omni-settings-language { max-width: 320px; }
 .omni-settings-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--colorNeutralStroke2); border-radius: 8px; background: var(--colorNeutralBackground2); }
-.omni-settings-actions { flex-shrink: 0; border-top: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground1); }
+.omni-settings-actions { flex-shrink: 0; flex-wrap: wrap; border-top: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground1); }
+.omni-new-row-actions { display: flex; align-items: center; gap: 4px; }
+
+@media (max-width: 720px), (max-height: 620px) {
+  .omni-settings-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
+  .omni-settings-tabs { padding-inline: 12px; }
+  .omni-settings-body { padding: 10px 12px; }
+  .omni-settings-card { padding: 10px; }
+  .omni-settings-actions { padding: 8px 12px; }
+}
 
 /* Sidebar resize handle */
 .resize-handle {
