@@ -31,6 +31,11 @@ export interface RelationColumn {
   foreignKeyTo?: ColumnRef;
   defaultValue?: string;
 }
+export interface RelationConstraint {
+  name: string;
+  kind: "primary" | "foreign" | "unique";
+  columns: readonly string[];
+}
 
 export interface RelationInfo {
   schema: string;

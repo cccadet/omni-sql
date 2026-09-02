@@ -201,6 +201,11 @@ export interface ListColumnsParams {
 }
 export interface ListColumnsResult {
   columns: NonNullable<ListRelationsResult["relations"][number]["columns"]>;
+  constraints: ReadonlyArray<{
+    name: string;
+    kind: "primary" | "foreign" | "unique";
+    columns: readonly string[];
+  }>;
 }
 
 export interface ListSchemasParams {

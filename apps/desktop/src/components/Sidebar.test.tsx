@@ -252,7 +252,7 @@ describe("Sidebar", () => {
   });
 
   it("opens existing table changes as reviewable ALTER TABLE SQL", async () => {
-    call.mockImplementation(async (method) => method === "metadata.listColumns" ? { columns: relations[0]!.columns } : { indexes: [] });
+    call.mockImplementation(async (method) => method === "metadata.listColumns" ? { columns: relations[0]!.columns, constraints: [{ name: "orders_pkey", kind: "primary", columns: ["id"] }] } : { indexes: [] });
     const onOpenInNewTab = vi.fn();
     renderSidebar({ onOpenInNewTab });
     fireEvent.click(screen.getByRole("button", { name: "public" }));
@@ -264,6 +264,23 @@ describe("Sidebar", () => {
     fireEvent.change(typeInput, { target: { value: "bigint" } });
     fireEvent.click(screen.getByRole("button", { name: "Abrir SQL" }));
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alterar orders", expect.stringContaining('ALTER COLUMN "customer_id" TYPE bigint'));
+  });
+
+  it("allows renaming a column and changing the primary key", async () => {
+    call.mockImplementation(async (method) => method === "metadata.listColumns" ? { columns: relations[0]!.columns, constraints: [{ name: "orders_pkey", kind: "primary", columns: ["id"] }] } : { indexes: [] });
+    const onOpenInNewTab = vi.fn();
+    renderSidebar({ onOpenInNewTab });
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+    fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Editar tabela…" }));
+
+    fireEvent.change(await screen.findByLabelText("Nome da coluna id"), { target: { value: "order_id" } });
+    fireEvent.click(screen.getByLabelText("Chave primária order_id"));
+    fireEvent.click(screen.getByLabelText("Chave primária customer_id"));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir SQL" }));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alterar orders", expect.stringContaining('RENAME COLUMN "id" TO "order_id"'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alterar orders", expect.stringContaining('ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("customer_id")'));
   });
 
   it("routes context-menu connection actions and persists keyboard resizing", () => {
