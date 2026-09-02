@@ -1112,6 +1112,7 @@ export function Sidebar({
       <TableStructureDialog
         open={structureTable !== null}
         connectionId={connectionId ?? null}
+        dialect={connection?.dialect ?? "postgres"}
         schema={structureTable?.schema ?? ""}
         table={structureTable?.table ?? ""}
         onClose={() => setStructureTable(null)}

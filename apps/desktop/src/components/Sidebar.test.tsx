@@ -236,6 +236,7 @@ describe("Sidebar", () => {
       if (method === "metadata.listColumns") return { columns: relations[0]!.columns };
       if (method === "metadata.listIndexes") return { indexes: [{ name: "orders_pkey", columns: ["id"], unique: true, primary: true }] };
       if (method === "metadata.getDefinition") return { sql: "CREATE TABLE public.orders (id integer);" };
+      if (method === "query.run") return { columns: [{ name: "id", dataType: "integer", nullable: false }, { name: "customer_id", dataType: "integer", nullable: false }], rows: [[7, null]], rowsMoreAvailable: true, elapsedMs: 1 };
       return { relations };
     });
     renderSidebar();
@@ -251,6 +252,14 @@ describe("Sidebar", () => {
 
     expect(await screen.findByText("Structure: public.orders")).toBeTruthy();
     expect(await screen.findByRole("tab", { name: "Columns (2)" })).toBeTruthy();
+    expect(await screen.findByRole("columnheader", { name: "Sample value" })).toBeTruthy();
+    expect(await screen.findByText("7")).toBeTruthy();
+    expect(await screen.findByText("NULL")).toBeTruthy();
+    expect(call).toHaveBeenCalledWith("query.run", {
+      connectionId: "connection-1",
+      sql: 'SELECT * FROM "public"."orders"',
+      limit: 1,
+    });
     fireEvent.click(screen.getByRole("tab", { name: "DDL" }));
     const ddl = screen.getByDisplayValue("CREATE TABLE public.orders (id integer);");
     expect(ddl.closest(".table-structure-ddl")).toBeTruthy();
