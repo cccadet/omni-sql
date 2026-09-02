@@ -252,6 +252,16 @@ const english = {
   addRow: "Add row",
   newRowValue: "New row value",
   defaultValue: "DEFAULT if untouched",
+  tableStructure: "Structure",
+  loadingStructure: "Loading structure…",
+  nullable: "Nullable",
+  keys: "Keys",
+  yes: "Yes",
+  no: "No",
+  close: "Close",
+  createTable: "Create table…",
+  viewStructure: "View structure…",
+  editTable: "Edit table…",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -271,6 +281,8 @@ const portugueseBrazil = [
   "DROP remove um objeto do banco", "DELETE não possui cláusula WHERE", "UPDATE não possui cláusula WHERE",
   "ALTER TABLE remove parte da definição da tabela",
   "Adicionar linha", "Valor da nova linha", "DEFAULT se não alterado",
+  "Estrutura", "Carregando estrutura…", "Nulo", "Chaves", "Sim", "Não", "Fechar",
+  "Criar tabela…", "Visualizar estrutura…", "Editar tabela…",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
