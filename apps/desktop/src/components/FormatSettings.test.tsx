@@ -19,7 +19,7 @@ test("uses context-specific save label", () => {
 
   expect(screen.getByRole("button", { name: "Save formatting settings" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Save connection" })).toBeNull();
-  expect(screen.getByRole("dialog").style.maxHeight).toBe("calc(100vh - 24px)");
+  expect(screen.getByRole("dialog").classList.contains("omni-settings-dialog")).toBe(true);
   expect(screen.getByRole("tab", { name: "SQL formatting" })).toBeTruthy();
   expect(screen.getByRole("tab", { name: "Language" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "Language" })).toBeNull();
