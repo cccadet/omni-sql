@@ -262,6 +262,9 @@ const english = {
   createTable: "Create table…",
   viewStructure: "View structure…",
   editTable: "Edit table…",
+  sampleValue: "Sample value",
+  sampleLoadFailed: "Could not load a sample row.",
+  noSampleRows: "This table has no rows to preview.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -283,6 +286,7 @@ const portugueseBrazil = [
   "Adicionar linha", "Valor da nova linha", "DEFAULT se não alterado",
   "Estrutura", "Carregando estrutura…", "Nulo", "Chaves", "Sim", "Não", "Fechar",
   "Criar tabela…", "Visualizar estrutura…", "Editar tabela…",
+  "Valor de amostra", "Não foi possível carregar uma linha de amostra.", "Esta tabela não possui linhas para visualizar.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

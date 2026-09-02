@@ -4,7 +4,7 @@ import {
   DialogTitle, Dropdown, Field, Input, Option, Spinner, Tab, TabList, Text, Textarea,
 } from "@fluentui/react-components";
 import { AddRegular, DeleteRegular } from "@fluentui/react-icons";
-import type { DialectId, IndexInfo } from "@omni-sql/ts-types";
+import type { DialectId, IndexInfo, QueryResult } from "@omni-sql/ts-types";
 import { useLanguage } from "../i18n";
 import { backend, type RelationColumn, type RelationConstraint } from "../lib/backend";
 
@@ -36,6 +36,21 @@ function quoteIdentifier(value: string, dialect: DialectId): string {
     return `[${escaped}]`;
   }
   return `"${value.replaceAll('"', '""')}"`;
+}
+
+export function buildSampleRowSql(dialect: DialectId, schema: string, table: string): string {
+  const q = (value: string) => quoteIdentifier(value, dialect);
+  const relation = schema.trim() ? `${q(schema)}.${q(table)}` : q(table);
+  return `SELECT * FROM ${relation}`;
+}
+
+function formatSampleValue(value: unknown): string {
+  if (value === null) return "NULL";
+  if (value === undefined) return "—";
+  if (typeof value === "object") {
+    try { return JSON.stringify(value) ?? String(value); } catch { return String(value); }
+  }
+  return String(value);
 }
 
 export function buildCreateTableSql(dialect: DialectId, schema: string, table: string, columns: readonly DraftColumn[]): string {
@@ -208,27 +223,33 @@ export function EditTableDialog({ open, connectionId, dialect, schema, table, on
   </DialogBody></DialogSurface></Dialog>;
 }
 
-interface TableStructureDialogProps { open: boolean; connectionId: string | null; schema: string; table: string; onClose: () => void; }
-export function TableStructureDialog({ open, connectionId, schema, table, onClose }: TableStructureDialogProps) {
+interface TableStructureDialogProps { open: boolean; connectionId: string | null; dialect: DialectId; schema: string; table: string; onClose: () => void; }
+export function TableStructureDialog({ open, connectionId, dialect, schema, table, onClose }: TableStructureDialogProps) {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [columns, setColumns] = useState<RelationColumn[]>([]);
   const [indexes, setIndexes] = useState<IndexInfo[]>([]);
   const [ddl, setDdl] = useState("");
+  const [sampleResult, setSampleResult] = useState<QueryResult | null>(null);
+  const [sampleError, setSampleError] = useState(false);
   const [tab, setTab] = useState("columns");
   useEffect(() => {
     if (!open || !connectionId) return;
-    setLoading(true); setError(null); setTab("columns");
+    setLoading(true); setError(null); setSampleResult(null); setSampleError(false); setTab("columns");
     void Promise.all([
       backend.call<{ columns: RelationColumn[] }>("metadata.listColumns", { connectionId, schema, table }),
       backend.call<{ indexes: IndexInfo[] }>("metadata.listIndexes", { connectionId, schema, table }),
       backend.call<{ sql: string }>("metadata.getDefinition", { connectionId, kind: "table", schema, name: table }),
     ]).then(([columnResult, indexResult, definition]) => { setColumns(columnResult.columns); setIndexes(indexResult.indexes); setDdl(definition.sql); }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason))).finally(() => setLoading(false));
-  }, [connectionId, open, schema, table]);
+    void backend.call<QueryResult>("query.run", { connectionId, sql: buildSampleRowSql(dialect, schema, table), limit: 1 })
+      .then(setSampleResult).catch(() => setSampleError(true));
+  }, [connectionId, dialect, open, schema, table]);
+  const sampleRow = sampleResult?.rows[0];
+  const sampleColumnIndexes = new Map(sampleResult?.columns.map((column, index) => [column.name, index]) ?? []);
   return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}><DialogSurface style={{ width: "min(860px, calc(100vw - 24px))", maxWidth: "none" }}><DialogBody>
     <DialogTitle>{t("tableStructure")}: {schema}.{table}</DialogTitle><DialogContent>{loading ? <Spinner label={t("loadingStructure")} /> : error ? <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{error}</Text> : <><TabList selectedValue={tab} onTabSelect={(_, data) => setTab(String(data.value))}><Tab value="columns">{t("columns")} ({columns.length})</Tab><Tab value="indexes">{t("indexes")} ({indexes.length})</Tab><Tab value="ddl">DDL</Tab></TabList>
-      {tab === "columns" && <table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>{t("keys")}</th></tr></thead><tbody>{columns.map((column) => <tr key={column.name}><td>{column.name}</td><td>{column.dataType}</td><td>{column.nullable ? t("yes") : t("no")}</td><td>{column.isPrimaryKey ? "PK" : column.foreignKeyTo ? `FK → ${column.foreignKeyTo.schema}.${column.foreignKeyTo.table}.${column.foreignKeyTo.column}` : ""}</td></tr>)}</tbody></table>}
+      {tab === "columns" && <><table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>{t("keys")}</th><th>{t("sampleValue")}</th></tr></thead><tbody>{columns.map((column) => { const sampleIndex = sampleColumnIndexes.get(column.name); const sampleValue = !sampleResult && !sampleError ? t("loading") : sampleIndex === undefined || !sampleRow ? "—" : formatSampleValue(sampleRow[sampleIndex]); return <tr key={column.name}><td>{column.name}</td><td>{column.dataType}</td><td>{column.nullable ? t("yes") : t("no")}</td><td>{column.isPrimaryKey ? "PK" : column.foreignKeyTo ? `FK → ${column.foreignKeyTo.schema}.${column.foreignKeyTo.table}.${column.foreignKeyTo.column}` : ""}</td><td className="table-structure-sample" title={sampleValue}>{sampleValue}</td></tr>; })}</tbody></table>{sampleError ? <Text size={200}>{t("sampleLoadFailed")}</Text> : sampleResult && !sampleRow ? <Text size={200}>{t("noSampleRows")}</Text> : null}</>}
       {tab === "indexes" && <table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("columns")}</th><th>{t("type")}</th></tr></thead><tbody>{indexes.map((index) => <tr key={index.name}><td>{index.name}</td><td>{index.columns.join(", ")}</td><td>{index.primary ? "PRIMARY" : index.unique ? "UNIQUE" : "INDEX"}</td></tr>)}</tbody></table>}
       {tab === "ddl" && <Textarea className="table-structure-ddl" value={ddl} readOnly resize="vertical" />}</>}</DialogContent><DialogActions><Button onClick={onClose}>{t("close")}</Button></DialogActions>
   </DialogBody></DialogSurface></Dialog>;
