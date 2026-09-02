@@ -116,7 +116,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
   const healthLabel = !connection ? t("noResults") : health === "verifying" ? t("loading") : health === "online" ? t("success") : health === "offline" ? t("failure") : t("error");
   const healthColor = health === "offline" ? tokens.colorPaletteRedForeground1 : health === "online" ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteYellowForeground1;
   const mcpLabel = mcpState === "connected" ? t("mcpConnected") : mcpState === "error" ? t("mcpError") : mcpState === "listening" ? t("mcpListening") : t("mcpInactive");
-  const mcpColor = mcpState === "connected" ? tokens.colorPaletteGreenForeground1 : mcpState === "error" ? tokens.colorPaletteRedForeground1 : mcpState === "listening" ? tokens.colorPaletteYellowForeground1 : tokens.colorNeutralForegroundOnBrand;
+  const mcpColor = mcpState === "connected" ? tokens.colorPaletteGreenForeground1 : mcpState === "error" ? tokens.colorPaletteRedForeground1 : mcpState === "listening" ? tokens.colorPaletteYellowForeground1 : tokens.colorNeutralForeground2;
   const mcpClientConnected = mcpState === "connected" || mcpStatus?.uiConnected === true;
   const httpEndpoint = safeHttpEndpoint(config?.endpoint);
   const copilotJson = config && !httpEndpoint ? createCopilotVsCodeMcpConfig(config) : null;
@@ -147,19 +147,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
   };
 
   return (
-    <footer
-      className="omni-status-bar"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 16,
-        padding: "4px 12px",
-        background: tokens.colorBrandBackground,
-        color: tokens.colorNeutralForegroundOnBrand,
-        borderTop: `1px solid ${tokens.colorNeutralStroke1}`,
-        fontSize: 12,
-      }}
-    >
+    <footer className="omni-status-bar">
       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {connection && health === "online" ? (
           <PlugConnectedRegular fontSize={12} />
@@ -223,10 +211,10 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
           }}
           style={{
             padding: "2px 6px",
-            border: `1px solid ${tokens.colorNeutralStrokeOnBrand}`,
+            border: `1px solid ${tokens.colorBrandStroke1}`,
             borderRadius: 3,
             background: "transparent",
-            color: tokens.colorNeutralForegroundOnBrand,
+            color: tokens.colorBrandForeground1,
             cursor: update.releaseUrl ? "pointer" : "default",
             font: "inherit",
           }}
