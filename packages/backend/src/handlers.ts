@@ -19,7 +19,7 @@ import {
   type Token,
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
-import { RpcValidationError } from "./rpc-errors.ts";
+import { RpcValidationError, safeOracleDatabaseError } from "./rpc-errors.ts";
 import {
   assertEndpointHasNoEmbeddedCredentials,
   assertExecutionRiskAccepted,
@@ -678,7 +678,12 @@ export const handlers: BackendRpcRouter = {
     const s = requireSession(connectionId);
     assertExecutionRiskAccepted(sql, s.config.dialect, executionRiskAccepted);
     await s.adapter.connect();
-    return s.adapter.runQuery(sql, normalizeQueryLimit(limit));
+    try {
+      return await s.adapter.runQuery(sql, normalizeQueryLimit(limit));
+    } catch (error) {
+      if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
+      throw error;
+    }
   },
 
   async "query.cancel"({ connectionId }: CancelQueryParams): Promise<CancelQueryResult> {

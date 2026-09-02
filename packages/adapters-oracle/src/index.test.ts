@@ -227,6 +227,26 @@ test("runQuery mantém execução direta e commit para instrução sem result se
   assert.equal(result.rowsMoreAvailable, false);
 });
 
+test("runQuery executa a DDL gerada pela tela de criação de tabela", async () => {
+  let executedSql = "";
+  let commitCalls = 0;
+  const conn = {
+    execute: async (sql: string) => {
+      executedSql = sql;
+      return {};
+    },
+    commit: async () => { commitCalls += 1; },
+  } as unknown as Connection;
+  const sql = `CREATE TABLE CHATSAUDE.GUARDRAILS (  "id" NUMBER(10) NOT NULL,  "checagem" VARCHAR2(255),  "bloqueado" VARCHAR2(5),  "modo" VARCHAR2(255),  "sessao" VARCHAR2(255),  "mensagem" VARCHAR2(4000),  "timestamp" date,  PRIMARY KEY ("id"));`;
+
+  const result = await runQueryViaConnection(conn, sql, 1_000);
+
+  assert.equal(executedSql, sql.slice(0, -1));
+  assert.equal(commitCalls, 1);
+  assert.deepEqual(result.rows, []);
+  assert.equal(result.rowsMoreAvailable, false);
+});
+
 test("test() retorna ok:false quando não consegue conectar", async () => {
   const a = new OracleAdapter(cfg("127.0.0.1:1/dummy"), "nobody");
   const t = await a.test();
