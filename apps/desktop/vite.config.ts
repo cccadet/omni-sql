@@ -16,6 +16,12 @@ export default defineConfig({
   server: {
     port: frontendPort,
     strictPort: true,
+    // Cargo writes and locks Windows executables while Vite is running under
+    // `tauri dev`. Watching those generated files can raise EBUSY and stop the
+    // frontend dev server during the final link step.
+    watch: {
+      ignored: ["**/src-tauri/target/**"],
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {
