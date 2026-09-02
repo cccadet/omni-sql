@@ -972,24 +972,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       }}
       data-theme={name}
     >
-      <header
-        style={{
-          gridColumn: "1 / -1",
-          gridRow: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "6px 16px",
-          borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
-          background: tokens.colorNeutralBackground1,
-          gap: 16,
-        }}
-      >
+      <header className="omni-app-header" style={{ gridColumn: "1 / -1", gridRow: 1 }}>
         <div className="omni-logo">
           <img src="/omni-sql.svg" alt="omni-sql" height={28} />
           <div>
-            <Title1 style={{ fontSize: 18, lineHeight: 1 }}>omni-sql</Title1>
-            <span className="subtitle">    {t("appName")}</span>
+            <Title1 className="wordmark">omni-sql</Title1>
+            <span className="subtitle">One IDE for every database</span>
           </div>
         </div>
         <button
@@ -997,16 +985,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onClick={toggle}
           aria-label={name === "dark" ? t("switchToLightTheme") : t("switchToDarkTheme")}
           title={name === "dark" ? t("switchToLightTheme") : t("switchToDarkTheme")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            background: "transparent",
-            border: "none",
-            color: tokens.colorNeutralForeground1,
-            cursor: "pointer",
-            fontSize: 13,
-          }}
+          className="omni-theme-toggle"
         >
           {name === "dark" ? <WeatherSunnyRegular fontSize={22} /> : <WeatherMoonRegular fontSize={22} />}
         </button>

@@ -62,11 +62,8 @@ export function Toolbar({
 }: ToolbarProps) {
   const { t } = useLanguage();
   return (
-    <FluentToolbar className="omni-toolbar" style={{ padding: "6px 12px", gap: 0, alignItems: "center" }}>
-      <div className="omni-toolbar-group">
-        <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">{t("run")}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+    <FluentToolbar className="omni-toolbar">
+      <div className="omni-toolbar-group omni-toolbar-group-primary">
             {running ? (
               <ToolbarButton
                 icon={<StopRegular fontSize={14} />}
@@ -92,13 +89,10 @@ export function Toolbar({
             <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running} aria-label={t("explainQuery")} title={t("explainQuery")}>
               EXPLAIN
             </ToolbarButton>
-          </div>
-        </div>
       </div>
 
       <div className="omni-toolbar-group">
-        <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">{t("rowLimit")}</span>
+          <span className="omni-toolbar-inline-label">{t("rowLimit")}</span>
           <select
             aria-label={t("rowLimit")}
             value={limit}
@@ -118,13 +112,9 @@ export function Toolbar({
               </option>
             ))}
           </select>
-        </div>
       </div>
 
       <div className="omni-toolbar-group" role="group" aria-label={t("tabActions")}>
-        <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">{t("tabActions")}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
             <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onAdd} aria-label={t("newSqlTab")} title={t("newSqlTab")} />
             <ToolbarButton icon={<FolderOpenRegular fontSize={14} />} onClick={onOpen} aria-label={t("openSavedTab")}>
               {t("openSavedTab")}
@@ -132,22 +122,14 @@ export function Toolbar({
             <ToolbarButton icon={<SaveRegular fontSize={14} />} onClick={onSave} aria-label={t("saveTab")}>
               {t("saveTab")}
             </ToolbarButton>
-          </div>
-        </div>
       </div>
 
       <div
         className="omni-toolbar-group"
         role="group"
         aria-label={t("settings")}
-        style={{ borderLeft: `1px solid ${tokens.colorNeutralStroke1}`, marginLeft: 8, paddingLeft: 8 }}
       >
-        <div className="omni-toolbar-stack">
-          <span className="omni-toolbar-label">{t("settings")}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
             <ToolbarButton icon={<SettingsRegular fontSize={14} />} onClick={onOpenFormatSettings} aria-label={t("settings")} title={t("settings")} />
-          </div>
-        </div>
       </div>
 
       <div style={{ flex: 1 }} />
