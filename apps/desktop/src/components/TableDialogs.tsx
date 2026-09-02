@@ -146,39 +146,44 @@ interface CreateTableDialogProps {
 }
 
 export function CreateTableDialog({ open, dialect, schemas, initialSchema, onClose, onOpenSql }: CreateTableDialogProps) {
+  const { t } = useLanguage();
   const [schema, setSchema] = useState(initialSchema ?? schemas[0] ?? "");
   const [table, setTable] = useState("");
   const [nextId, setNextId] = useState(2);
   const [columns, setColumns] = useState<DraftColumn[]>([{ id: 1, name: "id", dataType: TYPE_OPTIONS[dialect][0]!, nullable: false, primaryKey: true, defaultValue: "" }]);
   useEffect(() => {
-    if (open) setSchema(initialSchema ?? schemas[0] ?? "");
-  }, [initialSchema, open, schemas]);
+    if (!open) return;
+    setSchema(initialSchema ?? schemas[0] ?? "");
+    setTable("");
+    setNextId(2);
+    setColumns([{ id: 1, name: "id", dataType: TYPE_OPTIONS[dialect][0]!, nullable: false, primaryKey: true, defaultValue: "" }]);
+  }, [dialect, initialSchema, open, schemas]);
   const validColumns = columns.filter((column) => column.name.trim() && column.dataType.trim());
   const sql = table.trim() && validColumns.length ? buildCreateTableSql(dialect, schema, table, validColumns) : "";
   const updateColumn = (id: number, patch: Partial<DraftColumn>) => setColumns((current) => current.map((column) => column.id === id ? { ...column, ...patch } : column));
   return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
     <DialogSurface style={{ width: "min(920px, calc(100vw - 24px))", maxWidth: "none" }}>
-      <DialogBody><DialogTitle>Criar tabela</DialogTitle><DialogContent style={{ display: "grid", gap: 12 }}>
+      <DialogBody><DialogTitle>{t("createTableDialog")}</DialogTitle><DialogContent style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
           <Field label="Schema">{schemas.length > 0
             ? <Dropdown value={schema} selectedOptions={schema ? [schema] : []} onOptionSelect={(_, data) => setSchema(data.optionValue ?? "")}>{schemas.map((name) => <Option key={name} value={name}>{name}</Option>)}</Dropdown>
             : <Input value={schema} onChange={(_, data) => setSchema(data.value)} />}
           </Field>
-          <Field label="Nome da tabela" required><Input aria-label="Nome da tabela" value={table} onChange={(_, data) => setTable(data.value)} autoFocus /></Field>
+          <Field label={t("tableName")} required><Input aria-label={t("tableName")} value={table} onChange={(_, data) => setTable(data.value)} autoFocus /></Field>
         </div>
-        <div style={{ overflowX: "auto" }}><table className="table-designer-grid"><thead><tr><th>Nome</th><th>Tipo</th><th>Nulo</th><th>PK</th><th>Default</th><th /></tr></thead><tbody>
+        <div style={{ overflowX: "auto" }}><table className="table-designer-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>PK</th><th>Default</th><th /></tr></thead><tbody>
           {columns.map((column) => <tr key={column.id}>
-            <td><Input value={column.name} aria-label="Nome da coluna" onChange={(_, data) => updateColumn(column.id, { name: data.value })} /></td>
-            <td><Input value={column.dataType} aria-label="Tipo da coluna" list={`types-${column.id}`} onChange={(_, data) => updateColumn(column.id, { dataType: data.value })} /><datalist id={`types-${column.id}`}>{TYPE_OPTIONS[dialect].map((type) => <option key={type} value={type} />)}</datalist></td>
-            <td><Checkbox checked={column.nullable} aria-label="Permitir nulo" onChange={(_, data) => updateColumn(column.id, { nullable: data.checked === true })} /></td>
-            <td><Checkbox checked={column.primaryKey} aria-label="Chave primária" onChange={(_, data) => updateColumn(column.id, { primaryKey: data.checked === true, nullable: data.checked === true ? false : column.nullable })} /></td>
-            <td><Input value={column.defaultValue} aria-label="Valor default" onChange={(_, data) => updateColumn(column.id, { defaultValue: data.value })} /></td>
-            <td><Button appearance="transparent" icon={<DeleteRegular />} aria-label="Remover coluna" disabled={columns.length === 1} onClick={() => setColumns((current) => current.filter((item) => item.id !== column.id))} /></td>
+            <td><Input value={column.name} aria-label={t("columnName")} onChange={(_, data) => updateColumn(column.id, { name: data.value })} /></td>
+            <td><Input value={column.dataType} aria-label={t("columnType")} list={`types-${column.id}`} onChange={(_, data) => updateColumn(column.id, { dataType: data.value })} /><datalist id={`types-${column.id}`}>{TYPE_OPTIONS[dialect].map((type) => <option key={type} value={type} />)}</datalist></td>
+            <td><Checkbox checked={column.nullable} aria-label={t("allowNull")} onChange={(_, data) => updateColumn(column.id, { nullable: data.checked === true })} /></td>
+            <td><Checkbox checked={column.primaryKey} aria-label={t("primaryKey")} onChange={(_, data) => updateColumn(column.id, { primaryKey: data.checked === true, nullable: data.checked === true ? false : column.nullable })} /></td>
+            <td><Input value={column.defaultValue} aria-label={t("defaultColumnValue")} onChange={(_, data) => updateColumn(column.id, { defaultValue: data.value })} /></td>
+            <td><Button appearance="transparent" icon={<DeleteRegular />} aria-label={t("removeColumn")} disabled={columns.length === 1} onClick={() => setColumns((current) => current.filter((item) => item.id !== column.id))} /></td>
           </tr>)}</tbody></table></div>
-        <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { setColumns((current) => [...current, { id: nextId, name: "", dataType: TYPE_OPTIONS[dialect][0]!, nullable: true, primaryKey: false, defaultValue: "" }]); setNextId((value) => value + 1); }}>Adicionar coluna</Button>
-        <Field label="Prévia SQL"><Textarea value={sql} readOnly resize="vertical" style={{ minHeight: 150, fontFamily: "monospace" }} /></Field>
-        {dialect === "jdbc-generic" || dialect === "odbc" ? <Text size={200}>Revise o SQL: o dialeto genérico pode exigir ajustes específicos do driver.</Text> : null}
-      </DialogContent><DialogActions><Button onClick={onClose}>Cancelar</Button><Button appearance="primary" disabled={!sql} onClick={() => { onOpenSql(`Criar ${table.trim()}`, sql); onClose(); }}>Abrir SQL</Button></DialogActions></DialogBody>
+        <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { setColumns((current) => [...current, { id: nextId, name: "", dataType: TYPE_OPTIONS[dialect][0]!, nullable: true, primaryKey: false, defaultValue: "" }]); setNextId((value) => value + 1); }}>{t("addColumn")}</Button>
+        <Field label={t("sqlPreview")}><Textarea value={sql} readOnly resize="vertical" style={{ minHeight: 150, fontFamily: "monospace" }} /></Field>
+        {dialect === "jdbc-generic" || dialect === "odbc" ? <Text size={200}>{t("genericDialectHint")}</Text> : null}
+      </DialogContent><DialogActions><Button onClick={onClose}>{t("cancel")}</Button><Button appearance="primary" disabled={!sql} onClick={() => { onOpenSql(`${t("createTableDialog")} ${table.trim()}`, sql); onClose(); }}>{t("openSql")}</Button></DialogActions></DialogBody>
     </DialogSurface>
   </Dialog>;
 }
