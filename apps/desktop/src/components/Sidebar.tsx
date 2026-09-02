@@ -820,7 +820,7 @@ export function Sidebar({
               defaultExpanded={isSearching}
               forceExpanded={isSearching || undefined}
               onContextMenu={(event) => openMenu(event, [
-                { label: "Criar tabela…", action: () => setCreateTableSchema(g.name) },
+                { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
               ])}
             >
               <TreeNode
@@ -829,7 +829,7 @@ export function Sidebar({
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
                   onContextMenu={(event) => openMenu(event, [
-                    { label: "Criar tabela…", action: () => setCreateTableSchema(g.name) },
+                    { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
                   ])}
                 >
                   {g.tables.map((t) => {
@@ -846,9 +846,9 @@ export function Sidebar({
                           onContextMenu={(e) =>
                             openMenu(e, [
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
-                              { label: "Visualizar estrutura…", action: () => setStructureTable({ schema: g.name, table: t.name }) },
-                              { label: "Editar tabela…", action: () => setEditTable({ schema: g.name, table: t.name }) },
-                              { label: "Gerar DDL em nova aba", action: () => void openDefinition("table", g.name, t.name) },
+                              { label: tr("viewStructure"), action: () => setStructureTable({ schema: g.name, table: t.name }) },
+                              { label: tr("editTable"), action: () => setEditTable({ schema: g.name, table: t.name }) },
+                              { label: tr("generateDdl"), action: () => void openDefinition("table", g.name, t.name) },
                             ])
                           }
                         >
