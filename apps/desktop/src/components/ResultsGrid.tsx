@@ -417,6 +417,12 @@ export function ResultsGrid({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && addingRow) {
+        e.preventDefault();
+        setAddingRow(false);
+        setNewRowValues({});
+        return;
+      }
       if (activeTab !== "data" || pageRows.length === 0) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -429,7 +435,7 @@ export function ResultsGrid({
     const el = gridRef.current;
     el?.addEventListener("keydown", onKey);
     return () => el?.removeEventListener("keydown", onKey);
-  }, [activeTab, pageRows.length]);
+  }, [activeTab, addingRow, pageRows.length]);
 
   return (
     <Card
@@ -553,15 +559,22 @@ export function ResultsGrid({
               </Button>
             )}
             {editability?.editable && onInsertRow && (
-              <Button
-                appearance="outline"
-                icon={<AddRegular />}
-                aria-label={t("addRow")}
-                disabled={committing || addingRow}
-                onClick={() => { setAddingRow(true); setNewRowValues({}); }}
-              >
-                {t("addRow")}
-              </Button>
+              addingRow ? (
+                <div className="omni-new-row-actions">
+                  <Button appearance="primary" onClick={() => void insertRow()} disabled={Object.keys(newRowValues).length === 0 || committing}>{t("insert")}</Button>
+                  <Button appearance="subtle" onClick={() => { setAddingRow(false); setNewRowValues({}); }}>{t("cancel")}</Button>
+                </div>
+              ) : (
+                <Button
+                  appearance="outline"
+                  icon={<AddRegular />}
+                  aria-label={t("addRow")}
+                  disabled={committing}
+                  onClick={() => { setAddingRow(true); setNewRowValues({}); }}
+                >
+                  {t("addRow")}
+                </Button>
+              )
             )}
             <Button
               appearance="primary"
@@ -665,10 +678,6 @@ export function ResultsGrid({
                           ) : <Text size={200}>—</Text>}
                         </td>
                       ))}
-                      <td style={{ padding: 4, whiteSpace: "nowrap" }}>
-                        <Button appearance="primary" onClick={() => void insertRow()} disabled={Object.keys(newRowValues).length === 0 || committing}>{t("insert")}</Button>
-                        <Button appearance="subtle" onClick={() => { setAddingRow(false); setNewRowValues({}); }}>{t("cancel")}</Button>
-                      </td>
                     </tr>
                   )}
                   {pageRows.map(({ row, rowIndex: originalRowIndex }, displayRowIndex) => (

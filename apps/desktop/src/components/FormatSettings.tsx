@@ -95,6 +95,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
           </TabList>
           <DialogBody className="omni-settings-body">
             {section === "language" ? (
+              <div className="omni-settings-section omni-settings-language">
               <Label>
                 {t("language")}
                 <Select
@@ -107,8 +108,9 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   <option value="pt-BR">{t("portugueseBrazil")}</option>
                 </Select>
               </Label>
+              </div>
             ) : (
-              <>
+              <div className="omni-settings-section">
             <section className="omni-settings-card">
               <Label>{t("shortcut")}</Label>
               <Input
@@ -223,7 +225,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                 {preview}
               </pre>
             </section>
-              </>
+              </div>
             )}
           </DialogBody>
           <DialogActions className="omni-settings-actions">
@@ -235,7 +237,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               {t("cancel")}
             </Button>
             <Button type="submit" appearance="primary" disabled={!!keybindingError}>
-              {t("saveFormatterSettings")}
+              {section === "formatting" ? t("saveFormatterSettings") : t("saveSettings")}
             </Button>
           </DialogActions>
         </form>
