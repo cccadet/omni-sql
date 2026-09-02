@@ -7,7 +7,7 @@ import type {
 } from "./protocol.ts";
 import { closeBackendResources, handlers } from "./handlers.ts";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { RpcValidationError } from "./rpc-errors.ts";
+import { RpcDatabaseError, RpcValidationError } from "./rpc-errors.ts";
 import { closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
 import { McpBridgeError } from "./mcp-bridge.ts";
 import {
@@ -426,7 +426,7 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         return;
       }
       logFailure(rpc.method, e, Date.now() - t0);
-      const isSafeError = e instanceof RpcValidationError || e instanceof McpBridgeError;
+      const isSafeError = e instanceof RpcValidationError || e instanceof RpcDatabaseError || e instanceof McpBridgeError;
       const message = isSafeError ? e.message : INTERNAL_ERROR_MESSAGE;
       const code = e instanceof McpBridgeError ? -32001 : -32000;
       send(res, 200, errorResponse(rpc.id, code, message), origin);

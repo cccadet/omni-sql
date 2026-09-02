@@ -172,7 +172,7 @@ const PORT = 14380;
 const RPC_URL = `http://127.0.0.1:${PORT}/rpc`;
 let rpcId = 0;
 
-async function rpc(method: string, params?: unknown): Promise<JsonRpcResponse> {
+async function rpcResponse(method: string, params?: unknown): Promise<JsonRpcResponse> {
   const id = ++rpcId;
   const body = JSON.stringify({
     jsonrpc: "2.0",
@@ -186,6 +186,11 @@ async function rpc(method: string, params?: unknown): Promise<JsonRpcResponse> {
     body,
   });
   const json = (await res.json()) as JsonRpcResponse;
+  return json;
+}
+
+async function rpc(method: string, params?: unknown): Promise<JsonRpcResponse> {
+  const json = await rpcResponse(method, params);
   if (json.error) throw new Error(`RPC ${method}: ${json.error.message}`);
   return json;
 }
@@ -359,6 +364,75 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
         const result = res.result as { rows: unknown[][] };
         assert.equal(result.rows.length, 5);
         assert.equal(String(result.rows[0]?.[2]), "high");
+      });
+
+      const itNative = target.dialect === "jdbc-generic" ? it.skip : it;
+
+      itNative("query.run: CREATE TABLE gerado pela tela", async () => {
+        const table = target.dialect === "oracle" ? "GUARDRAILS_UI_TEST" : "guardrails_ui_test";
+        const tableSqlByDialect: Record<string, { createSql: string; dropSql: string }> = {
+          postgres: {
+            createSql: `CREATE TABLE "${target.schema}"."${table}" (  "id" integer NOT NULL,  "checagem" varchar(255),  "bloqueado" varchar(5),  "modo" varchar(255),  "sessao" varchar(255),  "mensagem" text,  "timestamp" date,  PRIMARY KEY ("id"))`,
+            dropSql: `DROP TABLE "${target.schema}"."${table}"`,
+          },
+          mysql: {
+            createSql: `CREATE TABLE \`${target.schema}\`.\`${table}\` (  \`id\` int NOT NULL,  \`checagem\` varchar(255),  \`bloqueado\` varchar(5),  \`modo\` varchar(255),  \`sessao\` varchar(255),  \`mensagem\` text,  \`timestamp\` date,  PRIMARY KEY (\`id\`))`,
+            dropSql: `DROP TABLE \`${target.schema}\`.\`${table}\``,
+          },
+          sqlserver: {
+            createSql: `CREATE TABLE [${target.schema}].[${table}] (  [id] int NOT NULL,  [checagem] nvarchar(255),  [bloqueado] nvarchar(5),  [modo] nvarchar(255),  [sessao] nvarchar(255),  [mensagem] nvarchar(max),  [timestamp] date,  PRIMARY KEY ([id]))`,
+            dropSql: `DROP TABLE [${target.schema}].[${table}]`,
+          },
+          oracle: {
+            createSql: `CREATE TABLE "${target.schema}"."${table}" (  "id" NUMBER(10) NOT NULL,  "checagem" VARCHAR2(255),  "bloqueado" VARCHAR2(5),  "modo" VARCHAR2(255),  "sessao" VARCHAR2(255),  "mensagem" VARCHAR2(4000),  "timestamp" date,  PRIMARY KEY ("id"))`,
+            dropSql: `DROP TABLE "${target.schema}"."${table}" PURGE`,
+          },
+        };
+        const tableSql = tableSqlByDialect[target.dialect];
+        assert.ok(tableSql, `missing CREATE TABLE fixture for ${target.dialect}`);
+
+        // Torna o teste repetível mesmo se uma execução anterior for interrompida.
+        const staleDrop = await rpcResponse("query.run", {
+          connectionId: connId,
+          sql: tableSql.dropSql,
+          limit: 10,
+          executionRiskAccepted: true,
+        });
+        if (target.dialect === "oracle" && staleDrop.error) assert.match(staleDrop.error.message, /^ORA-00942:/);
+
+        try {
+          const created = await rpc("query.run", { connectionId: connId, sql: tableSql.createSql, limit: 10 });
+          const createResult = created.result as { rows: unknown[][]; rowsMoreAvailable: boolean };
+          assert.deepEqual(createResult.rows, []);
+          assert.equal(createResult.rowsMoreAvailable, false);
+
+          await rpc("metadata.introspect", { connectionId: connId });
+          const listed = await rpc("metadata.listRelations", { connectionId: connId, includeColumns: true });
+          const relations = (listed.result as {
+            relations: { name: string; columns: { name: string; isPrimaryKey: boolean }[] }[];
+          }).relations;
+          const guardrails = relations.find((relation) => relation.name === table);
+          assert.ok(guardrails, `${table} missing after metadata.introspect`);
+          assert.deepEqual(
+            guardrails.columns.map((column) => column.name),
+            ["id", "checagem", "bloqueado", "modo", "sessao", "mensagem", "timestamp"],
+          );
+          assert.equal(guardrails.columns.find((column) => column.name === "id")?.isPrimaryKey, true);
+
+          if (target.dialect === "oracle") {
+            const duplicate = await rpcResponse("query.run", { connectionId: connId, sql: tableSql.createSql, limit: 10 });
+            assert.equal(duplicate.error?.code, -32000);
+            assert.match(duplicate.error?.message ?? "", /^ORA-00955:/);
+          }
+        } finally {
+          const dropped = await rpc("query.run", {
+            connectionId: connId,
+            sql: tableSql.dropSql,
+            limit: 10,
+            executionRiskAccepted: true,
+          });
+          assert.equal(dropped.error, undefined, dropped.error?.message);
+        }
       });
 
       itJdbcSkip("metadata.listFunctions", async () => {
