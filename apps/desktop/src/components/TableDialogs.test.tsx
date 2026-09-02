@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildAlterTableSql, buildCreateTableSql } from "./TableDialogs";
+import { buildAlterTableSql, buildCreateTableSql, buildSampleRowSql } from "./TableDialogs";
+
+describe("buildSampleRowSql", () => {
+  it("quotes the table reference for each supported identifier style", () => {
+    expect(buildSampleRowSql("postgres", "public", "order")).toBe('SELECT * FROM "public"."order"');
+    expect(buildSampleRowSql("mysql", "sales", "order")).toBe("SELECT * FROM `sales`.`order`");
+    expect(buildSampleRowSql("sqlserver", "dbo", "odd]name")).toBe("SELECT * FROM [dbo].[odd]]name]");
+  });
+});
 
 describe("buildCreateTableSql", () => {
   it("quotes PostgreSQL identifiers and creates a composite primary key", () => {
