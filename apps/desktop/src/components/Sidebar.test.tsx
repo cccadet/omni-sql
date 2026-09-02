@@ -203,7 +203,7 @@ describe("Sidebar", () => {
 
     fireEvent.change(screen.getByPlaceholderText("Search tables, columns…"), { target: { value: "orders" } });
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Gerar DDL em nova aba" }));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Generate DDL in new tab" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.getDefinition", {
       connectionId: "connection-1", kind: "table", schema: "public", name: "orders",
     }));
@@ -224,7 +224,7 @@ describe("Sidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "empty_schema" }));
     fireEvent.contextMenu(screen.getByText("Tables (0)").closest("div")!);
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Criar tabela…" }));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Create table…" }));
     fireEvent.change(await screen.findByLabelText("Nome da tabela"), { target: { value: "customers" } });
     fireEvent.click(screen.getByRole("button", { name: "Abrir SQL" }));
 
@@ -243,12 +243,18 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "public" }));
     fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Visualizar estrutura…" }));
+    const contextMenu = within(document.querySelector(".context-menu")!);
+    expect(contextMenu.getByRole("button", { name: "Insert into editor" })).toBeTruthy();
+    expect(contextMenu.getByRole("button", { name: "Edit table…" })).toBeTruthy();
+    expect(contextMenu.getByRole("button", { name: "Generate DDL in new tab" })).toBeTruthy();
+    fireEvent.click(contextMenu.getByRole("button", { name: "View structure…" }));
 
-    expect(await screen.findByText("Estrutura: public.orders")).toBeTruthy();
-    expect(await screen.findByRole("tab", { name: "Colunas (2)" })).toBeTruthy();
+    expect(await screen.findByText("Structure: public.orders")).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: "Columns (2)" })).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "DDL" }));
-    expect(screen.getByDisplayValue("CREATE TABLE public.orders (id integer);")).toBeTruthy();
+    const ddl = screen.getByDisplayValue("CREATE TABLE public.orders (id integer);");
+    expect(ddl.closest(".table-structure-ddl")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
   });
 
   it("opens existing table changes as reviewable ALTER TABLE SQL", async () => {
@@ -258,7 +264,7 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "public" }));
     fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Editar tabela…" }));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit table…" }));
 
     const typeInput = await screen.findByLabelText("Tipo de customer_id");
     fireEvent.change(typeInput, { target: { value: "bigint" } });
@@ -273,7 +279,7 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "public" }));
     fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Editar tabela…" }));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit table…" }));
 
     fireEvent.change(await screen.findByLabelText("Nome da coluna id"), { target: { value: "order_id" } });
     fireEvent.click(screen.getByLabelText("Chave primária order_id"));

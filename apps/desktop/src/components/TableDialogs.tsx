@@ -5,6 +5,7 @@ import {
 } from "@fluentui/react-components";
 import { AddRegular, DeleteRegular } from "@fluentui/react-icons";
 import type { DialectId, IndexInfo } from "@omni-sql/ts-types";
+import { useLanguage } from "../i18n";
 import { backend, type RelationColumn, type RelationConstraint } from "../lib/backend";
 
 interface DraftColumn {
@@ -209,6 +210,7 @@ export function EditTableDialog({ open, connectionId, dialect, schema, table, on
 
 interface TableStructureDialogProps { open: boolean; connectionId: string | null; schema: string; table: string; onClose: () => void; }
 export function TableStructureDialog({ open, connectionId, schema, table, onClose }: TableStructureDialogProps) {
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [columns, setColumns] = useState<RelationColumn[]>([]);
@@ -225,9 +227,9 @@ export function TableStructureDialog({ open, connectionId, schema, table, onClos
     ]).then(([columnResult, indexResult, definition]) => { setColumns(columnResult.columns); setIndexes(indexResult.indexes); setDdl(definition.sql); }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason))).finally(() => setLoading(false));
   }, [connectionId, open, schema, table]);
   return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}><DialogSurface style={{ width: "min(860px, calc(100vw - 24px))", maxWidth: "none" }}><DialogBody>
-    <DialogTitle>Estrutura: {schema}.{table}</DialogTitle><DialogContent>{loading ? <Spinner label="Carregando estrutura…" /> : error ? <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{error}</Text> : <><TabList selectedValue={tab} onTabSelect={(_, data) => setTab(String(data.value))}><Tab value="columns">Colunas ({columns.length})</Tab><Tab value="indexes">Índices ({indexes.length})</Tab><Tab value="ddl">DDL</Tab></TabList>
-      {tab === "columns" && <table className="table-structure-grid"><thead><tr><th>Nome</th><th>Tipo</th><th>Nulo</th><th>Chaves</th></tr></thead><tbody>{columns.map((column) => <tr key={column.name}><td>{column.name}</td><td>{column.dataType}</td><td>{column.nullable ? "Sim" : "Não"}</td><td>{column.isPrimaryKey ? "PK" : column.foreignKeyTo ? `FK → ${column.foreignKeyTo.schema}.${column.foreignKeyTo.table}.${column.foreignKeyTo.column}` : ""}</td></tr>)}</tbody></table>}
-      {tab === "indexes" && <table className="table-structure-grid"><thead><tr><th>Nome</th><th>Colunas</th><th>Tipo</th></tr></thead><tbody>{indexes.map((index) => <tr key={index.name}><td>{index.name}</td><td>{index.columns.join(", ")}</td><td>{index.primary ? "PRIMARY" : index.unique ? "UNIQUE" : "INDEX"}</td></tr>)}</tbody></table>}
-      {tab === "ddl" && <Textarea value={ddl} readOnly resize="vertical" style={{ width: "100%", minHeight: 280, marginTop: 12, fontFamily: "monospace" }} />}</>}</DialogContent><DialogActions><Button onClick={onClose}>Fechar</Button></DialogActions>
+    <DialogTitle>{t("tableStructure")}: {schema}.{table}</DialogTitle><DialogContent>{loading ? <Spinner label={t("loadingStructure")} /> : error ? <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{error}</Text> : <><TabList selectedValue={tab} onTabSelect={(_, data) => setTab(String(data.value))}><Tab value="columns">{t("columns")} ({columns.length})</Tab><Tab value="indexes">{t("indexes")} ({indexes.length})</Tab><Tab value="ddl">DDL</Tab></TabList>
+      {tab === "columns" && <table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>{t("keys")}</th></tr></thead><tbody>{columns.map((column) => <tr key={column.name}><td>{column.name}</td><td>{column.dataType}</td><td>{column.nullable ? t("yes") : t("no")}</td><td>{column.isPrimaryKey ? "PK" : column.foreignKeyTo ? `FK → ${column.foreignKeyTo.schema}.${column.foreignKeyTo.table}.${column.foreignKeyTo.column}` : ""}</td></tr>)}</tbody></table>}
+      {tab === "indexes" && <table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("columns")}</th><th>{t("type")}</th></tr></thead><tbody>{indexes.map((index) => <tr key={index.name}><td>{index.name}</td><td>{index.columns.join(", ")}</td><td>{index.primary ? "PRIMARY" : index.unique ? "UNIQUE" : "INDEX"}</td></tr>)}</tbody></table>}
+      {tab === "ddl" && <Textarea className="table-structure-ddl" value={ddl} readOnly resize="vertical" />}</>}</DialogContent><DialogActions><Button onClick={onClose}>{t("close")}</Button></DialogActions>
   </DialogBody></DialogSurface></Dialog>;
 }
