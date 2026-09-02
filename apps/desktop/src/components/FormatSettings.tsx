@@ -81,19 +81,19 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
 
   return (
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
-      <DialogSurface style={{ width: "min(760px, calc(100vw - 24px))", height: "min(760px, calc(100vh - 24px))", maxHeight: "calc(100vh - 24px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DialogSurface className="omni-settings-dialog">
         <form onSubmit={handleSubmit} style={{ display: "flex", flex: "1 1 auto", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-          <DialogTitle style={{ flexShrink: 0 }}>{t("formatSettingsTitle")}</DialogTitle>
+          <DialogTitle className="omni-settings-title">{t("formatSettingsTitle")}</DialogTitle>
           <TabList
             selectedValue={section}
             onTabSelect={(_, data) => setSection(data.value as "formatting" | "language")}
             aria-label={t("settingsSections")}
-            style={{ flexShrink: 0, overflowX: "auto", padding: "0 24px", borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}
+            className="omni-settings-tabs"
           >
             <Tab value="formatting">{t("formattingSettingsTab")}</Tab>
             <Tab value="language">{t("languageSettingsTab")}</Tab>
           </TabList>
-          <DialogBody style={{ display: "flex", flex: "1 1 auto", flexDirection: "column", gap: 16, minHeight: 0, overflowY: "auto", paddingTop: 16 }}>
+          <DialogBody className="omni-settings-body">
             {section === "language" ? (
               <Label>
                 {t("language")}
@@ -109,7 +109,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               </Label>
             ) : (
               <>
-            <section style={{ display: "flex", flexDirection: "column", gap: 6, padding: 12, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 6 }}>
+            <section className="omni-settings-card">
               <Label>{t("shortcut")}</Label>
               <Input
                 aria-label={t("shortcut")}
@@ -130,7 +130,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               </div>
             </section>
 
-            <section style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 6 }}>
+            <section className="omni-settings-card">
               <Text weight="semibold">{t("capitalization")}</Text>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
                 {[
@@ -154,7 +154,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               </div>
             </section>
 
-            <section style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 6 }}>
+            <section className="omni-settings-card">
               <Text weight="semibold">{t("layout")}</Text>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
                 <Label>
@@ -206,7 +206,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               </div>
             </section>
 
-            <section style={{ display: "flex", flexDirection: "column", gap: 6, padding: 12, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 6 }}>
+            <section className="omni-settings-card">
               <Text weight="semibold">{t("preview")} ({dialect})</Text>
               <pre
                 style={{
@@ -226,7 +226,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               </>
             )}
           </DialogBody>
-          <DialogActions style={{ flexShrink: 0, borderTop: `1px solid ${tokens.colorNeutralStroke1}`, background: tokens.colorNeutralBackground1 }}>
+          <DialogActions className="omni-settings-actions">
             <Button type="button" onClick={() => setDraft(DEFAULT_FORMATTER_SETTINGS)}>
               {t("resetToDefaults")}
             </Button>
