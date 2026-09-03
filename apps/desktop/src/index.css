@@ -618,6 +618,11 @@ select option {
 .omni-table-dialog.omni-table-dialog { max-height: calc(100vh - 24px); overflow: hidden; }
 .omni-table-dialog-body.omni-table-dialog-body { min-height: 0; overflow: hidden; }
 .omni-table-dialog-content.omni-table-dialog-content { min-height: 0; overflow: auto; }
+.omni-command-library-dialog.omni-command-library-dialog { height: min(760px, calc(100vh - 24px)); max-height: calc(100vh - 24px); overflow: hidden; }
+.omni-command-library-body.omni-command-library-body { min-height: 0; overflow: hidden; }
+.omni-command-library-content.omni-command-library-content { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: hidden; }
+.omni-command-library-filters { display: flex; flex: 0 0 auto; gap: 8px; }
+.omni-command-library-list { display: grid; gap: 8px; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-right: 4px; }
 
 @media (max-width: 720px), (max-height: 620px) {
   .omni-settings-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
@@ -625,6 +630,9 @@ select option {
   .omni-settings-body { padding: 10px 12px; }
   .omni-settings-card { padding: 10px; }
   .omni-settings-actions { padding: 8px 12px; }
+  .omni-command-library-dialog.omni-command-library-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
+  .omni-command-library-filters { flex-wrap: wrap; }
+  .omni-command-library-filters > :first-child { flex-basis: 100%; }
 }
 
 /* Sidebar resize handle */
