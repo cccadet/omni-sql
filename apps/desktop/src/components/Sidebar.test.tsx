@@ -89,7 +89,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("recent_orders")).toBeTruthy();
     expect(screen.getByText("refresh_orders")).toBeTruthy();
 
-    fireEvent.click(screen.getByLabelText("Inserir public.orders"));
+    fireEvent.click(screen.getByLabelText("Insert public.orders"));
     expect(onInsert).toHaveBeenCalledWith("public.orders");
 
     fireEvent.click(screen.getAllByRole("button", { name: "Expand/collapse" })[0]!);
@@ -140,7 +140,7 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByLabelText("Production Remove connection"));
     expect(onDeleteConnectionGroup).toHaveBeenCalledWith("group-1");
 
-    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(screen.getByLabelText("Actions for Local database"));
     expect(screen.queryByRole("button", { name: "Root" })).toBeNull();
     fireEvent.mouseEnter(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Move to…" }));
     fireEvent.click(screen.getByRole("button", { name: "Root" }));
@@ -150,7 +150,7 @@ describe("Sidebar", () => {
   it("aligns the Move to submenu to its item and closes it on leave", () => {
     renderSidebar();
 
-    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(screen.getByLabelText("Actions for Local database"));
     const contextMenu = document.querySelector<HTMLUListElement>(".context-menu")!;
     const moveItem = within(contextMenu).getByRole("button", { name: "Move to…" }) as HTMLButtonElement;
     vi.spyOn(moveItem, "getBoundingClientRect").mockReturnValue({
@@ -225,10 +225,10 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "empty_schema" }));
     fireEvent.contextMenu(screen.getByText("Tables (0)").closest("div")!);
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Create table…" }));
-    fireEvent.change(await screen.findByLabelText("Nome da tabela"), { target: { value: "customers" } });
-    fireEvent.click(screen.getByRole("button", { name: "Abrir SQL" }));
+    fireEvent.change(await screen.findByLabelText("Table name"), { target: { value: "customers" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
 
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Criar customers", expect.stringContaining('CREATE TABLE "empty_schema"."customers"'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Create table customers", expect.stringContaining('CREATE TABLE "empty_schema"."customers"'));
   });
 
   it("opens table structure with columns, indexes, and DDL", async () => {
@@ -275,10 +275,10 @@ describe("Sidebar", () => {
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit table…" }));
 
-    const typeInput = await screen.findByLabelText("Tipo de customer_id");
+    const typeInput = await screen.findByLabelText("Column type: customer_id");
     fireEvent.change(typeInput, { target: { value: "bigint" } });
-    fireEvent.click(screen.getByRole("button", { name: "Abrir SQL" }));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alterar orders", expect.stringContaining('ALTER COLUMN "customer_id" TYPE bigint'));
+    fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('ALTER COLUMN "customer_id" TYPE bigint'));
   });
 
   it("allows renaming a column and changing the primary key", async () => {
@@ -290,12 +290,12 @@ describe("Sidebar", () => {
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit table…" }));
 
-    fireEvent.change(await screen.findByLabelText("Nome da coluna id"), { target: { value: "order_id" } });
-    fireEvent.click(screen.getByLabelText("Chave primária order_id"));
-    fireEvent.click(screen.getByLabelText("Chave primária customer_id"));
-    fireEvent.click(screen.getByRole("button", { name: "Abrir SQL" }));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alterar orders", expect.stringContaining('RENAME COLUMN "id" TO "order_id"'));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alterar orders", expect.stringContaining('ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("customer_id")'));
+    fireEvent.change(await screen.findByLabelText("Column name: id"), { target: { value: "order_id" } });
+    fireEvent.click(screen.getByLabelText("Primary key: order_id"));
+    fireEvent.click(screen.getByLabelText("Primary key: customer_id"));
+    fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('RENAME COLUMN "id" TO "order_id"'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("customer_id")'));
   });
 
   it("routes context-menu connection actions and persists keyboard resizing", () => {
@@ -304,16 +304,16 @@ describe("Sidebar", () => {
     const onRemoveConnection = vi.fn();
     renderSidebar({ onEditConnection, onDuplicateConnection, onRemoveConnection });
 
-    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(screen.getByLabelText("Actions for Local database"));
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit connection" }));
     expect(onEditConnection).toHaveBeenCalledWith("connection-1");
-    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(screen.getByLabelText("Actions for Local database"));
     expect(screen.queryByLabelText("Edit connection")).toBeNull();
     expect(screen.queryByLabelText("Duplicate connection")).toBeNull();
     expect(screen.queryByLabelText("Remove connection")).toBeNull();
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Duplicate connection" }));
     expect(onDuplicateConnection).toHaveBeenCalledWith("connection-1");
-    fireEvent.click(screen.getByLabelText("Local database actions"));
+    fireEvent.click(screen.getByLabelText("Actions for Local database"));
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Remove connection" }));
     expect(onRemoveConnection).toHaveBeenCalledWith("connection-1");
 
