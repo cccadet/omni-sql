@@ -27,17 +27,17 @@ export function SqlCommandLibrary({ open, dialect, onClose, onInsert }: SqlComma
 
   return (
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
-      <DialogSurface style={{ width: "min(820px, calc(100vw - 24px))", maxHeight: "min(760px, calc(100vh - 24px))" }}>
-        <DialogBody style={{ minHeight: 0 }}>
+      <DialogSurface className="omni-command-library-dialog" style={{ width: "min(820px, calc(100vw - 24px))" }}>
+        <DialogBody className="omni-command-library-body">
           <DialogTitle>{t("commandLibrary")}</DialogTitle>
-          <DialogContent style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-            <div style={{ display: "flex", gap: 8 }}>
+          <DialogContent className="omni-command-library-content">
+            <div className="omni-command-library-filters">
               <Input aria-label={t("searchCommands")} placeholder={t("searchCommands")} value={query} onChange={(_, data) => setQuery(data.value)} style={{ flex: 1 }} />
               <select aria-label={t("commandCategory")} value={category} onChange={(event) => setCategory(event.target.value as "all" | SqlCommandCategory)}>
                 {CATEGORIES.map((value) => <option key={value} value={value}>{t(CATEGORY_KEYS[value])}</option>)}
               </select>
             </div>
-            <div style={{ display: "grid", gap: 8, overflowY: "auto" }}>
+            <div className="omni-command-library-list">
               {commands.map((command) => (
                 <article key={command.id} style={{ border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: 6, padding: 12, display: "grid", gap: 8 }}>
                   <div><strong>{command.title}</strong> <span style={{ color: tokens.colorNeutralForeground3, fontSize: 12 }}>· {t(CATEGORY_KEYS[command.category])}</span></div>
