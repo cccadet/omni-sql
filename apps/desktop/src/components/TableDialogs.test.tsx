@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { buildAlterTableSql, buildCreateTableSql, buildSampleRowSql } from "./TableDialogs";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { buildAlterTableSql, buildCreateTableSql, buildSampleRowSql, CreateTableDialog } from "./TableDialogs";
+import { LanguageProvider } from "../i18n";
 
 describe("buildSampleRowSql", () => {
   it("quotes the table reference for each supported identifier style", () => {
@@ -22,6 +24,17 @@ describe("buildCreateTableSql", () => {
     const column = [{ id: 1, name: "odd]name", dataType: "int", nullable: false, primaryKey: false, defaultValue: "" }];
     expect(buildCreateTableSql("mysql", "db", "items", column)).toContain("`db`.`items`");
     expect(buildCreateTableSql("sqlserver", "dbo", "items", column)).toContain("[odd]]name] int");
+  });
+});
+
+describe("CreateTableDialog", () => {
+  it("resets the default type when switching from Oracle to PostgreSQL", () => {
+    const props = { open: true, schemas: ["public"], onClose: vi.fn(), onOpenSql: vi.fn() };
+    const { rerender } = render(<LanguageProvider><CreateTableDialog {...props} dialect="oracle" /></LanguageProvider>);
+    expect((screen.getByRole("combobox", { name: "Column type" }) as HTMLInputElement).value).toBe("NUMBER(10)");
+
+    rerender(<LanguageProvider><CreateTableDialog {...props} dialect="postgres" /></LanguageProvider>);
+    expect((screen.getByRole("combobox", { name: "Column type" }) as HTMLInputElement).value).toBe("integer");
   });
 });
 

@@ -278,6 +278,26 @@ const english = {
   sqlPreview: "SQL preview",
   openSql: "Open SQL",
   genericDialectHint: "Review the SQL: the generic dialect may require driver-specific adjustments.",
+  editTableDialog: "Edit table: {table}",
+  loadingColumns: "Loading columns…",
+  dropColumnWarning: "Removing a column generates DROP COLUMN. Review the SQL carefully before running it.",
+  invalidColumns: "Every column needs a name and type, with no duplicate names.",
+  columnNameFor: "Column name: {column}",
+  columnTypeFor: "Column type: {column}",
+  allowNullFor: "Allow null: {column}",
+  primaryKeyFor: "Primary key: {column}",
+  defaultValueFor: "Default value: {column}",
+  removeColumnFor: "Remove column: {column}",
+  newColumn: "new column",
+  noChanges: "-- No changes.",
+  alterTableTab: "Alter {table}",
+  active: "Active",
+  actionsFor: "Actions for {item}",
+  activate: "Activate",
+  newFolder: "New folder",
+  moveTo: "Move to…",
+  insertObject: "Insert {object}",
+  resizeConnectionsPanel: "Resize connections panel",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -301,6 +321,11 @@ const portugueseBrazil = [
   "Criar tabela…", "Visualizar estrutura…", "Editar tabela…",
   "Valor de amostra", "Não foi possível carregar uma linha de amostra.", "Esta tabela não possui linhas para visualizar.",
   "Criar tabela", "Nome da tabela", "Nome da coluna", "Tipo da coluna", "Permitir nulo", "Chave primária", "Valor default", "Remover coluna", "Adicionar coluna", "Prévia SQL", "Abrir SQL", "Revise o SQL: o dialeto genérico pode exigir ajustes específicos do driver.",
+  "Editar tabela: {table}", "Carregando colunas…", "A remoção de uma coluna gera DROP COLUMN. Revise cuidadosamente o SQL antes de executar.",
+  "Todas as colunas precisam ter nome e tipo, sem nomes duplicados.", "Nome da coluna: {column}", "Tipo da coluna: {column}",
+  "Permitir nulo: {column}", "Chave primária: {column}", "Valor default: {column}", "Remover coluna: {column}", "nova coluna",
+  "-- Nenhuma alteração.", "Alterar {table}", "Ativa", "Ações de {item}", "Ativar", "Nova pasta", "Mover para…", "Inserir {object}",
+  "Redimensionar painel de conexões",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

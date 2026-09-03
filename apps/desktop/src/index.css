@@ -595,23 +595,29 @@ select option {
 
 .omni-theme-toggle:hover { background: var(--colorNeutralBackground3); color: var(--colorBrandForeground1); }
 
-.omni-settings-dialog {
+.omni-settings-dialog.omni-settings-dialog {
   width: min(680px, calc(100vw - 32px));
   height: min(680px, calc(100vh - 32px));
   max-height: calc(100vh - 32px);
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
+.omni-settings-dialog > form { flex: 1 1 auto; min-height: 0; }
 .omni-settings-title { flex-shrink: 0; padding-bottom: 8px; }
 .omni-settings-tabs { flex-shrink: 0; overflow-x: auto; padding: 0 24px; border-bottom: 1px solid var(--colorNeutralStroke1); }
-.omni-settings-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; padding-top: 14px; }
+.omni-settings-body.omni-settings-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-top: 14px; }
 .omni-settings-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .omni-settings-language { max-width: 320px; }
 .omni-settings-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--colorNeutralStroke2); border-radius: 8px; background: var(--colorNeutralBackground2); }
 .omni-settings-actions { flex-shrink: 0; flex-wrap: wrap; border-top: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground1); }
 .omni-new-row-actions { display: flex; align-items: center; gap: 4px; }
+.omni-toolbar-progress { display: inline-flex; width: 24px; min-width: 24px; align-items: center; justify-content: center; }
+.omni-table-dialog.omni-table-dialog { max-height: calc(100vh - 24px); overflow: hidden; }
+.omni-table-dialog-body.omni-table-dialog-body { min-height: 0; overflow: hidden; }
+.omni-table-dialog-content.omni-table-dialog-content { min-height: 0; overflow: auto; }
 
 @media (max-width: 720px), (max-height: 620px) {
   .omni-settings-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
