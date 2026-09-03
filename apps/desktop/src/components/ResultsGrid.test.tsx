@@ -171,6 +171,26 @@ test("adds a row from an empty editable result and omits untouched columns", asy
   expect(insertRow).toHaveBeenCalledWith({ 1: "hello" });
 });
 
+test("cancels a new row with Escape and clears its draft", () => {
+  render(
+    <LanguageProvider>
+      <ResultsGrid
+        result={{ ...result, rows: [] }}
+        editability={{ editable: true, reason: null, table: { schema: "public", name: "orders" }, pkColumns: ["id"], selectStar: true, columns: [] }}
+        onInsertRow={vi.fn()}
+      />
+    </LanguageProvider>,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+  const input = screen.getByRole("textbox", { name: "New row value payload" });
+  fireEvent.change(input, { target: { value: "discard me" } });
+  fireEvent.keyDown(input, { key: "Escape" });
+
+  expect(screen.queryByTestId("new-row")).toBeNull();
+  expect(screen.getByRole("button", { name: "Add row" })).toBeTruthy();
+});
+
 test("surfaces messages and plans for result and error states", async () => {
   const resultWithMessages: QueryResult = { ...result, rowsAffected: 2, rowsMoreAvailable: true };
   render(

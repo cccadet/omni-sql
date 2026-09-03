@@ -497,7 +497,7 @@ export function Sidebar({
           { label: tr("editConnection"), action: () => onEditConnection?.(item.id) },
           { label: tr("duplicateConnection"), action: () => onDuplicateConnection?.(item.id) },
           { label: tr("removeConnection"), action: () => onRemoveConnection?.(item.id) },
-          { label: "Move to…", action: () => undefined },
+          { label: tr("moveTo"), action: () => undefined },
         ], moveOptions, item.id)}
       >
         <button
@@ -517,7 +517,7 @@ export function Sidebar({
         >
           <DialectIcon dialect={item.dialect} size={13} />
           <span>{item.label}</span>
-          {isActive && <span className="omni-active-marker" aria-label="Active">●</span>}
+          {isActive && <span className="omni-active-marker" aria-label={tr("active")}>●</span>}
         </button>
         {isSelected && !isActive && (
           <button
@@ -525,7 +525,7 @@ export function Sidebar({
             className="omni-activate-button"
             onClick={() => onSelectConnection?.(item.id)}
           >
-            Activate
+            {tr("activate")}
           </button>
         )}
         <Button
@@ -533,12 +533,12 @@ export function Sidebar({
           appearance="transparent"
           size="small"
           className="omni-connection-overflow"
-          aria-label={`${item.label} actions`}
+          aria-label={tr("actionsFor").replace("{item}", item.label)}
           onClick={(event) => openMenu(event, [
             { label: tr("editConnection"), action: () => onEditConnection?.(item.id) },
             { label: tr("duplicateConnection"), action: () => onDuplicateConnection?.(item.id) },
             { label: tr("removeConnection"), action: () => onRemoveConnection?.(item.id) },
-            { label: "Move to…", action: () => undefined },
+            { label: tr("moveTo"), action: () => undefined },
           ], moveOptions, item.id)}
         />
       </div>
@@ -591,7 +591,7 @@ export function Sidebar({
             <Tooltip content={tr("newConnection")} relationship="label">
               <Button icon={<AddRegular fontSize={12} />} appearance="transparent" size="small" onClick={onAddConnection} aria-label={tr("newConnection")} />
             </Tooltip>
-            <Tooltip content="New folder" relationship="label">
+            <Tooltip content={tr("newFolder")} relationship="label">
               <Button
                 icon={(
                   <span className="folder-add-icon" aria-hidden="true">
@@ -602,7 +602,7 @@ export function Sidebar({
                 appearance="transparent"
                 size="small"
                 onClick={() => setNewGroupOpen((value) => !value)}
-                aria-label="New folder"
+                aria-label={tr("newFolder")}
               />
             </Tooltip>
           </div>}
@@ -736,8 +736,8 @@ export function Sidebar({
           aria-valuemax={getMaxConnectionsHeight()}
           aria-valuenow={connectionsHeight}
           tabIndex={0}
-          aria-label="Resize connections panel"
-          title="Resize connections panel"
+          aria-label={tr("resizeConnectionsPanel")}
+          title={tr("resizeConnectionsPanel")}
           onPointerDown={onConnectionsResizeStart}
           onKeyDown={onConnectionsResizeKeyDown}
         />
@@ -870,7 +870,7 @@ export function Sidebar({
                               }
                             }}
                             actions={
-                              <Tooltip content={`Inserir ${g.name}.${t.name}`} relationship="label">
+                              <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)} relationship="label">
                                 <Button
                                   appearance="transparent"
                                   size="small"
@@ -880,7 +880,7 @@ export function Sidebar({
                                     insertQualified(g.name, t.name);
                                   }}
                                   style={{ padding: 0, height: "auto", minWidth: 0 }}
-                                  aria-label={`Inserir ${g.name}.${t.name}`}
+                                  aria-label={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)}
                                 />
                               </Tooltip>
                             }
@@ -1008,7 +1008,7 @@ export function Sidebar({
                               if (nextExpanded) void ensureColumns(g.name, v.name);
                             }}
                             actions={
-                              <Tooltip content={`Inserir ${g.name}.${v.name}`} relationship="label">
+                              <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)} relationship="label">
                                 <Button
                                   appearance="transparent"
                                   size="small"
@@ -1018,7 +1018,7 @@ export function Sidebar({
                                     insertQualified(g.name, v.name);
                                   }}
                                   style={{ padding: 0, height: "auto", minWidth: 0 }}
-                                  aria-label={`Inserir ${g.name}.${v.name}`}
+                                  aria-label={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)}
                                 />
                               </Tooltip>
                             }
@@ -1082,14 +1082,14 @@ export function Sidebar({
                         >
                           <span className="obj-name">{f.name}</span>
                         </Button>
-                        <Tooltip content={`Inserir ${g.name}.${f.name}`} relationship="label">
+                        <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${f.name}`)} relationship="label">
                           <Button
                             appearance="transparent"
                             size="small"
                             icon={<ArrowEnterRegular fontSize={11} />}
                             onClick={() => insertQualified(g.name, f.name)}
                             style={{ padding: 0, height: "auto", minWidth: 0 }}
-                            aria-label={`Inserir ${g.name}.${f.name}`}
+                            aria-label={tr("insertObject").replace("{object}", `${g.name}.${f.name}`)}
                           />
                         </Tooltip>
                       </div>
@@ -1159,21 +1159,21 @@ export function Sidebar({
                 <li
                   key={i}
                   onMouseEnter={() => {
-                    if (item.label !== "Move to…") {
+                    if (item.label !== tr("moveTo")) {
                       setMenu((current) => current?.moveSubmenuOpen ? { ...current, moveSubmenuOpen: false } : current);
                     }
                   }}
                 >
                   <button
                     type="button"
-                    className={item.label === "Move to…" ? "has-submenu" : undefined}
+                    className={item.label === tr("moveTo") ? "has-submenu" : undefined}
                     onMouseEnter={(event) => {
-                      if (item.label === "Move to…" && menu.moveOptions) {
+                      if (item.label === tr("moveTo") && menu.moveOptions) {
                         openMoveSubmenu(event.currentTarget);
                       }
                     }}
                     onClick={(event) => {
-                      if (item.label === "Move to…" && menu.moveOptions) {
+                      if (item.label === tr("moveTo") && menu.moveOptions) {
                         openMoveSubmenu(event.currentTarget);
                         return;
                       }
