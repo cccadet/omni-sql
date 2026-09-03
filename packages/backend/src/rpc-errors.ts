@@ -35,3 +35,24 @@ export function safeOracleDatabaseError(error: unknown): RpcDatabaseError | unde
     .slice(0, 500);
   return new RpcDatabaseError(sanitized);
 }
+
+/**
+ * PostgreSQL's `pg` driver exposes SQLSTATE separately from its human-readable
+ * message. Only errors with that structured code are safe to return; arbitrary
+ * adapter errors must remain hidden behind the generic RPC error.
+ */
+export function safePostgresDatabaseError(error: unknown): RpcDatabaseError | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const code = Reflect.get(error, "code");
+  if (typeof code !== "string" || !/^[0-9][0-9A-Z]{4}$/.test(code)) return undefined;
+  const firstLine = error.message.split(/\r?\n/, 1)[0]?.trim();
+  if (!firstLine) return undefined;
+  const sanitized = [...firstLine]
+    .filter((character) => {
+      const charCode = character.charCodeAt(0);
+      return charCode >= 32 && charCode !== 127;
+    })
+    .join("")
+    .slice(0, 450);
+  return new RpcDatabaseError(`${code}: ${sanitized}`);
+}
