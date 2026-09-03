@@ -162,8 +162,8 @@ export function CreateTableDialog({ open, dialect, schemas, initialSchema, onClo
   const sql = table.trim() && validColumns.length ? buildCreateTableSql(dialect, schema, table, validColumns) : "";
   const updateColumn = (id: number, patch: Partial<DraftColumn>) => setColumns((current) => current.map((column) => column.id === id ? { ...column, ...patch } : column));
   return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
-    <DialogSurface style={{ width: "min(920px, calc(100vw - 24px))", maxWidth: "none" }}>
-      <DialogBody><DialogTitle>{t("createTableDialog")}</DialogTitle><DialogContent style={{ display: "grid", gap: 12 }}>
+    <DialogSurface className="omni-table-dialog" style={{ width: "min(920px, calc(100vw - 24px))", maxWidth: "none" }}>
+      <DialogBody className="omni-table-dialog-body"><DialogTitle>{t("createTableDialog")}</DialogTitle><DialogContent className="omni-table-dialog-content" style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
           <Field label="Schema">{schemas.length > 0
             ? <Dropdown value={schema} selectedOptions={schema ? [schema] : []} onOptionSelect={(_, data) => setSchema(data.optionValue ?? "")}>{schemas.map((name) => <Option key={name} value={name}>{name}</Option>)}</Dropdown>
@@ -190,6 +190,7 @@ export function CreateTableDialog({ open, dialect, schemas, initialSchema, onClo
 
 interface EditTableDialogProps { open: boolean; connectionId: string | null; dialect: DialectId; schema: string; table: string; onClose: () => void; onOpenSql: (title: string, sql: string) => void; }
 export function EditTableDialog({ open, connectionId, dialect, schema, table, onClose, onOpenSql }: EditTableDialogProps) {
+  const { t } = useLanguage();
   const [original, setOriginal] = useState<RelationColumn[]>([]);
   const [constraints, setConstraints] = useState<RelationConstraint[]>([]);
   const [columns, setColumns] = useState<EditDraftColumn[]>([]);
@@ -210,21 +211,21 @@ export function EditTableDialog({ open, connectionId, dialect, schema, table, on
   const draftValid = columns.every((column) => column.name.trim() && column.dataType.trim()) && new Set(normalizedNames).size === normalizedNames.length;
   const sql = draftValid ? buildAlterTableSql(dialect, schema, table, original, columns, constraints) : "";
   const updateColumn = (id: number, patch: Partial<EditDraftColumn>) => setColumns((current) => current.map((column) => column.id === id ? { ...column, ...patch } : column));
-  return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}><DialogSurface style={{ width: "min(920px, calc(100vw - 24px))", maxWidth: "none" }}><DialogBody>
-    <DialogTitle>Editar tabela: {schema}.{table}</DialogTitle><DialogContent style={{ display: "grid", gap: 12 }}>{loading ? <Spinner label="Carregando colunas…" /> : error ? <Text>{error}</Text> : <>
-      <Text size={200}>A remoção de uma coluna gera DROP COLUMN. Revise cuidadosamente o SQL antes de executar.</Text>
-      {!draftValid && <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>Todas as colunas precisam ter nome e tipo, sem nomes duplicados.</Text>}
-      <div style={{ overflowX: "auto" }}><table className="table-designer-grid"><thead><tr><th>Nome</th><th>Tipo</th><th>Nulo</th><th>PK</th><th>Default</th><th /></tr></thead><tbody>{columns.map((column) => <tr key={column.id}>
-        <td><Input aria-label={`Nome da coluna ${column.originalName ?? "nova"}`} value={column.name} onChange={(_, data) => updateColumn(column.id, { name: data.value })} /></td>
-        <td><Input aria-label={`Tipo de ${column.name}`} value={column.dataType} onChange={(_, data) => updateColumn(column.id, { dataType: data.value })} /></td>
-        <td><Checkbox aria-label={`Permitir nulo em ${column.name}`} checked={column.nullable} disabled={column.primaryKey} onChange={(_, data) => updateColumn(column.id, { nullable: data.checked === true })} /></td>
-        <td><Checkbox aria-label={`Chave primária ${column.name}`} checked={column.primaryKey} onChange={(_, data) => updateColumn(column.id, { primaryKey: data.checked === true, nullable: data.checked === true ? false : column.nullable })} /></td>
-        <td><Input aria-label={`Default de ${column.name}`} value={column.defaultValue} onChange={(_, data) => updateColumn(column.id, { defaultValue: data.value })} /></td>
-        <td><Button appearance="transparent" icon={<DeleteRegular />} aria-label={`Remover ${column.name || "coluna"}`} onClick={() => setColumns((current) => current.filter((item) => item.id !== column.id))} /></td>
-      </tr>)}</tbody></table></div>
-      <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { setColumns((current) => [...current, { id: nextId, name: "", dataType: TYPE_OPTIONS[dialect][0]!, nullable: true, primaryKey: false, defaultValue: "" }]); setNextId((value) => value + 1); }}>Adicionar coluna</Button>
-      <Field label="ALTER TABLE"><Textarea value={sql || "-- Nenhuma alteração."} readOnly resize="vertical" style={{ minHeight: 180, fontFamily: "monospace" }} /></Field>
-    </>}</DialogContent><DialogActions><Button onClick={onClose}>Cancelar</Button><Button appearance="primary" disabled={!sql} onClick={() => { onOpenSql(`Alterar ${table}`, sql); onClose(); }}>Abrir SQL</Button></DialogActions>
+  return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}><DialogSurface className="omni-table-dialog" style={{ width: "min(920px, calc(100vw - 24px))", maxWidth: "none" }}><DialogBody className="omni-table-dialog-body">
+    <DialogTitle>{t("editTableDialog").replace("{table}", `${schema}.${table}`)}</DialogTitle><DialogContent className="omni-table-dialog-content" style={{ display: "grid", gap: 12 }}>{loading ? <Spinner label={t("loadingColumns")} /> : error ? <Text>{error}</Text> : <>
+      <Text size={200}>{t("dropColumnWarning")}</Text>
+      {!draftValid && <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{t("invalidColumns")}</Text>}
+      <div style={{ overflowX: "auto" }}><table className="table-designer-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>PK</th><th>{t("defaultColumnValue")}</th><th /></tr></thead><tbody>{columns.map((column) => { const columnLabel = column.name || column.originalName || t("newColumn"); return <tr key={column.id}>
+        <td><Input aria-label={t("columnNameFor").replace("{column}", column.originalName ?? t("newColumn"))} value={column.name} onChange={(_, data) => updateColumn(column.id, { name: data.value })} /></td>
+        <td><Input aria-label={t("columnTypeFor").replace("{column}", columnLabel)} value={column.dataType} onChange={(_, data) => updateColumn(column.id, { dataType: data.value })} /></td>
+        <td><Checkbox aria-label={t("allowNullFor").replace("{column}", columnLabel)} checked={column.nullable} disabled={column.primaryKey} onChange={(_, data) => updateColumn(column.id, { nullable: data.checked === true })} /></td>
+        <td><Checkbox aria-label={t("primaryKeyFor").replace("{column}", columnLabel)} checked={column.primaryKey} onChange={(_, data) => updateColumn(column.id, { primaryKey: data.checked === true, nullable: data.checked === true ? false : column.nullable })} /></td>
+        <td><Input aria-label={t("defaultValueFor").replace("{column}", columnLabel)} value={column.defaultValue} onChange={(_, data) => updateColumn(column.id, { defaultValue: data.value })} /></td>
+        <td><Button appearance="transparent" icon={<DeleteRegular />} aria-label={t("removeColumnFor").replace("{column}", columnLabel)} onClick={() => setColumns((current) => current.filter((item) => item.id !== column.id))} /></td>
+      </tr>; })}</tbody></table></div>
+      <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { setColumns((current) => [...current, { id: nextId, name: "", dataType: TYPE_OPTIONS[dialect][0]!, nullable: true, primaryKey: false, defaultValue: "" }]); setNextId((value) => value + 1); }}>{t("addColumn")}</Button>
+      <Field label="ALTER TABLE"><Textarea value={sql || t("noChanges")} readOnly resize="vertical" style={{ minHeight: 180, fontFamily: "monospace" }} /></Field>
+    </>}</DialogContent><DialogActions><Button onClick={onClose}>{t("cancel")}</Button><Button appearance="primary" disabled={!sql} onClick={() => { onOpenSql(t("alterTableTab").replace("{table}", table), sql); onClose(); }}>{t("openSql")}</Button></DialogActions>
   </DialogBody></DialogSurface></Dialog>;
 }
 
@@ -252,8 +253,8 @@ export function TableStructureDialog({ open, connectionId, dialect, schema, tabl
   }, [connectionId, dialect, open, schema, table]);
   const sampleRow = sampleResult?.rows[0];
   const sampleColumnIndexes = new Map(sampleResult?.columns.map((column, index) => [column.name, index]) ?? []);
-  return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}><DialogSurface style={{ width: "min(860px, calc(100vw - 24px))", maxWidth: "none" }}><DialogBody>
-    <DialogTitle>{t("tableStructure")}: {schema}.{table}</DialogTitle><DialogContent>{loading ? <Spinner label={t("loadingStructure")} /> : error ? <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{error}</Text> : <><TabList selectedValue={tab} onTabSelect={(_, data) => setTab(String(data.value))}><Tab value="columns">{t("columns")} ({columns.length})</Tab><Tab value="indexes">{t("indexes")} ({indexes.length})</Tab><Tab value="ddl">DDL</Tab></TabList>
+  return <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}><DialogSurface className="omni-table-dialog" style={{ width: "min(860px, calc(100vw - 24px))", maxWidth: "none" }}><DialogBody className="omni-table-dialog-body">
+    <DialogTitle>{t("tableStructure")}: {schema}.{table}</DialogTitle><DialogContent className="omni-table-dialog-content">{loading ? <Spinner label={t("loadingStructure")} /> : error ? <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{error}</Text> : <><TabList selectedValue={tab} onTabSelect={(_, data) => setTab(String(data.value))}><Tab value="columns">{t("columns")} ({columns.length})</Tab><Tab value="indexes">{t("indexes")} ({indexes.length})</Tab><Tab value="ddl">DDL</Tab></TabList>
       {tab === "columns" && <><table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>{t("keys")}</th><th>{t("sampleValue")}</th></tr></thead><tbody>{columns.map((column) => { const sampleIndex = sampleColumnIndexes.get(column.name); const sampleValue = !sampleResult && !sampleError ? t("loading") : sampleIndex === undefined || !sampleRow ? "—" : formatSampleValue(sampleRow[sampleIndex]); return <tr key={column.name}><td>{column.name}</td><td>{column.dataType}</td><td>{column.nullable ? t("yes") : t("no")}</td><td>{column.isPrimaryKey ? "PK" : column.foreignKeyTo ? `FK → ${column.foreignKeyTo.schema}.${column.foreignKeyTo.table}.${column.foreignKeyTo.column}` : ""}</td><td className="table-structure-sample" title={sampleValue}>{sampleValue}</td></tr>; })}</tbody></table>{sampleError ? <Text size={200}>{t("sampleLoadFailed")}</Text> : sampleResult && !sampleRow ? <Text size={200}>{t("noSampleRows")}</Text> : null}</>}
       {tab === "indexes" && <table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("columns")}</th><th>{t("type")}</th></tr></thead><tbody>{indexes.map((index) => <tr key={index.name}><td>{index.name}</td><td>{index.columns.join(", ")}</td><td>{index.primary ? "PRIMARY" : index.unique ? "UNIQUE" : "INDEX"}</td></tr>)}</tbody></table>}
       {tab === "ddl" && <Textarea className="table-structure-ddl" value={ddl} readOnly resize="vertical" />}</>}</DialogContent><DialogActions><Button onClick={onClose}>{t("close")}</Button></DialogActions>

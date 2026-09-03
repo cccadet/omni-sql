@@ -673,7 +673,13 @@ export function ResultsGrid({
                               placeholder={t("defaultValue")}
                               value={newRowValues[col.index] ?? ""}
                               onChange={(_, data) => setNewRowValues((current) => ({ ...current, [col.index]: data.value }))}
-                              onKeyDown={(event) => { if (event.key === "Enter") void insertRow(); }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") void insertRow();
+                                if (event.key === "Escape") {
+                                  setAddingRow(false);
+                                  setNewRowValues({});
+                                }
+                              }}
                             />
                           ) : <Text size={200}>—</Text>}
                         </td>

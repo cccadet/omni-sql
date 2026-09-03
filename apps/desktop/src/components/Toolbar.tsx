@@ -1,4 +1,4 @@
-import { Button, Dialog, DialogActions, DialogBody, DialogSurface, DialogTitle, Spinner, Toolbar as FluentToolbar, ToolbarButton, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogSurface, DialogTitle, Spinner, Toolbar as FluentToolbar, ToolbarButton, Tooltip, tokens } from "@fluentui/react-components";
 import {
   AddRegular,
   PlayRegular,
@@ -134,7 +134,9 @@ export function Toolbar({
 
       <div style={{ flex: 1 }} />
 
-      {busyMsg && <Spinner size="tiny" label={busyMsg} labelPosition="after" style={{ marginRight: 8 }} />}
+      <span className="omni-toolbar-progress" aria-live="polite">
+        {busyMsg && <Tooltip content={busyMsg} relationship="description"><Spinner size="tiny" aria-label={busyMsg} /></Tooltip>}
+      </span>
 
       <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} title={t("toggleSidebar")} />
       <ToolbarButton icon={<BookRegular fontSize={14} />} onClick={onOpenCommandLibrary} aria-label={t("commandLibrary")} title={t("commandLibrary")} />

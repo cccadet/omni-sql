@@ -17,6 +17,7 @@ function LanguageProbe() {
     <div>
       <span data-testid="language">{language}</span>
       <span data-testid="label">{t("newTab")}</span>
+      <span data-testid="last-label">{t("resizeConnectionsPanel")}</span>
       <button onClick={() => setLanguage("pt-BR")}>pt</button>
     </div>
   );
@@ -36,6 +37,7 @@ describe("language provider", () => {
     fireEvent.click(screen.getByRole("button", { name: "pt" }));
     expect(screen.getByTestId("language").textContent).toBe("pt-BR");
     expect(screen.getByTestId("label").textContent).toBe("Nova aba");
+    expect(screen.getByTestId("last-label").textContent).toBe("Redimensionar painel de conexões");
     expect(localStorage.getItem("omni-sql:language")).toBe("pt-BR");
   });
 
