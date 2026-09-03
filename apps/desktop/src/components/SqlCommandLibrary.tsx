@@ -49,7 +49,7 @@ export function SqlCommandLibrary({ open, dialect, onClose, onInsert }: SqlComma
               {commands.length === 0 && <span>{t("noCommands")}</span>}
             </div>
           </DialogContent>
-          <DialogActions><Button onClick={onClose}>{t("cancel")}</Button></DialogActions>
+          <DialogActions className="omni-command-library-actions"><Button onClick={onClose}>{t("cancel")}</Button></DialogActions>
         </DialogBody>
       </DialogSurface>
     </Dialog>
