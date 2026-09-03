@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import type { ConnectionConfig, Relation, Database, FunctionDef } from "@omni-sql/ts-types";
+import type { ConnectionConfig, Relation, Database } from "@omni-sql/ts-types";
 import type { Adapter } from "@omni-sql/adapters-core";
 import { registerAdapter, resolveAdapter } from "@omni-sql/adapters-core";
 import { PostgresAdapter } from "@omni-sql/adapters-pg";
@@ -19,7 +19,7 @@ import {
   type Token,
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
-import { RpcValidationError, safeOracleDatabaseError } from "./rpc-errors.ts";
+import { RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
 import {
   assertEndpointHasNoEmbeddedCredentials,
   assertExecutionRiskAccepted,
@@ -524,6 +524,22 @@ export function metaSourceOf(
   };
 }
 
+export function mutatesDatabaseStructure(sql: string): boolean {
+  const withoutLeadingComments = sql.replace(/^\s*(?:(?:--[^\r\n]*(?:\r?\n|$))|(?:\/\*[\s\S]*?\*\/))\s*/u, "");
+  return /^(?:CREATE|ALTER|DROP)\b/iu.test(withoutLeadingComments);
+}
+
+async function refreshMetadataCache(connectionId: string, session: Session): Promise<Database> {
+  const db = await session.adapter.introspect();
+  const schemas = session.adapter.listSchemas().map((schema) => ({
+    name: schema.name,
+    relations: session.adapter.listTables(schema.name),
+    functions: session.adapter.listFunctions(schema.name),
+  }));
+  cache.ingestIntrospection(connectionId, schemas);
+  return db;
+}
+
 // ─────────────────────────── Handlers
 
 export const handlers: BackendRpcRouter = {
@@ -678,12 +694,24 @@ export const handlers: BackendRpcRouter = {
     const s = requireSession(connectionId);
     assertExecutionRiskAccepted(sql, s.config.dialect, executionRiskAccepted);
     await s.adapter.connect();
+    let result: RunQueryResult;
     try {
-      return await s.adapter.runQuery(sql, normalizeQueryLimit(limit));
+      result = await s.adapter.runQuery(sql, normalizeQueryLimit(limit));
     } catch (error) {
       if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
+      if (s.config.dialect === "postgres") throw safePostgresDatabaseError(error) ?? error;
       throw error;
     }
+    if (mutatesDatabaseStructure(sql)) {
+      try {
+        await refreshMetadataCache(connectionId, s);
+      } catch (error) {
+        // The DDL may already be committed. Never report it as failed merely
+        // because the follow-up cache refresh failed.
+        console.warn(`[omni-sql] metadata refresh after DDL failed: ${errorMessage(error)}`);
+      }
+    }
+    return result;
   },
 
   async "query.cancel"({ connectionId }: CancelQueryParams): Promise<CancelQueryResult> {
@@ -830,41 +858,8 @@ export const handlers: BackendRpcRouter = {
     await s.adapter.connect();
     console.log(`[omni-sql] introspect: connected in ${Date.now() - tConnect}ms, querying metadata…`);
     const tIntro = Date.now();
-    const db: Database = await s.adapter.introspect();
+    const db: Database = await refreshMetadataCache(connectionId, s);
     console.log(`[omni-sql] introspect: adapter.introspect() returned in ${Date.now() - tIntro}ms`);
-
-    // Coleta relações e funções por schema a partir do adaptador; persiste no
-    // cache unificado.
-    const schemasByName = new Map<string, {
-      name: string;
-      relations: readonly Relation[];
-      functions: readonly FunctionDef[];
-    }>();
-    for (const schema of s.adapter.listSchemas()) {
-      const rels = s.adapter.listTables(schema.name);
-      const fns = s.adapter.listFunctions(schema.name);
-      schemasByName.set(schema.name, { name: schema.name, relations: rels, functions: fns });
-    }
-    const tIngest = Date.now();
-    try {
-      cache.ingestIntrospection(
-        connectionId,
-        [...schemasByName.values()].map((s2) => ({
-          name: s2.name,
-          relations: s2.relations,
-          functions: s2.functions,
-        })),
-      );
-      console.log(
-        `[omni-sql] introspect: cache ingest ok in ${Date.now() - tIngest}ms ` +
-        `(${schemasByName.size} schemas, ` +
-        `${[...schemasByName.values()].reduce((n, x) => n + x.relations.length, 0)} relations, ` +
-        `${[...schemasByName.values()].reduce((n, x) => n + x.functions.length, 0)} functions)`,
-      );
-    } catch (e) {
-      console.error(`[omni-sql] introspect: cache ingest FAILED after ${Date.now() - tIngest}ms: ${errorMessage(e)}`);
-      throw e;
-    }
     return db;
   },
 

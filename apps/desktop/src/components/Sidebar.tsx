@@ -36,7 +36,7 @@ import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-
 import type { ConnectionHealth } from "./StatusBar";
 import { formatLastSyncedAt, getMetadataFreshness } from "../lib/metadata-freshness";
 import { useLanguage } from "../i18n";
-import { CreateTableDialog, EditTableDialog, TableStructureDialog } from "./TableDialogs";
+import { CreateTableDialog, TableStructureDialog } from "./TableDialogs";
 
 export interface SidebarProps {
   open?: boolean;
@@ -215,7 +215,6 @@ export function Sidebar({
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
   const [createTableSchema, setCreateTableSchema] = useState<string | null>(null);
   const [structureTable, setStructureTable] = useState<{ schema: string; table: string } | null>(null);
-  const [editTable, setEditTable] = useState<{ schema: string; table: string } | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const connectionsHeightRef = useRef(connectionsHeight);
 
@@ -847,7 +846,6 @@ export function Sidebar({
                             openMenu(e, [
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
                               { label: tr("viewStructure"), action: () => setStructureTable({ schema: g.name, table: t.name }) },
-                              { label: tr("editTable"), action: () => setEditTable({ schema: g.name, table: t.name }) },
                               { label: tr("generateDdl"), action: () => void openDefinition("table", g.name, t.name) },
                             ])
                           }
@@ -1116,16 +1114,8 @@ export function Sidebar({
         schema={structureTable?.schema ?? ""}
         table={structureTable?.table ?? ""}
         onClose={() => setStructureTable(null)}
-      />
-      {connection && <EditTableDialog
-        open={editTable !== null}
-        connectionId={connectionId ?? null}
-        dialect={connection.dialect}
-        schema={editTable?.schema ?? ""}
-        table={editTable?.table ?? ""}
-        onClose={() => setEditTable(null)}
         onOpenSql={(title, sql) => onOpenInNewTab?.(title, sql)}
-      />}
+      />
       <div
         className={`resize-handle ${resizing ? "resizing" : ""}`}
         role="separator"
