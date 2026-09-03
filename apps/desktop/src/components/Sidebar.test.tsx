@@ -246,7 +246,7 @@ describe("Sidebar", () => {
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
     const contextMenu = within(document.querySelector(".context-menu")!);
     expect(contextMenu.getByRole("button", { name: "Insert into editor" })).toBeTruthy();
-    expect(contextMenu.getByRole("button", { name: "Edit table…" })).toBeTruthy();
+    expect(contextMenu.queryByRole("button", { name: "Edit table…" })).toBeNull();
     expect(contextMenu.getByRole("button", { name: "Generate DDL in new tab" })).toBeTruthy();
     fireEvent.click(contextMenu.getByRole("button", { name: "View structure…" }));
 
@@ -273,7 +273,8 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "public" }));
     fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit table…" }));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "View structure…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit structure" }));
 
     const typeInput = await screen.findByLabelText("Column type: customer_id");
     fireEvent.change(typeInput, { target: { value: "bigint" } });
@@ -288,7 +289,8 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "public" }));
     fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
     fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit table…" }));
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "View structure…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit structure" }));
 
     fireEvent.change(await screen.findByLabelText("Column name: id"), { target: { value: "order_id" } });
     fireEvent.click(screen.getByLabelText("Primary key: order_id"));
@@ -296,6 +298,33 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('RENAME COLUMN "id" TO "order_id"'));
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("customer_id")'));
+  });
+
+  it("edits indexes from the indexes tab instead of opening the column editor", async () => {
+    call.mockImplementation(async (method) => {
+      if (method === "metadata.listColumns") return { columns: relations[0]!.columns };
+      if (method === "metadata.listIndexes") return { indexes: [
+        { name: "orders_pkey", columns: ["id"], unique: true, primary: true },
+        { name: "idx_orders_customer", columns: ["customer_id"], unique: false, primary: false },
+      ] };
+      return { sql: "CREATE TABLE public.orders (id integer);" };
+    });
+    const onOpenInNewTab = vi.fn();
+    renderSidebar({ onOpenInNewTab });
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+    fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "View structure…" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Indexes (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit indexes" }));
+
+    expect(screen.queryByLabelText("Column type: customer_id")).toBeNull();
+    expect(screen.getByLabelText("Index name: orders_pkey")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Index columns: idx_orders_customer"), { target: { value: "customer_id, id" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
+
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('DROP INDEX "public"."idx_orders_customer";'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('CREATE INDEX "idx_orders_customer" ON "public"."orders" ("customer_id", "id");'));
   });
 
   it("routes context-menu connection actions and persists keyboard resizing", () => {
