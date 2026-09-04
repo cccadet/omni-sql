@@ -46,7 +46,16 @@ use tauri_plugin_dialog::DialogExt;
 
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
-struct SidecarStatusState(Mutex<&'static str>);
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SidecarDiagnostics {
+    status: &'static str,
+    java_executable: Option<String>,
+    java_version: Option<u32>,
+    message: Option<String>,
+}
+
+struct SidecarStatusState(Mutex<SidecarDiagnostics>);
 struct AuthToken {
     token: Mutex<Option<String>>,
     ready: Condvar,
@@ -814,7 +823,7 @@ fn sidecar_health_probe_error(status: u16, body: &str) -> String {
 
 fn emit_sidecar_status<R: tauri::Runtime>(app: &tauri::AppHandle<R>, status: &'static str) {
     let state: tauri::State<'_, SidecarStatusState> = app.state();
-    *state.0.lock().unwrap() = status;
+    state.0.lock().unwrap().status = status;
 
     if let Err(err) = app.emit(SIDECAR_STATUS_EVENT, status) {
         log::warn!("failed to emit {SIDECAR_STATUS_EVENT} ({status}): {err}");
@@ -823,7 +832,12 @@ fn emit_sidecar_status<R: tauri::Runtime>(app: &tauri::AppHandle<R>, status: &'s
 
 #[tauri::command]
 fn get_sidecar_status(state: tauri::State<'_, SidecarStatusState>) -> String {
-    state.0.lock().unwrap().to_string()
+    state.0.lock().unwrap().status.to_string()
+}
+
+#[tauri::command]
+fn get_sidecar_diagnostics(state: tauri::State<'_, SidecarStatusState>) -> SidecarDiagnostics {
+    state.0.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -1113,13 +1127,8 @@ fn sidecar_process_paths<R: tauri::Runtime>(
     ))
 }
 
-#[cfg(debug_assertions)]
-fn java_executable<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
-    Ok(PathBuf::from("java"))
-}
-
 #[cfg(all(not(debug_assertions), target_os = "windows"))]
-fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+fn bundled_java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     Ok(strip_verbatim_prefix(
         app.path()
             .resolve(
@@ -1131,7 +1140,7 @@ fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathB
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
-fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+fn bundled_java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     app.path()
         .resolve(
             "resources/runtime/jre/bin/java",
@@ -1144,13 +1153,93 @@ fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathB
     not(debug_assertions),
     not(any(target_os = "windows", target_os = "macos"))
 ))]
-fn java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+fn bundled_java_executable<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     app.path()
         .resolve(
             "resources/runtime/jre/bin/java",
             tauri::path::BaseDirectory::Resource,
         )
         .map_err(|err| format!("failed to resolve bundled Java runtime: {err}"))
+}
+
+fn parse_java_major_version(output: &str) -> Option<u32> {
+    let marker = output.find("version \"")? + "version \"".len();
+    let version = output.get(marker..)?.split('"').next()?;
+    let first = version.split('.').next()?.parse::<u32>().ok()?;
+    if first == 1 {
+        version.split('.').nth(1)?.parse().ok()
+    } else {
+        Some(first)
+    }
+}
+
+fn inspect_java(executable: &PathBuf) -> Result<u32, String> {
+    let output = Command::new(executable)
+        .arg("-version")
+        .output()
+        .map_err(|err| format!("não foi possível executar {}: {err}", executable.display()))?;
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    parse_java_major_version(&text).ok_or_else(|| {
+        format!("não foi possível identificar a versão de {}", executable.display())
+    })
+}
+
+#[cfg(debug_assertions)]
+fn java_candidates<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) -> Vec<PathBuf> {
+    let executable = if cfg!(windows) { "java.exe" } else { "java" };
+    let mut candidates = Vec::new();
+    for variable in ["OMNI_SQL_JAVA_HOME", "JAVA_HOME"] {
+        if let Some(home) = std::env::var_os(variable) {
+            candidates.push(PathBuf::from(home).join("bin").join(executable));
+        }
+    }
+    #[cfg(windows)]
+    for root in [
+        r"C:\Program Files\Eclipse Adoptium",
+        r"C:\Program Files\Microsoft",
+        r"C:\Program Files\Java",
+        r"C:\Program Files\Amazon Corretto",
+    ] {
+        if let Ok(entries) = fs::read_dir(root) {
+            for entry in entries.flatten() {
+                candidates.push(entry.path().join("bin").join(executable));
+            }
+        }
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        for directory in std::env::split_paths(&path) {
+            let candidate = directory.join(executable);
+            if candidate.is_file() {
+                candidates.push(std::fs::canonicalize(&candidate).unwrap_or(candidate));
+            }
+        }
+    }
+    candidates
+}
+
+#[cfg(not(debug_assertions))]
+fn java_candidates<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Vec<PathBuf> {
+    bundled_java_executable(app).into_iter().collect()
+}
+
+fn compatible_java<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<(PathBuf, u32), String> {
+    let mut found = Vec::new();
+    for candidate in java_candidates(app) {
+        match inspect_java(&candidate) {
+            Ok(version) if version >= 21 => return Ok((candidate, version)),
+            Ok(version) => found.push(format!("Java {version} em {}", candidate.display())),
+            Err(error) => log::debug!("Java candidate rejected: {error}"),
+        }
+    }
+    if found.is_empty() {
+        Err("Java 21 necessário; nenhum Java compatível foi encontrado".to_string())
+    } else {
+        Err(format!("Java 21 necessário; {} encontrado", found.join(", ")))
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1197,6 +1286,7 @@ pub fn run() {
             write_csv_file,
             read_text_file,
             get_sidecar_status,
+            get_sidecar_diagnostics,
             get_auth_token,
             get_mcp_launcher_config,
             set_native_menu_language
@@ -1208,7 +1298,12 @@ pub fn run() {
         .manage(McpDescriptorPath(Mutex::new(None)))
         .manage(BackendChild(Mutex::new(None)))
         .manage(SidecarChild(Mutex::new(None)))
-        .manage(SidecarStatusState(Mutex::new(SIDECAR_STATUS_CHECKING)))
+        .manage(SidecarStatusState(Mutex::new(SidecarDiagnostics {
+            status: SIDECAR_STATUS_CHECKING,
+            java_executable: None,
+            java_version: None,
+            message: None,
+        })))
         .setup(move |app| {
             // The log plugin is registered in both debug and release so that
             // release/installer builds still leave a `omni-sql.log` on disk
@@ -1281,7 +1376,7 @@ pub fn run() {
                 backend_process_paths(app.handle())?;
             let (sidecar_jar, sidecar_dir) = sidecar_process_paths(app.handle())?;
             let sidecar_java = if sidecar_jar.exists() {
-                Some(java_executable(app.handle())?)
+                Some(compatible_java(app.handle()))
             } else {
                 None
             };
@@ -1466,7 +1561,35 @@ pub fn run() {
             // use`. `java -jar` é um processo comum, sem Daemon, que o kill
             // mata de verdade. Gere/atualize o jar com `./gradlew jar`.
             if sidecar_jar.exists() {
-                let mut cmd = Command::new(sidecar_java.expect("sidecar Java path resolved above"));
+                let (java_executable, java_version) = match sidecar_java.expect("sidecar Java result resolved above") {
+                    Ok(java) => java,
+                    Err(message) => {
+                        log::warn!("{message} — autocomplete segue em tier1");
+                        let state: tauri::State<'_, SidecarStatusState> = app.state();
+                        *state.0.lock().unwrap() = SidecarDiagnostics {
+                            status: SIDECAR_STATUS_UNAVAILABLE,
+                            java_executable: None,
+                            java_version: None,
+                            message: Some(message),
+                        };
+                        emit_sidecar_status(app.handle(), SIDECAR_STATUS_UNAVAILABLE);
+                        return Ok(());
+                    }
+                };
+                log::info!(
+                    "Using Java {java_version} for JVM sidecar: {}",
+                    java_executable.display()
+                );
+                {
+                    let state: tauri::State<'_, SidecarStatusState> = app.state();
+                    *state.0.lock().unwrap() = SidecarDiagnostics {
+                        status: SIDECAR_STATUS_CHECKING,
+                        java_executable: Some(java_executable.display().to_string()),
+                        java_version: Some(java_version),
+                        message: None,
+                    };
+                }
+                let mut cmd = Command::new(&java_executable);
                 clear_inherited_child_overrides(&mut cmd);
                 #[cfg(windows)]
                 cmd.creation_flags(CREATE_NO_WINDOW);
@@ -1500,9 +1623,12 @@ pub fn run() {
                                     if let Some(child) = guard.as_mut() {
                                         match child.try_wait() {
                                             Ok(Some(status)) => {
-                                                log::warn!(
-                                                    "JVM sidecar exited before becoming ready with status {status}; last /health probe error: {last_probe_error}"
+                                                let message = format!(
+                                                    "JVM sidecar encerrou com status {status}; último diagnóstico: {last_probe_error}"
                                                 );
+                                                log::warn!("{message}");
+                                                let diagnostics: tauri::State<'_, SidecarStatusState> = app_handle.state();
+                                                diagnostics.0.lock().unwrap().message = Some(message);
                                                 emit_sidecar_status(
                                                     &app_handle,
                                                     SIDECAR_STATUS_UNAVAILABLE,
@@ -1537,20 +1663,27 @@ pub fn run() {
 
                                 std::thread::sleep(Duration::from_millis(300));
                             }
-                            log::warn!("JVM sidecar (tier2) failed its expected /health check in 30s; last /health probe error: {last_probe_error} — autocomplete segue em tier1");
+                            let message = format!("JVM sidecar não ficou pronto em 30s: {last_probe_error}");
+                            log::warn!("{message} — autocomplete segue em tier1");
+                            let state: tauri::State<'_, SidecarStatusState> = app_handle.state();
+                            state.0.lock().unwrap().message = Some(message);
                             emit_sidecar_status(&app_handle, SIDECAR_STATUS_UNAVAILABLE);
                         });
                     }
                     Err(e) => {
-                        log::warn!(
-                            "failed to spawn JVM sidecar (tier2 fica indisponível, autocomplete segue em tier1): {e}"
-                        );
+                        let message = format!("não foi possível iniciar Java em {}: {e}", java_executable.display());
+                        log::warn!("{message} — autocomplete segue em tier1");
+                        let state: tauri::State<'_, SidecarStatusState> = app.state();
+                        state.0.lock().unwrap().message = Some(message);
+                        emit_sidecar_status(app.handle(), SIDECAR_STATUS_UNAVAILABLE);
                     }
                 }
             } else {
-                log::info!(
-                    "JVM sidecar jar não encontrado (rode services/jvm-sidecar/bootstrap.sh e depois ./gradlew jar) — autocomplete segue em tier1"
-                );
+                let message = "JVM sidecar jar não encontrado; gere-o com ./gradlew jar".to_string();
+                log::info!("{message} — autocomplete segue em tier1");
+                let state: tauri::State<'_, SidecarStatusState> = app.state();
+                state.0.lock().unwrap().message = Some(message);
+                emit_sidecar_status(app.handle(), SIDECAR_STATUS_UNAVAILABLE);
             }
 
             Ok(())
@@ -1694,11 +1827,23 @@ mod tests {
 
     #[test]
     fn sidecar_status_state_starts_checking_and_is_thread_safe() {
-        let state = SidecarStatusState(Mutex::new(SIDECAR_STATUS_CHECKING));
-        assert_eq!(*state.0.lock().unwrap(), "checking");
+        let state = SidecarStatusState(Mutex::new(SidecarDiagnostics {
+            status: SIDECAR_STATUS_CHECKING,
+            java_executable: None,
+            java_version: None,
+            message: None,
+        }));
+        assert_eq!(state.0.lock().unwrap().status, "checking");
 
-        *state.0.lock().unwrap() = SIDECAR_STATUS_READY;
-        assert_eq!(*state.0.lock().unwrap(), "ready");
+        state.0.lock().unwrap().status = SIDECAR_STATUS_READY;
+        assert_eq!(state.0.lock().unwrap().status, "ready");
+    }
+
+    #[test]
+    fn parses_modern_and_legacy_java_versions() {
+        assert_eq!(parse_java_major_version(r#"openjdk version "21.0.8" 2025-07-15"#), Some(21));
+        assert_eq!(parse_java_major_version(r#"java version "1.8.0_451""#), Some(8));
+        assert_eq!(parse_java_major_version("unrecognized output"), None);
     }
 
     #[test]

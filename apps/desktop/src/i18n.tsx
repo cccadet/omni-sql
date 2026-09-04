@@ -311,6 +311,12 @@ const english = {
   executionTimeUnknown: "Execution time unavailable",
   statusUnknown: "Status unavailable",
   lineCount: "line(s)",
+  headerNoConnection: "No active connection",
+  headerDatabase: "Database",
+  headerConnected: "Connected",
+  headerVerifying: "Checking connection",
+  headerOffline: "Offline",
+  sidecarJavaUsed: "Java executable",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -340,6 +346,7 @@ const portugueseBrazil = [
   "-- Nenhuma alteração.", "Alterar {table}", "Editar índices", "Adicionar índice", "Todo índice precisa de um nome único e ao menos uma coluna.", "Nome do índice: {index}", "Colunas do índice: {index}", "Índice único: {index}", "Remover índice: {index}", "Alterar índices {table}", "Ativa", "Ações de {item}", "Ativar", "Nova pasta", "Mover para…", "Inserir {object}",
   "Redimensionar painel de conexões",
   "SQL selecionado", "Copiar SQL", "Buscar no histórico de execuções…", "Horário de execução indisponível", "Status indisponível", "linha(s)",
+  "Nenhuma conexão ativa", "Banco", "Conectada", "Verificando conexão", "Offline", "Executável Java",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
