@@ -246,10 +246,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
   return (
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
-      <DialogSurface>
-        <form onSubmit={onSave}>
+      <DialogSurface className="omni-standard-dialog omni-connection-dialog">
+        <form className="omni-dialog-form" onSubmit={onSave}>
           <DialogTitle>{duplicating ? t("duplicateConnection") : editing ? t("editConnection") : t("newConnection")}</DialogTitle>
-          <DialogBody style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <DialogBody className="omni-dialog-body">
             <Label>
               Tipo
               <select
@@ -295,7 +295,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
             {mode !== "demo" && mode !== "jdbc-generic" && (
               <>
-                <div style={{ display: "flex", gap: 12 }}>
+                <div className="omni-connection-host-row">
                   <Label style={{ flex: 1 }}>
                     Host
                     <Input value={host} onChange={(_, data) => setHost(data.value)} placeholder="127.0.0.1" disabled={busy} required style={{ marginTop: 4 }} />
@@ -383,7 +383,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </Text>
             )}
           </DialogBody>
-          <DialogActions>
+          <DialogActions className="omni-dialog-actions">
             {mode !== "demo" && (
               <Button type="button" onClick={onTest} disabled={busy || !canConnect()}>
                 {busy ? t("loading") : t("connect")}

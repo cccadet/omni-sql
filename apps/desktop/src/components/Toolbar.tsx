@@ -114,7 +114,7 @@ export function Toolbar({
           </select>
       </div>
 
-      <div className="omni-toolbar-group" role="group" aria-label={t("tabActions")}>
+      <div className="omni-toolbar-group omni-toolbar-tab-actions" role="group" aria-label={t("tabActions")}>
             <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onAdd} aria-label={t("newSqlTab")} title={t("newSqlTab")} />
             <ToolbarButton icon={<FolderOpenRegular fontSize={14} />} onClick={onOpen} aria-label={t("openSavedTab")}>
               {t("openSavedTab")}
@@ -144,10 +144,10 @@ export function Toolbar({
       <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} title={t("moreOptions")} />
       {pendingRunCount && (
         <Dialog open onOpenChange={(_, data) => !data.open && onRunChoiceCancel?.()}>
-          <DialogSurface style={{ minWidth: 280 }}>
-            <DialogBody>
+          <DialogSurface className="omni-standard-dialog omni-confirm-dialog" style={{ minWidth: 280 }}>
+            <DialogBody className="omni-dialog-body">
               <DialogTitle>{t("multipleStatements")}</DialogTitle>
-              <DialogActions>
+              <DialogActions className="omni-dialog-actions">
                 <Button onClick={() => onRunChoice?.("current")} appearance="primary">
                   {t("runCurrent")}
                 </Button>

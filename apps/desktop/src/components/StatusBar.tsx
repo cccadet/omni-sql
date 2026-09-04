@@ -235,7 +235,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
         </Text>
       )}
       <Dialog open={mcpOpen} onOpenChange={(_, data) => setMcpOpen(data.open)}>
-        <DialogSurface style={{ width: "min(620px, calc(100vw - 24px))", maxHeight: "calc(100vh - 24px)", display: "flex", flexDirection: "column" }}>
+        <DialogSurface className="omni-standard-dialog omni-mcp-status-dialog">
           <DialogBody style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
             <DialogTitle style={{ flexShrink: 0 }}>{t("mcpStatusTitle")}</DialogTitle>
             <DialogContent style={{ display: "grid", gap: 12, overflowY: "auto", minHeight: 0 }}>
@@ -321,7 +321,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
                 </div>
               )}
             </DialogContent>
-            <DialogActions style={{ flexShrink: 0 }}>
+            <DialogActions className="omni-dialog-actions" style={{ flexShrink: 0 }}>
               <Button appearance="secondary" onClick={() => setMcpOpen(false)}>{t("cancel")}</Button>
             </DialogActions>
           </DialogBody>

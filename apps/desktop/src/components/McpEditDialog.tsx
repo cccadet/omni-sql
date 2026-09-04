@@ -32,17 +32,17 @@ export function McpEditDialog({
   const { t } = useLanguage();
   return (
     <Dialog open={proposal !== null} onOpenChange={(_, data) => !data.open && onReject()}>
-      <DialogSurface style={{ width: "min(900px, calc(100vw - 24px))", maxHeight: "calc(100vh - 24px)", display: "flex", flexDirection: "column" }}>
+      <DialogSurface className="omni-standard-dialog omni-mcp-edit-dialog">
         <DialogBody style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
           <DialogTitle style={{ flexShrink: 0 }}>{t("mcpEditTitle")}</DialogTitle>
           <DialogContent style={{ display: "grid", gap: 12, overflowY: "auto", minHeight: 0 }}>
             <Text>{t("mcpEditRationale")}: {proposal?.rationale}</Text>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, minHeight: 240 }}>
+            <div className="omni-mcp-edit-grid">
               <SqlPreview label={t("mcpOriginalSql")} value={proposal?.originalSql ?? ""} />
               <SqlPreview label={t("mcpProposedSql")} value={proposal?.proposedSql ?? ""} accent />
             </div>
           </DialogContent>
-          <DialogActions style={{ flexShrink: 0 }}>
+          <DialogActions className="omni-dialog-actions" style={{ flexShrink: 0 }}>
             <Button appearance="secondary" onClick={onReject}>{t("reject")}</Button>
             <Button appearance="primary" onClick={onApply}>{t("applyEdit")}</Button>
           </DialogActions>
