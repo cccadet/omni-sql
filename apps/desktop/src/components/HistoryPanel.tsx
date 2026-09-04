@@ -54,7 +54,7 @@ export function HistoryPanel({ open, entries, onClose, onClear }: HistoryPanelPr
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 50, display: "flex", justifyContent: "flex-end" }} onClick={onClose} role="presentation">
       <Card style={{ width: "min(520px, 94vw)", height: "100%", borderRadius: 0, background: tokens.colorNeutralBackground1, borderLeft: `1px solid ${tokens.colorNeutralStroke1}`, display: "flex", flexDirection: "column", boxShadow: "-4px 0 12px rgba(0,0,0,.4)" }} onClick={(event) => event.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>
-          <Text weight="semibold">{selectedEntry ? t("selectedQuery") : t("history")}</Text>
+          <Text weight="semibold">{selectedEntry ? t("selectedSql") : t("history")}</Text>
           <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
             {!selectedEntry && <Button icon={<DeleteRegular />} appearance="subtle" size="small" onClick={onClear} disabled={entries.length === 0} aria-label={t("clearHistory")} title={t("clearHistory")} />}
             <Button icon={<DismissRegular />} appearance="subtle" size="small" onClick={onClose} aria-label={t("closeHistory")} title={t("closeHistory")} />

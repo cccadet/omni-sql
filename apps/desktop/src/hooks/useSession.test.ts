@@ -53,7 +53,7 @@ test("useSession: updateTabSql updates sql and preserves other fields", () => {
   });
 
   assert.equal(result.current.tabs[0]!.sql, "SELECT 42");
-  assert.equal(result.current.tabs[0]!.title, "Query 1");
+  assert.equal(result.current.tabs[0]!.title, "SQL 1");
 });
 
 test("useSession: CAS accepts one revision and rejects concurrent edit", () => {
