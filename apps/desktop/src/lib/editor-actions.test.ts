@@ -30,6 +30,10 @@ describe("createEditorActions", () => {
     const { actions, callbacks } = registerActions();
 
     expect(actions.map(({ id }) => id)).toEqual(["omni-run-query", "omni-run-all", "omni-save-tab", "omni-format-sql"]);
+    expect(actions.slice(0, 2).map(({ label }) => label)).toEqual([
+      "Executar instrução SQL atual",
+      "Executar todas as instruções SQL",
+    ]);
     expect(actions.at(-1)).toMatchObject({ label: "Formatar SQL" });
     actions.forEach(({ run }) => run());
     expect(callbacks.map(({ current }) => current)).toEqual([expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function)]);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEditorMonacoTheme, type ThemeName } from "./theme";
 import { useSession, makeTab } from "./hooks/useSession";
@@ -32,6 +33,7 @@ import type { McpStatusResult } from "@omni-sql/ts-types";
 
 const HISTORY_KEY = "omni-sql:history";
 const CHECK_FOR_UPDATES_EVENT = "check-for-updates";
+const NATIVE_MENU_EVENT = "native-menu-action";
 const MCP_PROPOSAL_SAFETY_WINDOW_MS = 1_000;
 const TRUSTED_WARNING_CONNECTIONS_KEY = "omni-sql:trusted-warning-connections";
 
@@ -173,7 +175,7 @@ export interface AppProps {
 }
 
 export default function App({ themeName: name, onToggleTheme: toggle }: AppProps) {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab, getTabRevision, compareAndSwapTabSql } = useSession();
   const { connections, error: connectionsError, loadConnections } = useConnections();
   const [connectionGroups, setConnectionGroups] = useState<ConnectionGroup[]>([]);
@@ -824,6 +826,33 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     },
     [activeConnectionId, setTabs, selectTab],
   );
+
+  useEffect(() => {
+    void invoke("set_native_menu_language", { language }).catch(() => undefined);
+  }, [language]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    void listen<string>(NATIVE_MENU_EVENT, ({ payload }) => {
+      if (cancelled) return;
+      switch (payload) {
+        case "new-sql": addTab(activeConnectionId); break;
+        case "open-sql": void onOpenFile(); break;
+        case "save-sql": void onSaveTab(); break;
+        case "toggle-sidebar": setSidebarOpen((open) => !open); break;
+        case "show-history": setHistoryOpen(true); break;
+        case "open-settings": setFormatSettingsOpen(true); break;
+      }
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [activeConnectionId, addTab, onOpenFile, onSaveTab]);
 
 
   const getMcpSchemaSummary = useCallback(async (connectionId: string): Promise<McpToolResultByName["getSchemaSummary"]> => {
