@@ -323,6 +323,7 @@ const english = {
   mcpActivityHelp: "Requests made by connected MCP clients appear here.",
   mcpShowSql: "Show SQL",
   mcpHideSql: "Hide SQL",
+  autocompleteAllColumns: "All columns",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -354,6 +355,7 @@ const portugueseBrazil = [
   "SQL selecionado", "Copiar SQL", "Buscar no histórico de execuções…", "Horário de execução indisponível", "Status indisponível", "linha(s)",
   "Nenhuma conexão ativa", "Banco", "Conectada", "Verificando conexão", "Offline", "Executável Java",
   "Configuração", "Atividade", "Solicitações recentes", "As solicitações feitas por clientes MCP conectados aparecem aqui.", "Mostrar SQL", "Ocultar SQL",
+  "Todas as colunas",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

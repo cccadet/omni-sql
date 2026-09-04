@@ -30,6 +30,7 @@ import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } fro
 import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
 import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
+import { localizeSuggestionLabels } from "./lib/localize-suggestions";
 import type { McpStatusResult } from "@omni-sql/ts-types";
 
 const HISTORY_KEY = "omni-sql:history";
@@ -519,9 +520,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         sql,
         cursor,
       }, signal);
-      return r.suggestions;
+      return localizeSuggestionLabels(r.suggestions, t("autocompleteAllColumns"));
     },
-    [activeConnectionId],
+    [activeConnectionId, t],
   );
 
   const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
