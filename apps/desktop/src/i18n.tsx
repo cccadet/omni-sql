@@ -31,7 +31,7 @@ const english = {
   moreOptions: "More options",
   clearHistory: "Clear history",
   closeHistory: "Close history",
-  selectedQuery: "Selected query",
+  selectedQuery: "Selected SQL",
   success: "Success",
   failure: "Failure",
   discardChanges: "Discard changes",
@@ -83,9 +83,9 @@ const english = {
   runCurrent: "Run current statement",
   runAll: "Run all",
   backToHistory: "Back to history",
-  copiedQueryHint: "Copied query does not change current tab.",
+  copiedQueryHint: "Copying SQL does not change the current tab.",
   resultCount: "result(s)",
-  noQueries: "No queries have been executed yet.",
+  noQueries: "No SQL has been executed yet.",
   noMatchingHistory: "No entries match filters.",
   executedSql: "Executed SQL",
   sidecarChecking: "Smart search: checking optional CTE support…",
@@ -305,6 +305,12 @@ const english = {
   moveTo: "Move to…",
   insertObject: "Insert {object}",
   resizeConnectionsPanel: "Resize connections panel",
+  selectedSql: "Selected SQL",
+  copySql: "Copy SQL",
+  searchHistory: "Search execution history…",
+  executionTimeUnknown: "Execution time unavailable",
+  statusUnknown: "Status unavailable",
+  lineCount: "line(s)",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -333,6 +339,7 @@ const portugueseBrazil = [
   "Permitir nulo: {column}", "Chave primária: {column}", "Valor default: {column}", "Remover coluna: {column}", "nova coluna",
   "-- Nenhuma alteração.", "Alterar {table}", "Editar índices", "Adicionar índice", "Todo índice precisa de um nome único e ao menos uma coluna.", "Nome do índice: {index}", "Colunas do índice: {index}", "Índice único: {index}", "Remover índice: {index}", "Alterar índices {table}", "Ativa", "Ações de {item}", "Ativar", "Nova pasta", "Mover para…", "Inserir {object}",
   "Redimensionar painel de conexões",
+  "SQL selecionado", "Copiar SQL", "Buscar no histórico de execuções…", "Horário de execução indisponível", "Status indisponível", "linha(s)",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

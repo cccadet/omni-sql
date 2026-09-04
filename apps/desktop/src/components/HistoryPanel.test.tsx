@@ -4,7 +4,7 @@ import { LanguageProvider } from "../i18n";
 import { HistoryPanel } from "./HistoryPanel";
 
 const entries = [
-  { id: "successful", sql: "SELECT *\nFROM orders", ok: true },
+  { id: "successful", sql: "SELECT *\nFROM orders", ok: true, executedAt: "2026-09-03T15:30:00.000Z" },
   { id: "failed", sql: "DELETE FROM orders", ok: false },
 ];
 
@@ -37,7 +37,7 @@ it("does not render when closed and filters its visible history entries", () => 
       <HistoryPanel open entries={entries} onClose={vi.fn()} onClear={vi.fn()} />
     </LanguageProvider>,
   );
-  fireEvent.change(screen.getByPlaceholderText("History..."), { target: { value: "delete" } });
+  fireEvent.change(screen.getByPlaceholderText("Search execution history…"), { target: { value: "delete" } });
   expect(screen.getByRole("button", { name: /DELETE FROM orders/ })).toBeTruthy();
   expect(screen.queryByText("SELECT *")).toBeNull();
   expect(screen.queryByText("No entries match filters.")).toBeNull();
@@ -54,11 +54,11 @@ it("clears, closes, selects, and copies a history entry", async () => {
   expect(onClose).toHaveBeenCalledOnce();
 
   fireEvent.click(screen.getByRole("button", { name: /Executed SQL.*SELECT/ }));
-  expect(screen.getByLabelText("Query selecionada").textContent).toBe("SELECT *\nFROM orders");
-  fireEvent.click(screen.getByRole("button", { name: "Selected query" }));
+  expect(screen.getByLabelText("Selected SQL").textContent).toBe("SELECT *\nFROM orders");
+  fireEvent.click(screen.getByRole("button", { name: "Copy SQL" }));
   await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("SELECT *\nFROM orders"));
-  expect(await screen.findByRole("button", { name: "Success" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "Back to history" }));
-  expect(within(screen.getByText("2 result(s)").parentElement!).getByText("SELECT *")).toBeTruthy();
+  expect(within(screen.getByText("2 result(s)").parentElement!).getByRole("button", { name: /Executed SQL: SELECT/ })).toBeTruthy();
 });

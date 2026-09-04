@@ -77,7 +77,7 @@ function isHistorySql(value: unknown): value is string {
 function restoreHistoryEntry(value: unknown): Omit<HistoryEntry, "id"> | null {
   if (typeof value === "string") return isHistorySql(value) ? { sql: value } : null;
   if (value === null || typeof value !== "object" || Array.isArray(value) || !("sql" in value)) return null;
-  const record = value as { sql: unknown; ok?: unknown; status?: unknown };
+  const record = value as { sql: unknown; ok?: unknown; status?: unknown; executedAt?: unknown };
   if (!isHistorySql(record.sql)) return null;
   const ok = typeof record.ok === "boolean"
     ? record.ok
@@ -86,12 +86,19 @@ function restoreHistoryEntry(value: unknown): Omit<HistoryEntry, "id"> | null {
       : record.status === "failure" || record.status === "error"
         ? false
         : undefined;
-  return { sql: record.sql, ...(ok === undefined ? {} : { ok }) };
+  const executedAt = typeof record.executedAt === "string" && !Number.isNaN(Date.parse(record.executedAt))
+    ? record.executedAt
+    : undefined;
+  return { sql: record.sql, ...(ok === undefined ? {} : { ok }), ...(executedAt ? { executedAt } : {}) };
 }
 
 function persistableHistoryEntry(value: HistoryEntry): Omit<HistoryEntry, "id"> | null {
   if (!isHistorySql(value.sql)) return null;
-  return { sql: value.sql, ...(typeof value.ok === "boolean" ? { ok: value.ok } : {}) };
+  return {
+    sql: value.sql,
+    ...(typeof value.ok === "boolean" ? { ok: value.ok } : {}),
+    ...(value.executedAt && !Number.isNaN(Date.parse(value.executedAt)) ? { executedAt: value.executedAt } : {}),
+  };
 }
 
 function loadHistory(): HistoryEntry[] {
@@ -515,6 +522,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       id: makeHistoryId(),
       sql,
       ok,
+      executedAt: new Date().toISOString(),
     };
     setHistory((prev) => [entry, ...prev].slice(0, 50));
   }, []);
