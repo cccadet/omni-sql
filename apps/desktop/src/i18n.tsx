@@ -317,6 +317,12 @@ const english = {
   headerVerifying: "Checking connection",
   headerOffline: "Offline",
   sidecarJavaUsed: "Java executable",
+  mcpConfigurationTab: "Configuration",
+  mcpActivityTab: "Activity",
+  mcpRecentRequests: "Recent requests",
+  mcpActivityHelp: "Requests made by connected MCP clients appear here.",
+  mcpShowSql: "Show SQL",
+  mcpHideSql: "Hide SQL",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -347,6 +353,7 @@ const portugueseBrazil = [
   "Redimensionar painel de conexões",
   "SQL selecionado", "Copiar SQL", "Buscar no histórico de execuções…", "Horário de execução indisponível", "Status indisponível", "linha(s)",
   "Nenhuma conexão ativa", "Banco", "Conectada", "Verificando conexão", "Offline", "Executável Java",
+  "Configuração", "Atividade", "Solicitações recentes", "As solicitações feitas por clientes MCP conectados aparecem aqui.", "Mostrar SQL", "Ocultar SQL",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
