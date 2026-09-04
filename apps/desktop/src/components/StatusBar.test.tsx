@@ -132,7 +132,7 @@ test("StatusBar: shows HTTP endpoint without exposing descriptor data", async ()
   assert.equal(screen.getAllByRole("button", { name: "Copy HTTP endpoint" }).length, 1);
 });
 
-test("StatusBar: organizes MCP dialog into tabs and shows request history", async () => {
+test("StatusBar: separates MCP configuration from activity and expands SQL on demand", async () => {
   const launcher = { command: "/usr/bin/node", args: ["/opt/mcp/index.js", "/run/mcp.json"] };
   vi.mocked(invoke).mockResolvedValue(launcher);
   vi.mocked(backend.call).mockResolvedValue({
@@ -156,10 +156,13 @@ test("StatusBar: organizes MCP dialog into tabs and shows request history", asyn
   expect(await screen.findByText("STDIO command")).toBeTruthy();
   expect(screen.getByText("Argument 1")).toBeTruthy();
   expect(screen.getByText("/usr/bin/node")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Copy argument 1" })).toBeTruthy();
 
-  fireEvent.click(screen.getByRole("tab", { name: "History" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
   expect(await screen.findByText("proposeSqlEdit")).toBeTruthy();
-  expect(screen.getByText(/Improve query/)).toBeTruthy();
+  expect(screen.getByText("Improve query")).toBeTruthy();
+  expect(screen.queryByText("SELECT 1")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Show SQL" }));
   expect(screen.getByText("SELECT 1")).toBeTruthy();
   expect(screen.getByText("Success")).toBeTruthy();
   assert.equal(vi.mocked(backend.call).mock.calls.filter(([method]) => method === "mcp.history").length, 1);
@@ -171,6 +174,6 @@ test("StatusBar: shows empty state when no MCP requests were recorded", async ()
   renderWithLanguage(<StatusBar mcpState="listening" />);
 
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
-  fireEvent.click(await screen.findByRole("tab", { name: "History" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Activity" }));
   expect(await screen.findByText("No MCP requests received yet.")).toBeTruthy();
 });

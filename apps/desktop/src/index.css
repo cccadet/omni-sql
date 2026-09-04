@@ -672,7 +672,29 @@ select option {
 .omni-connection-dialog.omni-connection-dialog { width: min(560px, calc(100vw - 24px)); }
 .omni-risk-dialog.omni-risk-dialog { width: min(720px, calc(100vw - 24px)); }
 .omni-mcp-edit-dialog.omni-mcp-edit-dialog { display: flex; flex-direction: column; width: min(900px, calc(100vw - 24px)); }
-.omni-mcp-status-dialog.omni-mcp-status-dialog { display: flex; flex-direction: column; width: min(620px, calc(100vw - 24px)); }
+.omni-mcp-status-dialog.omni-mcp-status-dialog { display: flex; flex-direction: column; width: min(680px, calc(100vw - 24px)); }
+.omni-mcp-dialog-content.omni-mcp-dialog-content { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; }
+.omni-mcp-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--colorNeutralStroke1); border-radius: 8px; background: var(--colorNeutralBackground2); }
+.omni-mcp-summary-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--colorNeutralBackground3); font-size: 18px; }
+.omni-mcp-summary-copy { display: flex; flex-direction: column; min-width: 0; }
+.omni-mcp-status-dot { width: 8px; height: 8px; border-radius: 50%; }
+.omni-mcp-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.omni-mcp-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.omni-mcp-error { padding: 10px 12px; border: 1px solid var(--colorPaletteRedBorder1); border-radius: 6px; color: var(--colorPaletteRedForeground1); background: var(--colorPaletteRedBackground1); overflow-wrap: anywhere; }
+.omni-mcp-config-card { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--colorNeutralStroke1); border-radius: 8px; background: var(--colorNeutralBackground2); }
+.omni-mcp-config-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
+.omni-mcp-config-heading > div { min-width: 0; }
+.omni-mcp-config-heading .fui-Button { flex: 0 0 auto; }
+.omni-mcp-config-value { box-sizing: border-box; display: block; width: 100%; min-width: 0; max-height: 180px; margin: 0; padding: 9px 10px; border: 1px solid var(--colorNeutralStroke1); border-radius: 5px; color: var(--colorNeutralForeground1); background: var(--colorNeutralBackground3); overflow: auto; overflow-wrap: normal; white-space: pre; font: 12px/1.5 var(--fontFamilyMonospace); }
+.omni-mcp-stdio-list { display: grid; gap: 8px; }
+.omni-mcp-history { display: grid; gap: 8px; }
+.omni-mcp-history-item { display: grid; gap: 7px; min-width: 0; padding: 10px 12px; border: 1px solid var(--colorNeutralStroke1); border-radius: 8px; background: var(--colorNeutralBackground1); }
+.omni-mcp-history-heading { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; align-items: center; gap: 10px; min-width: 0; }
+.omni-mcp-history-time { color: var(--colorNeutralForeground2); white-space: nowrap; }
+.omni-mcp-history-tool { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.omni-mcp-history-rationale { min-width: 0; color: var(--colorNeutralForeground2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.omni-mcp-sql-toggle { display: inline-flex; width: max-content; align-items: center; gap: 4px; padding: 2px 0; border: 0; color: var(--colorBrandForeground1); background: transparent; cursor: pointer; font: inherit; }
+.omni-mcp-history-sql { max-height: 180px; margin: 0; padding: 9px 10px; border-radius: 5px; color: var(--colorNeutralForeground1); background: var(--colorNeutralBackground3); overflow: auto; white-space: pre-wrap; font-size: 12px; }
 .omni-mcp-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 240px; }
 .omni-connection-host-row { display: flex; gap: 12px; }
 .omni-empty-state { display: grid; place-items: center; min-height: 88px; padding: 20px; color: var(--colorNeutralForeground2); text-align: center; }
@@ -711,6 +733,8 @@ select option {
   .omni-dialog-body.omni-dialog-body { padding: 16px; }
   .omni-dialog-actions.omni-dialog-actions { flex-wrap: wrap; }
   .omni-mcp-edit-grid { grid-template-columns: 1fr; min-height: 0; }
+  .omni-mcp-config-heading { align-items: stretch; flex-direction: column; }
+  .omni-mcp-config-heading .fui-Button { align-self: flex-start; }
   .omni-connection-host-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 8px; }
 }
 
