@@ -319,7 +319,7 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit indexes" }));
 
     expect(screen.queryByLabelText("Column type: customer_id")).toBeNull();
-    expect(screen.getByLabelText("Index name: orders_pkey")).toBeDisabled();
+    expect((screen.getByLabelText("Index name: orders_pkey") as HTMLInputElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Index columns: idx_orders_customer"), { target: { value: "customer_id, id" } });
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
 
