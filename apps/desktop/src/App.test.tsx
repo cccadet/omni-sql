@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import App from "./App";
 import { LanguageProvider } from "./i18n";
@@ -14,6 +15,7 @@ const editorMockState = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("./lib/backend", () => ({ backend: { call: vi.fn() } }));
 vi.mock("./theme", () => ({ useEditorMonacoTheme: () => "test-monaco-theme" }));
@@ -112,6 +114,7 @@ beforeEach(() => {
   editorMockState.selection = null;
   vi.mocked(getVersion).mockResolvedValue("0.1.0");
   vi.mocked(listen).mockResolvedValue(() => undefined);
+  vi.mocked(invoke).mockResolvedValue(undefined);
   call.mockReset();
   vi.mocked(pickOpenPath).mockResolvedValue(null);
   vi.mocked(pickSavePath).mockResolvedValue(null);
@@ -461,10 +464,25 @@ describe("App execution flow", () => {
   });
 
 describe("App update event listener", () => {
+  it("synchronizes the native menu language and routes its actions", async () => {
+    let nativeMenuAction: ((event: { payload: string }) => void) | null = null;
+    vi.mocked(listen).mockImplementation(async (event, listener) => {
+      if (event === "native-menu-action") nativeMenuAction = listener as unknown as (event: { payload: string }) => void;
+      return () => undefined;
+    });
+
+    renderApp();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("set_native_menu_language", { language: "en" }));
+    await waitFor(() => expect(nativeMenuAction).not.toBeNull());
+
+    act(() => nativeMenuAction!({ payload: "show-history" }));
+    expect(screen.getByRole("button", { name: "Close history" })).toBeTruthy();
+  });
+
   it("reports an event-triggered update check as up to date", async () => {
     let checkForUpdates: (() => Promise<void>) | null = null;
-    vi.mocked(listen).mockImplementation(async (_event, listener) => {
-      checkForUpdates = listener as unknown as () => Promise<void>;
+    vi.mocked(listen).mockImplementation(async (event, listener) => {
+      if (event === "check-for-updates") checkForUpdates = listener as unknown as () => Promise<void>;
       return () => undefined;
     });
 

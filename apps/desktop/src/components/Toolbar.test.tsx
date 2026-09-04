@@ -32,8 +32,8 @@ test("renders multi-statement modal and row limit in English", () => {
       <Toolbar activeConnectionId={null} pendingRunCount={2} onRunChoice={vi.fn()} onRunChoiceCancel={vi.fn()} />
     </LanguageProvider>,
   );
-  expect(screen.getByText("This tab contains multiple statements")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Run current statement" })).toBeTruthy();
+  expect(screen.getByText("This tab contains multiple SQL statements")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run current SQL statement" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Run all (2)" })).toBeTruthy();
   expect(screen.getByRole("option", { name: "10 rows" })).toBeTruthy();
   expect(screen.getByRole("group", { name: "Tab actions" })).toBeTruthy();
@@ -41,8 +41,8 @@ test("renders multi-statement modal and row limit in English", () => {
   expect(screen.getByRole("button", { name: "Open saved tab" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save Tab" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("title")).toBe("Toggle sidebar");
-  expect(screen.getByRole("button", { name: "Run" }).getAttribute("title")).toBe("Run current statement (Ctrl+Enter)");
-  expect(screen.getByRole("button", { name: "Explain query" }).getAttribute("title")).toBe("Explain query");
+  expect(screen.getByRole("button", { name: "Run" }).getAttribute("title")).toBe("Run current SQL statement (Ctrl+Enter)");
+  expect(screen.getByRole("button", { name: "Explain SQL" }).getAttribute("title")).toBe("Explain SQL");
 });
 
 test("exposes the multi-statement chooser as a dismissible dialog", () => {

@@ -22,7 +22,7 @@ function makeId(): string {
 export function makeTab(partial?: Partial<QueryTab>): QueryTab {
   return {
     id: partial?.id ?? makeId(),
-    title: partial?.title ?? "Query",
+    title: partial?.title ?? "SQL",
     sql: partial?.sql ?? "SELECT 1",
     queryLimit: partial?.queryLimit ?? 1000,
     connectionId: partial?.connectionId ?? null,
@@ -61,7 +61,7 @@ function saveSession(session: StoredSession) {
 
 export function useSession() {
   const initial = loadSession();
-  const initialTabs = initial?.tabs ?? [makeTab({ title: "Query 1" })];
+  const initialTabs = initial?.tabs ?? [makeTab({ title: "SQL 1" })];
   const [tabs, setTabsState] = useState<QueryTab[]>(initialTabs);
   const tabsRef = useRef(initialTabs);
   const revisionsRef = useRef(new Map(initialTabs.map((tab) => [tab.id, 0])));
@@ -101,7 +101,7 @@ export function useSession() {
 
   const addTab = useCallback((connectionId?: string | null) => {
     setCounter((c) => c + 1);
-    const newTab = makeTab({ title: `Query ${counter + 1}`, connectionId: connectionId ?? null });
+    const newTab = makeTab({ title: `SQL ${counter + 1}`, connectionId: connectionId ?? null });
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.id);
   }, [counter]);
@@ -111,7 +111,7 @@ export function useSession() {
       setTabs((prev) => {
         const next = prev.filter((t) => t.id !== id);
         if (next.length === 0) {
-          const fresh = makeTab({ title: "Query 1" });
+          const fresh = makeTab({ title: "SQL 1" });
           next.push(fresh);
           setActiveTabId(fresh.id);
         } else if (activeTabId === id) {

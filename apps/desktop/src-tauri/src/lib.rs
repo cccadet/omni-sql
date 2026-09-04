@@ -40,7 +40,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 use windows_sys::Win32::System::SystemServices::SECURITY_DESCRIPTOR_REVISION;
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-use tauri::menu::{Menu, MenuItemBuilder, HELP_SUBMENU_ID};
+use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
@@ -127,8 +127,95 @@ const SIDECAR_STATUS_READY: &str = "ready";
 const SIDECAR_STATUS_UNAVAILABLE: &str = "unavailable";
 const CHECK_FOR_UPDATES_MENU_ID: &str = "check-for-updates";
 const CHECK_FOR_UPDATES_EVENT: &str = "check-for-updates";
+const NATIVE_MENU_EVENT: &str = "native-menu-action";
+const NEW_SQL_MENU_ID: &str = "new-sql";
+const OPEN_SQL_MENU_ID: &str = "open-sql";
+const SAVE_SQL_MENU_ID: &str = "save-sql";
+const EXIT_MENU_ID: &str = "exit";
+const TOGGLE_SIDEBAR_MENU_ID: &str = "toggle-sidebar";
+const SHOW_HISTORY_MENU_ID: &str = "show-history";
+const OPEN_SETTINGS_MENU_ID: &str = "open-settings";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn native_menu(app: &AppHandle, language: &str) -> tauri::Result<Menu<tauri::Wry>> {
+    let portuguese = language == "pt-BR";
+    let label = |english: &'static str, portuguese_brazil: &'static str| {
+        if portuguese {
+            portuguese_brazil
+        } else {
+            english
+        }
+    };
+
+    let new_sql = MenuItemBuilder::with_id(NEW_SQL_MENU_ID, label("New SQL tab", "Nova aba SQL"))
+        .accelerator("Ctrl+N")
+        .build(app)?;
+    let open_sql = MenuItemBuilder::with_id(OPEN_SQL_MENU_ID, label("Open SQL…", "Abrir SQL…"))
+        .accelerator("Ctrl+O")
+        .build(app)?;
+    let save_sql = MenuItemBuilder::with_id(SAVE_SQL_MENU_ID, label("Save SQL", "Salvar SQL"))
+        .accelerator("Ctrl+S")
+        .build(app)?;
+    let exit = MenuItemBuilder::with_id(EXIT_MENU_ID, label("Exit", "Sair"))
+        .accelerator("Alt+F4")
+        .build(app)?;
+    let file = SubmenuBuilder::new(app, label("File", "Arquivo"))
+        .items(&[&new_sql, &open_sql, &save_sql])
+        .separator()
+        .item(&exit)
+        .build()?;
+
+    let cut = PredefinedMenuItem::cut(app, Some(label("Cut", "Recortar")))?;
+    let copy = PredefinedMenuItem::copy(app, Some(label("Copy", "Copiar")))?;
+    let paste = PredefinedMenuItem::paste(app, Some(label("Paste", "Colar")))?;
+    let select_all =
+        PredefinedMenuItem::select_all(app, Some(label("Select all", "Selecionar tudo")))?;
+    let edit = SubmenuBuilder::new(app, label("Edit", "Editar"))
+        .items(&[&cut, &copy, &paste])
+        .separator()
+        .item(&select_all)
+        .build()?;
+
+    let toggle_sidebar = MenuItemBuilder::with_id(
+        TOGGLE_SIDEBAR_MENU_ID,
+        label("Toggle sidebar", "Alternar painel lateral"),
+    )
+    .accelerator("Ctrl+B")
+    .build(app)?;
+    let show_history =
+        MenuItemBuilder::with_id(SHOW_HISTORY_MENU_ID, label("History", "Histórico"))
+            .build(app)?;
+    let open_settings =
+        MenuItemBuilder::with_id(OPEN_SETTINGS_MENU_ID, label("Settings…", "Configurações…"))
+            .build(app)?;
+    let view = SubmenuBuilder::new(app, label("View", "Exibir"))
+        .items(&[&toggle_sidebar, &show_history])
+        .separator()
+        .item(&open_settings)
+        .build()?;
+
+    let check_for_updates = MenuItemBuilder::with_id(
+        CHECK_FOR_UPDATES_MENU_ID,
+        label("Check for updates…", "Verificar atualizações…"),
+    )
+    .build(app)?;
+    let help = SubmenuBuilder::new(app, label("Help", "Ajuda"))
+        .item(&check_for_updates)
+        .build()?;
+
+    MenuBuilder::new(app)
+        .items(&[&file, &edit, &view, &help])
+        .build()
+}
+
+#[tauri::command]
+fn set_native_menu_language(app: AppHandle, language: String) -> Result<(), String> {
+    let menu = native_menu(&app, &language).map_err(|err| err.to_string())?;
+    app.set_menu(menu)
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
 
 #[cfg(windows)]
 fn windows_error(context: &str) -> String {
@@ -1099,6 +1186,10 @@ pub fn run() {
                 if let Err(err) = app.emit(CHECK_FOR_UPDATES_EVENT, ()) {
                     log::warn!("failed to emit {CHECK_FOR_UPDATES_EVENT}: {err}");
                 }
+            } else if event.id() == EXIT_MENU_ID {
+                app.exit(0);
+            } else if let Err(err) = app.emit(NATIVE_MENU_EVENT, event.id().as_ref()) {
+                log::warn!("failed to emit {NATIVE_MENU_EVENT}: {err}");
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1107,7 +1198,8 @@ pub fn run() {
             read_text_file,
             get_sidecar_status,
             get_auth_token,
-            get_mcp_launcher_config
+            get_mcp_launcher_config,
+            set_native_menu_language
         ])
         .manage(AuthToken {
             token: Mutex::new(None),
@@ -1159,31 +1251,16 @@ pub fn run() {
                 }
             }
 
-            // Menu padrão com operações de edição (Cut/Copy/Paste/Select All).
-            // Sem isto, atalhos de clipboard como Ctrl+V podem não funcionar no
-            // webview do Tauri, especialmente em diálogos de formulário.
+            // Menu enxuto da aplicação. Os itens predefinidos de edição mantêm
+            // o clipboard nativo funcionando também nos formulários do webview.
             if let Some(window) = app.get_webview_window("main") {
-                match Menu::default(app.handle()) {
+                match native_menu(app.handle(), "en") {
                     Ok(menu) => {
-                        match MenuItemBuilder::with_id(CHECK_FOR_UPDATES_MENU_ID, "Check for Updates")
-                            .build(app)
-                        {
-                            Ok(check_for_updates) => {
-                                if let Some(help_item) = menu.get(HELP_SUBMENU_ID) {
-                                    if let Some(help_menu) = help_item.as_submenu() {
-                                        if let Err(err) = help_menu.append(&check_for_updates) {
-                                            log::warn!("failed to append Check for Updates: {err}");
-                                        }
-                                    }
-                                }
-                            }
-                            Err(err) => log::warn!("failed to create update menu item: {err}"),
-                        }
                         if let Err(err) = window.set_menu(menu) {
                             log::warn!("failed to set window menu: {err}");
                         }
                     }
-                    Err(err) => log::warn!("failed to create default menu: {err}"),
+                    Err(err) => log::warn!("failed to create native menu: {err}"),
                 }
             }
 
