@@ -899,10 +899,10 @@ fn get_mcp_launcher_config<R: tauri::Runtime>(
     }
     let server_entry_path = mcp_server_entry_path(&app)?;
     Ok(McpLauncherConfig {
-        command: node_executable.display().to_string(),
+        command: strip_verbatim_prefix(node_executable).display().to_string(),
         args: vec![
-            server_entry_path.display().to_string(),
-            descriptor_path.display().to_string(),
+            strip_verbatim_prefix(server_entry_path).display().to_string(),
+            strip_verbatim_prefix(descriptor_path).display().to_string(),
         ],
     })
 }
@@ -1903,6 +1903,15 @@ mod tests {
         assert!(!security.acl.is_empty());
         assert!(!security._current_user_sid.is_empty());
         assert!(!security._local_system_sid.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_launcher_paths_do_not_expose_verbatim_prefix() {
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from(r"\\?\C:\Users\developer\node.exe")),
+            PathBuf::from(r"C:\Users\developer\node.exe")
+        );
     }
 
     #[test]
