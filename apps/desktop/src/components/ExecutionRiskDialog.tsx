@@ -32,10 +32,10 @@ export function ExecutionRiskDialog({ analysis, onCancel, onConfirm }: Execution
 
   return (
     <Dialog open={analysis !== null} onOpenChange={(_, data) => !data.open && onCancel()}>
-      <DialogSurface style={{ width: "min(720px, calc(100vw - 24px))" }}>
-        <DialogBody>
+      <DialogSurface className="omni-standard-dialog omni-risk-dialog">
+        <DialogBody className="omni-dialog-body">
           <DialogTitle>{t("destructiveSqlTitle")}</DialogTitle>
-          <DialogContent style={{ display: "grid", gap: 12 }}>
+          <DialogContent className="omni-dialog-content" style={{ display: "grid", gap: 12 }}>
             <p style={{ margin: 0 }}>{analysis?.level === "critical" ? t("destructiveSqlCritical") : t("destructiveSqlWarning")}</p>
             {analysis?.findings.map((finding, index) => (
               <section key={`${finding.start}-${finding.kind}-${index}`} style={{ borderLeft: `3px solid ${finding.level === "critical" ? tokens.colorPaletteRedBorderActive : tokens.colorPaletteDarkOrangeBorderActive}`, paddingLeft: 10 }}>
@@ -59,7 +59,7 @@ export function ExecutionRiskDialog({ analysis, onCancel, onConfirm }: Execution
               />
             )}
           </DialogContent>
-          <DialogActions>
+          <DialogActions className="omni-dialog-actions">
             <Button onClick={onCancel}>{t("cancel")}</Button>
             <Button appearance="primary" disabled={!canConfirm} onClick={() => onConfirm(suppressWarnings)}>{t("destructiveSqlConfirm")}</Button>
           </DialogActions>

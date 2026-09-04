@@ -471,7 +471,7 @@ export function ResultsGrid({
           {planText && <Tab value="plan" icon={<WrenchRegular fontSize={12} />}>{t("plan")}</Tab>}
         </TabList>
         {activeTab === "data" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" }}>
+          <div className="omni-results-actions">
             {result && editability && !editability.editable && (
               <Text role="status" aria-live="polite" size={200} style={{ color: tokens.colorNeutralForeground2, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4, padding: "4px 8px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={editability.reason ?? t("inlineEditingUnavailable")}>
                 {t("inlineEditingUnavailableText")}{editability.reason ? `: ${editability.reason}` : "."}
@@ -502,7 +502,7 @@ export function ResultsGrid({
                   <FilterRegular aria-hidden="true" />
                 </>
               }
-              style={{ minWidth: 180, maxWidth: 240 }}
+              className="omni-results-filter"
             />
             <Popover positioning="below-end">
               <PopoverTrigger disableButtonEnhancement>
@@ -597,7 +597,7 @@ export function ResultsGrid({
         {activeTab === "data" && (
           <>
             {!result ? (
-              <Text size={200} style={{ padding: 16, display: "block", color: tokens.colorNeutralForeground2 }}>
+              <Text className="omni-empty-state" size={200}>
                 {t("noResults")}
               </Text>
             ) : (
@@ -792,7 +792,7 @@ export function ResultsGrid({
                 )}
               </div>
             ) : (
-              <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
+              <Text className="omni-empty-state" size={200}>
                 {t("noMessages")}
               </Text>
             )}
