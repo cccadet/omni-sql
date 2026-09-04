@@ -95,6 +95,10 @@ de coluna para CTEs.
 - Integração Tauri: o Rust shell já spawna o sidecar em background no boot
   (`apps/desktop/src-tauri/src/lib.rs`, não bloqueia a janela) e mata no
   fechamento — mas via `java -jar`, exige o jar buildado (`./gradlew jar`).
+- O shell valida `java -version` antes do spawn e exige Java 21 ou superior. Em
+  desenvolvimento, a seleção segue `OMNI_SQL_JAVA_HOME`, `JAVA_HOME`, instalações
+  conhecidas no Windows e, por fim, o `PATH`. Use `OMNI_SQL_JAVA_HOME` para fixar
+  explicitamente um JDK sem alterar a configuração global da máquina.
   Se o jar não existir, o app segue normal em tier1 (autocomplete só TS).
 - `packages/backend/src/sidecar-client.ts` chama `/scope/resolve` com
   timeout de 250ms antes de rodar o tier1; qualquer falha (sidecar fora do

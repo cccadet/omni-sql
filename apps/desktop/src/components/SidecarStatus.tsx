@@ -5,18 +5,31 @@ import { invoke } from "@tauri-apps/api/core";
 import { useLanguage } from "../i18n";
 
 type SidecarState = "checking" | "ready" | "unavailable";
+interface SidecarDiagnostics {
+  status: SidecarState;
+  javaExecutable?: string | null;
+  javaVersion?: number | null;
+  message?: string | null;
+}
 
 const SIDECAR_STATUS_EVENT = "sidecar-status";
 
 export function SidecarStatus() {
   const { t } = useLanguage();
   const [state, setState] = useState<SidecarState>("checking");
+  const [diagnostics, setDiagnostics] = useState<SidecarDiagnostics | null>(null);
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
     let receivedEvent = false;
+
+    const refreshDiagnostics = () => {
+      void invoke<SidecarDiagnostics>("get_sidecar_diagnostics")
+        .then((value) => { if (!cancelled) setDiagnostics(value); })
+        .catch(() => undefined);
+    };
 
     void listen<string>(SIDECAR_STATUS_EVENT, (event) => {
       if (cancelled) return;
@@ -25,6 +38,7 @@ export function SidecarStatus() {
         ? event.payload
         : "unavailable";
       setState(status);
+      refreshDiagnostics();
     }).then((resolvedUnlisten) => {
       if (cancelled) {
         resolvedUnlisten();
@@ -41,6 +55,7 @@ export function SidecarStatus() {
             ? currentStatus
             : "unavailable";
           setState(status);
+          refreshDiagnostics();
         }).catch(() => {
           if (!cancelled && !receivedEvent) setState("unavailable");
         });
@@ -62,6 +77,10 @@ export function SidecarStatus() {
   };
 
   const label = t(state === "checking" ? "sidecarChecking" : state === "ready" ? "sidecarReady" : "sidecarUnavailable");
+  const javaDetail = diagnostics?.javaExecutable
+    ? `${t("sidecarJavaUsed")}: ${diagnostics.javaExecutable}${diagnostics.javaVersion ? ` (Java ${diagnostics.javaVersion})` : ""}`
+    : null;
+  const detail = [label, diagnostics?.message, javaDetail].filter(Boolean).join("\n");
   const color = state === "ready" ? tokens.colorBrandForeground1 : tokens.colorNeutralForeground3;
   const opacity = state === "checking" ? 0.7 : 1;
   const cursor = state === "unavailable" ? "pointer" : "default";
@@ -69,7 +88,7 @@ export function SidecarStatus() {
 
   return (
     <span
-      title={label}
+      title={detail}
       role={retryable ? "button" : undefined}
       tabIndex={retryable ? 0 : undefined}
       onClick={retryable ? retry : undefined}
@@ -79,7 +98,7 @@ export function SidecarStatus() {
         retry();
       } : undefined}
       style={{ display: "inline-flex", alignItems: "center", opacity, color, cursor }}
-      aria-label={label}
+      aria-label={detail}
     >
       <svg
         width={15}

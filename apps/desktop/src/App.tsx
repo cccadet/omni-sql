@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Title1, tokens } from "@fluentui/react-components";
-import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
+import { PlugConnectedRegular, PlugDisconnectedRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -20,6 +20,7 @@ import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
 import { VariablesDialog } from "./components/VariablesDialog";
 import { SqlCommandLibrary } from "./components/SqlCommandLibrary";
 import { ExecutionRiskDialog } from "./components/ExecutionRiskDialog";
+import { DialectIcon } from "./components/DialectIcon";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
@@ -39,6 +40,26 @@ const TRUSTED_WARNING_CONNECTIONS_KEY = "omni-sql:trusted-warning-connections";
 
 const HISTORY_MAX_ENTRIES = 200;
 const historyTextEncoder = new TextEncoder();
+
+const DIALECT_LABELS: Record<string, string> = {
+  postgres: "PostgreSQL", mysql: "MySQL", mariadb: "MariaDB", sqlserver: "SQL Server",
+  oracle: "Oracle", "jdbc-generic": "JDBC", odbc: "ODBC",
+};
+
+function connectionDatabase(connection: ConnectionEntry | null): string | null {
+  if (!connection) return null;
+  if (connection.endpoint === "memory://local") return "memory";
+  try {
+    if (connection.endpoint.includes("://")) {
+      const url = new URL(connection.endpoint);
+      return decodeURIComponent(url.pathname.replace(/^\//u, "")) || url.hostname || null;
+    }
+  } catch {
+    // JDBC and driver-specific endpoints are handled by the simple fallback.
+  }
+  const path = connection.endpoint.split(/[/?#]/u)[1];
+  return path ? decodeURIComponent(path) : null;
+}
 
 function loadTrustedWarningConnections(): Set<string> {
   try {
@@ -996,6 +1017,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const monacoTheme = useEditorMonacoTheme(name);
 
   const sidebarData = activeConnectionId ? sidebarCache[activeConnectionId] : undefined;
+  const activeDatabase = connectionDatabase(activeConnection);
+  const headerHealthLabel = connectionHealth === "online" ? t("headerConnected")
+    : connectionHealth === "verifying" ? t("headerVerifying")
+      : connectionHealth === "offline" ? t("headerOffline") : t("statusUnknown");
 
   return (
     <div
@@ -1016,6 +1041,24 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             <Title1 className="wordmark">omni-sql</Title1>
             <span className="subtitle">One IDE for every database</span>
           </div>
+        </div>
+        <div className="omni-header-context" aria-label={t("activeConnection")}>
+          {activeConnection ? (
+            <>
+              <span className={`omni-header-health omni-header-health-${connectionHealth}`} title={headerHealthLabel}>
+                {connectionHealth === "online" ? <PlugConnectedRegular /> : <PlugDisconnectedRegular />}
+                <span>{activeConnection.label}</span>
+              </span>
+              <span className="omni-header-detail">
+                <DialectIcon dialect={activeConnection.dialect} size={14} />
+                {DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect}
+              </span>
+              {activeDatabase && <span className="omni-header-detail"><span>{t("headerDatabase")}</span><strong>{activeDatabase}</strong></span>}
+              <span className={`omni-header-state omni-header-state-${connectionHealth}`}>
+                <span aria-hidden className="omni-header-state-dot" />{headerHealthLabel}
+              </span>
+            </>
+          ) : <span className="omni-header-empty"><PlugDisconnectedRegular />{t("headerNoConnection")}</span>}
         </div>
         <button
           type="button"
