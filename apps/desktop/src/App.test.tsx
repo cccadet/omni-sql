@@ -220,7 +220,7 @@ describe("App execution flow", () => {
 
     await waitFor(() => {
       expect(JSON.parse(localStorage.getItem("omni-sql:history") ?? "null")).toEqual([
-        { sql: "SELECT 1", ok: true },
+        expect.objectContaining({ sql: "SELECT 1", ok: true, executedAt: expect.any(String) }),
       ]);
     });
   });
