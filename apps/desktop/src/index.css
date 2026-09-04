@@ -25,6 +25,9 @@ body {
   border-radius: 4px;
 }
 
+.fui-Button:not(.fui-Button--size-small) { min-height: 32px; }
+.fui-Button__icon, .fui-Button__icon svg { display: inline-flex; align-items: center; flex-shrink: 0; }
+
 .fui-Button.fui-Button--appearance-primary {
   background-color: var(--colorBrandBackground);
   color: var(--colorNeutralForegroundOnBrand);
@@ -76,6 +79,7 @@ select option {
   min-height: 42px;
   background: var(--colorNeutralBackground2);
   border-bottom: 1px solid var(--colorNeutralStroke1);
+  overflow: hidden;
 }
 
 .omni-toolbar-group {
@@ -532,6 +536,9 @@ select option {
   background-color: var(--colorBrandBackground1);
 }
 
+.omni-results-actions { display: flex; align-items: center; justify-content: flex-end; flex: 1 1 360px; gap: 8px; min-width: 0; }
+.omni-results-filter { flex: 1 1 180px; min-width: 140px; max-width: 240px; }
+
 /* Status bar */
 .omni-status-bar {
   display: flex;
@@ -543,7 +550,10 @@ select option {
   background: var(--colorNeutralBackground2);
   color: var(--colorNeutralForeground2);
   border-top: 1px solid var(--colorNeutralStroke1);
+  overflow: hidden;
 }
+
+.omni-status-bar > * { flex-shrink: 0; }
 
 .omni-status-bar button { color: inherit; }
 
@@ -564,7 +574,7 @@ select option {
   display: block;
   margin-top: 2px;
   font-size: 11px;
-  color: var(--colorNeutralForeground3);
+  color: var(--colorNeutralForeground2);
   font-weight: 400;
 }
 
@@ -639,6 +649,34 @@ select option {
   overflow: hidden;
 }
 
+.omni-standard-dialog.omni-standard-dialog {
+  box-sizing: border-box;
+  width: min(600px, calc(100vw - 24px));
+  max-width: none;
+  max-height: calc(100vh - 24px);
+  padding: 0;
+  overflow: hidden;
+}
+.omni-dialog-form, .omni-standard-dialog > .omni-dialog-body, .omni-dialog-form > .omni-dialog-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.omni-dialog-form { max-height: calc(100vh - 24px); }
+.omni-dialog-body.omni-dialog-body { gap: 12px; overflow: hidden; padding: 24px; }
+.omni-dialog-body > .fui-DialogTitle { flex: 0 0 auto; }
+.omni-dialog-body > .fui-DialogContent, .omni-dialog-form > .omni-dialog-body:not(:has(.fui-DialogContent)) { min-height: 0; overflow-y: auto; }
+.omni-dialog-actions.omni-dialog-actions { flex: 0 0 auto; gap: 8px; padding-top: 12px; }
+.omni-dialog-actions .fui-Button { min-width: 88px; }
+.omni-connection-dialog.omni-connection-dialog { width: min(560px, calc(100vw - 24px)); }
+.omni-risk-dialog.omni-risk-dialog { width: min(720px, calc(100vw - 24px)); }
+.omni-mcp-edit-dialog.omni-mcp-edit-dialog { display: flex; flex-direction: column; width: min(900px, calc(100vw - 24px)); }
+.omni-mcp-status-dialog.omni-mcp-status-dialog { display: flex; flex-direction: column; width: min(620px, calc(100vw - 24px)); }
+.omni-mcp-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 240px; }
+.omni-connection-host-row { display: flex; gap: 12px; }
+.omni-empty-state { display: grid; place-items: center; min-height: 88px; padding: 20px; color: var(--colorNeutralForeground2); text-align: center; }
+
 .omni-settings-dialog > form { flex: 1 1 auto; min-height: 0; }
 .omni-settings-title { flex-shrink: 0; padding-bottom: 8px; }
 .omni-settings-tabs { flex-shrink: 0; overflow-x: auto; padding: 0 24px; border-bottom: 1px solid var(--colorNeutralStroke1); }
@@ -668,6 +706,32 @@ select option {
   .omni-command-library-dialog.omni-command-library-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
   .omni-command-library-filters { flex-wrap: wrap; }
   .omni-command-library-filters > :first-child { flex-basis: 100%; }
+  .omni-standard-dialog.omni-standard-dialog { width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
+  .omni-dialog-form { max-height: calc(100vh - 16px); }
+  .omni-dialog-body.omni-dialog-body { padding: 16px; }
+  .omni-dialog-actions.omni-dialog-actions { flex-wrap: wrap; }
+  .omni-mcp-edit-grid { grid-template-columns: 1fr; min-height: 0; }
+  .omni-connection-host-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 8px; }
+}
+
+@media (max-width: 1000px) {
+  .omni-toolbar-tab-actions .fui-Button { min-width: 32px; padding-inline: 7px; font-size: 0; }
+}
+
+@media (max-width: 760px) {
+  .omni-toolbar { padding-inline: 8px; }
+  .omni-toolbar-group { padding-inline: 6px; }
+  .omni-toolbar-inline-label { display: none; }
+  .omni-toolbar-group-primary .fui-Button:not(:first-child) { min-width: 32px; padding-inline: 7px; font-size: 0; }
+  .omni-status-bar { gap: 8px; padding-inline: 8px; }
+  .omni-results-actions { flex-basis: 100%; justify-content: stretch; }
+  .omni-results-filter { max-width: none; }
+}
+
+@media (max-width: 480px) {
+  .omni-connection-host-row { grid-template-columns: 1fr; }
+  .omni-connection-host-row .fui-Input { width: 100% !important; }
+  .omni-dialog-actions .fui-Button { flex: 1 1 auto; }
 }
 
 /* Sidebar resize handle */

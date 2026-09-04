@@ -46,10 +46,10 @@ export function VariablesDialog({ open, variables, onClose, onSubmit }: Variable
 
   return (
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
-      <DialogSurface>
-        <DialogBody>
+      <DialogSurface className="omni-standard-dialog omni-variables-dialog">
+        <DialogBody className="omni-dialog-body">
           <DialogTitle>{t("run")}</DialogTitle>
-          <DialogContent>
+          <DialogContent className="omni-dialog-content">
             {variables.length === 0 ? (
               <Text>{t("noResults")}</Text>
             ) : (
@@ -74,7 +74,7 @@ export function VariablesDialog({ open, variables, onClose, onSubmit }: Variable
               {t("variableValuesHint")}
             </Text>
           </DialogContent>
-          <DialogActions>
+          <DialogActions className="omni-dialog-actions">
             <DialogTrigger disableButtonEnhancement>
               <Button appearance="secondary" onClick={onClose}>
                 {t("cancel")}

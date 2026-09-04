@@ -1175,11 +1175,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       />
 
       <Dialog open={metadataRefreshConfirmOpen} onOpenChange={(_, data) => setMetadataRefreshConfirmOpen(data.open)}>
-        <DialogSurface>
-          <DialogBody>
+        <DialogSurface className="omni-standard-dialog omni-confirm-dialog">
+          <DialogBody className="omni-dialog-body">
             <DialogTitle>{t("refreshMetadata")}</DialogTitle>
             <DialogContent>{t("refreshMetadataConfirm")}</DialogContent>
-            <DialogActions>
+            <DialogActions className="omni-dialog-actions">
               <Button appearance="secondary" onClick={() => setMetadataRefreshConfirmOpen(false)}>{t("cancel")}</Button>
               <Button
                 appearance="primary"

@@ -807,7 +807,7 @@ export function Sidebar({
       </div>
       <div className="omni-sidebar-tree" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", padding: "0 8px 8px" }}>
         {groups.length === 0 ? (
-          <Text size={200} style={{ color: tokens.colorNeutralForeground2, padding: 8 }}>
+          <Text className="omni-empty-state" size={200}>
             {loading ? tr("loading") : search ? tr("noResults") : tr("noObjects")}
           </Text>
         ) : (
