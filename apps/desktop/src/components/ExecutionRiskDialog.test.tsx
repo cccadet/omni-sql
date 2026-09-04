@@ -33,7 +33,7 @@ test("warning execution can be confirmed after review", () => {
       />
     </LanguageProvider>,
   );
-  fireEvent.click(screen.getByRole("checkbox", { name: "Do not warn again for warning-level statements on this connection" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Do not warn again for warning-level SQL statements on this connection" }));
   fireEvent.click(screen.getByRole("button", { name: "I understand, execute" }));
   expect(onConfirm).toHaveBeenCalledWith(true);
 });
