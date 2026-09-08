@@ -324,7 +324,13 @@ const english = {
   mcpShowSql: "Show SQL",
   mcpHideSql: "Hide SQL",
   autocompleteAllColumns: "All columns",
-  indexColumnsHelp: "Choose columns below or type a comma-separated list. Column order is preserved and affects how the index can be used.",
+  indexColumnsHelp: "Add only the columns needed by each index. Their order is preserved and affects how the index can be used.",
+  indexColumnOrder: "Indexed columns (in order)",
+  addIndexColumnFor: "Add column to index: {index}",
+  searchIndexColumns: "Search and add a column…",
+  moveIndexColumnLeft: "Move {column} earlier",
+  moveIndexColumnRight: "Move {column} later",
+  removeIndexColumn: "Remove {column} from index",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -356,7 +362,8 @@ const portugueseBrazil = [
   "SQL selecionado", "Copiar SQL", "Buscar no histórico de execuções…", "Horário de execução indisponível", "Status indisponível", "linha(s)",
   "Nenhuma conexão ativa", "Banco", "Conectada", "Verificando conexão", "Offline", "Executável Java",
   "Configuração", "Atividade", "Solicitações recentes", "As solicitações feitas por clientes MCP conectados aparecem aqui.", "Mostrar SQL", "Ocultar SQL",
-  "Todas as colunas", "Escolha as colunas abaixo ou digite uma lista separada por vírgulas. A ordem é preservada e afeta como o índice pode ser usado.",
+  "Todas as colunas", "Adicione somente as colunas necessárias em cada índice. A ordem é preservada e afeta como o índice pode ser usado.",
+  "Colunas indexadas (em ordem)", "Adicionar coluna ao índice: {index}", "Buscar e adicionar uma coluna…", "Mover {column} para antes", "Mover {column} para depois", "Remover {column} do índice",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

@@ -342,7 +342,8 @@ describe("Sidebar", () => {
 
     expect(screen.queryByLabelText("Column type: customer_id")).toBeNull();
     expect((screen.getByLabelText("Index name: orders_pkey") as HTMLInputElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Index columns: idx_orders_customer"), { target: { value: "customer_id, id" } });
+    fireEvent.change(screen.getByLabelText("Add column to index: idx_orders_customer"), { target: { value: "id" } });
+    fireEvent.click(await screen.findByRole("option", { name: "id" }));
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
 
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('DROP INDEX "public"."idx_orders_customer";'));
