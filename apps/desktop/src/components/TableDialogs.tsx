@@ -29,14 +29,26 @@ interface EditDraftIndex {
 }
 
 const TYPE_OPTIONS: Record<DialectId, readonly string[]> = {
-  postgres: ["integer", "bigint", "varchar(255)", "text", "boolean", "date", "timestamp", "numeric(18,2)", "uuid", "jsonb"],
-  mysql: ["int", "bigint", "varchar(255)", "text", "tinyint(1)", "date", "datetime", "decimal(18,2)", "json"],
-  mariadb: ["int", "bigint", "varchar(255)", "text", "tinyint(1)", "date", "datetime", "decimal(18,2)", "json"],
-  sqlserver: ["int", "bigint", "nvarchar(255)", "nvarchar(max)", "bit", "date", "datetime2", "decimal(18,2)", "uniqueidentifier"],
-  oracle: ["NUMBER(10)", "NUMBER(19)", "VARCHAR2(255)", "CLOB", "NUMBER(1)", "DATE", "TIMESTAMP", "NUMBER(18,2)", "RAW(16)"],
-  "jdbc-generic": ["INTEGER", "BIGINT", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIMESTAMP", "DECIMAL(18,2)"],
-  odbc: ["INTEGER", "BIGINT", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIMESTAMP", "DECIMAL(18,2)"],
+  postgres: ["smallint", "integer", "bigint", "numeric(18,2)", "real", "double precision", "varchar(255)", "text", "boolean", "date", "time", "timestamp", "timestamptz", "uuid", "json", "jsonb", "bytea"],
+  mysql: ["tinyint", "smallint", "int", "bigint", "decimal(18,2)", "float", "double", "varchar(255)", "text", "tinyint(1)", "date", "time", "datetime", "timestamp", "json", "binary(16)"],
+  mariadb: ["tinyint", "smallint", "int", "bigint", "decimal(18,2)", "float", "double", "varchar(255)", "text", "tinyint(1)", "date", "time", "datetime", "timestamp", "json", "binary(16)"],
+  sqlserver: ["tinyint", "smallint", "int", "bigint", "decimal(18,2)", "real", "float", "nvarchar(255)", "nvarchar(max)", "varchar(255)", "bit", "date", "time", "datetime2", "datetimeoffset", "uniqueidentifier", "varbinary(max)"],
+  oracle: ["NUMBER(5)", "NUMBER(10)", "NUMBER(19)", "NUMBER(18,2)", "BINARY_FLOAT", "BINARY_DOUBLE", "VARCHAR2(255)", "NVARCHAR2(255)", "CLOB", "NUMBER(1)", "DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "RAW(16)", "BLOB"],
+  "jdbc-generic": ["SMALLINT", "INTEGER", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
+  odbc: ["SMALLINT", "INTEGER", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
 };
+
+function splitIndexColumns(value: string): string[] {
+  return value.split(",").map((column) => column.trim()).filter(Boolean);
+}
+
+function nextColumnName(columns: readonly Pick<DraftColumn, "name">[]): string {
+  const used = new Set(columns.map((column) => column.name.trim().toLocaleLowerCase()));
+  let candidate = "new_column";
+  let suffix = 2;
+  while (used.has(candidate.toLocaleLowerCase())) candidate = `new_column_${suffix++}`;
+  return candidate;
+}
 
 function quoteIdentifier(value: string, dialect: DialectId): string {
   if (dialect === "mysql" || dialect === "mariadb") return `\`${value.replaceAll("`", "``")}\``;
@@ -273,7 +285,7 @@ export function TableStructureDialog({ open, connectionId, dialect, schema, tabl
   };
   const normalizedNames = draftColumns.map((column) => column.name.trim().toLocaleLowerCase());
   const draftValid = draftColumns.every((column) => column.name.trim() && column.dataType.trim()) && new Set(normalizedNames).size === normalizedNames.length;
-  const indexDraftValid = draftIndexes.every((index) => index.primary || (index.name.trim() && index.columnsText.split(",").some((column) => column.trim())))
+  const indexDraftValid = draftIndexes.every((index) => index.primary || (index.name.trim() && splitIndexColumns(index.columnsText).length > 0))
     && new Set(draftIndexes.map((index) => index.name.trim().toLocaleLowerCase())).size === draftIndexes.length;
   const sql = tab === "indexes"
     ? indexDraftValid ? buildAlterIndexesSql(dialect, schema, table, indexes, draftIndexes) : ""
@@ -284,29 +296,30 @@ export function TableStructureDialog({ open, connectionId, dialect, schema, tabl
     <DialogTitle>{t("tableStructure")}: {schema}.{table}</DialogTitle><DialogContent className="omni-table-dialog-content">{loading ? <Spinner label={t("loadingStructure")} /> : error ? <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{error}</Text> : editing && tab === "columns" ? <div style={{ display: "grid", gap: 12 }}>
       <Text size={200}>{t("dropColumnWarning")}</Text>
       {!draftValid && <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{t("invalidColumns")}</Text>}
-      <div style={{ overflowX: "auto" }}><table className="table-designer-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>PK</th><th>{t("defaultColumnValue")}</th><th /></tr></thead><tbody>{draftColumns.map((column) => { const columnLabel = column.name || column.originalName || t("newColumn"); return <tr key={column.id}>
-        <td><Input aria-label={t("columnNameFor").replace("{column}", column.originalName ?? t("newColumn"))} value={column.name} onChange={(_, data) => updateDraftColumn(column.id, { name: data.value })} /></td>
-        <td><Combobox freeform aria-label={t("columnTypeFor").replace("{column}", columnLabel)} value={column.dataType} onChange={(event) => updateDraftColumn(column.id, { dataType: event.currentTarget.value })} onOptionSelect={(_, data) => updateDraftColumn(column.id, { dataType: data.optionValue ?? "" })}>{TYPE_OPTIONS[dialect].map((type) => <Option key={type} value={type}>{type}</Option>)}</Combobox></td>
+      <div className="table-designer-scroll"><table className="table-designer-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>PK</th><th>{t("defaultColumnValue")}</th><th /></tr></thead><tbody>{draftColumns.map((column) => { const columnLabel = column.name || column.originalName || t("newColumn"); return <tr key={column.id}>
+        <td><Input aria-label={t("columnNameFor").replace("{column}", column.originalName ?? t("newColumn"))} value={column.name} placeholder="customer_id" autoFocus={!column.originalName && column.id === nextId - 1} onFocus={(event) => { if (!column.originalName && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) event.currentTarget.select(); }} onChange={(_, data) => updateDraftColumn(column.id, { name: data.value })} /></td>
+        <td><Combobox freeform aria-label={t("columnTypeFor").replace("{column}", columnLabel)} value={column.dataType} placeholder={TYPE_OPTIONS[dialect][0]} onChange={(event) => updateDraftColumn(column.id, { dataType: event.currentTarget.value })} onOptionSelect={(_, data) => updateDraftColumn(column.id, { dataType: data.optionValue ?? "" })}>{TYPE_OPTIONS[dialect].map((type) => <Option key={type} value={type}>{type}</Option>)}</Combobox></td>
         <td><Checkbox aria-label={t("allowNullFor").replace("{column}", columnLabel)} checked={column.nullable} disabled={column.primaryKey} onChange={(_, data) => updateDraftColumn(column.id, { nullable: data.checked === true })} /></td>
         <td><Checkbox aria-label={t("primaryKeyFor").replace("{column}", columnLabel)} checked={column.primaryKey} onChange={(_, data) => updateDraftColumn(column.id, { primaryKey: data.checked === true, nullable: data.checked === true ? false : column.nullable })} /></td>
-        <td><Input aria-label={t("defaultValueFor").replace("{column}", columnLabel)} value={column.defaultValue} onChange={(_, data) => updateDraftColumn(column.id, { defaultValue: data.value })} /></td>
+        <td><Input aria-label={t("defaultValueFor").replace("{column}", columnLabel)} value={column.defaultValue} placeholder="NULL, 0, CURRENT_TIMESTAMP" onChange={(_, data) => updateDraftColumn(column.id, { defaultValue: data.value })} /></td>
         <td><Button appearance="transparent" icon={<DeleteRegular />} aria-label={t("removeColumnFor").replace("{column}", columnLabel)} onClick={() => setDraftColumns((current) => current.filter((item) => item.id !== column.id))} /></td>
       </tr>; })}</tbody></table></div>
-      <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { setDraftColumns((current) => [...current, { id: nextId, name: "", dataType: TYPE_OPTIONS[dialect][0]!, nullable: true, primaryKey: false, defaultValue: "" }]); setNextId((value) => value + 1); }}>{t("addColumn")}</Button>
+      <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { setDraftColumns((current) => [...current, { id: nextId, name: nextColumnName(current), dataType: TYPE_OPTIONS[dialect][0]!, nullable: true, primaryKey: false, defaultValue: "" }]); setNextId((value) => value + 1); }}>{t("addColumn")}</Button>
       <Field label="ALTER TABLE"><Textarea value={sql || t("noChanges")} readOnly resize="vertical" style={{ minHeight: 180, fontFamily: "monospace" }} /></Field>
     </div> : editing && tab === "indexes" ? <div style={{ display: "grid", gap: 12 }}>
       {!indexDraftValid && <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{t("invalidIndexes")}</Text>}
-      <div style={{ overflowX: "auto" }}><table className="table-designer-grid"><thead><tr><th>{t("name")}</th><th>{t("columns")}</th><th>UNIQUE</th><th /></tr></thead><tbody>{draftIndexes.map((index) => <tr key={index.id}>
-        <td><Input aria-label={t("indexNameFor").replace("{index}", index.name)} value={index.name} disabled={index.primary} onChange={(_, data) => updateDraftIndex(index.id, { name: data.value })} /></td>
-        <td><Input aria-label={t("indexColumnsFor").replace("{index}", index.name)} value={index.columnsText} disabled={index.primary} onChange={(_, data) => updateDraftIndex(index.id, { columnsText: data.value })} /></td>
+      <Text size={200}>{t("indexColumnsHelp")}</Text>
+      <div className="table-designer-scroll"><table className="table-designer-grid"><thead><tr><th>{t("name")}</th><th>{t("columns")}</th><th>UNIQUE</th><th /></tr></thead><tbody>{draftIndexes.map((index) => <tr key={index.id}>
+        <td><Input aria-label={t("indexNameFor").replace("{index}", index.name || t("newColumn"))} value={index.name} placeholder={`idx_${table}_column`} disabled={index.primary} onChange={(_, data) => updateDraftIndex(index.id, { name: data.value })} /></td>
+        <td><div className="index-column-editor"><Input aria-label={t("indexColumnsFor").replace("{index}", index.name || t("newColumn"))} value={index.columnsText} placeholder={columns.map((column) => column.name).slice(0, 2).join(", ")} disabled={index.primary} onChange={(_, data) => updateDraftIndex(index.id, { columnsText: data.value })} />{!index.primary && <div className="index-column-suggestions">{columns.map((column) => { const selected = splitIndexColumns(index.columnsText).some((name) => name.toLocaleLowerCase() === column.name.toLocaleLowerCase()); return <Button key={column.name} size="small" appearance={selected ? "primary" : "subtle"} disabled={selected} onClick={() => updateDraftIndex(index.id, { columnsText: [...splitIndexColumns(index.columnsText), column.name].join(", ") })}>{column.name}</Button>; })}</div>}</div></td>
         <td><Checkbox aria-label={t("uniqueIndexFor").replace("{index}", index.name)} checked={index.unique} disabled={index.primary} onChange={(_, data) => updateDraftIndex(index.id, { unique: data.checked === true })} /></td>
         <td><Button appearance="transparent" icon={<DeleteRegular />} aria-label={t("removeIndexFor").replace("{index}", index.name)} disabled={index.primary} onClick={() => setDraftIndexes((current) => current.filter((item) => item.id !== index.id))} /></td>
       </tr>)}</tbody></table></div>
-      <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { setDraftIndexes((current) => [...current, { id: nextId, name: "", columnsText: "", unique: false, primary: false }]); setNextId((value) => value + 1); }}>{t("addIndex")}</Button>
+      <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { const firstColumn = columns[0]?.name ?? ""; setDraftIndexes((current) => [...current, { id: nextId, name: `idx_${table}_${firstColumn || "column"}`, columnsText: firstColumn, unique: false, primary: false }]); setNextId((value) => value + 1); }}>{t("addIndex")}</Button>
       <Field label="INDEX DDL"><Textarea value={sql || t("noChanges")} readOnly resize="vertical" style={{ minHeight: 180, fontFamily: "monospace" }} /></Field>
     </div> : <><TabList selectedValue={tab} onTabSelect={(_, data) => setTab(String(data.value))}><Tab value="columns">{t("columns")} ({columns.length})</Tab><Tab value="indexes">{t("indexes")} ({indexes.length})</Tab><Tab value="ddl">DDL</Tab></TabList>
       {tab === "columns" && <><table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>{t("keys")}</th><th>{t("sampleValue")}</th></tr></thead><tbody>{columns.map((column) => { const sampleIndex = sampleColumnIndexes.get(column.name); const sampleValue = !sampleResult && !sampleError ? t("loading") : sampleIndex === undefined || !sampleRow ? "—" : formatSampleValue(sampleRow[sampleIndex]); return <tr key={column.name}><td>{column.name}</td><td>{column.dataType}</td><td>{column.nullable ? t("yes") : t("no")}</td><td>{column.isPrimaryKey ? "PK" : column.foreignKeyTo ? `FK → ${column.foreignKeyTo.schema}.${column.foreignKeyTo.table}.${column.foreignKeyTo.column}` : ""}</td><td className="table-structure-sample" title={sampleValue}>{sampleValue}</td></tr>; })}</tbody></table>{sampleError ? <Text size={200}>{t("sampleLoadFailed")}</Text> : sampleResult && !sampleRow ? <Text size={200}>{t("noSampleRows")}</Text> : null}</>}
-      {tab === "indexes" && <table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("columns")}</th><th>{t("type")}</th></tr></thead><tbody>{indexes.map((index) => <tr key={index.name}><td>{index.name}</td><td>{index.columns.join(", ")}</td><td>{index.primary ? "PRIMARY" : index.unique ? "UNIQUE" : "INDEX"}</td></tr>)}</tbody></table>}
+      {tab === "indexes" && (indexes.length ? <table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("columns")}</th><th>{t("type")}</th></tr></thead><tbody>{indexes.map((index) => <tr key={index.name}><td>{index.name}</td><td>{index.columns.join(", ")}</td><td>{index.primary ? "PRIMARY" : index.unique ? "UNIQUE" : "INDEX"}</td></tr>)}</tbody></table> : <div className="omni-empty-state">{t("noIndexes")}</div>)}
       {tab === "ddl" && <Textarea className="table-structure-ddl" value={ddl} readOnly resize="vertical" />}</>}</DialogContent><DialogActions>{editing ? <><Button onClick={() => setEditing(false)}>{t("cancel")}</Button><Button appearance="primary" disabled={!sql} onClick={() => { onOpenSql((tab === "indexes" ? t("alterIndexesTab") : t("alterTableTab")).replace("{table}", table), sql); onClose(); }}>{t("openSql")}</Button></> : <><Button onClick={onClose}>{t("close")}</Button>{tab !== "ddl" && <Button appearance="primary" onClick={beginEditing}>{tab === "indexes" ? t("editIndexes") : t("editStructure")}</Button>}</>}</DialogActions>
   </DialogBody></DialogSurface></Dialog>;
 }
