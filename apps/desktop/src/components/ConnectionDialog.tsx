@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
   Dialog,
@@ -92,6 +92,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [testResult, setTestResult] = useState<{ ok: boolean; latencyMs: number; message?: string } | null>(null);
   const [availableSchemas, setAvailableSchemas] = useState<string[] | null>(null);
   const [selectedSchemas, setSelectedSchemas] = useState<Set<string>>(new Set());
+  const [schemaSearch, setSchemaSearch] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -129,6 +130,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setBusy(false);
     setAvailableSchemas(null);
     setSelectedSchemas(new Set(editing?.schemas ?? []));
+    setSchemaSearch("");
   }, [open, editing, duplicating]);
 
   const buildEndpoint = useCallback(() => {
@@ -244,6 +246,17 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     });
   };
 
+  const schemaNames = useMemo(() => {
+    const names = new Set([...(availableSchemas ?? []), ...selectedSchemas]);
+    return [...names].sort((left, right) => {
+      const selectionOrder = Number(selectedSchemas.has(right)) - Number(selectedSchemas.has(left));
+      return selectionOrder || left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+    });
+  }, [availableSchemas, selectedSchemas]);
+  const normalizedSchemaSearch = schemaSearch.trim().toLocaleLowerCase();
+  const visibleSchemas = schemaNames.filter((name) => name.toLocaleLowerCase().includes(normalizedSchemaSearch));
+  const selectSchemas = (names: readonly string[]) => setSelectedSchemas((current) => new Set([...current, ...names]));
+
   return (
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
       <DialogSurface className="omni-standard-dialog omni-connection-dialog">
@@ -331,46 +344,46 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 {mode !== "jdbc-generic" && (
                   <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />
                 )}
-                <div
-                  style={{
-                    border: `1px solid ${tokens.colorNeutralStroke1}`,
-                    borderRadius: 4,
-                    padding: 8,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text size={200}>{t("schemasToIndex")}</Text>
+                <section className="connection-schema-picker">
+                  <div className="connection-schema-heading">
+                    <div>
+                      <Text weight="semibold">{t("schemasToIndex")}</Text>
+                      <Text size={200} className="connection-schema-summary">
+                        {selectedSchemas.size === 0 ? t("noSelectionAllSchemas") : t("schemaSelectionCount").replace("{selected}", String(selectedSchemas.size)).replace("{total}", String(schemaNames.length))}
+                      </Text>
+                    </div>
                     <Button type="button" onClick={loadSchemas} disabled={busy || !canConnect()} size="small">
-                      {t("loadSchemas")}
+                      {busy ? t("loading") : t("loadSchemas")}
                     </Button>
                   </div>
-                  {availableSchemas === null ? (
-                    <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                      {t("noSelectionAllSchemas")}
-                    </Text>
-                  ) : availableSchemas.length === 0 ? (
+                  {availableSchemas === null && selectedSchemas.size === 0 ? (
+                    <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("loadSchemasHint")}</Text>
+                  ) : schemaNames.length === 0 ? (
                     <Text size={200}>{t("noSchemaFound")}</Text>
                   ) : (
                     <>
-                      <div style={{ display: "flex", gap: 12 }}>
-                        <Button type="button" appearance="subtle" size="small" onClick={() => setSelectedSchemas(new Set(availableSchemas))}>
+                      {availableSchemas === null && <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("savedSchemasHint")}</Text>}
+                      <Input aria-label={t("searchSchemas")} value={schemaSearch} onChange={(_, data) => setSchemaSearch(data.value)} placeholder={t("searchSchemas")} />
+                      <div className="connection-schema-actions">
+                        <Button type="button" appearance="subtle" size="small" onClick={() => selectSchemas(schemaNames)}>
                           {t("selectAll")}
                         </Button>
+                        {normalizedSchemaSearch && <Button type="button" appearance="subtle" size="small" onClick={() => selectSchemas(visibleSchemas)}>{t("selectVisible")}</Button>}
                         <Button type="button" appearance="subtle" size="small" onClick={() => setSelectedSchemas(new Set())}>
-                          {t("selectNone")}
+                          {t("useAllSchemas")}
                         </Button>
                       </div>
-                      <div style={{ maxHeight: 140, overflow: "auto" }}>
-                        {availableSchemas.map((s) => (
-                          <Checkbox key={s} label={s} checked={selectedSchemas.has(s)} onChange={() => toggleSchema(s)} />
+                      <div className="connection-schema-list">
+                        {visibleSchemas.length === 0 ? <Text size={200}>{t("noSchemaMatches")}</Text> : visibleSchemas.map((schemaName) => (
+                          <div className={`connection-schema-row${selectedSchemas.has(schemaName) ? " is-selected" : ""}`} key={schemaName}>
+                            <Checkbox label={schemaName} checked={selectedSchemas.has(schemaName)} onChange={() => toggleSchema(schemaName)} />
+                            {selectedSchemas.has(schemaName) && <Text size={100}>{t("selected")}</Text>}
+                          </div>
                         ))}
                       </div>
                     </>
                   )}
-                </div>
+                </section>
               </>
             )}
 

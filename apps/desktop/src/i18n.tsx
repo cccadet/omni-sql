@@ -176,7 +176,7 @@ const english = {
   password: "Password",
   schemasToIndex: "Schemas to index",
   loadSchemas: "Load schemas",
-  noSelectionAllSchemas: "No selection: all schemas will be indexed.",
+  noSelectionAllSchemas: "All schemas will be indexed.",
   noSchemaFound: "No schemas found.",
   selectAll: "Select all",
   selectNone: "Select none",
@@ -331,6 +331,14 @@ const english = {
   moveIndexColumnLeft: "Move {column} earlier",
   moveIndexColumnRight: "Move {column} later",
   removeIndexColumn: "Remove {column} from index",
+  searchSchemas: "Search schemas…",
+  selectVisible: "Select visible",
+  noSchemaMatches: "No schemas match this search.",
+  schemaSelectionCount: "{selected} selected of {total}",
+  loadSchemasHint: "Load schemas to choose which ones should be indexed.",
+  savedSchemasHint: "Saved selections are shown first. Load schemas to update the complete list.",
+  selected: "Selected",
+  useAllSchemas: "Use all schemas",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -364,6 +372,7 @@ const portugueseBrazil = [
   "Configuração", "Atividade", "Solicitações recentes", "As solicitações feitas por clientes MCP conectados aparecem aqui.", "Mostrar SQL", "Ocultar SQL",
   "Todas as colunas", "Adicione somente as colunas necessárias em cada índice. A ordem é preservada e afeta como o índice pode ser usado.",
   "Colunas indexadas (em ordem)", "Adicionar coluna ao índice: {index}", "Buscar e adicionar uma coluna…", "Mover {column} para antes", "Mover {column} para depois", "Remover {column} do índice",
+  "Buscar schemas…", "Selecionar visíveis", "Nenhum schema corresponde a esta busca.", "{selected} selecionado(s) de {total}", "Carregue os schemas para escolher quais devem ser indexados.", "As seleções salvas aparecem primeiro. Carregue os schemas para atualizar a lista completa.", "Selecionado", "Usar todos os schemas",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

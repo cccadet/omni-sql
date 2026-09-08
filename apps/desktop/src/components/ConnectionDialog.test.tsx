@@ -33,6 +33,35 @@ test("does not expose an existing connection internal ID", () => {
   assert.ok(screen.getByRole("button", { name: "Save connection" }));
 });
 
+test("shows saved schemas first and filters the loaded schema list", async () => {
+  const call = vi.mocked(backend.call);
+  call.mockImplementation(async (method) => method === "connection.listSchemas"
+    ? { schemas: ["zeta", "archive", "public", "beta"] }
+    : { ok: true });
+  renderWithLanguage(
+    <ConnectionDialog
+      open
+      editing={{ id: "conn-saved", label: "Saved", dialect: "postgres", endpoint: "db:5432/app", user: "user", schemas: ["zeta", "public"] }}
+      onClose={close}
+      onSaved={saved}
+    />,
+  );
+
+  const schemaList = document.querySelector(".connection-schema-list")!;
+  const schemaRows = () => [...schemaList.querySelectorAll(".connection-schema-row")].map((row) => row.textContent?.replace("Selected", "").trim());
+  assert.deepEqual(schemaRows(), ["public", "zeta"]);
+  assert.ok(screen.getByText("2 selected of 2"));
+
+  fireEvent.click(screen.getByRole("button", { name: "Load schemas" }));
+  await screen.findByText("2 selected of 4");
+  assert.deepEqual(schemaRows(), ["public", "zeta", "archive", "beta"]);
+
+  fireEvent.change(screen.getByRole("textbox", { name: "Search schemas…" }), { target: { value: "ar" } });
+  assert.deepEqual(schemaRows(), ["archive"]);
+  fireEvent.click(screen.getByRole("button", { name: "Select visible" }));
+  assert.ok(screen.getByText("3 selected of 4"));
+});
+
 test("duplicates editable fields with a new ID and empty password", async () => {
   const call = vi.mocked(backend.call);
   call.mockResolvedValue({ ok: true });
