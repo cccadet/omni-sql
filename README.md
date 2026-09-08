@@ -11,7 +11,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
 </p>
 
-![Write, understand, and run SQL with CTE-aware autocomplete and dialect quick fixes](docs/images/feature_example.gif)
+![Explore schemas, complete SQL, inspect results, and analyze PostgreSQL execution plans](docs/images/release-visuals/omni-sql-demo.gif)
 
 <p align="center"><sub>Early-stage software · Installers currently available for Windows x64 and Linux amd64</sub></p>
 

@@ -387,6 +387,7 @@ select option {
 }
 
 .omni-sidebar-tree .obj-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -819,7 +820,7 @@ select option {
   left: 0;
   top: 0;
   width: 22px;
-  height: 100%;
+  height: 24px;
   background: transparent;
   border: none;
   cursor: pointer;
