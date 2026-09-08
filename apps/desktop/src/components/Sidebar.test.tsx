@@ -342,7 +342,9 @@ describe("Sidebar", () => {
 
     expect(screen.queryByLabelText("Column type: customer_id")).toBeNull();
     expect((screen.getByLabelText("Index name: orders_pkey") as HTMLInputElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Add column to index: idx_orders_customer"), { target: { value: "id" } });
+    const addColumnInput = screen.getByLabelText("Add column to index: idx_orders_customer");
+    fireEvent.click(addColumnInput);
+    fireEvent.change(addColumnInput, { target: { value: "id" } });
     fireEvent.click(await screen.findByRole("option", { name: "id" }));
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
 
