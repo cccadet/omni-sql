@@ -292,12 +292,34 @@ describe("Sidebar", () => {
     fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "View structure…" }));
     fireEvent.click(await screen.findByRole("button", { name: "Edit structure" }));
 
-    fireEvent.change(await screen.findByLabelText("Column name: id"), { target: { value: "order_id" } });
+    const nameInput = await screen.findByLabelText("Column name: id");
+    nameInput.focus();
+    expect(document.activeElement).toBe(nameInput);
+    fireEvent.change(nameInput, { target: { value: "order_id" } });
+    expect(document.activeElement).toBe(nameInput);
     fireEvent.click(screen.getByLabelText("Primary key: order_id"));
     fireEvent.click(screen.getByLabelText("Primary key: customer_id"));
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('RENAME COLUMN "id" TO "order_id"'));
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("customer_id")'));
+  });
+
+  it("focuses and selects the suggested name of a newly added column", async () => {
+    call.mockImplementation(async (method) => method === "metadata.listColumns" ? { columns: relations[0]!.columns } : { indexes: [] });
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+    fireEvent.contextMenu(screen.getByText("orders").closest(".obj-row")!);
+    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "View structure…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit structure" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+
+    const nameInput = screen.getByLabelText("Column name: new column") as HTMLInputElement;
+    expect(document.activeElement).toBe(nameInput);
+    expect(nameInput.selectionStart).toBe(0);
+    expect(nameInput.selectionEnd).toBe("new_column".length);
+    fireEvent.change(nameInput, { target: { value: "status" } });
+    expect(nameInput.value).toBe("status");
   });
 
   it("edits indexes from the indexes tab instead of opening the column editor", async () => {

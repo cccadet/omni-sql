@@ -477,6 +477,12 @@ select option {
 .table-designer-grid, .table-structure-grid { width: 100%; border-collapse: collapse; }
 .table-designer-grid th, .table-designer-grid td, .table-structure-grid th, .table-structure-grid td { padding: 6px; border-bottom: 1px solid var(--colorNeutralStroke2); text-align: left; }
 .table-designer-grid th, .table-structure-grid th { font-size: 12px; color: var(--colorNeutralForeground2); }
+.table-designer-scroll { overflow-x: auto; border: 1px solid var(--colorNeutralStroke2); border-radius: 6px; }
+.table-designer-grid { min-width: 720px; }
+.table-designer-grid th { position: sticky; top: 0; z-index: 1; background: var(--colorNeutralBackground1); }
+.table-designer-grid .fui-Input, .table-designer-grid .fui-Combobox { width: 100%; min-width: 130px; }
+.index-column-editor { display: grid; min-width: 260px; gap: 6px; }
+.index-column-suggestions { display: flex; flex-wrap: wrap; gap: 4px; }
 .table-structure-ddl { width: 100%; height: 280px; margin-top: 12px; }
 .table-structure-ddl textarea { height: 100%; min-height: 0; font-family: monospace; }
 .table-structure-sample { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -710,9 +716,10 @@ select option {
 .omni-settings-actions { flex-shrink: 0; flex-wrap: wrap; border-top: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground1); }
 .omni-new-row-actions { display: flex; align-items: center; gap: 4px; }
 .omni-toolbar-progress { display: inline-flex; width: 24px; min-width: 24px; align-items: center; justify-content: center; }
-.omni-table-dialog.omni-table-dialog { max-height: calc(100vh - 24px); overflow: hidden; }
-.omni-table-dialog-body.omni-table-dialog-body { min-height: 0; overflow: hidden; }
-.omni-table-dialog-content.omni-table-dialog-content { min-height: 0; overflow: auto; }
+.omni-table-dialog.omni-table-dialog { box-sizing: border-box; display: flex; flex-direction: column; height: min(720px, calc(100vh - 24px)); max-height: calc(100vh - 24px); overflow: hidden; }
+.omni-table-dialog-body.omni-table-dialog-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.omni-table-dialog-content.omni-table-dialog-content { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.omni-table-dialog-body > .fui-DialogActions { flex: 0 0 auto; border-top: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground1); }
 .omni-command-library-dialog.omni-command-library-dialog { box-sizing: border-box; display: flex; flex-direction: column; height: min(760px, calc(100vh - 24px)); max-height: calc(100vh - 24px); overflow: hidden; }
 .omni-command-library-body.omni-command-library-body { display: grid; flex: 1 1 auto; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
 .omni-command-library-content.omni-command-library-content { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: hidden; }

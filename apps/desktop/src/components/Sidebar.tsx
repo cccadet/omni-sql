@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   Button,
   Card,
@@ -1167,8 +1168,11 @@ export function Sidebar({
                         openMoveSubmenu(event.currentTarget);
                         return;
                       }
+                      // Finish unmounting the context menu before an action opens a
+                      // dialog. Otherwise the menu's focus restoration can run after
+                      // the dialog autofocus and steal focus from its first input.
+                      flushSync(closeMenu);
                       item.action();
-                      closeMenu();
                     }}
                   >
                     {item.label}

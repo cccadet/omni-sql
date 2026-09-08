@@ -324,6 +324,7 @@ const english = {
   mcpShowSql: "Show SQL",
   mcpHideSql: "Hide SQL",
   autocompleteAllColumns: "All columns",
+  indexColumnsHelp: "Choose columns below or type a comma-separated list. Column order is preserved and affects how the index can be used.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -355,7 +356,7 @@ const portugueseBrazil = [
   "SQL selecionado", "Copiar SQL", "Buscar no histórico de execuções…", "Horário de execução indisponível", "Status indisponível", "linha(s)",
   "Nenhuma conexão ativa", "Banco", "Conectada", "Verificando conexão", "Offline", "Executável Java",
   "Configuração", "Atividade", "Solicitações recentes", "As solicitações feitas por clientes MCP conectados aparecem aqui.", "Mostrar SQL", "Ocultar SQL",
-  "Todas as colunas",
+  "Todas as colunas", "Escolha as colunas abaixo ou digite uma lista separada por vírgulas. A ordem é preservada e afeta como o índice pode ser usado.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
