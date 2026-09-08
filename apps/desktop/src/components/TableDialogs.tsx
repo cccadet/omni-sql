@@ -29,13 +29,13 @@ interface EditDraftIndex {
 }
 
 const TYPE_OPTIONS: Record<DialectId, readonly string[]> = {
-  postgres: ["smallint", "integer", "bigint", "numeric(18,2)", "real", "double precision", "varchar(255)", "text", "boolean", "date", "time", "timestamp", "timestamptz", "uuid", "json", "jsonb", "bytea"],
-  mysql: ["tinyint", "smallint", "int", "bigint", "decimal(18,2)", "float", "double", "varchar(255)", "text", "tinyint(1)", "date", "time", "datetime", "timestamp", "json", "binary(16)"],
-  mariadb: ["tinyint", "smallint", "int", "bigint", "decimal(18,2)", "float", "double", "varchar(255)", "text", "tinyint(1)", "date", "time", "datetime", "timestamp", "json", "binary(16)"],
-  sqlserver: ["tinyint", "smallint", "int", "bigint", "decimal(18,2)", "real", "float", "nvarchar(255)", "nvarchar(max)", "varchar(255)", "bit", "date", "time", "datetime2", "datetimeoffset", "uniqueidentifier", "varbinary(max)"],
-  oracle: ["NUMBER(5)", "NUMBER(10)", "NUMBER(19)", "NUMBER(18,2)", "BINARY_FLOAT", "BINARY_DOUBLE", "VARCHAR2(255)", "NVARCHAR2(255)", "CLOB", "NUMBER(1)", "DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "RAW(16)", "BLOB"],
-  "jdbc-generic": ["SMALLINT", "INTEGER", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
-  odbc: ["SMALLINT", "INTEGER", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
+  postgres: ["integer", "smallint", "bigint", "numeric(18,2)", "real", "double precision", "varchar(255)", "text", "boolean", "date", "time", "timestamp", "timestamptz", "uuid", "json", "jsonb", "bytea"],
+  mysql: ["int", "tinyint", "smallint", "bigint", "decimal(18,2)", "float", "double", "varchar(255)", "text", "tinyint(1)", "date", "time", "datetime", "timestamp", "json", "binary(16)"],
+  mariadb: ["int", "tinyint", "smallint", "bigint", "decimal(18,2)", "float", "double", "varchar(255)", "text", "tinyint(1)", "date", "time", "datetime", "timestamp", "json", "binary(16)"],
+  sqlserver: ["int", "tinyint", "smallint", "bigint", "decimal(18,2)", "real", "float", "nvarchar(255)", "nvarchar(max)", "varchar(255)", "bit", "date", "time", "datetime2", "datetimeoffset", "uniqueidentifier", "varbinary(max)"],
+  oracle: ["NUMBER(10)", "NUMBER(5)", "NUMBER(19)", "NUMBER(18,2)", "BINARY_FLOAT", "BINARY_DOUBLE", "VARCHAR2(255)", "NVARCHAR2(255)", "CLOB", "NUMBER(1)", "DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "RAW(16)", "BLOB"],
+  "jdbc-generic": ["INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
+  odbc: ["INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
 };
 
 const DEFAULT_OPTIONS: Record<DialectId, readonly string[]> = {
