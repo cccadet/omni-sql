@@ -1,5 +1,6 @@
 import { format, type FormatOptions, type SqlLanguage, type FormatOptionsWithLanguage } from "sql-formatter";
 import type { DialectId } from "@omni-sql/ts-types";
+import { splitStatements } from "./sql-statements";
 
 export type { FormatOptions, FormatOptionsWithLanguage } from "sql-formatter";
 
@@ -89,7 +90,57 @@ export function buildFormatOptions(
 }
 
 export function formatSql(sql: string, dialect: DialectId, settings: FormatterSettings): string {
+  const statements = splitStatements(sql);
+  if (statements.length > 1) {
+    let result = sql;
+    for (const statement of [...statements].reverse()) {
+      const formatted = formatSingleStatement(statement.text, dialect, settings);
+      result = result.slice(0, statement.start) + formatted + result.slice(statement.end);
+    }
+    return result;
+  }
+  return formatSingleStatement(sql, dialect, settings);
+}
+
+function formatSingleStatement(sql: string, dialect: DialectId, settings: FormatterSettings): string {
+  const command = leadingCommand(sql);
+  if (!command) return sql;
+  if (command === "GRANT" || command === "REVOKE") return formatPrivilegeStatement(sql, settings);
+
+  // The upstream formatter is query-oriented. Preserve vendor/admin commands
+  // instead of guessing and damaging proprietary syntax.
+  if (!FORMATTER_SUPPORTED_COMMANDS.has(command)) return sql;
   return format(sql, buildFormatOptions(settings, dialect));
+}
+
+const FORMATTER_SUPPORTED_COMMANDS = new Set([
+  "SELECT", "WITH", "VALUES", "INSERT", "UPDATE", "DELETE", "MERGE",
+  "CREATE", "ALTER", "DROP", "TRUNCATE",
+]);
+
+function leadingCommand(sql: string): string | null {
+  let rest = sql.trimStart();
+  while (rest.startsWith("--") || rest.startsWith("/*")) {
+    if (rest.startsWith("--")) {
+      const newline = rest.search(/[\r\n]/u);
+      if (newline < 0) return null;
+      rest = rest.slice(newline + 1).trimStart();
+    } else {
+      const close = rest.indexOf("*/", 2);
+      if (close < 0) return null;
+      rest = rest.slice(close + 2).trimStart();
+    }
+  }
+  return /^[A-Za-z]+/u.exec(rest)?.[0]?.toUpperCase() ?? null;
+}
+
+function formatPrivilegeStatement(sql: string, settings: FormatterSettings): string {
+  const match = /^(\s*)(GRANT|REVOKE)\s+([\s\S]+?)\s+(ON)\s+([\s\S]+?)\s+(TO|FROM)\s+([\s\S]*?)(\s*;?\s*)$/iu.exec(sql);
+  if (!match) return sql;
+  const [, leading = "", verb = "", privileges = "", on = "", object = "", recipientWord = "", recipient = "", trailing = ""] = match;
+  const keyword = (value: string) => settings.keywordCase === "lower" ? value.toLowerCase() : settings.keywordCase === "upper" ? value.toUpperCase() : value;
+  const normalizedPrivileges = privileges.split(",").map((item) => item.trim()).filter(Boolean).join(", ");
+  return `${leading}${keyword(verb)} ${normalizedPrivileges}\n${keyword(on)} ${object.trim()}\n${keyword(recipientWord)} ${recipient.trim()}${trailing}`;
 }
 
 /** Parseia uma string de atalho no estilo "Ctrl+Alt+L" para bitmask do Monaco. */

@@ -45,6 +45,7 @@ export interface EditorProps {
   formatterSettings?: FormatterSettings;
   diagnostics?: readonly SqlDiagnostic[];
   onApplyTranspiled?: (diagnostic: SqlDiagnostic) => void;
+  onFormatError?: (message: string) => void;
 }
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
@@ -62,6 +63,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     formatterSettings,
     diagnostics = [],
     onApplyTranspiled,
+    onFormatError,
   },
   ref,
 ) {
@@ -77,6 +79,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const onRunAllRef = useRef<EditorActionCallback>({ current: onRunAll });
   const onSaveRef = useRef<EditorActionCallback>({ current: onSave });
   const onFormatRef = useRef<EditorActionCallback>({ current: undefined });
+  const formatterSettingsRef = useRef(formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
 
   useEffect(() => {
     autocompleteRef.current = onAutocomplete ?? null;
@@ -93,6 +96,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     diagnosticsRef.current = diagnostics;
     applyTranspiledRef.current = onApplyTranspiled;
   }, [diagnostics, onApplyTranspiled]);
+
+  useEffect(() => {
+    formatterSettingsRef.current = formatterSettings ?? DEFAULT_FORMATTER_SETTINGS;
+  }, [formatterSettings]);
 
   useImperativeHandle(
     ref,
@@ -169,7 +176,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const handleFormat = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    formatterRef.current?.formatCurrentDocument(editor);
+    formatterRef.current?.formatCurrent(editor);
   }, []);
 
   useEffect(() => {
@@ -193,12 +200,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       monacoInstance,
       dialect,
       formatterSettings ?? DEFAULT_FORMATTER_SETTINGS,
+      onFormatError,
     );
     return () => {
       formatterRef.current?.dispose();
       formatterRef.current = null;
     };
-  }, [dialect, formatterSettings]);
+  }, [dialect, formatterSettings, onFormatError]);
 
   useEffect(() => {
     const monacoInstance = monacoRef.current;
@@ -240,7 +248,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
       monacoInstance.editor.setTheme(theme);
       formatterRef.current?.dispose();
-      formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
+      formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS, onFormatError);
 
       disposeProviderRegistrations();
       const autocompleteRegistration = configureAutocomplete(monacoInstance, autocompleteRef);
@@ -298,23 +306,23 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         if (diagnostic) applyTranspiledRef.current?.(diagnostic);
       });
 
-      const settings = formatterSettings ?? DEFAULT_FORMATTER_SETTINGS;
-
-      createEditorActions(monacoInstance, editor, onRunRef.current, onRunAllRef.current, onSaveRef.current, onFormatRef.current, settings);
+      // Keep one dynamic shortcut handler; Monaco actions capture the shortcut at mount time.
+      createEditorActions(monacoInstance, editor, onRunRef.current, onRunAllRef.current, onSaveRef.current, onFormatRef.current);
 
       editor.onDidChangeCursorPosition((e) => {
         onCursorChange?.({ line: e.position.lineNumber, column: e.position.column });
       });
 
       editor.onKeyDown((e) => {
-        if (settings.keybinding && formatterRef.current?.matchesKeybinding(settings.keybinding, e)) {
+        const currentSettings = formatterSettingsRef.current;
+        if (currentSettings.keybinding && formatterRef.current?.matchesKeybinding(currentSettings.keybinding, e)) {
           e.preventDefault();
           e.stopPropagation();
           handleFormat();
         }
       });
     },
-    [dialect, formatterSettings, onCursorChange, handleFormat, theme, disposeProviderRegistrations],
+    [dialect, formatterSettings, onCursorChange, handleFormat, theme, disposeProviderRegistrations, onFormatError],
   );
 
   return (

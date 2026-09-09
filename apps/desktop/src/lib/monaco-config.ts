@@ -15,6 +15,7 @@ import {
   type FormatterSettings,
   parseKeybinding,
 } from "./format-sql";
+import { splitStatements, statementAt } from "./sql-statements";
 export { createEditorActions, type EditorActionCallback } from "./editor-actions";
 
 const LANGUAGE_ID = "sql-omni";
@@ -226,10 +227,42 @@ export function configureFormatter(
   monacoInstance: typeof monaco,
   dialect: DialectId,
   formatterSettings: FormatterSettings,
+  onError?: (message: string) => void,
 ) {
+  function formatRange(editor: monaco.editor.IStandaloneCodeEditor, start: number, end: number) {
+    const model = editor.getModel();
+    if (!model || start >= end) return;
+    try {
+      const original = model.getValue().slice(start, end);
+      const formatted = formatSql(original, dialect, formatterSettings);
+      if (formatted === original) return;
+      editor.pushUndoStop();
+      editor.executeEdits("omni-format-sql", [{
+        range: monacoInstance.Range.fromPositions(model.getPositionAt(start), model.getPositionAt(end)),
+        text: formatted,
+      }]);
+      editor.pushUndoStop();
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function formatCurrent(editor: monaco.editor.IStandaloneCodeEditor) {
+    const model = editor.getModel();
+    const selection = editor.getSelection();
+    if (!model) return;
+    if (selection && !selection.isEmpty()) {
+      formatRange(editor, model.getOffsetAt(selection.getStartPosition()), model.getOffsetAt(selection.getEndPosition()));
+      return;
+    }
+    const position = editor.getPosition();
+    const statement = statementAt(splitStatements(model.getValue()), position ? model.getOffsetAt(position) : 0);
+    if (statement) formatRange(editor, statement.start, statement.end);
+  }
+
   function formatCurrentDocument(editor: monaco.editor.IStandaloneCodeEditor) {
     const action = editor.getAction("editor.action.formatDocument");
-    void action?.run();
+    void action?.run().catch((error: unknown) => onError?.(error instanceof Error ? error.message : String(error)));
   }
 
   function matchesKeybinding(
@@ -257,7 +290,8 @@ export function configureFormatter(
             text: formatted,
           },
         ];
-      } catch {
+      } catch (error) {
+        onError?.(error instanceof Error ? error.message : String(error));
         return [];
       }
     },
@@ -265,6 +299,7 @@ export function configureFormatter(
 
   return {
     formatCurrentDocument,
+    formatCurrent,
     matchesKeybinding,
     dispose: () => formatterRegistration.dispose(),
   };
