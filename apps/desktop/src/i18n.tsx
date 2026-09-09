@@ -339,6 +339,10 @@ const english = {
   savedSchemasHint: "Saved selections are shown first. Load schemas to update the complete list.",
   selected: "Selected",
   useAllSchemas: "Use all schemas",
+  csvExported: "CSV exported",
+  openCsv: "Open CSV",
+  rowsSavedTo: "{count} rows saved to {file}",
+  showInExplorer: "Show in Explorer",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -373,6 +377,7 @@ const portugueseBrazil = [
   "Todas as colunas", "Adicione somente as colunas necessárias em cada índice. A ordem é preservada e afeta como o índice pode ser usado.",
   "Colunas indexadas (em ordem)", "Adicionar coluna ao índice: {index}", "Buscar e adicionar uma coluna…", "Mover {column} para antes", "Mover {column} para depois", "Remover {column} do índice",
   "Buscar schemas…", "Selecionar visíveis", "Nenhum schema corresponde a esta busca.", "{selected} selecionado(s) de {total}", "Carregue os schemas para escolher quais devem ser indexados.", "As seleções salvas aparecem primeiro. Carregue os schemas para atualizar a lista completa.", "Selecionado", "Usar todos os schemas",
+  "CSV exportado", "Abrir CSV", "{count} linhas salvas em {file}", "Mostrar no Explorer",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

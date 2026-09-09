@@ -3,9 +3,9 @@ import { expect, test, vi } from "vitest";
 import type { QueryResult } from "@omni-sql/ts-types";
 import { LanguageProvider } from "../i18n";
 import { ResultsGrid, serializeCellValue } from "./ResultsGrid";
-import { exportCsvFile } from "../lib/file-io";
+import { exportCsvFile, openExportedFile, revealExportedFile } from "../lib/file-io";
 
-vi.mock("../lib/file-io", () => ({ exportCsvFile: vi.fn() }));
+vi.mock("../lib/file-io", () => ({ exportCsvFile: vi.fn(), openExportedFile: vi.fn(), revealExportedFile: vi.fn() }));
 
 const result: QueryResult = {
   columns: [
@@ -94,14 +94,19 @@ test("finds a column, scrolls it into focus, and temporarily highlights it", () 
 });
 
 test("exports through the native save flow", async () => {
-  vi.mocked(exportCsvFile).mockResolvedValueOnce(true);
+  vi.mocked(exportCsvFile).mockResolvedValueOnce("C:\\exports\\resultados.csv");
+  vi.mocked(openExportedFile).mockResolvedValueOnce(undefined);
+  vi.mocked(revealExportedFile).mockResolvedValueOnce(undefined);
   renderGrid();
   fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
   expect(exportCsvFile).toHaveBeenCalledWith('id,payload\n2,"{""nested"":{""label"":""needle""},""values"":[""x"",2]}"\n10,"{""nested"":{""label"":""other""},""values"":[""y"",3]}"');
+  expect(await screen.findByText("2 rows saved to resultados.csv")).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "Open CSV" }));
+  expect(openExportedFile).toHaveBeenCalledWith("C:\\exports\\resultados.csv");
 });
 
 test("exports formula-like headers and cells as spreadsheet text", async () => {
-  vi.mocked(exportCsvFile).mockResolvedValueOnce(true);
+  vi.mocked(exportCsvFile).mockResolvedValueOnce("/tmp/resultados.csv");
   const formulaResult: QueryResult = {
     columns: [{ name: "=header", dataType: "text", nullable: true }],
     rows: [["  @SUM(A1:A2)"], ["-42"], ["normal"]],

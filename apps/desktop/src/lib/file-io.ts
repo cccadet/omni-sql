@@ -17,8 +17,16 @@ export async function writeSqlFile(path: string, contents: string): Promise<void
   await invoke("write_text_file", { path, contents });
 }
 
-export async function exportCsvFile(contents: string): Promise<boolean> {
-  return invoke<boolean>("write_csv_file", { contents });
+export async function exportCsvFile(contents: string): Promise<string | null> {
+  return invoke<string | null>("write_csv_file", { contents });
+}
+
+export async function openExportedFile(path: string): Promise<void> {
+  await invoke("open_csv_file", { path });
+}
+
+export async function revealExportedFile(path: string): Promise<void> {
+  await invoke("reveal_csv_file", { path });
 }
 
 export async function pickOpenPath(): Promise<string | null> {

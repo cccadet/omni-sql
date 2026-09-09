@@ -493,7 +493,7 @@ describe("App update event listener", () => {
       await checkForUpdates!();
     });
 
-    expect((await screen.findByRole("status")).textContent).toBe("Omni SQL is up to date.");
+    expect(await screen.findByText("Omni SQL is up to date.")).toBeTruthy();
     expect(call).toHaveBeenCalledWith("update.check", { currentVersion: "0.1.0" });
   });
 });
