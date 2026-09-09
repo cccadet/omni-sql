@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "../i18n";
-import { Sidebar } from "./Sidebar";
+import { connectionMoveFromDrag, Sidebar } from "./Sidebar";
 import { backend } from "../lib/backend";
 
 vi.mock("./SidecarStatus", () => ({ SidecarStatus: () => <span>Sidecar ready</span> }));
@@ -53,16 +53,6 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
       </LanguageProvider>
     </FluentProvider>,
   );
-}
-
-function createDataTransfer(): DataTransfer {
-  const entries = new Map<string, string>();
-  return {
-    dropEffect: "none",
-    effectAllowed: "none",
-    getData: (format: string) => entries.get(format) ?? "",
-    setData: (format: string, data: string) => { entries.set(format, data); },
-  } as unknown as DataTransfer;
 }
 
 describe("Sidebar", () => {
@@ -172,30 +162,17 @@ describe("Sidebar", () => {
   });
 
 
-  it("moves connections by dragging them to folders and Root connections", async () => {
-    const onMoveConnection = vi.fn().mockResolvedValue(undefined);
-    renderSidebar({
-      connectionGroups: [
-        { id: "group-1", name: "Production" },
-        { id: "group-2", name: "Staging" },
-      ],
-      onMoveConnection,
+  it("maps dnd-kit drops to folders and Root connections", () => {
+    expect(connectionMoveFromDrag("connection-1", "connection-group:group-2")).toEqual({
+      connectionId: "connection-1",
+      groupId: "group-2",
     });
-
-    const connectionItem = document.querySelector<HTMLButtonElement>(".omni-connection-item")!;
-    const stagingFolder = screen.getByText("Staging").closest(".omni-connection-folder")!;
-    const folderTransfer = createDataTransfer();
-    fireEvent.dragStart(connectionItem, { dataTransfer: folderTransfer });
-    fireEvent.dragOver(stagingFolder, { dataTransfer: folderTransfer });
-    fireEvent.drop(stagingFolder, { dataTransfer: folderTransfer });
-    await waitFor(() => expect(onMoveConnection).toHaveBeenCalledWith("connection-1", "group-2"));
-
-    const rootConnections = screen.getByText("Root connections").closest(".omni-root-connections")!;
-    const rootTransfer = createDataTransfer();
-    fireEvent.dragStart(connectionItem, { dataTransfer: rootTransfer });
-    fireEvent.dragOver(rootConnections, { dataTransfer: rootTransfer });
-    fireEvent.drop(rootConnections, { dataTransfer: rootTransfer });
-    await waitFor(() => expect(onMoveConnection).toHaveBeenLastCalledWith("connection-1", null));
+    expect(connectionMoveFromDrag("connection-1", "connection-group:root")).toEqual({
+      connectionId: "connection-1",
+      groupId: null,
+    });
+    expect(connectionMoveFromDrag("connection-1", null)).toBeNull();
+    expect(connectionMoveFromDrag("connection-1", "unrelated-target")).toBeNull();
   });
   it("opens definitions and keeps failures in a visible new tab", async () => {
     const onOpenInNewTab = vi.fn();
