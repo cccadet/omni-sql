@@ -12,6 +12,7 @@ import {
   Tab,
   TabList,
   Text,
+  Textarea,
   tokens,
 } from "@fluentui/react-components";
 import {
@@ -49,11 +50,12 @@ const logicalOperatorOptions = [
   { value: "after", label: "After" },
 ];
 
-const PREVIEW_SQL = `SELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
+const PREVIEW_SQL = `GRANT SELECT, UPDATE, DELETE, INSERT ON BIDW.LAUDOS_ESTATISTICA TO DREMIO;\n\nSELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
 
 export function FormatSettings({ open, dialect, settings, onClose, onSave }: FormatSettingsProps) {
   const { t, language, setLanguage } = useLanguage();
   const [draft, setDraft] = useState<FormatterSettings>(() => ({ ...settings }));
+  const [previewSql, setPreviewSql] = useState(PREVIEW_SQL);
   const [section, setSection] = useState<"formatting" | "language">("formatting");
 
   const keybindingError = useMemo(
@@ -63,11 +65,11 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
 
   const preview = useMemo(() => {
     try {
-      return formatSql(PREVIEW_SQL, dialect, draft);
+      return formatSql(previewSql, dialect, draft);
     } catch (e) {
       return `${t("error")}: ${e instanceof Error ? e.message : String(e)}`;
     }
-  }, [dialect, draft, t]);
+  }, [dialect, draft, previewSql, t]);
 
   const update = <K extends keyof FormatterSettings>(key: K, value: FormatterSettings[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -210,6 +212,13 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
 
             <section className="omni-settings-card">
               <Text weight="semibold">{t("preview")} ({dialect})</Text>
+              <Textarea
+                aria-label="SQL da prévia"
+                value={previewSql}
+                onChange={(_, data) => setPreviewSql(data.value)}
+                resize="vertical"
+                style={{ marginTop: 8, minHeight: 90, fontFamily: "ui-monospace, monospace" }}
+              />
               <pre
                 style={{
                   background: tokens.colorNeutralBackground1,

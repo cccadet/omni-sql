@@ -1155,6 +1155,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             dialect={activeDialect}
             theme={monacoTheme}
             formatterSettings={formatterSettings}
+            onFormatError={(message) => {
+              setBusyMsg(`${t("error")}: ${message}`);
+              window.setTimeout(() => setBusyMsg(null), 4_000);
+            }}
           />
         </div>
       </section>
