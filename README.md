@@ -114,10 +114,36 @@ modern workflow and is free and open source.
 
 ## MCP integration
 
-omni-sql includes a local MCP server that lets a compatible AI client inspect the
-active workspace and propose SQL edits. Proposed edits always require explicit
-approval in omni-sql. See [MCP documentation](docs/MCP.md) for setup, transports,
-available tools, and security details.
+omni-sql includes a local MCP server that lets compatible AI clients work with the
+SQL tab you already have open. An assistant can read the active statement and its
+database context, inspect schema metadata and indexes, explain a query without
+executing it, or prepare an edit for review.
+
+```text
+AI client  ──MCP/STDIO──▶  local omni-sql bridge  ──▶  active desktop tab
+                                                        │
+                                                        └─ proposed edits require approval
+```
+
+| Tool | What it does |
+| --- | --- |
+| `getActiveSql` | Reads the SQL and dialect from the active tab. |
+| `getActiveConnectionContext` | Reads safe connection context without credentials. |
+| `getSchemaSummary` | Lists schemas, relations, and columns available to the active connection. |
+| `getTableIndexes` | Inspects indexes for one table. |
+| `explainSql` | Produces a non-executing query plan. |
+| `getLatestSqlExecutionError` | Reads the latest execution error from the active tab. |
+| `proposeSqlEdit` | Opens a before/after proposal that you can apply or reject in omni-sql. |
+
+The default transport is local STDIO. The generated launcher configuration is
+available from the **MCP** item in the status bar after the backend is ready. Copy
+its `command` and `args` exactly into your MCP client; runtime paths are temporary
+and are regenerated whenever omni-sql starts.
+
+The integration cannot execute SQL, read passwords or connection strings, access
+files, or bypass the approval dialog. See the [MCP guide](docs/MCP.md) for Codex,
+Claude Desktop, and ChatGPT Desktop setup, optional Streamable HTTP transport,
+verification steps, limits, and the complete security model.
 
 ## Roadmap
 

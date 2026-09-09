@@ -6,15 +6,17 @@ por padrão. Streamable HTTP é opt-in e escuta apenas em loopback.
 
 ## Capacidades e limites
 
-As cinco ferramentas expostas são:
+As sete ferramentas expostas são:
 
 1. `getActiveSql`: lê SQL e dialeto da conexão da aba ativa; o dialeto é
    `null` quando a aba não tem conexão.
 2. `getActiveConnectionContext`: retorna contexto seguro da conexão ativa,
    sem senha ou credenciais.
 3. `getSchemaSummary`: retorna schemas, relações e colunas da conexão ativa.
-4. `getLatestSqlExecutionError`: retorna último erro de execução da aba ativa.
-5. `proposeSqlEdit`: apresenta proposta de edição para aprovação explícita no
+4. `getTableIndexes`: retorna os índices de uma tabela da conexão ativa.
+5. `explainSql`: gera um plano sem executar a query, usando a conexão ativa.
+6. `getLatestSqlExecutionError`: retorna último erro de execução da aba ativa.
+7. `proposeSqlEdit`: apresenta proposta de edição para aprovação explícita no
    desktop; rejeita estado obsoleto.
 
 Não há ferramenta para executar SQL, ler conexões arbitrárias, acessar senhas,
@@ -159,6 +161,24 @@ fora deste recurso. Consulte
 pnpm verify
 ```
 
-Além do comando acima, valide manualmente: Omni SQL iniciado antes do launcher,
-configuração gerada pelo menu, inicialização STDIO, listagem das cinco
-ferramentas e aprovação de proposta de edição no desktop.
+Além do comando acima, valide manualmente:
+
+1. Inicie Omni SQL, abra uma aba SQL conectada e confirme que **MCP** aparece
+   como pronto na barra de status.
+2. Inicie o launcher STDIO com o `command` e os `args` copiados da UI.
+3. Liste as sete ferramentas e chame `getActiveSql`; confira SQL e dialeto.
+4. Chame `proposeSqlEdit` com `sql` e `rationale`. O desktop deve mostrar a
+   comparação antes/depois sem alterar a aba automaticamente.
+5. Aplique ou rejeite no desktop e confira o retorno `approved` no cliente MCP.
+
+Exemplo de argumentos para uma proposta segura e fácil de reconhecer:
+
+```json
+{
+  "sql": "SELECT id, name FROM customers ORDER BY name;",
+  "rationale": "Make the selected columns and ordering explicit."
+}
+```
+
+`proposeSqlEdit` substitui o conteúdo da aba somente depois de **Aplicar**. Se a
+aba mudar enquanto o diálogo estiver aberto, a proposta é rejeitada como obsoleta.
