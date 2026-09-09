@@ -33,9 +33,9 @@ export function McpEditDialog({
   return (
     <Dialog open={proposal !== null} onOpenChange={(_, data) => !data.open && onReject()}>
       <DialogSurface className="omni-standard-dialog omni-mcp-edit-dialog">
-        <DialogBody style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+        <DialogBody className="omni-dialog-body omni-mcp-edit-dialog-body">
           <DialogTitle style={{ flexShrink: 0 }}>{t("mcpEditTitle")}</DialogTitle>
-          <DialogContent style={{ display: "grid", gap: 12, overflowY: "auto", minHeight: 0 }}>
+          <DialogContent className="omni-mcp-edit-dialog-content">
             <Text>{t("mcpEditRationale")}: {proposal?.rationale}</Text>
             <div className="omni-mcp-edit-grid">
               <SqlPreview label={t("mcpOriginalSql")} value={proposal?.originalSql ?? ""} />

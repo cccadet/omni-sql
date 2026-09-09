@@ -706,6 +706,8 @@ select option {
 .connection-schema-row > .fui-Text { color: var(--colorBrandForeground1); }
 .omni-risk-dialog.omni-risk-dialog { width: min(720px, calc(100vw - 24px)); }
 .omni-mcp-edit-dialog.omni-mcp-edit-dialog { display: flex; flex-direction: column; width: min(900px, calc(100vw - 24px)); }
+.omni-mcp-edit-dialog-body.omni-mcp-edit-dialog-body { gap: 16px; padding: 24px; }
+.omni-mcp-edit-dialog-content.omni-mcp-edit-dialog-content { display: grid; gap: 16px; min-height: 0; overflow-y: auto; }
 .omni-mcp-status-dialog.omni-mcp-status-dialog { display: flex; flex-direction: column; width: min(680px, calc(100vw - 24px)); }
 .omni-mcp-dialog-content.omni-mcp-dialog-content { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; }
 .omni-mcp-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--colorNeutralStroke1); border-radius: 8px; background: var(--colorNeutralBackground2); }
@@ -768,7 +770,6 @@ select option {
   .omni-dialog-form > .fui-DialogTitle { padding: 16px 16px 0; }
   .omni-dialog-body.omni-dialog-body { padding: 16px; }
   .omni-dialog-actions.omni-dialog-actions { flex-wrap: wrap; padding: 10px 16px 16px; }
-  .omni-mcp-edit-grid { grid-template-columns: 1fr; min-height: 0; }
   .omni-mcp-config-heading { align-items: stretch; flex-direction: column; }
   .omni-mcp-config-heading .fui-Button { align-self: flex-start; }
   .omni-connection-host-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 8px; }
@@ -776,10 +777,15 @@ select option {
 
 @media (min-width: 721px) and (max-height: 620px) {
   .omni-standard-dialog.omni-standard-dialog { width: min(600px, calc(100vw - 24px)); }
+  .omni-mcp-edit-dialog.omni-mcp-edit-dialog { width: min(900px, calc(100vw - 24px)); }
   .omni-connection-dialog.omni-connection-dialog { width: min(560px, calc(100vw - 24px)); }
   .omni-connection-dialog .omni-dialog-form > .fui-DialogTitle { padding: 16px 20px 0; }
   .omni-connection-dialog .omni-dialog-body.omni-dialog-body { padding: 16px 20px; }
   .omni-connection-dialog .omni-dialog-actions.omni-dialog-actions { padding: 10px 20px 16px; }
+}
+
+@media (max-width: 720px) {
+  .omni-mcp-edit-grid { grid-template-columns: 1fr; min-height: 0; }
 }
 
 @media (max-width: 1000px) {
