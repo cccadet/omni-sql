@@ -43,6 +43,7 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
 
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
@@ -975,7 +976,7 @@ fn write_text_file<R: tauri::Runtime>(
 fn write_csv_file<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     contents: String,
-) -> Result<bool, String> {
+) -> Result<Option<String>, String> {
     let Some(selected) = app
         .dialog()
         .file()
@@ -983,13 +984,37 @@ fn write_csv_file<R: tauri::Runtime>(
         .set_file_name("resultados.csv")
         .blocking_save_file()
     else {
-        return Ok(false);
+        return Ok(None);
     };
     let path: PathBuf = selected
         .try_into()
         .map_err(|err| format!("selected file is unavailable: {err}"))?;
-    std::fs::write(path, contents).map_err(|e| e.to_string())?;
-    Ok(true)
+    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+fn validated_csv_path(path: String) -> Result<PathBuf, String> {
+    let path = PathBuf::from(path);
+    if !path.is_file() || !path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("csv")) {
+        return Err("CSV file is unavailable".to_string());
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+fn open_csv_file<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String) -> Result<(), String> {
+    let path = validated_csv_path(path)?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn reveal_csv_file<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String) -> Result<(), String> {
+    let path = validated_csv_path(path)?;
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1284,6 +1309,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             write_text_file,
             write_csv_file,
+            open_csv_file,
+            reveal_csv_file,
             read_text_file,
             get_sidecar_status,
             get_sidecar_diagnostics,

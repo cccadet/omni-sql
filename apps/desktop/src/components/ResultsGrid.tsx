@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -10,8 +10,15 @@ import {
   Tab,
   TabList,
   Text,
+  Toast,
+  ToastBody,
+  ToastFooter,
+  ToastTitle,
+  ToastTrigger,
+  Toaster,
   tokens,
   Tooltip,
+  useToastController,
 } from "@fluentui/react-components";
 import {
   ArrowDownloadRegular,
@@ -28,7 +35,7 @@ import {
 } from "@fluentui/react-icons";
 import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
 import { useLanguage } from "../i18n";
-import { exportCsvFile } from "../lib/file-io";
+import { exportCsvFile, openExportedFile, revealExportedFile } from "../lib/file-io";
 
 export interface ResultsGridProps {
   result?: QueryResult | null;
@@ -146,6 +153,8 @@ export function ResultsGrid({
   onInsertRow,
 }: ResultsGridProps) {
   const { t } = useLanguage();
+  const toasterId = useId();
+  const { dispatchToast } = useToastController(toasterId);
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan">("data");
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFinder, setColumnFinder] = useState("");
@@ -157,7 +166,6 @@ export function ResultsGrid({
   const [localChanges, setLocalChanges] = useState<StagedCellEdit[]>([]);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [focusedColumnIndex, setFocusedColumnIndex] = useState<number | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
   const [addingRow, setAddingRow] = useState(false);
   const [newRowValues, setNewRowValues] = useState<Record<number, string>>({});
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -266,13 +274,76 @@ export function ResultsGrid({
     const body = sortedRows
       .map(({ row, rowIndex }) => row.map((value, colIndex) => escapeCsv(changeByCell.get(`${rowIndex}:${colIndex}`) ?? value)).join(","))
       .join("\n");
-    setExportError(null);
     try {
-      await exportCsvFile(`${header}\n${body}`);
+      const path = await exportCsvFile(`${header}\n${body}`);
+      if (!path) return;
+      const fileName = path.split(/[\\/]/).pop() ?? path;
+      const notifyOpenError = (error: unknown) => {
+        dispatchToast(
+          <Toast>
+            <ToastTitle>{`${t("openFailed")}: ${error instanceof Error ? error.message : String(error)}`}</ToastTitle>
+          </Toast>,
+          { intent: "error", timeout: 8_000 },
+        );
+      };
+      dispatchToast(
+        <Toast className="omni-export-toast">
+          <ToastTitle
+            action={(
+              <ToastTrigger>
+                <Button size="small" appearance="transparent" aria-label={t("close")} icon={<DismissRegular />} />
+              </ToastTrigger>
+            )}
+          >
+            {t("csvExported")}
+          </ToastTitle>
+          <ToastBody>
+            {t("rowsSavedTo").replace("{count}", String(sortedRows.length)).replace("{file}", fileName)}
+          </ToastBody>
+          <ToastFooter className="omni-export-toast-actions">
+            <ToastTrigger>
+              <Button
+                appearance="transparent"
+                size="small"
+                onClick={() => {
+                  void Promise.resolve(openExportedFile(path)).catch(notifyOpenError);
+                }}
+              >
+                {t("openCsv")}
+              </Button>
+            </ToastTrigger>
+            <ToastTrigger>
+              <Button
+                appearance="transparent"
+                size="small"
+                onClick={() => {
+                  void Promise.resolve(revealExportedFile(path)).catch(notifyOpenError);
+                }}
+              >
+                {t("showInExplorer")}
+              </Button>
+            </ToastTrigger>
+          </ToastFooter>
+        </Toast>,
+        { intent: "success", timeout: 5_000 },
+      );
     } catch (error) {
-      setExportError(`${t("saveFailed")}: ${error instanceof Error ? error.message : String(error)}`);
+      dispatchToast(
+        <Toast>
+          <ToastTitle
+            action={(
+              <ToastTrigger>
+                <Button appearance="transparent" aria-label={t("close")} icon={<DismissRegular />} />
+              </ToastTrigger>
+            )}
+          >
+            {`${t("saveFailed")}: ${error instanceof Error ? error.message : String(error)}`}
+          </ToastTitle>
+        </Toast>,
+        { intent: "error", timeout: 8_000 },
+      );
     }
-  }, [result, sortedRows, changeByCell, t]);
+  }, [result, sortedRows, changeByCell, t, dispatchToast]);
 
   const isColumnEditable = useCallback((colIndex: number) => {
     if (!editability?.editable) return false;
@@ -588,10 +659,11 @@ export function ResultsGrid({
                 {t("export")}
               </Button>
             </Tooltip>
-            {exportError && <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{exportError}</Text>}
           </div>
         )}
       </div>
+
+      <Toaster toasterId={toasterId} position="bottom-end" />
 
       <div ref={gridScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {activeTab === "data" && (

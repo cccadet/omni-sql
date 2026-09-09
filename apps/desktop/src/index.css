@@ -51,6 +51,34 @@ body {
   color: var(--colorBrandForeground1);
 }
 
+/* Compact export feedback: informative without covering the results grid. */
+.omni-export-toast {
+  width: min(380px, calc(100vw - 24px));
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.omni-export-toast .fui-ToastBody {
+  padding-top: 3px;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.omni-export-toast-actions.fui-ToastFooter {
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding-top: 5px;
+}
+
+.omni-export-toast-actions .fui-Button {
+  min-width: auto;
+  min-height: 24px;
+  padding-inline: 5px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
 /* Global focus ring in brand gold */
 *:focus-visible {
   outline-color: var(--colorBrandStroke1) !important;

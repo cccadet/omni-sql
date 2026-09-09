@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { basenameNoExt, exportCsvFile, pickJarPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./file-io";
+import { basenameNoExt, exportCsvFile, openExportedFile, pickJarPath, pickOpenPath, pickSavePath, readSqlFile, revealExportedFile, writeSqlFile } from "./file-io";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -37,8 +37,18 @@ it("uses native invoke for SQL reads and writes and JAR selection", async () => 
 });
 
 it("uses the native CSV export command", async () => {
-  vi.mocked(invoke).mockResolvedValueOnce(true);
+  vi.mocked(invoke).mockResolvedValueOnce("/tmp/results.csv");
 
-  await expect(exportCsvFile("id,name\n1,Ada")).resolves.toBe(true);
+  await expect(exportCsvFile("id,name\n1,Ada")).resolves.toBe("/tmp/results.csv");
   expect(invoke).toHaveBeenCalledWith("write_csv_file", { contents: "id,name\n1,Ada" });
+});
+
+it("opens an exported CSV with the system application", async () => {
+  await openExportedFile("/tmp/results.csv");
+  expect(invoke).toHaveBeenCalledWith("open_csv_file", { path: "/tmp/results.csv" });
+});
+
+it("reveals an exported CSV in the system file manager", async () => {
+  await revealExportedFile("/tmp/results.csv");
+  expect(invoke).toHaveBeenCalledWith("reveal_csv_file", { path: "/tmp/results.csv" });
 });
