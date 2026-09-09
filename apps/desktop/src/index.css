@@ -195,6 +195,12 @@ select option {
   background: var(--colorBrandBackground1);
 }
 
+.omni-connection-folder.drop-over,
+.omni-root-connections.drop-over {
+  outline: 2px solid var(--colorBrandStroke1);
+  background: var(--colorBrandBackground2);
+}
+
 .omni-folder-row {
   display: flex;
   align-items: center;

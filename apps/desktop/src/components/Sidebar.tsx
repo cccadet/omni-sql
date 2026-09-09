@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
   Button,
   Card,
   Input,
@@ -70,6 +80,66 @@ interface SchemaGroup {
   tables: RelationInfo[];
   views: RelationInfo[];
   functions: FunctionDef[];
+}
+
+const ROOT_CONNECTIONS_DROP_ID = "connection-group:root";
+const connectionGroupDropId = (groupId: string) => `connection-group:${groupId}`;
+
+export function connectionGroupIdFromDrop(overId: string | number | null): string | null | undefined {
+  if (overId === null) return undefined;
+  const value = String(overId);
+  if (value === ROOT_CONNECTIONS_DROP_ID) return null;
+  const prefix = "connection-group:";
+  return value.startsWith(prefix) ? value.slice(prefix.length) : undefined;
+}
+
+export function connectionMoveFromDrag(activeId: string | number, overId: string | number | null) {
+  const groupId = connectionGroupIdFromDrop(overId);
+  return groupId === undefined ? null : { connectionId: String(activeId), groupId };
+}
+
+function DraggableConnectionButton({
+  id,
+  className,
+  selected,
+  onClick,
+  children,
+}: {
+  id: string;
+  className: string;
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+  return (
+    <button
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      type="button"
+      role="option"
+      aria-selected={selected}
+      className={className}
+      onClick={onClick}
+      style={{
+        opacity: isDragging ? 0.55 : undefined,
+        transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+        touchAction: "none",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ConnectionDropZone({ id, className, children }: { id: string; className: string; children: React.ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={`${className}${isOver ? " drop-over" : ""}`}>
+      {children}
+    </div>
+  );
 }
 
 interface TreeNodeProps {
@@ -214,6 +284,10 @@ export function Sidebar({
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [groupDraft, setGroupDraft] = useState("");
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
+  const dragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
   const [createTableSchema, setCreateTableSchema] = useState<string | null>(null);
   const [structureTable, setStructureTable] = useState<{ schema: string; table: string } | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
@@ -500,25 +574,16 @@ export function Sidebar({
           { label: tr("moveTo"), action: () => undefined },
         ], moveOptions, item.id)}
       >
-        <button
-          type="button"
-          role="option"
-          aria-selected={isSelected}
+        <DraggableConnectionButton
+          id={item.id}
           className="omni-connection-item"
-          draggable
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", item.id);
-            setDraggedConnectionId(item.id);
-          }}
-          onDragEnd={() => setDraggedConnectionId(null)}
+          selected={isSelected}
           onClick={() => setSelectedConnectionId(item.id)}
-          onDragOver={(event) => event.preventDefault()}
         >
           <DialectIcon dialect={item.dialect} size={13} />
           <span>{item.label}</span>
           {isActive && <span className="omni-active-marker" aria-label={tr("active")}>●</span>}
-        </button>
+        </DraggableConnectionButton>
         {isSelected && !isActive && (
           <button
             type="button"
@@ -633,6 +698,16 @@ export function Sidebar({
                 </Button>
               </div>
             )}
+            <DndContext
+              sensors={dragSensors}
+              onDragStart={(event) => setDraggedConnectionId(String(event.active.id))}
+              onDragCancel={() => setDraggedConnectionId(null)}
+              onDragEnd={(event: DragEndEvent) => {
+                setDraggedConnectionId(null);
+                const move = connectionMoveFromDrag(event.active.id, event.over?.id ?? null);
+                if (move) void onMoveConnection?.(move.connectionId, move.groupId);
+              }}
+            >
             <div className="omni-connection-list" role="listbox" aria-label={tr("connections")}>
               {connections.length === 0 ? (
                 <Text size={200} style={{ color: tokens.colorNeutralForeground2, padding: "4px 8px" }}>{tr("toolbar.noConnections")}</Text>
@@ -642,35 +717,12 @@ export function Sidebar({
                     const members = connections.filter((item) => item.groupId === group.id);
                     const expanded = expandedGroups.has(group.id);
                     return (
-                      <div
+                      <ConnectionDropZone
                         key={group.id}
+                        id={connectionGroupDropId(group.id)}
                         className={`omni-connection-folder${draggedConnectionId ? " drop-ready" : ""}`}
-                        onDragOver={(event) => {
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = "move";
-                        }}
-                        onDrop={(event) => {
-                          event.preventDefault();
-                          const connectionId = event.dataTransfer.getData("text/plain") || draggedConnectionId;
-                          if (connectionId) void onMoveConnection?.(connectionId, group.id);
-                          setDraggedConnectionId(null);
-                        }}
                       >
-                        <div
-                          className="omni-folder-row"
-                          onDragOver={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            event.dataTransfer.dropEffect = "move";
-                          }}
-                          onDrop={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            const connectionId = event.dataTransfer.getData("text/plain") || draggedConnectionId;
-                            if (connectionId) void onMoveConnection?.(connectionId, group.id);
-                            setDraggedConnectionId(null);
-                          }}
-                        >
+                        <div className="omni-folder-row">
                           <button
                             type="button"
                             className="omni-folder-toggle"
@@ -702,28 +754,20 @@ export function Sidebar({
                           )}
                         </div>
                         {expanded && <div className="omni-folder-members">{members.map(renderConnection)}</div>}
-                      </div>
+                      </ConnectionDropZone>
                     );
                   })}
-                  <div
+                  <ConnectionDropZone
+                    id={ROOT_CONNECTIONS_DROP_ID}
                     className={`omni-root-connections${draggedConnectionId ? " drop-ready" : ""}`}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      event.dataTransfer.dropEffect = "move";
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      const connectionId = event.dataTransfer.getData("text/plain") || draggedConnectionId;
-                      if (connectionId) void onMoveConnection?.(connectionId, null);
-                      setDraggedConnectionId(null);
-                    }}
                   >
                     <div className="omni-root-label">Root connections</div>
                     {rootConnections.map(renderConnection)}
-                  </div>
+                  </ConnectionDropZone>
                 </>
               )}
             </div>
+            </DndContext>
           </div>
         )}
       </section>
