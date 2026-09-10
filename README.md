@@ -168,8 +168,9 @@ Built with Tauri, React, Fluent UI, Monaco Editor, TypeScript, Rust, and Kotlin.
 ## Help the project grow
 
 If omni-sql is useful to you, **[star the repository](https://github.com/cccadet/omni-sql)**
-to help other developers discover it. Bug reports, database compatibility notes, and
-focused pull requests are welcome—please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+to help other developers discover it. You can [report a bug](https://github.com/cccadet/omni-sql/issues/new/choose),
+share a database compatibility result, or suggest a focused improvement. Pull requests
+are welcome—please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ## License
 
