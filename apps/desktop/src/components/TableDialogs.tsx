@@ -4,6 +4,7 @@ import {
   DialogTitle, Dropdown, Field, Input, Option, Spinner, Tab, TabList, Text, Textarea,
 } from "@fluentui/react-components";
 import { AddRegular, DeleteRegular } from "@fluentui/react-icons";
+import { dialectDescriptor, formatIdentifier } from "@omni-sql/dialect-descriptors";
 import type { DialectId, IndexInfo, QueryResult } from "@omni-sql/ts-types";
 import { useLanguage } from "../i18n";
 import { backend, type RelationColumn, type RelationConstraint } from "../lib/backend";
@@ -61,12 +62,7 @@ function nextColumnName(columns: readonly Pick<DraftColumn, "name">[]): string {
 }
 
 function quoteIdentifier(value: string, dialect: DialectId): string {
-  if (dialect === "mysql" || dialect === "mariadb") return `\`${value.replaceAll("`", "``")}\``;
-  if (dialect === "sqlserver") {
-    const escaped = value.replaceAll("]", "]]");
-    return `[${escaped}]`;
-  }
-  return `"${value.replaceAll('"', '""')}"`;
+  return formatIdentifier(dialectDescriptor(dialect), value);
 }
 
 export function buildSampleRowSql(dialect: DialectId, schema: string, table: string): string {

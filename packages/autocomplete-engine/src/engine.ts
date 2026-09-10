@@ -1,5 +1,5 @@
 import type { FunctionDef, Relation } from "@omni-sql/ts-types";
-import { quoteIdentifier, type DialectDescriptor } from "@omni-sql/dialect-descriptors";
+import { formatIdentifier, identifierNeedsQuote, quoteIdentifier, type DialectDescriptor } from "@omni-sql/dialect-descriptors";
 import { resolveContext, type ResolvedContext, type ScopeRef } from "./context.ts";
 import type { Token } from "./lexer.ts";
 
@@ -49,16 +49,8 @@ function isNameToken(token: Token | undefined): boolean {
   return token?.type === "identifier" || token?.type === "keyword";
 }
 
-function identifierNeedsQuote(name: string, dialect: DialectDescriptor, metadataIdentifier = true): boolean {
-  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) || dialect.keywords.has(name.toUpperCase())) return true;
-  if (!metadataIdentifier) return false;
-  if (dialect.dialect === "postgres") return name !== name.toLowerCase();
-  if (dialect.dialect === "oracle") return name !== name.toUpperCase();
-  return false;
-}
-
 function identifierText(name: string, dialect: DialectDescriptor, forceQuote = false, metadataIdentifier = true): string {
-  return forceQuote || identifierNeedsQuote(name, dialect, metadataIdentifier) ? quoteIdentifier(dialect, name) : name;
+  return forceQuote ? quoteIdentifier(dialect, name) : formatIdentifier(dialect, name, metadataIdentifier);
 }
 
 function currentPrefix(ctx: ResolvedContext, cursor: number): string | null {
@@ -233,7 +225,7 @@ function functionSuggestions(ctx: ResolvedContext, meta: MetadataSource, relevan
       kind: "function" as const,
       label: fn.name,
       detail: fn.overloads[0]?.returnType,
-      ...(identifierNeedsQuote(fn.name, meta.dialect) ? { insertText: identifierText(fn.name, meta.dialect) } : {}),
+      ...(identifierNeedsQuote(meta.dialect, fn.name) ? { insertText: identifierText(fn.name, meta.dialect) } : {}),
       relevance,
     }));
 }
@@ -318,7 +310,7 @@ function usingColumnSuggestions(ctx: ResolvedContext, meta: MetadataSource): Sug
       kind: "column" as const,
       label: column.name,
       detail: column.dataType,
-      ...(identifierNeedsQuote(column.name, meta.dialect) ? { insertText: identifierText(column.name, meta.dialect) } : {}),
+      ...(identifierNeedsQuote(meta.dialect, column.name) ? { insertText: identifierText(column.name, meta.dialect) } : {}),
       relevance: 100,
     }));
 }
@@ -357,7 +349,7 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
           kind: "schema" as const,
           label: schema,
           detail: "schema",
-          ...(identifierNeedsQuote(schema, meta.dialect) ? { insertText: identifierText(schema, meta.dialect) } : {}),
+          ...(identifierNeedsQuote(meta.dialect, schema) ? { insertText: identifierText(schema, meta.dialect) } : {}),
           relevance: 95,
         }));
     const relationNameCounts = new Map<string, number>();
@@ -372,7 +364,7 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
           ? tableText
           : (relationNameCounts.get(relation.name.toLowerCase()) ?? 0) > 1 && relation.schema !== ""
             ? `${identifierText(relation.schema, meta.dialect)}.${tableText}`
-            : identifierNeedsQuote(relation.name, meta.dialect) ? tableText : undefined;
+            : identifierNeedsQuote(meta.dialect, relation.name) ? tableText : undefined;
         return {
           kind: relation.kind === "view" ? ("view" as const) : ("table" as const),
           label: relation.name,
@@ -398,7 +390,7 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
         kind: "column" as const,
         label: column.name,
         detail: column.dataType,
-        ...(identifierNeedsQuote(column.name, meta.dialect) ? { insertText: identifierText(column.name, meta.dialect) } : {}),
+        ...(identifierNeedsQuote(meta.dialect, column.name) ? { insertText: identifierText(column.name, meta.dialect) } : {}),
         relevance: 100,
       }));
   }
@@ -440,7 +432,7 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
       const qualifiedText = `${identifierText(scopeRef.alias, meta.dialect, scopeRef.aliasQuoted, false)}.${columnText}`;
       const insertText = (columnCounts.get(column.name.toLowerCase()) ?? 0) > 1
         ? qualifiedText
-        : identifierNeedsQuote(column.name, meta.dialect) ? columnText : undefined;
+        : identifierNeedsQuote(meta.dialect, column.name) ? columnText : undefined;
       columns.push({
         kind: "column",
         label: column.name,
