@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/cccadet/omni-sql#documentation
+    about: Check connection, troubleshooting, MCP, build, and architecture guides first.
+  - name: Security vulnerability
+    url: https://github.com/cccadet/omni-sql/security/advisories/new
+    about: Report security vulnerabilities privately instead of opening a public issue.

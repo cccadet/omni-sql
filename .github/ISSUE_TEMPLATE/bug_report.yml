@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a reproducible problem in omni-sql.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve omni-sql. Please remove passwords, connection strings, query data, and other sensitive information before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open...
+        2. Connect to...
+        3. Run...
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - PostgreSQL
+        - MySQL
+        - MariaDB
+        - SQL Server
+        - Oracle
+        - Generic JDBC
+        - Not database-specific
+    validations:
+      required: true
+  - type: input
+    id: database-version
+    attributes:
+      label: Database version
+      placeholder: "For example: PostgreSQL 17.2"
+  - type: input
+    id: omni-version
+    attributes:
+      label: omni-sql version
+      placeholder: "For example: 0.2.5"
+    validations:
+      required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 10
+        - Windows 11
+        - Debian/Ubuntu Linux
+        - Other Linux
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Relevant diagnostics
+      description: Paste only sanitized logs, error messages, or screenshots. Do not include credentials or production data.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed credentials, connection strings, and sensitive query data.
+          required: true
