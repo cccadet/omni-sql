@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dialectDescriptor, postgresDescriptor, sqlserverDescriptor, oracleDescriptor } from "./index.ts";
+import { dialectDescriptor, formatIdentifier, postgresDescriptor, sqlserverDescriptor, oracleDescriptor } from "./index.ts";
 
 test("postgres descriptor uses ANSI-style identifier quote", () => {
   assert.equal(postgresDescriptor.identifierQuoteChars[0], '"');
@@ -30,4 +30,14 @@ test("oracle accepts alternative slash separator", () => {
 test("registry lookup returns descriptor by id", () => {
   assert.equal(dialectDescriptor("postgres"), postgresDescriptor);
   assert.equal(dialectDescriptor("sqlserver"), sqlserverDescriptor);
+});
+
+test("formatIdentifier quotes only when required by each dialect", () => {
+  assert.equal(formatIdentifier(postgresDescriptor, "table_test"), "table_test");
+  assert.equal(formatIdentifier(postgresDescriptor, "order"), '"order"');
+  assert.equal(formatIdentifier(postgresDescriptor, "CamelCase"), '"CamelCase"');
+  assert.equal(formatIdentifier(sqlserverDescriptor, "table_test"), "table_test");
+  assert.equal(formatIdentifier(sqlserverDescriptor, "odd]name"), "[odd]]name]");
+  assert.equal(formatIdentifier(oracleDescriptor, "CUSTOMERS"), "CUSTOMERS");
+  assert.equal(formatIdentifier(oracleDescriptor, "customers"), '"customers"');
 });

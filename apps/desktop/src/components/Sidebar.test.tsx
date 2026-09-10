@@ -205,7 +205,7 @@ describe("Sidebar", () => {
     fireEvent.change(await screen.findByLabelText("Table name"), { target: { value: "customers" } });
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
 
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Create table customers", expect.stringContaining('CREATE TABLE "empty_schema"."customers"'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Create table customers", expect.stringContaining("CREATE TABLE empty_schema.customers"));
   });
 
   it("opens table structure with columns, indexes, and DDL", async () => {
@@ -234,7 +234,7 @@ describe("Sidebar", () => {
     expect(await screen.findByText("NULL")).toBeTruthy();
     expect(call).toHaveBeenCalledWith("query.run", {
       connectionId: "connection-1",
-      sql: 'SELECT * FROM "public"."orders"',
+      sql: "SELECT * FROM public.orders",
       limit: 1,
     });
     fireEvent.click(screen.getByRole("tab", { name: "DDL" }));
@@ -256,7 +256,7 @@ describe("Sidebar", () => {
     const typeInput = await screen.findByLabelText("Column type: customer_id");
     fireEvent.change(typeInput, { target: { value: "bigint" } });
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('ALTER COLUMN "customer_id" TYPE bigint'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining("ALTER COLUMN customer_id TYPE bigint"));
   });
 
   it("allows renaming a column and changing the primary key", async () => {
@@ -277,8 +277,8 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByLabelText("Primary key: order_id"));
     fireEvent.click(screen.getByLabelText("Primary key: customer_id"));
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('RENAME COLUMN "id" TO "order_id"'));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining('ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("customer_id")'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining("RENAME COLUMN id TO order_id"));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter orders", expect.stringContaining("ADD CONSTRAINT orders_pkey PRIMARY KEY (customer_id)"));
   });
 
   it("focuses and selects the suggested name of a newly added column", async () => {
@@ -335,10 +335,10 @@ describe("Sidebar", () => {
     fireEvent.click(await screen.findByRole("option", { name: "id" }));
     fireEvent.click(screen.getByRole("button", { name: "Open SQL" }));
 
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('DROP INDEX "public"."idx_orders_customer";'));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('CREATE INDEX "idx_orders_customer" ON "public"."orders" ("customer_id", "id");'));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('ALTER TABLE "public"."orders" DROP CONSTRAINT "orders_pkey";'));
-    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('ADD CONSTRAINT "orders_primary" PRIMARY KEY ("id", "customer_id");'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining("DROP INDEX public.idx_orders_customer;"));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining("CREATE INDEX idx_orders_customer ON public.orders (customer_id, id);"));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining("ALTER TABLE public.orders DROP CONSTRAINT orders_pkey;"));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining("ADD CONSTRAINT orders_primary PRIMARY KEY (id, customer_id);"));
   });
 
   it("routes context-menu connection actions and persists keyboard resizing", () => {

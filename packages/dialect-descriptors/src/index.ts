@@ -167,3 +167,29 @@ export function quoteIdentifier(descriptor: DialectDescriptor, name: string): st
       return `"${name.replace(/"/g, '""')}"`;
   }
 }
+
+/**
+ * Indica quando um identificador precisa do delimitador canônico do dialeto.
+ * Para nomes vindos de metadados, também preserva a caixa que seria normalizada
+ * pelo PostgreSQL (lowercase) ou Oracle (uppercase) sem delimitadores.
+ */
+export function identifierNeedsQuote(
+  descriptor: DialectDescriptor,
+  name: string,
+  metadataIdentifier = true,
+): boolean {
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) || descriptor.keywords.has(name.toUpperCase())) return true;
+  if (!metadataIdentifier) return false;
+  if (descriptor.dialect === "postgres") return name !== name.toLowerCase();
+  if (descriptor.dialect === "oracle") return name !== name.toUpperCase();
+  return false;
+}
+
+/** Retorna o identificador sem delimitadores quando eles não são necessários. */
+export function formatIdentifier(
+  descriptor: DialectDescriptor,
+  name: string,
+  metadataIdentifier = true,
+): string {
+  return identifierNeedsQuote(descriptor, name, metadataIdentifier) ? quoteIdentifier(descriptor, name) : name;
+}
