@@ -119,6 +119,8 @@ SQL tab you already have open. An assistant can read the active statement and it
 database context, inspect schema metadata and indexes, explain a query without
 executing it, or prepare an edit for review.
 
+![Review an SQL edit proposed through MCP before applying it](docs/images/mcp-sql-proposal.png)
+
 ```text
 AI client  ──MCP/STDIO──▶  local omni-sql bridge  ──▶  active desktop tab
                                                         │
