@@ -517,7 +517,6 @@ select option {
 .table-designer-grid .fui-Input, .table-designer-grid .fui-Combobox { width: 100%; min-width: 130px; }
 .index-editor-list { display: grid; gap: 10px; }
 .index-editor-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--colorNeutralStroke2); border-radius: 8px; background: var(--colorNeutralBackground2); }
-.index-editor-card.is-primary { opacity: .78; }
 .index-editor-header { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: end; gap: 12px; }
 .index-selected-columns { display: flex; flex-wrap: wrap; gap: 6px; min-height: 32px; }
 .index-column-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 2px 4px 2px 7px; border: 1px solid var(--colorNeutralStroke1); border-radius: 6px; background: var(--colorNeutralBackground1); }

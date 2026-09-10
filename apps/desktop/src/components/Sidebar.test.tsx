@@ -318,7 +318,17 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit indexes" }));
 
     expect(screen.queryByLabelText("Column type: customer_id")).toBeNull();
-    expect((screen.getByLabelText("Index name: orders_pkey") as HTMLInputElement).disabled).toBe(true);
+    const primaryNameInput = screen.getByLabelText("Index name: orders_pkey") as HTMLInputElement;
+    expect(primaryNameInput.disabled).toBe(false);
+    fireEvent.pointerDown(primaryNameInput);
+    expect(document.activeElement).toBe(primaryNameInput);
+    fireEvent.change(primaryNameInput, { target: { value: "orders_primary" } });
+    const primaryColumnInput = screen.getByLabelText("Add column to index: orders_primary");
+    fireEvent.pointerDown(primaryColumnInput);
+    expect(document.activeElement).toBe(primaryColumnInput);
+    fireEvent.click(primaryColumnInput);
+    fireEvent.change(primaryColumnInput, { target: { value: "customer_id" } });
+    fireEvent.click(await screen.findByRole("option", { name: "customer_id" }));
     const addColumnInput = screen.getByLabelText("Add column to index: idx_orders_customer");
     fireEvent.click(addColumnInput);
     fireEvent.change(addColumnInput, { target: { value: "id" } });
@@ -327,6 +337,8 @@ describe("Sidebar", () => {
 
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('DROP INDEX "public"."idx_orders_customer";'));
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('CREATE INDEX "idx_orders_customer" ON "public"."orders" ("customer_id", "id");'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('ALTER TABLE "public"."orders" DROP CONSTRAINT "orders_pkey";'));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining('ADD CONSTRAINT "orders_primary" PRIMARY KEY ("id", "customer_id");'));
   });
 
   it("routes context-menu connection actions and persists keyboard resizing", () => {

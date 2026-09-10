@@ -182,6 +182,21 @@ export function buildAlterIndexesSql(dialect: DialectId, schema: string, table: 
     const columns = index.columnsText.split(",").map((column) => column.trim()).filter(Boolean).map(q).join(", ");
     return `CREATE ${index.unique ? "UNIQUE " : ""}INDEX ${q(index.name.trim())} ON ${tableTarget} (${columns});`;
   };
+  const dropPrimaryKey = (name: string) => dialect === "mysql" || dialect === "mariadb"
+    ? `ALTER TABLE ${tableTarget} DROP PRIMARY KEY;`
+    : `ALTER TABLE ${tableTarget} DROP CONSTRAINT ${q(name)};`;
+  const createPrimaryKey = (index: EditDraftIndex) => {
+    const columns = splitIndexColumns(index.columnsText).map(q).join(", ");
+    const constraint = dialect === "mysql" || dialect === "mariadb" ? "" : `CONSTRAINT ${q(index.name.trim())} `;
+    return `ALTER TABLE ${tableTarget} ADD ${constraint}PRIMARY KEY (${columns});`;
+  };
+  for (const previous of original.filter((index) => index.primary)) {
+    const current = draftByOriginal.get(previous.name);
+    if (!current) continue;
+    const currentColumns = splitIndexColumns(current.columnsText);
+    const changed = current.name.trim() !== previous.name || currentColumns.join("\0") !== previous.columns.join("\0");
+    if (changed) statements.push(dropPrimaryKey(previous.name), createPrimaryKey(current));
+  }
   for (const previous of original.filter((index) => !index.primary)) {
     const current = draftByOriginal.get(previous.name);
     if (!current) {
@@ -297,7 +312,7 @@ export function TableStructureDialog({ open, connectionId, dialect, schema, tabl
   };
   const normalizedNames = draftColumns.map((column) => column.name.trim().toLocaleLowerCase());
   const draftValid = draftColumns.every((column) => column.name.trim() && column.dataType.trim()) && new Set(normalizedNames).size === normalizedNames.length;
-  const indexDraftValid = draftIndexes.every((index) => index.primary || (index.name.trim() && splitIndexColumns(index.columnsText).length > 0))
+  const indexDraftValid = draftIndexes.every((index) => index.name.trim() && splitIndexColumns(index.columnsText).length > 0)
     && new Set(draftIndexes.map((index) => index.name.trim().toLocaleLowerCase())).size === draftIndexes.length;
   const sql = tab === "indexes"
     ? indexDraftValid ? buildAlterIndexesSql(dialect, schema, table, indexes, draftIndexes) : ""
@@ -338,18 +353,18 @@ export function TableStructureDialog({ open, connectionId, dialect, schema, tabl
     </div> : editing && tab === "indexes" ? <div style={{ display: "grid", gap: 12 }}>
       {!indexDraftValid && <Text style={{ color: "var(--colorPaletteRedForeground1)" }}>{t("invalidIndexes")}</Text>}
       <Text size={200}>{t("indexColumnsHelp")}</Text>
-      <div className="index-editor-list">{draftIndexes.map((index) => { const selectedColumns = splitIndexColumns(index.columnsText); const availableColumns = columns.filter((column) => !selectedColumns.some((name) => name.toLocaleLowerCase() === column.name.toLocaleLowerCase())); return <section className={`index-editor-card${index.primary ? " is-primary" : ""}`} key={index.id}>
+      <div className="index-editor-list">{draftIndexes.map((index) => { const selectedColumns = splitIndexColumns(index.columnsText); const availableColumns = columns.filter((column) => !selectedColumns.some((name) => name.toLocaleLowerCase() === column.name.toLocaleLowerCase())); return <section className="index-editor-card" key={index.id}>
         <div className="index-editor-header">
-          <Field label={t("name")}><Input aria-label={t("indexNameFor").replace("{index}", index.name || t("newColumn"))} value={index.name} placeholder={`idx_${table}_column`} disabled={index.primary} onChange={(_, data) => updateDraftIndex(index.id, { name: data.value })} /></Field>
+          <Field label={t("name")}><Input aria-label={t("indexNameFor").replace("{index}", index.name || t("newColumn"))} value={index.name} placeholder={`idx_${table}_column`} onPointerDown={(event) => event.currentTarget.focus()} onChange={(_, data) => updateDraftIndex(index.id, { name: data.value })} /></Field>
           <Checkbox label="UNIQUE" aria-label={t("uniqueIndexFor").replace("{index}", index.name)} checked={index.unique} disabled={index.primary} onChange={(_, data) => updateDraftIndex(index.id, { unique: data.checked === true })} />
           {index.primary ? <Text weight="semibold">PRIMARY</Text> : <Button appearance="subtle" icon={<DeleteRegular />} aria-label={t("removeIndexFor").replace("{index}", index.name)} onClick={() => setDraftIndexes((current) => current.filter((item) => item.id !== index.id))} />}
         </div>
         <Text size={200} weight="semibold">{t("indexColumnOrder")}</Text>
         <div className="index-selected-columns">{selectedColumns.map((columnName, position) => <div className="index-column-chip" key={`${columnName}-${position}`}>
           <span className="index-column-position">{position + 1}</span><code>{columnName}</code>
-          {!index.primary && <span className="index-column-actions"><Button size="small" appearance="subtle" aria-label={t("moveIndexColumnLeft").replace("{column}", columnName)} disabled={position === 0} onClick={() => moveIndexColumn(index.id, position, -1)}>←</Button><Button size="small" appearance="subtle" aria-label={t("moveIndexColumnRight").replace("{column}", columnName)} disabled={position === selectedColumns.length - 1} onClick={() => moveIndexColumn(index.id, position, 1)}>→</Button><Button size="small" appearance="subtle" aria-label={t("removeIndexColumn").replace("{column}", columnName)} onClick={() => updateIndexColumns(index.id, selectedColumns.filter((_, currentPosition) => currentPosition !== position))}>×</Button></span>}
+          <span className="index-column-actions"><Button size="small" appearance="subtle" aria-label={t("moveIndexColumnLeft").replace("{column}", columnName)} disabled={position === 0} onClick={() => moveIndexColumn(index.id, position, -1)}>←</Button><Button size="small" appearance="subtle" aria-label={t("moveIndexColumnRight").replace("{column}", columnName)} disabled={position === selectedColumns.length - 1} onClick={() => moveIndexColumn(index.id, position, 1)}>→</Button><Button size="small" appearance="subtle" aria-label={t("removeIndexColumn").replace("{column}", columnName)} onClick={() => updateIndexColumns(index.id, selectedColumns.filter((_, currentPosition) => currentPosition !== position))}>×</Button></span>
         </div>)}</div>
-        {!index.primary && <Combobox freeform aria-label={t("addIndexColumnFor").replace("{index}", index.name)} placeholder={t("searchIndexColumns")} value={indexColumnQueries[index.id] ?? ""} onChange={(event) => { const value = event.currentTarget.value; setIndexColumnQueries((current) => ({ ...current, [index.id]: value })); }} onOptionSelect={(_, data) => { if (data.optionValue) addIndexColumn(index.id, data.optionValue); }}>{availableColumns.map((column) => <Option key={column.name} value={column.name}>{column.name}</Option>)}</Combobox>}
+        <Combobox freeform aria-label={t("addIndexColumnFor").replace("{index}", index.name)} placeholder={t("searchIndexColumns")} value={indexColumnQueries[index.id] ?? ""} onPointerDown={(event) => event.currentTarget.focus()} onChange={(event) => { const value = event.currentTarget.value; setIndexColumnQueries((current) => ({ ...current, [index.id]: value })); }} onOptionSelect={(_, data) => { if (data.optionValue) addIndexColumn(index.id, data.optionValue); }}>{availableColumns.map((column) => <Option key={column.name} value={column.name}>{column.name}</Option>)}</Combobox>
       </section>; })}</div>
       <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { const firstColumn = columns[0]?.name ?? ""; setDraftIndexes((current) => [...current, { id: nextId, name: `idx_${table}_${firstColumn || "column"}`, columnsText: firstColumn, unique: false, primary: false }]); setNextId((value) => value + 1); }}>{t("addIndex")}</Button>
       <Field label="INDEX DDL"><Textarea value={sql || t("noChanges")} readOnly resize="vertical" style={{ minHeight: 180, fontFamily: "monospace" }} /></Field>
