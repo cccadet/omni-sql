@@ -38,7 +38,7 @@ Histórico com busca — HistoryPanel.svelte lista entradas mas sem filtro por t
 Filtros por coluna no grid — útil, mas secundário em relação a sort + seleção. Começaria com filtro client-side simples (input por coluna).
 
 Alto impacto, mais esforço (backend + UI)
-Abas de resultados (Dados / Mensagens / Plano) — hoje é um painel único. O Adapter.explain() já existe nos adaptadores, mas não há RPC query.explain no protocolo — isso está no roadmap (F5/F9 do PROJECT_PLAN.md). É a feature mais valiosa da lista média, mas não é “só CSS”.
+Abas de resultados (Dados / Mensagens / Plano) — hoje é um painel único. O Adapter.explain() já existe nos adaptadores, mas não há RPC query.explain no protocolo — isso está no roadmap (F5/F9 do plano original do projeto). É a feature mais valiosa da lista média, mas não é “só CSS”.
 Baixa prioridade (ou deferir)
 Breadcrumbs na árvore — pouco valor num tree view colapsável; a busca resolve melhor a navegação.
 Minimap / bookmarks no editor — Monaco suporta nativamente (minimap.enabled, glyphMargin); é config, não feature nova.
