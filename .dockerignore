@@ -1,0 +1,11 @@
+.git
+.cache
+**/node_modules
+**/dist
+**/coverage
+**/target
+apps/desktop/src-tauri/resources/backend
+apps/desktop/src-tauri/resources/mcp-server
+apps/desktop/src-tauri/resources/runtime
+apps/desktop/src-tauri/resources/sidecar
+apps/desktop/src-tauri/resources/licenses

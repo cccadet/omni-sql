@@ -40,6 +40,13 @@ test("connection policy rejects URI credentials but permits normal endpoints", (
   assert.doesNotThrow(() => assertEndpointHasNoEmbeddedCredentials(connection("db.example:5432/app")));
 });
 
+test("connection policy keeps ODBC credentials out of persisted connection strings", () => {
+  const odbc = (endpoint: string): ConnectionConfig => ({ id: "odbc", label: "ODBC", dialect: "odbc", endpoint, user: "app" });
+  assert.throws(() => assertEndpointHasNoEmbeddedCredentials(odbc("DSN=corp;UID=app")), /endpoint ODBC/u);
+  assert.throws(() => assertEndpointHasNoEmbeddedCredentials(odbc("Driver={X};Password={secret}")), /endpoint ODBC/u);
+  assert.doesNotThrow(() => assertEndpointHasNoEmbeddedCredentials(odbc("Driver={X};Server=db;Database=app")));
+});
+
 test("legacy URI migration removes credentials and preserves them for the keyring", () => {
   const migrated = extractLegacyEndpointCredentials({ ...connection("postgres://legacy%20user:secret%2Fvalue@db.example/app"), user: "" });
   assert.deepEqual(migrated, {

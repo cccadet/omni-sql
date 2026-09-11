@@ -17,7 +17,7 @@ import { backend } from "../lib/backend";
 import { pickJarPath } from "../lib/file-io";
 import { useLanguage } from "../i18n";
 
-type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "demo";
+type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "demo";
 
 const DEFAULT_PORTS: Record<Mode, string> = {
   postgres: "5432",
@@ -26,6 +26,7 @@ const DEFAULT_PORTS: Record<Mode, string> = {
   mariadb: "3306",
   sqlserver: "1433",
   "jdbc-generic": "",
+  odbc: "",
   demo: "5432",
 };
 
@@ -36,6 +37,7 @@ const DEFAULT_DATABASES: Record<Mode, string> = {
   mariadb: "app",
   sqlserver: "master",
   "jdbc-generic": "",
+  odbc: "",
   demo: "postgres",
 };
 
@@ -46,12 +48,13 @@ const DEFAULT_USERS: Record<Mode, string> = {
   mariadb: "root",
   sqlserver: "sa",
   "jdbc-generic": "",
+  odbc: "",
   demo: "postgres",
 };
 
 const ALL_MODES: Mode[] = ["postgres", "oracle", "mysql", "mariadb", "sqlserver"];
 
-function isKnownDialect(d: string): d is Exclude<Mode, "demo" | "jdbc-generic"> {
+function isKnownDialect(d: string): d is Exclude<Mode, "demo" | "jdbc-generic" | "odbc"> {
   return new Set<Mode>(["postgres", "oracle", "mysql", "mariadb", "sqlserver"]).has(d as Mode);
 }
 
@@ -85,6 +88,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [password, setPassword] = useState("");
   const [ssl, setSsl] = useState(false);
   const [jdbcUrl, setJdbcUrl] = useState("");
+  const [odbcEndpoint, setOdbcEndpoint] = useState("");
   const [jarPath, setJarPath] = useState("");
   const [driverClassName, setDriverClassName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,7 +103,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     const editingDialect = editing?.dialect;
     const isKnown = editingDialect !== undefined && isKnownDialect(editingDialect);
     const isJdbc = editingDialect === "jdbc-generic";
-    const nextMode = isKnown ? editingDialect : isJdbc ? "jdbc-generic" : "demo";
+    const isOdbc = editingDialect === "odbc";
+    const nextMode = isKnown ? editingDialect : isJdbc ? "jdbc-generic" : isOdbc ? "odbc" : "demo";
     setMode(nextMode);
     setLabel(editing?.label ?? "");
     setId(duplicating ? generateId() : editing?.id ?? "");
@@ -125,6 +130,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
       setJarPath("");
       setDriverClassName("");
     }
+    setOdbcEndpoint(isOdbc ? editing?.endpoint ?? "" : "");
     setTestResult(null);
     setError(null);
     setBusy(false);
@@ -135,25 +141,29 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
   const buildEndpoint = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl;
+    if (mode === "odbc") return odbcEndpoint;
     return `${host}:${port}/${database}`;
-  }, [mode, jdbcUrl, host, port, database]);
+  }, [mode, jdbcUrl, odbcEndpoint, host, port, database]);
 
   const buildOptions = useCallback((): ConnectionConfig["options"] => {
     if (mode === "jdbc-generic") return { jarPath, driverClassName };
+    if (mode === "odbc") return { timeout: 30 };
     return ssl ? { ssl: "require" } : undefined;
   }, [mode, jarPath, driverClassName, ssl]);
 
   const defaultLabel = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl || t("jdbcGeneric");
+    if (mode === "odbc") return odbcEndpoint || "ODBC";
     return `${host}/${database}`;
-  }, [mode, jdbcUrl, host, database, t]);
+  }, [mode, jdbcUrl, odbcEndpoint, host, database, t]);
 
   const canConnect = useCallback(() => {
     if (mode === "jdbc-generic") {
       return jdbcUrl.length > 0 && jarPath.length > 0 && driverClassName.length > 0 && user.length > 0;
     }
+    if (mode === "odbc") return odbcEndpoint.trim().length > 0;
     return host.length > 0 && user.length > 0;
-  }, [mode, jdbcUrl, jarPath, driverClassName, user, host]);
+  }, [mode, jdbcUrl, odbcEndpoint, jarPath, driverClassName, user, host]);
 
   const buildConfig = useCallback((): ConnectionConfig => {
     if (mode === "demo") {
@@ -226,7 +236,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     const isDefaultDatabase = database === "" || ALL_MODES.some((m) => database === DEFAULT_DATABASES[m]);
     const isDefaultUser = user === "" || ALL_MODES.some((m) => user === DEFAULT_USERS[m]);
     setMode(next);
-    if (next === "demo" || next === "jdbc-generic") return;
+    if (next === "demo" || next === "jdbc-generic" || next === "odbc") return;
     if (isDefaultPort) setPort(DEFAULT_PORTS[next]);
     if (isDefaultDatabase) setDatabase(DEFAULT_DATABASES[next]);
     if (isDefaultUser) setUser(DEFAULT_USERS[next]);
@@ -277,6 +287,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 <option value="sqlserver">SQL Server</option>
                 <option value="oracle">Oracle</option>
                 <option value="jdbc-generic">{t("jdbcGeneric")}</option>
+                <option value="odbc">ODBC</option>
                 <option value="demo">Demo (in-memory)</option>
               </select>
             </Label>
@@ -306,7 +317,15 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </>
             )}
 
-            {mode !== "demo" && mode !== "jdbc-generic" && (
+            {mode === "odbc" && (
+              <Label>
+                DSN ou connection string ODBC
+                <Input value={odbcEndpoint} onChange={(_, data) => setOdbcEndpoint(data.value)} placeholder="MeuDSN ou DRIVER={Driver};SERVER=host;DATABASE=db" disabled={busy} required style={{ marginTop: 4 }} />
+                <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>Informe usuário e senha abaixo; não inclua UID/PWD neste campo.</Text>
+              </Label>
+            )}
+
+            {mode !== "demo" && mode !== "jdbc-generic" && mode !== "odbc" && (
               <>
                 <div className="omni-connection-host-row">
                   <Label style={{ flex: 1 }}>
@@ -341,7 +360,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
             {mode !== "demo" && (
               <>
-                {mode !== "jdbc-generic" && (
+                {mode !== "jdbc-generic" && mode !== "odbc" && (
                   <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />
                 )}
                 <section className="connection-schema-picker">

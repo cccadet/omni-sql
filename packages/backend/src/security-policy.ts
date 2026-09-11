@@ -38,6 +38,12 @@ export function assertSafeExplainSql(sql: string, dialect: ConnectionConfig["dia
 }
 
 export function assertEndpointHasNoEmbeddedCredentials(config: ConnectionConfig): void {
+  if (config.dialect === "odbc") {
+    if (/(?:^|;)\s*(?:PWD|PASSWORD|UID|USER(?:NAME)?)\s*=/iu.test(config.endpoint)) {
+      throw new RpcValidationError("endpoint ODBC não pode incluir usuário ou senha; use os campos de conexão");
+    }
+    return;
+  }
   if (config.dialect !== "postgres" && config.dialect !== "mysql" && config.dialect !== "mariadb") return;
   if (!/^(postgres(?:ql)?|mysql|mariadb):\/\//i.test(config.endpoint)) return;
   let endpoint: URL;

@@ -9,3 +9,4 @@ allowBuilds:
   esbuild: true
   "@sveltejs/vite-plugin-svelte": true
   oracledb: true
+  odbc: true
