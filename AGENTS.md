@@ -1,7 +1,7 @@
 # AGENTS.md — omni-sql
 
 One IDE for every database. Multi-database SQL IDE with contextual autocomplete
-(no LLM in v1). See `PROJECT_PLAN.md` for roadmap.
+(no LLM in v1).
 
 ## Stack
 - **Shell:** Tauri (Rust) — `apps/desktop/src-tauri`
