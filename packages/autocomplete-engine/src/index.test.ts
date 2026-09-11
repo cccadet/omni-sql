@@ -446,6 +446,48 @@ test("coluna já digitada no SELECT some das sugestões individuais e da expans�
   assert.equal(allCols?.insertText, "name, email");
 });
 
+test("colunas casam no meio do nome e priorizam igualdade e prefixo", () => {
+  const searchableUsers: Relation = {
+    ...USERS,
+    columns: [
+      { ...USERS.columns[0]!, name: "CDUNMBENEFICIARIOCARTEIRA" },
+      { ...USERS.columns[0]!, name: "UNMDETALHE" },
+      { ...USERS.columns[0]!, name: "UNM" },
+      { ...USERS.columns[0]!, name: "SEM_CORRESPONDENCIA" },
+    ],
+  };
+  const base = metaOf(postgresDescriptor);
+  const meta: MetadataSource = {
+    ...base,
+    listRelations: () => [searchableUsers],
+    resolveRelation: () => searchableUsers,
+  };
+  const sql = "SELECT unm FROM users";
+  const out = autocompleteTier1(sql, "SELECT unm".length, meta).filter((suggestion) => suggestion.kind === "column");
+
+  assert.deepEqual(out.map((suggestion) => suggestion.label), ["UNM", "UNMDETALHE", "CDUNMBENEFICIARIOCARTEIRA"]);
+  assert.ok(out.every((suggestion) => suggestion.filterText === "unm"));
+  assert.ok(out[0]!.relevance > out[1]!.relevance);
+  assert.ok(out[1]!.relevance > out[2]!.relevance);
+});
+
+test("trecho que também é keyword do dialeto continua buscando no meio da coluna", () => {
+  const searchableUsers: Relation = {
+    ...USERS,
+    columns: [{ ...USERS.columns[0]!, name: "created_at" }],
+  };
+  const base = metaOf(sqlserverDescriptor);
+  const meta: MetadataSource = {
+    ...base,
+    listRelations: () => [searchableUsers],
+    resolveRelation: () => searchableUsers,
+  };
+  const sql = "SELECT at FROM users";
+  const out = autocompleteTier1(sql, "SELECT at".length, meta);
+
+  assert.equal(out.find((suggestion) => suggestion.label === "created_at")?.filterText, "at");
+});
+
 test("coluna qualificada selecionada só remove mesma relação", () => {
   const sql = "SELECT u.id,  FROM users u JOIN orders o ON u.id = o.user_id";
   const out = autocompleteTier1(sql, "SELECT u.id, ".length, metaOf(postgresDescriptor));

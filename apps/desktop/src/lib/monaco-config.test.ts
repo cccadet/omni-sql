@@ -64,6 +64,7 @@ test("autocomplete sortText ranks relevance descending and preserves ties", asyn
       { kind: "keyword", label: "low", relevance: 10 },
       { kind: "keyword", label: "high", insertText: "SELECT $1", relevance: 100 },
       { kind: "keyword", label: "same", relevance: 100 },
+      { kind: "column", label: "CDUNMBENEFICIARIOCARTEIRA", filterText: "unm", relevance: 50 },
     ],
   });
 
@@ -83,12 +84,17 @@ test("autocomplete sortText ranks relevance descending and preserves ties", asyn
   );
 
   if (!result) throw new Error("completion result was not returned");
-  assert.deepEqual(result.suggestions.map((suggestion) => suggestion.label), ["low", "high", "same"]);
+  assert.deepEqual(result.suggestions.map((suggestion) => suggestion.label), [
+    "low",
+    "high",
+    "same",
+    "CDUNMBENEFICIARIOCARTEIRA",
+  ]);
   assert.deepEqual(
     [...result.suggestions]
       .sort((a, b) => (a.sortText ?? "").localeCompare(b.sortText ?? ""))
       .map((suggestion) => suggestion.label),
-    ["high", "same", "low"],
+    ["high", "same", "CDUNMBENEFICIARIOCARTEIRA", "low"],
   );
   assert.equal(result.suggestions[1]?.insertText, "SELECT $1");
   assert.equal(
@@ -96,4 +102,5 @@ test("autocomplete sortText ranks relevance descending and preserves ties", asyn
     monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
   );
   assert.equal(result.suggestions[0]?.insertText, "low");
+  assert.equal(result.suggestions[3]?.filterText, "unm");
 });

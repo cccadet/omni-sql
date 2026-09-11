@@ -27,7 +27,19 @@ export interface Suggestion {
   readonly label: string;
   readonly detail?: string;
   readonly insertText?: string;
+  /** Texto usado pelo cliente para manter sugestões que casam fora do início do rótulo. */
+  readonly filterText?: string;
   readonly relevance: number;
+}
+
+function partialMatchRank(name: string, partial: string): number | null {
+  if (!partial) return 0;
+  const normalizedName = name.toLocaleLowerCase();
+  const normalizedPartial = partial.toLocaleLowerCase();
+  if (normalizedName === normalizedPartial) return 3;
+  if (normalizedName.startsWith(normalizedPartial)) return 2;
+  if (normalizedName.includes(normalizedPartial)) return 1;
+  return null;
 }
 
 function qualifierBeforeCursor(ctx: ResolvedContext): string | null {
@@ -302,16 +314,18 @@ function usingColumnSuggestions(ctx: ResolvedContext, meta: MetadataSource): Sug
     const key = column.name.toLowerCase();
     if (left.has(key) && !common.has(key)) common.set(key, { name: column.name, dataType: column.dataType });
   }
-  const prefix = ctx.cursorToken?.value.toLowerCase();
+  const partial = ctx.cursorToken?.value ?? "";
   return [...common.values()]
-    .filter((column) => !prefix || column.name.toLowerCase().startsWith(prefix))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((column) => ({
+    .map((column) => ({ column, matchRank: partialMatchRank(column.name, partial) }))
+    .filter((candidate): candidate is { column: typeof candidate.column; matchRank: number } => candidate.matchRank !== null)
+    .sort((a, b) => b.matchRank - a.matchRank || a.column.name.localeCompare(b.column.name))
+    .map(({ column, matchRank }) => ({
       kind: "column" as const,
       label: column.name,
       detail: column.dataType,
       ...(identifierNeedsQuote(meta.dialect, column.name) ? { insertText: identifierText(column.name, meta.dialect) } : {}),
-      relevance: 100,
+      ...(partial ? { filterText: partial } : {}),
+      relevance: 100 + matchRank * 100,
     }));
 }
 
@@ -384,14 +398,18 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
     if (!ref) return [];
     const relation = meta.resolveRelation(ref);
     if (!relation) return [];
+    const partial = ctx.cursorToken?.value ?? "";
     return [...relation.columns]
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((column) => ({
+      .map((column) => ({ column, matchRank: partialMatchRank(column.name, partial) }))
+      .filter((candidate): candidate is { column: typeof candidate.column; matchRank: number } => candidate.matchRank !== null)
+      .sort((a, b) => b.matchRank - a.matchRank || a.column.name.localeCompare(b.column.name))
+      .map(({ column, matchRank }) => ({
         kind: "column" as const,
         label: column.name,
         detail: column.dataType,
         ...(identifierNeedsQuote(meta.dialect, column.name) ? { insertText: identifierText(column.name, meta.dialect) } : {}),
-        relevance: 100,
+        ...(partial ? { filterText: partial } : {}),
+        relevance: 100 + matchRank * 100,
       }));
   }
 
@@ -406,6 +424,7 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
   if (!["select-list", "where", "group-by", "having", "order-by", "on"].includes(ctx.clause)) return [];
 
   const isSelectList = ctx.clause === "select-list";
+  const partial = ctx.cursorToken?.value ?? "";
   const alreadySelected = new Set(ctx.selectedColumns);
   const columns: Suggestion[] = [];
   const allColumnNames: string[] = [];
@@ -421,6 +440,8 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
   for (const { scopeRef, relation } of relations) {
     if (!relation) continue;
     for (const column of relation.columns) {
+      const matchRank = partialMatchRank(column.name, partial);
+      if (matchRank === null) continue;
       const columnKey = column.name.toLowerCase();
       const qualifiedKey = `${scopeRef.alias.toLowerCase()}.${columnKey}`;
       if (
@@ -438,14 +459,15 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
         label: column.name,
         detail: `${scopeRef.alias}.${column.name} (${column.dataType})`,
         ...(insertText === undefined ? {} : { insertText }),
-        relevance: scopeRef.alias === scopeRef.table ? 80 : 85,
+        ...(partial ? { filterText: partial } : {}),
+        relevance: (scopeRef.alias === scopeRef.table ? 80 : 85) + matchRank * 100,
       });
       if (isSelectList) allColumnNames.push(
         (columnCounts.get(column.name.toLowerCase()) ?? 0) > 1 ? qualifiedText : columnText,
       );
     }
   }
-  columns.sort((a, b) => a.label.localeCompare(b.label));
+  columns.sort((a, b) => b.relevance - a.relevance || a.label.localeCompare(b.label));
   const result: Suggestion[] = [...columns, ...functionSuggestions(ctx, meta, 50)];
   if (isSelectList && allColumnNames.length > 0) {
     result.push({

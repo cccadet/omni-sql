@@ -397,7 +397,7 @@ function detectQualifier(
       return { value: prev.value, quoted: isQuotedIdentifier(prev, statementText, dialect) };
     }
   }
-  if (last.type === "identifier" && tokens[tokens.length - 2]?.value === ".") {
+  if ((last.type === "identifier" || last.type === "keyword") && tokens[tokens.length - 2]?.value === ".") {
     const prev = tokens[tokens.length - 3];
     if (prev && (prev.type === "identifier" || prev.type === "keyword")) {
       return { value: prev.value, quoted: isQuotedIdentifier(prev, statementText, dialect) };
@@ -406,10 +406,21 @@ function detectQualifier(
   return null;
 }
 
-/** Token sendo digita no momento (parcial, sem trailing punct/space). */
+/** Token sendo digitado no momento (parcial, sem trailing punct/space). */
 function detectCursorToken(allTokens: readonly Token[], cursor: number): Token | null {
   for (const t of allTokens) {
-    if (isSignificant(t) && t.type === "identifier" && cursor >= t.start && cursor <= t.end) return t;
+    // Nomes de coluna podem coincidir com palavras reservadas do dialeto. Por
+    // exemplo, `at` é keyword em SQL Server/Oracle, mas também deve localizar
+    // `created_at` enquanto o usuário digita no SELECT/WHERE.
+    const structuralKeyword = t.type === "keyword" && (
+      MAJOR_CLAUSE_TOKENS.has(t.upper ?? "") || JOIN_TOKENS.has(t.upper ?? "") ||
+      ["ON", "USING", "AS", "BY"].includes(t.upper ?? "")
+    );
+    if (
+      isSignificant(t) && !structuralKeyword &&
+      (t.type === "identifier" || t.type === "keyword") &&
+      cursor > t.start && cursor <= t.end
+    ) return t;
   }
   return null;
 }
