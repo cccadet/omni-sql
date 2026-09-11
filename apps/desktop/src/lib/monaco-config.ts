@@ -345,6 +345,7 @@ export function configureAutocomplete(
           label: s.label,
           kind: mapKind(s.kind),
           detail: s.detail,
+          filterText: s.filterText,
           insertText: s.insertText ?? s.label,
           insertTextRules:
             s.insertText && (s.insertText.includes("$1") || s.insertText.includes("$2"))
