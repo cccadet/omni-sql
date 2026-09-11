@@ -41,7 +41,10 @@ test("switches settings tabs without losing formatting controls", () => {
   );
 
   fireEvent.click(screen.getByRole("tab", { name: "Language" }));
-  expect(screen.getByRole("combobox", { name: "Language" })).toBeTruthy();
+  const languageSelect = screen.getByRole("combobox", { name: "Language" });
+  expect(languageSelect).toBeTruthy();
+  expect(languageSelect.closest(".fui-Select")?.parentElement?.classList.contains("omni-settings-language-field")).toBe(true);
+  expect(languageSelect.closest(".fui-Select")?.getAttribute("style")).toBeNull();
   expect(screen.queryByLabelText("Shortcut")).toBeNull();
 
   fireEvent.click(screen.getByRole("tab", { name: "SQL formatting" }));
