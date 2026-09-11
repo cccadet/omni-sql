@@ -25,12 +25,14 @@
     "@omni-sql/adapters-mssql": "workspace:*",
     "@omni-sql/adapters-mysql": "workspace:*",
     "@omni-sql/adapters-oracle": "workspace:*",
+    "@omni-sql/adapters-odbc": "workspace:*",
     "@omni-sql/adapters-pg": "workspace:*",
     "@omni-sql/autocomplete-engine": "workspace:*",
     "@omni-sql/dialect-descriptors": "workspace:*",
     "@omni-sql/metadata-cache": "workspace:*",
     "@omni-sql/ts-types": "workspace:*",
-    "@polyglot-sql/sdk": "0.6.1"
+    "@polyglot-sql/sdk": "0.6.1",
+    "odbc": "^2.5.0"
   },
   "devDependencies": {
     "esbuild": "^0.25.12"

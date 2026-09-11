@@ -10,7 +10,7 @@ import { build } from "esbuild";
 const packageDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(packageDir, "../..");
 const distDir = path.join(packageDir, "dist");
-const external = ["@napi-rs/keyring", "oracledb", "@polyglot-sql/sdk"];
+const external = ["@napi-rs/keyring", "oracledb", "odbc", "@polyglot-sql/sdk"];
 
 fs.rmSync(distDir, { recursive: true, force: true });
 fs.mkdirSync(distDir, { recursive: true });
@@ -71,6 +71,7 @@ async function validateStagedArtifact() {
   try {
     await waitForHealth(port, child, authToken);
     await probeNativeKeyring(stage);
+    await runNodeProbe(stage, ["const pkg = await import('odbc');", "if (typeof pkg.default?.connect !== 'function') throw new Error('ODBC connect is unavailable');"]);
     await probeKeyringOperation(port, authToken);
     child.kill("SIGTERM");
     await waitForExit(child);
@@ -103,7 +104,7 @@ function copyPackageTree(specifier, stage, parentSourceRoot, destinationParent) 
     try {
       copyPackageTree(dependency, stage, sourceRoot, path.join(destination, "node_modules"));
     } catch (error) {
-      if (manifest.optionalDependencies?.[dependency]) continue;
+      if (manifest.optionalDependencies?.[dependency] || manifest.peerDependenciesMeta?.[dependency]?.optional) continue;
       throw error;
     }
   }

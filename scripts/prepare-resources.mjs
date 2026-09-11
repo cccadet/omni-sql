@@ -182,7 +182,7 @@ function copyPackageTree(specifier, backendDir, destinationParent, parentSource)
   const packageJson = JSON.parse(fs.readFileSync(path.join(sourceRoot, "package.json"), "utf8"));
   for (const dependency of Object.keys({ ...packageJson.dependencies, ...packageJson.optionalDependencies, ...packageJson.peerDependencies })) {
     try { copyPackageTree(dependency, backendDir, path.join(destination, "node_modules"), sourceRoot); }
-    catch (error) { if (!packageJson.optionalDependencies?.[dependency]) throw error; }
+    catch (error) { if (!packageJson.optionalDependencies?.[dependency] && !packageJson.peerDependenciesMeta?.[dependency]?.optional) throw error; }
   }
 }
 function stageSidecar(out) {
