@@ -774,6 +774,8 @@ select option {
 .omni-settings-body.omni-settings-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-top: 14px; }
 .omni-settings-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .omni-settings-language { max-width: 320px; }
+.omni-settings-language-field { display: grid; width: min(240px, 100%); gap: 4px; }
+.omni-settings-language-field > .fui-Select { width: 100%; }
 .omni-settings-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--colorNeutralStroke2); border-radius: 8px; background: var(--colorNeutralBackground2); }
 .omni-settings-actions { flex-shrink: 0; flex-wrap: wrap; border-top: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground1); }
 .omni-new-row-actions { display: flex; align-items: center; gap: 4px; }

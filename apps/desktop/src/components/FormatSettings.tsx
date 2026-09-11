@@ -98,13 +98,12 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
           <DialogBody className="omni-settings-body">
             {section === "language" ? (
               <div className="omni-settings-section omni-settings-language">
-              <Label>
+              <Label className="omni-settings-language-field">
                 {t("language")}
                 <Select
                   aria-label={t("language")}
                   value={language}
                   onChange={(_, data) => setLanguage(data.value as "en" | "pt-BR")}
-                  style={{ display: "block", marginTop: 4, maxWidth: 240 }}
                 >
                   <option value="en">{t("english")}</option>
                   <option value="pt-BR">{t("portugueseBrazil")}</option>
