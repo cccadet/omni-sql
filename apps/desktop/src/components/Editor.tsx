@@ -336,6 +336,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       onMount={handleMount}
       options={{
         automaticLayout: true,
+        wordBasedSuggestions: formatterSettings?.wordBasedSuggestions === true ? "currentDocument" : "off",
         fontSize: 13,
         fontFamily,
         minimap: { enabled: true, scale: 1, showSlider: "mouseover" },

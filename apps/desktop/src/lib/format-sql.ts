@@ -15,6 +15,8 @@ const DIALECT_MAP: Record<DialectId, SqlLanguage> = {
 };
 
 export interface FormatterSettings {
+  /** Inclui nas sugestões palavras encontradas no documento pelo próprio Monaco. */
+  readonly wordBasedSuggestions: boolean;
   /** Atalho de teclado no formato "Ctrl+Alt+L" / "Cmd+Shift+F" etc. */
   readonly keybinding: string;
   readonly keywordCase: FormatOptions["keywordCase"];
@@ -32,6 +34,7 @@ export interface FormatterSettings {
 }
 
 export const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
+  wordBasedSuggestions: true,
   keybinding: "Ctrl+Alt+L",
   keywordCase: "upper",
   identifierCase: "preserve",

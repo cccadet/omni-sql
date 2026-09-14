@@ -23,8 +23,31 @@ test("uses context-specific save label", () => {
   expect(document.querySelector(".omni-settings-body")).toBeTruthy();
   expect(document.querySelector(".omni-settings-actions")).toBeTruthy();
   expect(screen.getByRole("tab", { name: "SQL formatting" })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "Editor" })).toBeTruthy();
   expect(screen.getByRole("tab", { name: "Language" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "Language" })).toBeNull();
+});
+
+test("keeps Monaco word-based suggestions enabled by default and allows disabling them", () => {
+  const onSave = vi.fn();
+  render(
+    <LanguageProvider>
+      <FormatSettings
+        open
+        dialect="postgres"
+        settings={DEFAULT_FORMATTER_SETTINGS}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    </LanguageProvider>,
+  );
+
+  fireEvent.click(screen.getByRole("tab", { name: "Editor" }));
+  const checkbox = screen.getByRole("checkbox", { name: "Suggest words from the current SQL document" }) as HTMLInputElement;
+  expect(checkbox.checked).toBe(true);
+  fireEvent.click(checkbox);
+  fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ wordBasedSuggestions: false }));
 });
 
 test("switches settings tabs without losing formatting controls", () => {

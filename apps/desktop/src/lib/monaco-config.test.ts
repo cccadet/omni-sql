@@ -103,4 +103,5 @@ test("autocomplete sortText ranks relevance descending and preserves ties", asyn
   );
   assert.equal(result.suggestions[0]?.insertText, "low");
   assert.equal(result.suggestions[3]?.filterText, "unm");
+  assert.ok(result.suggestions.every((suggestion) => suggestion.sortText?.startsWith("!omni:")));
 });

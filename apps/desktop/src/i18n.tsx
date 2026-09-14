@@ -343,6 +343,9 @@ const english = {
   openCsv: "Open CSV",
   rowsSavedTo: "{count} rows saved to {file}",
   showInExplorer: "Show in Explorer",
+  editorSettingsTab: "Editor",
+  wordBasedSuggestions: "Suggest words from the current SQL document",
+  wordBasedSuggestionsHint: "When enabled, Monaco may mix words from the document with contextual database suggestions.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -378,6 +381,7 @@ const portugueseBrazil = [
   "Colunas indexadas (em ordem)", "Adicionar coluna ao índice: {index}", "Buscar e adicionar uma coluna…", "Mover {column} para antes", "Mover {column} para depois", "Remover {column} do índice",
   "Buscar schemas…", "Selecionar visíveis", "Nenhum schema corresponde a esta busca.", "{selected} selecionado(s) de {total}", "Carregue os schemas para escolher quais devem ser indexados.", "As seleções salvas aparecem primeiro. Carregue os schemas para atualizar a lista completa.", "Selecionado", "Usar todos os schemas",
   "CSV exportado", "Abrir CSV", "{count} linhas salvas em {file}", "Mostrar no Explorer",
+  "Editor", "Sugerir palavras do documento SQL atual", "Quando ativado, o Monaco pode misturar palavras do documento com sugestões contextuais do banco.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
