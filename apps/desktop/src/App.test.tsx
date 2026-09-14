@@ -234,6 +234,8 @@ describe("App execution flow", () => {
 
     await connectToDatabase();
     fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    expect(await screen.findByTestId("query-running-indicator")).toBeTruthy();
+    expect(screen.queryByText("No results")).toBeNull();
     const cancel = await screen.findByRole("button", { name: "Cancel" });
 
     fireEvent.click(cancel);

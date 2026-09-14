@@ -19,12 +19,14 @@ export interface RelationRow extends RowDataPacket {
   table_schema: string;
   table_name: string;
   table_type: "BASE TABLE" | "VIEW";
+  description?: string | null;
 }
 
 export interface ColumnRow extends RowDataPacket {
   table_schema: string;
   table_name: string;
   column_name: string;
+  description?: string | null;
   data_type: string;
   is_nullable: "YES" | "NO";
   column_default: string | null;
@@ -73,7 +75,7 @@ export async function listSchemaNames(conn: PoolConnection): Promise<readonly st
 }
 
 const RELATIONS_SQL = `
-SELECT table_schema AS table_schema, table_name AS table_name, table_type AS table_type
+SELECT table_schema AS table_schema, table_name AS table_name, table_type AS table_type, table_comment AS description
 FROM information_schema.tables
 WHERE table_schema NOT IN (${SYSTEM_SCHEMAS_SQL})
   AND table_type IN ('BASE TABLE', 'VIEW')
@@ -90,6 +92,7 @@ SELECT
   c.is_nullable AS is_nullable,
   c.column_default AS column_default,
   c.ordinal_position AS ordinal_position,
+  c.column_comment AS description,
   (pk.column_name IS NOT NULL) AS is_pk,
   fk.referenced_table_schema AS fk_schema,
   fk.referenced_table_name   AS fk_table,
@@ -219,6 +222,7 @@ export async function introspectSchemas(
       const rcols = colsByTable.get(`${schemaName}.${r.table_name}`) ?? [];
       const columns: Column[] = rcols.map((c) => ({
         name: c.column_name,
+        ...(c.description?.trim() ? { description: c.description.trim() } : {}),
         dataType: c.data_type,
         nullable: c.is_nullable === "YES",
         isPrimaryKey: c.is_pk === 1,
@@ -256,6 +260,7 @@ export async function introspectSchemas(
       return {
         schema: schemaName,
         name: r.table_name,
+        ...(r.description?.trim() ? { description: r.description.trim() } : {}),
         kind: r.table_type === "VIEW" ? "view" : "table",
         columns,
         constraints,

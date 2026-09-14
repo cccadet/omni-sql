@@ -113,7 +113,25 @@ function formatSingleStatement(sql: string, dialect: DialectId, settings: Format
   // The upstream formatter is query-oriented. Preserve vendor/admin commands
   // instead of guessing and damaging proprietary syntax.
   if (!FORMATTER_SUPPORTED_COMMANDS.has(command)) return sql;
-  return format(sql, buildFormatOptions(settings, dialect));
+  return wrapLongJoinBetweenPredicates(
+    format(sql, buildFormatOptions(settings, dialect)),
+    settings.expressionWidth,
+  );
+}
+
+function wrapLongJoinBetweenPredicates(sql: string, expressionWidth: number): string {
+  return sql
+    .split("\n")
+    .map((line) => {
+      if (line.length <= expressionWidth) return line;
+      const match = /^(\s*)((?:(?:LEFT|RIGHT|FULL|INNER|CROSS|NATURAL)\s+)?JOIN\b.*?)\s+(ON)\s+(.+?)\s+(BETWEEN)\s+(.+?)\s+(AND)\s+(.+)$/iu.exec(line);
+      if (!match) return line;
+      const [, indent = "", join = "", on = "", value = "", between = "", lower = "", and = "", upper = ""] = match;
+      const predicateIndent = `${indent}  `;
+      const boundsIndent = `${predicateIndent}  `;
+      return `${indent}${join}\n${predicateIndent}${on} ${value}\n${boundsIndent}${between} ${lower}\n${boundsIndent}${and} ${upper}`;
+    })
+    .join("\n");
 }
 
 const FORMATTER_SUPPORTED_COMMANDS = new Set([

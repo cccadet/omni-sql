@@ -1164,7 +1164,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid result={result} error={activeTab.error} planText={planText} editability={editability} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} />
+        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} />
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>

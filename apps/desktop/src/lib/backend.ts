@@ -25,6 +25,7 @@ export interface ConnectionGroup {
 
 export interface RelationColumn {
   name: string;
+  description?: string;
   dataType: string;
   nullable: boolean;
   isPrimaryKey: boolean;
@@ -40,6 +41,7 @@ export interface RelationConstraint {
 export interface RelationInfo {
   schema: string;
   name: string;
+  description?: string;
   kind: "table" | "view";
   columns?: RelationColumn[];
 }

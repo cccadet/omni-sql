@@ -265,6 +265,7 @@ export function TableStructureDialog({ open, connectionId, dialect, schema, tabl
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [columns, setColumns] = useState<RelationColumn[]>([]);
+  const [description, setDescription] = useState<string | undefined>();
   const [constraints, setConstraints] = useState<RelationConstraint[]>([]);
   const [draftColumns, setDraftColumns] = useState<EditDraftColumn[]>([]);
   const [draftIndexes, setDraftIndexes] = useState<EditDraftIndex[]>([]);
@@ -280,11 +281,12 @@ export function TableStructureDialog({ open, connectionId, dialect, schema, tabl
     if (!open || !connectionId) return;
     setLoading(true); setError(null); setSampleResult(null); setSampleError(false); setTab("columns"); setEditing(false);
     void Promise.all([
-      backend.call<{ columns: RelationColumn[]; constraints?: RelationConstraint[] }>("metadata.listColumns", { connectionId, schema, table }),
+      backend.call<{ description?: string; columns: RelationColumn[]; constraints?: RelationConstraint[] }>("metadata.listColumns", { connectionId, schema, table }),
       backend.call<{ indexes: IndexInfo[] }>("metadata.listIndexes", { connectionId, schema, table }),
       backend.call<{ sql: string }>("metadata.getDefinition", { connectionId, kind: "table", schema, name: table }),
     ]).then(([columnResult, indexResult, definition]) => {
       setColumns(columnResult.columns);
+      setDescription(columnResult.description);
       setConstraints(columnResult.constraints ?? []);
       setIndexes(indexResult.indexes);
       setDdl(definition.sql);
@@ -364,8 +366,8 @@ export function TableStructureDialog({ open, connectionId, dialect, schema, tabl
       </section>; })}</div>
       <Button appearance="subtle" icon={<AddRegular />} style={{ justifySelf: "start" }} onClick={() => { const firstColumn = columns[0]?.name ?? ""; setDraftIndexes((current) => [...current, { id: nextId, name: `idx_${table}_${firstColumn || "column"}`, columnsText: firstColumn, unique: false, primary: false }]); setNextId((value) => value + 1); }}>{t("addIndex")}</Button>
       <Field label="INDEX DDL"><Textarea value={sql || t("noChanges")} readOnly resize="vertical" style={{ minHeight: 180, fontFamily: "monospace" }} /></Field>
-    </div> : <><TabList selectedValue={tab} onTabSelect={(_, data) => setTab(String(data.value))}><Tab value="columns">{t("columns")} ({columns.length})</Tab><Tab value="indexes">{t("indexes")} ({indexes.length})</Tab><Tab value="ddl">DDL</Tab></TabList>
-      {tab === "columns" && <><table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>{t("keys")}</th><th>{t("sampleValue")}</th></tr></thead><tbody>{columns.map((column) => { const sampleIndex = sampleColumnIndexes.get(column.name); const sampleValue = !sampleResult && !sampleError ? t("loading") : sampleIndex === undefined || !sampleRow ? "—" : formatSampleValue(sampleRow[sampleIndex]); return <tr key={column.name}><td>{column.name}</td><td>{column.dataType}</td><td>{column.nullable ? t("yes") : t("no")}</td><td>{column.isPrimaryKey ? "PK" : column.foreignKeyTo ? `FK → ${column.foreignKeyTo.schema}.${column.foreignKeyTo.table}.${column.foreignKeyTo.column}` : ""}</td><td className="table-structure-sample" title={sampleValue}>{sampleValue}</td></tr>; })}</tbody></table>{sampleError ? <Text size={200}>{t("sampleLoadFailed")}</Text> : sampleResult && !sampleRow ? <Text size={200}>{t("noSampleRows")}</Text> : null}</>}
+    </div> : <>{description && <Text size={200}><strong>{t("tableDescription")}:</strong> {description}</Text>}<TabList selectedValue={tab} onTabSelect={(_, data) => setTab(String(data.value))}><Tab value="columns">{t("columns")} ({columns.length})</Tab><Tab value="indexes">{t("indexes")} ({indexes.length})</Tab><Tab value="ddl">DDL</Tab></TabList>
+      {tab === "columns" && <><table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("type")}</th><th>{t("nullable")}</th><th>{t("keys")}</th><th>{t("description")}</th><th>{t("sampleValue")}</th></tr></thead><tbody>{columns.map((column) => { const sampleIndex = sampleColumnIndexes.get(column.name); const sampleValue = !sampleResult && !sampleError ? t("loading") : sampleIndex === undefined || !sampleRow ? "—" : formatSampleValue(sampleRow[sampleIndex]); return <tr key={column.name}><td>{column.name}</td><td>{column.dataType}</td><td>{column.nullable ? t("yes") : t("no")}</td><td>{column.isPrimaryKey ? "PK" : column.foreignKeyTo ? `FK → ${column.foreignKeyTo.schema}.${column.foreignKeyTo.table}.${column.foreignKeyTo.column}` : ""}</td><td title={column.description}>{column.description ?? "—"}</td><td className="table-structure-sample" title={sampleValue}>{sampleValue}</td></tr>; })}</tbody></table>{sampleError ? <Text size={200}>{t("sampleLoadFailed")}</Text> : sampleResult && !sampleRow ? <Text size={200}>{t("noSampleRows")}</Text> : null}</>}
       {tab === "indexes" && (indexes.length ? <table className="table-structure-grid"><thead><tr><th>{t("name")}</th><th>{t("columns")}</th><th>{t("type")}</th></tr></thead><tbody>{indexes.map((index) => <tr key={index.name}><td>{index.name}</td><td>{index.columns.join(", ")}</td><td>{index.primary ? "PRIMARY" : index.unique ? "UNIQUE" : "INDEX"}</td></tr>)}</tbody></table> : <div className="omni-empty-state">{t("noIndexes")}</div>)}
       {tab === "ddl" && <Textarea className="table-structure-ddl" value={ddl} readOnly resize="vertical" />}</>}</DialogContent><DialogActions>{editing ? <><Button onClick={() => setEditing(false)}>{t("cancel")}</Button><Button appearance="primary" disabled={!sql} onClick={() => { onOpenSql((tab === "indexes" ? t("alterIndexesTab") : t("alterTableTab")).replace("{table}", table), sql); onClose(); }}>{t("openSql")}</Button></> : <><Button onClick={onClose}>{t("close")}</Button>{tab !== "ddl" && <Button appearance="primary" onClick={beginEditing}>{tab === "indexes" ? t("editIndexes") : t("editStructure")}</Button>}</>}</DialogActions>
   </DialogBody></DialogSurface></Dialog>;

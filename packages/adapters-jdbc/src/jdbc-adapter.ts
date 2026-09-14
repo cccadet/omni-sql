@@ -153,9 +153,11 @@ function toRelation(schema: string, table: JdbcTableBody): Relation {
   return {
     schema,
     name: table.name,
+    ...(table.description?.trim() ? { description: table.description.trim() } : {}),
     kind: table.kind,
     columns: table.columns.map((c) => ({
       name: c.name,
+      ...(c.description?.trim() ? { description: c.description.trim() } : {}),
       dataType: c.dataType,
       nullable: c.nullable,
       isPrimaryKey: c.isPrimaryKey,

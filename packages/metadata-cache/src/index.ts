@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS relations (
   schema_id       INTEGER NOT NULL REFERENCES schemas(id) ON DELETE CASCADE,
   name            TEXT NOT NULL,
   kind            TEXT NOT NULL CHECK(kind IN ('table','view')),
+  description     TEXT,
   columns_json     TEXT NOT NULL,
   constraints_json TEXT NOT NULL,
   last_synced_at  INTEGER,
@@ -92,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_relations_schema ON relations(schema_id);
 CREATE INDEX IF NOT EXISTS idx_functions_schema  ON functions(schema_id);
 `;
 
-type CacheTable = "connections" | "connection_groups";
+type CacheTable = "connections" | "connection_groups" | "relations";
 
 const BASE_CONNECTION_COLUMNS = [
   "id",
@@ -147,6 +148,11 @@ function migrateConnectionSchema(db: DatabaseSync): void {
       "schemas_json",
       "group_id",
     ]);
+    const relationColumns = tableColumns(db, "relations");
+    requireColumns("relations", relationColumns, ["id", "schema_id", "name", "kind", "columns_json", "constraints_json", "last_synced_at"]);
+    if (!relationColumns.has("description")) {
+      db.exec("ALTER TABLE relations ADD COLUMN description TEXT;");
+    }
     db.exec("COMMIT");
   } catch (error) {
     try {
@@ -245,7 +251,7 @@ export class MetadataCache {
       "SELECT id, name, last_synced_at FROM schemas WHERE connection_id = ?",
     );
     const relStmt = this.db.prepare(
-      `SELECT name, kind, columns_json, constraints_json, last_synced_at
+      `SELECT name, kind, description, columns_json, constraints_json, last_synced_at
        FROM relations WHERE schema_id = ?`,
     );
     const fnStmt = this.db.prepare(
@@ -263,7 +269,7 @@ export class MetadataCache {
       conn.schemas.set(s.name, memSchema);
       for (const r of relStmt.all(s.id) as Array<{
         name: string; kind: string;
-        columns_json: string; constraints_json: string;
+        description: string | null; columns_json: string; constraints_json: string;
         last_synced_at: number | null;
       }>) {
         const cols = JSON.parse(r.columns_json) as Column[];
@@ -271,6 +277,7 @@ export class MetadataCache {
         memSchema.relations.set(r.name, {
           schema: s.name,
           name: r.name,
+          ...(r.description ? { description: r.description } : {}),
           kind: r.kind as "table" | "view",
           columns: cols,
           constraints: cons,
@@ -433,8 +440,8 @@ export class MetadataCache {
       );
       const relStmt = this.db.prepare(
         `INSERT INTO relations
-         (schema_id, name, kind, columns_json, constraints_json, last_synced_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+         (schema_id, name, kind, description, columns_json, constraints_json, last_synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       );
       const fnStmt = this.db.prepare(
         `INSERT INTO functions
@@ -451,6 +458,7 @@ export class MetadataCache {
             schemaRow.id,
             r.name,
             r.kind,
+            r.description ?? null,
             JSON.stringify(r.columns),
             JSON.stringify(r.constraints),
             syncedAt,

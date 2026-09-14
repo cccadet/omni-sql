@@ -346,6 +346,8 @@ const english = {
   editorSettingsTab: "Editor",
   wordBasedSuggestions: "Suggest words from the current SQL document",
   wordBasedSuggestionsHint: "When enabled, Monaco may mix words from the document with contextual database suggestions.",
+  description: "Description",
+  tableDescription: "Table description",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -382,6 +384,7 @@ const portugueseBrazil = [
   "Buscar schemas…", "Selecionar visíveis", "Nenhum schema corresponde a esta busca.", "{selected} selecionado(s) de {total}", "Carregue os schemas para escolher quais devem ser indexados.", "As seleções salvas aparecem primeiro. Carregue os schemas para atualizar a lista completa.", "Selecionado", "Usar todos os schemas",
   "CSV exportado", "Abrir CSV", "{count} linhas salvas em {file}", "Mostrar no Explorer",
   "Editor", "Sugerir palavras do documento SQL atual", "Quando ativado, o Monaco pode misturar palavras do documento com sugestões contextuais do banco.",
+  "Descrição", "Descrição da tabela",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

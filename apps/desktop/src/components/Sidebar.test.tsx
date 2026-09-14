@@ -22,10 +22,11 @@ const relations = [
   {
     schema: "public",
     name: "orders",
+    description: "Customer orders",
     kind: "table" as const,
     columns: [
       { name: "id", dataType: "integer", nullable: false, isPrimaryKey: true },
-      { name: "customer_id", dataType: "integer", nullable: false, isPrimaryKey: false, foreignKeyTo: { schema: "public", table: "customers", column: "id" } },
+      { name: "customer_id", description: "Owning customer", dataType: "integer", nullable: false, isPrimaryKey: false, foreignKeyTo: { schema: "public", table: "customers", column: "id" } },
     ],
   },
   {
@@ -78,11 +79,13 @@ describe("Sidebar", () => {
     expect(screen.getByText("orders")).toBeTruthy();
     expect(screen.getByText("recent_orders")).toBeTruthy();
     expect(screen.getByText("refresh_orders")).toBeTruthy();
+    expect(screen.getByText("orders").getAttribute("title")).toBe("Customer orders");
 
     fireEvent.click(screen.getByLabelText("Insert public.orders"));
     expect(onInsert).toHaveBeenCalledWith("public.orders");
 
     fireEvent.click(screen.getAllByRole("button", { name: "Expand/collapse" })[0]!);
+    expect((await screen.findByText("customer_id")).closest("div")?.getAttribute("title")).toContain("Owning customer");
     expect(await screen.findByText("orders_pkey")).toBeTruthy();
     expect(call).toHaveBeenCalledWith("metadata.listIndexes", { connectionId: "connection-1", schema: "public", table: "orders" });
   });
