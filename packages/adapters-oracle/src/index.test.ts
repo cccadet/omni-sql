@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OracleAdapter } from "./index.ts";
+import { oracleExplainBinds } from "./oracle-adapter.ts";
 import {
   getDefinitionViaConnection,
   introspectSchemas,
@@ -65,6 +66,15 @@ test("classificação Oracle envia apenas statements explicáveis ao EXPLAIN PLA
   assert.equal(isOracleExplainableStatement("UPDATE BIDW.DIM_ORIGEM SET ID = 1;"), true);
   assert.equal(isOracleExplainableStatement("/* segurança */ GRANT SELECT ON BIDW.DIM_ORIGEM TO DREMIO;"), false);
   assert.equal(isOracleExplainableStatement("REVOKE SELECT ON BIDW.DIM_ORIGEM FROM DREMIO;"), false);
+});
+
+test("EXPLAIN PLAN fornece binds neutros e ignora falsos placeholders", () => {
+  const sql = `SELECT :dt_ini, :dt_ini, :dt_fim
+    FROM "TABELA:NAO_BIND"
+    WHERE texto = ':string' AND outro = q'[tambem :string]'
+    -- :comentario
+    /* :bloco */`;
+  assert.deepEqual(oracleExplainBinds(sql), { dt_ini: null, dt_fim: null });
 });
 
 test("introspectSchemas ignora FK incompleta e preserva FK válida", async () => {
