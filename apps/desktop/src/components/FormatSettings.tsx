@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogSurface,
   DialogTitle,
@@ -56,7 +57,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
   const { t, language, setLanguage } = useLanguage();
   const [draft, setDraft] = useState<FormatterSettings>(() => ({ ...settings }));
   const [previewSql, setPreviewSql] = useState(PREVIEW_SQL);
-  const [section, setSection] = useState<"formatting" | "language">("formatting");
+  const [section, setSection] = useState<"editor" | "formatting" | "language">("formatting");
 
   const keybindingError = useMemo(
     () => (isValidKeybinding(draft.keybinding) ? null : t("invalidShortcut")),
@@ -88,10 +89,11 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
           <DialogTitle className="omni-settings-title">{t("formatSettingsTitle")}</DialogTitle>
           <TabList
             selectedValue={section}
-            onTabSelect={(_, data) => setSection(data.value as "formatting" | "language")}
+            onTabSelect={(_, data) => setSection(data.value as "editor" | "formatting" | "language")}
             aria-label={t("settingsSections")}
             className="omni-settings-tabs"
           >
+            <Tab value="editor">{t("editorSettingsTab")}</Tab>
             <Tab value="formatting">{t("formattingSettingsTab")}</Tab>
             <Tab value="language">{t("languageSettingsTab")}</Tab>
           </TabList>
@@ -109,6 +111,19 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   <option value="pt-BR">{t("portugueseBrazil")}</option>
                 </Select>
               </Label>
+              </div>
+            ) : section === "editor" ? (
+              <div className="omni-settings-section">
+                <section className="omni-settings-card">
+                  <Checkbox
+                    checked={draft.wordBasedSuggestions}
+                    label={t("wordBasedSuggestions")}
+                    onChange={(_, data) => update("wordBasedSuggestions", data.checked === true)}
+                  />
+                  <Text size={200} style={{ display: "block", color: tokens.colorNeutralForeground2 }}>
+                    {t("wordBasedSuggestionsHint")}
+                  </Text>
+                </section>
               </div>
             ) : (
               <div className="omni-settings-section">
