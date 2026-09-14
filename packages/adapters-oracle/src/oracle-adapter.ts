@@ -24,6 +24,64 @@ import {
 } from "./introspection.ts";
 
 /**
+ * Produz valores neutros para os binds nomeados usados apenas pelo EXPLAIN
+ * PLAN. O scanner ignora comentários, strings, identificadores quoted e a
+ * sintaxe alternativa de strings do Oracle para não inventar placeholders.
+ */
+export function oracleExplainBinds(sql: string): Record<string, null> {
+  const binds: Record<string, null> = {};
+  const quotePairs: Readonly<Record<string, string>> = { "[": "]", "(": ")", "{": "}", "<": ">" };
+  let i = 0;
+  while (i < sql.length) {
+    if (sql.startsWith("--", i)) {
+      const end = sql.indexOf("\n", i + 2);
+      i = end < 0 ? sql.length : end + 1;
+      continue;
+    }
+    if (sql.startsWith("/*", i)) {
+      const end = sql.indexOf("*/", i + 2);
+      i = end < 0 ? sql.length : end + 2;
+      continue;
+    }
+    const alternativeQuote = (sql[i] === "q" || sql[i] === "Q") && sql[i + 1] === "'" && sql[i + 2];
+    if (alternativeQuote) {
+      const opener = sql[i + 2]!;
+      const closer = quotePairs[opener] ?? opener;
+      const end = sql.indexOf(`${closer}'`, i + 3);
+      i = end < 0 ? sql.length : end + 2;
+      continue;
+    }
+    if (sql[i] === "'" || sql[i] === '"') {
+      const quote = sql[i]!;
+      i += 1;
+      while (i < sql.length) {
+        if (sql[i] !== quote) {
+          i += 1;
+          continue;
+        }
+        if (sql[i + 1] === quote) {
+          i += 2;
+          continue;
+        }
+        i += 1;
+        break;
+      }
+      continue;
+    }
+    if (sql[i] === ":" && sql[i + 1] !== ":") {
+      const match = /^:([A-Za-z_][A-Za-z0-9_$#]*)/.exec(sql.slice(i));
+      if (match) {
+        binds[match[1]!] = null;
+        i += match[0].length;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return binds;
+}
+
+/**
  * Adaptador Oracle real. Usa `oracledb` em Thin mode (puro JS, sem Oracle
  * Instant Client) — mesma forma de conexão que node-oracledb usa por padrão
  * desde a v6. Introspecção via `ALL_TABLES`/`ALL_TAB_COLUMNS`/
@@ -186,7 +244,10 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
       // aceito nessa posição); planId é gerado internamente, não vem de
       // entrada do usuário, então a interpolação aqui é segura.
       const planId = `omni_${Date.now().toString(36)}`;
-      await conn.execute(`EXPLAIN PLAN SET STATEMENT_ID = '${planId}' FOR ${sql}`);
+      await conn.execute(
+        `EXPLAIN PLAN SET STATEMENT_ID = '${planId}' FOR ${sql}`,
+        oracleExplainBinds(sql),
+      );
       const r = await conn.execute(
         `SELECT plan_table_output AS "line" FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', :planId, 'BASIC'))`,
         { planId },
