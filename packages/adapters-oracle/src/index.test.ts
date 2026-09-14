@@ -77,6 +77,23 @@ test("EXPLAIN PLAN fornece binds neutros e ignora falsos placeholders", () => {
   assert.deepEqual(oracleExplainBinds(sql), { dt_ini: null, dt_fim: null });
 });
 
+test("scanner de binds cobre identificadores, escapes e quoting alternativo Oracle", () => {
+  assert.deepEqual(
+    oracleExplainBinds(`SELECT :_inicio, :fim$1, :hash#2, ::cast, :1, :
+      FROM "A""B:quoted" WHERE texto = 'it''s :string'
+      AND a = q'{:brace}' AND b = Q'(:paren)' AND c = q'<:angle>' AND d = q'!:custom!'`),
+    { _inicio: null, "fim$1": null, "hash#2": null },
+  );
+});
+
+test("scanner de binds tolera comentários e textos quoted incompletos", () => {
+  assert.deepEqual(oracleExplainBinds("SELECT :ok -- :ignored"), { ok: null });
+  assert.deepEqual(oracleExplainBinds("SELECT :ok /* :ignored"), { ok: null });
+  assert.deepEqual(oracleExplainBinds("SELECT :ok, ':ignored"), { ok: null });
+  assert.deepEqual(oracleExplainBinds('SELECT :ok FROM "ignored:bind'), { ok: null });
+  assert.deepEqual(oracleExplainBinds("SELECT :ok, q'[:ignored"), { ok: null });
+});
+
 test("introspectSchemas ignora FK incompleta e preserva FK válida", async () => {
   const conn = {
     execute: async (sql: string) => {

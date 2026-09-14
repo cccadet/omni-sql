@@ -23,6 +23,42 @@ import {
   updateRowViaConnection,
 } from "./introspection.ts";
 
+const ORACLE_QUOTE_PAIRS: Readonly<Record<string, string>> = {
+  "[": "]", "(": ")", "{": "}", "<": ">",
+};
+
+function afterTerminator(sql: string, start: number, terminator: string): number {
+  const end = sql.indexOf(terminator, start);
+  return end < 0 ? sql.length : end + terminator.length;
+}
+
+function afterQuotedText(sql: string, start: number, quote: string): number {
+  let cursor = start + 1;
+  while (cursor < sql.length) {
+    if (sql[cursor] !== quote) {
+      cursor += 1;
+    } else if (sql[cursor + 1] === quote) {
+      cursor += 2;
+    } else {
+      return cursor + 1;
+    }
+  }
+  return sql.length;
+}
+
+function afterAlternativeQuotedText(sql: string, start: number): number | null {
+  const prefix = sql[start]?.toLowerCase() === "q" && sql[start + 1] === "'";
+  const opener = sql[start + 2];
+  if (!prefix || opener === undefined) return null;
+  const closer = ORACLE_QUOTE_PAIRS[opener] ?? opener;
+  return afterTerminator(sql, start + 3, `${closer}'`);
+}
+
+function bindAt(sql: string, start: number): RegExpExecArray | null {
+  if (sql[start] !== ":" || sql[start - 1] === ":" || sql[start + 1] === ":") return null;
+  return /^:([A-Za-z_][A-Za-z0-9_$#]*)/.exec(sql.slice(start));
+}
+
 /**
  * Produz valores neutros para os binds nomeados usados apenas pelo EXPLAIN
  * PLAN. O scanner ignora comentários, strings, identificadores quoted e a
@@ -30,53 +66,33 @@ import {
  */
 export function oracleExplainBinds(sql: string): Record<string, null> {
   const binds: Record<string, null> = {};
-  const quotePairs: Readonly<Record<string, string>> = { "[": "]", "(": ")", "{": "}", "<": ">" };
-  let i = 0;
-  while (i < sql.length) {
-    if (sql.startsWith("--", i)) {
-      const end = sql.indexOf("\n", i + 2);
-      i = end < 0 ? sql.length : end + 1;
+  let cursor = 0;
+  while (cursor < sql.length) {
+    if (sql.startsWith("--", cursor)) {
+      cursor = afterTerminator(sql, cursor + 2, "\n");
       continue;
     }
-    if (sql.startsWith("/*", i)) {
-      const end = sql.indexOf("*/", i + 2);
-      i = end < 0 ? sql.length : end + 2;
+    if (sql.startsWith("/*", cursor)) {
+      cursor = afterTerminator(sql, cursor + 2, "*/");
       continue;
     }
-    const alternativeQuote = (sql[i] === "q" || sql[i] === "Q") && sql[i + 1] === "'" && sql[i + 2];
-    if (alternativeQuote) {
-      const opener = sql[i + 2]!;
-      const closer = quotePairs[opener] ?? opener;
-      const end = sql.indexOf(`${closer}'`, i + 3);
-      i = end < 0 ? sql.length : end + 2;
+    const alternativeQuoteEnd = afterAlternativeQuotedText(sql, cursor);
+    if (alternativeQuoteEnd !== null) {
+      cursor = alternativeQuoteEnd;
       continue;
     }
-    if (sql[i] === "'" || sql[i] === '"') {
-      const quote = sql[i]!;
-      i += 1;
-      while (i < sql.length) {
-        if (sql[i] !== quote) {
-          i += 1;
-          continue;
-        }
-        if (sql[i + 1] === quote) {
-          i += 2;
-          continue;
-        }
-        i += 1;
-        break;
-      }
+    const current = sql[cursor]!;
+    if (current === "'" || current === '"') {
+      cursor = afterQuotedText(sql, cursor, current);
       continue;
     }
-    if (sql[i] === ":" && sql[i + 1] !== ":") {
-      const match = /^:([A-Za-z_][A-Za-z0-9_$#]*)/.exec(sql.slice(i));
-      if (match) {
-        binds[match[1]!] = null;
-        i += match[0].length;
-        continue;
-      }
+    const bind = bindAt(sql, cursor);
+    if (bind) {
+      binds[bind[1]!] = null;
+      cursor += bind[0].length;
+      continue;
     }
-    i += 1;
+    cursor += 1;
   }
   return binds;
 }
