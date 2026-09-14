@@ -19,12 +19,14 @@ export interface RelationRow {
   table_schema: string;
   table_name: string;
   table_type: "TABLE" | "VIEW";
+  description?: string | null;
 }
 
 export interface ColumnRow {
   table_schema: string;
   table_name: string;
   column_name: string;
+  description?: string | null;
   data_type: string;
   is_nullable: "Y" | "N";
   column_default: string | null;
@@ -58,13 +60,15 @@ const NON_MAINTAINED_OWNER_FILTER =
   "owner NOT IN (SELECT username FROM all_users WHERE oracle_maintained = 'Y')";
 
 const RELATIONS_SQL = `
-SELECT owner AS "table_schema", table_name AS "table_name", 'TABLE' AS "table_type"
-FROM all_tables
-WHERE ${NON_MAINTAINED_OWNER_FILTER}
+SELECT t.owner AS "table_schema", t.table_name AS "table_name", 'TABLE' AS "table_type", tc.comments AS "description"
+FROM all_tables t
+LEFT JOIN all_tab_comments tc ON tc.owner = t.owner AND tc.table_name = t.table_name
+WHERE t.${NON_MAINTAINED_OWNER_FILTER}
 UNION ALL
-SELECT owner AS "table_schema", view_name AS "table_name", 'VIEW' AS "table_type"
-FROM all_views
-WHERE ${NON_MAINTAINED_OWNER_FILTER}
+SELECT v.owner AS "table_schema", v.view_name AS "table_name", 'VIEW' AS "table_type", tc.comments AS "description"
+FROM all_views v
+LEFT JOIN all_tab_comments tc ON tc.owner = v.owner AND tc.table_name = v.view_name
+WHERE v.${NON_MAINTAINED_OWNER_FILTER}
 ORDER BY 1, 2
 `;
 
@@ -76,10 +80,12 @@ SELECT
   data_type AS "data_type",
   nullable AS "is_nullable",
   data_default AS "column_default",
-  column_id AS "ordinal_position"
-FROM all_tab_columns
-WHERE ${NON_MAINTAINED_OWNER_FILTER}
-ORDER BY owner, table_name, column_id
+  c.column_id AS "ordinal_position",
+  cc.comments AS "description"
+FROM all_tab_columns c
+LEFT JOIN all_col_comments cc ON cc.owner = c.owner AND cc.table_name = c.table_name AND cc.column_name = c.column_name
+WHERE c.${NON_MAINTAINED_OWNER_FILTER}
+ORDER BY c.owner, c.table_name, c.column_id
 `;
 
 const CONSTRAINTS_SQL = `
@@ -262,6 +268,7 @@ export async function introspectSchemas(
         const fk = fkByColumn.get(c.column_name);
         return {
           name: c.column_name,
+          ...(c.description?.trim() ? { description: c.description.trim() } : {}),
           dataType: c.data_type,
           nullable: c.is_nullable === "Y",
           isPrimaryKey: pkCols.has(c.column_name),
@@ -299,6 +306,7 @@ export async function introspectSchemas(
       return {
         schema: schemaName,
         name: r.table_name,
+        ...(r.description?.trim() ? { description: r.description.trim() } : {}),
         kind: r.table_type === "VIEW" ? "view" : "table",
         columns,
         constraints: relConstraints,

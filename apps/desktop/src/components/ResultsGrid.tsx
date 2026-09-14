@@ -7,6 +7,7 @@ import {
   Popover,
   PopoverSurface,
   PopoverTrigger,
+  Spinner,
   Tab,
   TabList,
   Text,
@@ -40,6 +41,7 @@ import { exportCsvFile, openExportedFile, revealExportedFile } from "../lib/file
 export interface ResultsGridProps {
   result?: QueryResult | null;
   error?: string | null;
+  running?: boolean;
   planText?: string | null;
   editability?: RowEditability | null;
   /** Called when an edit is made. It must only update the parent's staged state. */
@@ -141,6 +143,7 @@ function columnTypeLabel(dataType: string): string {
 export function ResultsGrid({
   result,
   error,
+  running = false,
   planText,
   editability,
   onStageCellEdit,
@@ -668,7 +671,22 @@ export function ResultsGrid({
       <div ref={gridScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {activeTab === "data" && (
           <>
-            {!result ? (
+            {running ? (
+              <div
+                role="status"
+                data-testid="query-running-indicator"
+                aria-live="polite"
+                style={{
+                  minHeight: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 24,
+                }}
+              >
+                <Spinner size="small" label={t("running")} />
+              </div>
+            ) : !result ? (
               <Text className="omni-empty-state" size={200}>
                 {t("noResults")}
               </Text>

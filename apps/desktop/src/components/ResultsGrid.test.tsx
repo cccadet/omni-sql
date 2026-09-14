@@ -28,6 +28,17 @@ const renderGrid = () => render(
   </LanguageProvider>,
 );
 
+test("shows query progress instead of the empty state while running", () => {
+  render(
+    <LanguageProvider>
+      <ResultsGrid running result={null} />
+    </LanguageProvider>,
+  );
+
+  expect(screen.getByTestId("query-running-indicator").textContent).toContain("Running…");
+  expect(screen.queryByText("No results")).toBeNull();
+});
+
 test("serializes nested values without object coercion", () => {
   expect(serializeCellValue(firstPayload)).toBe('{"nested":{"label":"needle"},"values":["x",2]}');
   expect(serializeCellValue(null)).toBe("");

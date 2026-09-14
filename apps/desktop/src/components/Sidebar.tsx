@@ -900,7 +900,7 @@ export function Sidebar({
                               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                 <TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
                                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {t.name}
+                                  <span title={t.description}>{t.name}</span>
                                 </span>
                               </span>
                             }
@@ -938,7 +938,7 @@ export function Sidebar({
                                   <div
                                     key={c.name}
                                     className="column"
-                                    title={`${c.name}: ${c.dataType}${c.nullable ? "" : " NOT NULL"}${c.isPrimaryKey ? " — PK" : ""}${c.foreignKeyTo ? ` — FK → ${c.foreignKeyTo.schema}.${c.foreignKeyTo.table}.${c.foreignKeyTo.column}` : ""}`}
+                                    title={`${c.name}: ${c.dataType}${c.nullable ? "" : " NOT NULL"}${c.isPrimaryKey ? " — PK" : ""}${c.foreignKeyTo ? ` — FK → ${c.foreignKeyTo.schema}.${c.foreignKeyTo.table}.${c.foreignKeyTo.column}` : ""}${c.description ? `\n${c.description}` : ""}`}
                                   >
                                     {c.isPrimaryKey ? (
                                       <>
@@ -1041,7 +1041,7 @@ export function Sidebar({
                               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                 <EyeRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
                                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {v.name}
+                                  <span title={v.description}>{v.name}</span>
                                 </span>
                               </span>
                             }
@@ -1072,7 +1072,7 @@ export function Sidebar({
                               {!columnState?.loading && !columnState?.error && columns.map((c) => {
                                 const ColumnIcon = typeIcon(c.dataType);
                                 return (
-                                  <div key={c.name} className="column">
+                                  <div key={c.name} className="column" title={c.description}>
                                     <ColumnIcon fontSize={10} style={{ color: tokens.colorNeutralForeground3 }} />
                                     <span className="col-name">{c.name}</span>
                                     <span className="col-type">{c.dataType}</span>

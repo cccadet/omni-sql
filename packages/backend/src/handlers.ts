@@ -877,15 +877,18 @@ export const handlers: BackendRpcRouter = {
       const rels = cache.getTablesBySchema(s.config.id, schemaName);
       for (const r of rels) {
         if (query && !r.name.toLocaleLowerCase().includes(query) &&
-            !r.columns.some((column) => column.name.toLocaleLowerCase().includes(query))) continue;
+            !r.description?.toLocaleLowerCase().includes(query) &&
+            !r.columns.some((column) => column.name.toLocaleLowerCase().includes(query) || column.description?.toLocaleLowerCase().includes(query))) continue;
         all.push({
           schema: r.schema,
           name: r.name,
+          ...(r.description ? { description: r.description } : {}),
           kind: r.kind,
           ...(includeColumns
             ? {
                 columns: r.columns.map((c) => ({
                   name: c.name,
+                  ...(c.description ? { description: c.description } : {}),
                   dataType: c.dataType,
                   nullable: c.nullable,
                   isPrimaryKey: c.isPrimaryKey,
@@ -910,8 +913,10 @@ export const handlers: BackendRpcRouter = {
     const relation = resolveRelationByName(connectionId, table, schema);
     if (!relation) throw new RpcValidationError("tabela não encontrada");
     return {
+      ...(relation.description ? { description: relation.description } : {}),
       columns: cache.getColumnsByTable(connectionId, schema, table).map((column) => ({
         name: column.name,
+        ...(column.description ? { description: column.description } : {}),
         dataType: column.dataType,
         nullable: column.nullable,
         isPrimaryKey: column.isPrimaryKey,

@@ -348,7 +348,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         matchBrackets: "always",
         bracketPairColorization: { enabled: true },
         autoClosingBrackets: "never",
-        autoClosingQuotes: "never",
+        autoClosingQuotes: "languageDefined",
         // Keep completion/hover widgets above the results pane. The editor lives in
         // a grid cell with overflow hidden, so absolute widgets are otherwise
         // clipped at the editor's lower edge (including "All columns").

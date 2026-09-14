@@ -24,13 +24,14 @@ data class QueryResult(
 /** Mesmo shape de `Column` (TS) — sem `foreignKeyTo`/`defaultValue`: `getImportedKeys` não é confiável entre drivers JDBC arbitrários. */
 data class JdbcColumn(
     val name: String,
+    val description: String?,
     val dataType: String,
     val nullable: Boolean,
     val ordinalPosition: Int,
     val isPrimaryKey: Boolean,
 )
 
-data class JdbcTable(val name: String, val kind: String, val columns: List<JdbcColumn>)
+data class JdbcTable(val name: String, val kind: String, val description: String?, val columns: List<JdbcColumn>)
 
 data class JdbcSchema(val name: String, val tables: List<JdbcTable>)
 
@@ -165,14 +166,15 @@ object JdbcConnectionManager {
             return openEdgeTablesForSchema(connection, schema)
         }
         val schemaPattern = if (schema == DEFAULT_SCHEMA) null else schema
-        val tables = mutableListOf<Pair<String, String>>()
+        data class TableMetadata(val name: String, val kind: String, val description: String?)
+        val tables = mutableListOf<TableMetadata>()
         meta.getTables(null, schemaPattern, "%", arrayOf("TABLE", "VIEW")).use { rs ->
             while (rs.next()) {
                 val kind = if (rs.getString("TABLE_TYPE") == "VIEW") "view" else "table"
-                tables.add(rs.getString("TABLE_NAME") to kind)
+                tables.add(TableMetadata(rs.getString("TABLE_NAME"), kind, rs.getString("REMARKS")?.trim()?.ifEmpty { null }))
             }
         }
-        return tables.map { (name, kind) -> JdbcTable(name, kind, columnsForTable(meta, schemaPattern, name)) }
+        return tables.map { JdbcTable(it.name, it.kind, it.description, columnsForTable(meta, schemaPattern, it.name)) }
     }
 
     private fun openEdgeTablesForSchema(connection: Connection, schema: String): List<JdbcTable> {
@@ -198,6 +200,7 @@ object JdbcConnectionManager {
                     table.second.add(
                         JdbcColumn(
                             name = rs.getString("col"),
+                            description = null,
                             dataType = rs.getString("coltype") ?: "unknown",
                             nullable = rs.getString("nullflag").equals("Y", ignoreCase = true),
                             ordinalPosition = rs.getInt("id"),
@@ -210,7 +213,7 @@ object JdbcConnectionManager {
         if (System.getenv("OMNI_SQL_DEBUG_JDBC") == "1") {
             System.err.println("[omni-sql] JDBC OpenEdge catalog schema=$schema tables=${tables.size}")
         }
-        return tables.map { (name, value) -> JdbcTable(name, value.first, value.second) }
+        return tables.map { (name, value) -> JdbcTable(name, value.first, null, value.second) }
     }
 
     private fun columnsForTable(meta: DatabaseMetaData, schemaPattern: String?, table: String): List<JdbcColumn> {
@@ -229,6 +232,7 @@ object JdbcConnectionManager {
                 columns.add(
                     JdbcColumn(
                         name = name,
+                        description = rs.getString("REMARKS")?.trim()?.ifEmpty { null },
                         dataType = rs.getString("TYPE_NAME") ?: "unknown",
                         nullable = rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls,
                         ordinalPosition = rs.getInt("ORDINAL_POSITION"),

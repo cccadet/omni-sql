@@ -29,6 +29,7 @@ interface JdbcQueryBody {
 
 export interface JdbcColumnBody {
   readonly name: string;
+  readonly description?: string | null;
   readonly dataType: string;
   readonly nullable: boolean;
   readonly ordinalPosition: number;
@@ -37,6 +38,7 @@ export interface JdbcColumnBody {
 
 export interface JdbcTableBody {
   readonly name: string;
+  readonly description?: string | null;
   readonly kind: "table" | "view";
   readonly columns: readonly JdbcColumnBody[];
 }

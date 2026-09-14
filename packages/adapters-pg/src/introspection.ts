@@ -21,6 +21,7 @@ export interface ColumnRow {
   table_schema: string;
   table_name: string;
   column_name: string;
+  description?: string | null;
   data_type: string;
   is_nullable: "YES" | "NO";
   column_default: string | null;
@@ -35,6 +36,7 @@ export interface RelationRow {
   table_schema: string;
   table_name: string;
   table_type: "BASE TABLE" | "VIEW";
+  description?: string | null;
 }
 
 export interface FunctionRow {
@@ -49,8 +51,10 @@ export interface FunctionRow {
 // ─────────────────────────── Introspection SQL
 
 const RELATIONS_SQL = `
-SELECT table_schema, table_name, table_type
-FROM information_schema.tables
+SELECT t.table_schema, t.table_name, t.table_type, obj_description(pc.oid, 'pg_class') AS description
+FROM information_schema.tables t
+JOIN pg_namespace pn ON pn.nspname = t.table_schema
+JOIN pg_class pc ON pc.relnamespace = pn.oid AND pc.relname = t.table_name
 WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
   AND table_type IN ('BASE TABLE', 'VIEW')
 ORDER BY table_schema, table_name
@@ -76,11 +80,14 @@ SELECT
   c.is_nullable,
   c.column_default,
   c.ordinal_position,
+  col_description(pc.oid, c.ordinal_position) AS description,
   (pk.column_name IS NOT NULL) AS is_pk,
   fk.ud_schema   AS fk_schema,
   fk.ud_table    AS fk_table,
   fk.ud_column   AS fk_column
 FROM information_schema.columns c
+JOIN pg_namespace pn ON pn.nspname = c.table_schema
+JOIN pg_class pc ON pc.relnamespace = pn.oid AND pc.relname = c.table_name
 LEFT JOIN (
   SELECT kcu.table_schema, kcu.table_name, kcu.column_name
   FROM information_schema.table_constraints tc
@@ -229,6 +236,7 @@ export async function introspectSchemas(
       const rcols = colsByTable.get(`${schemaName}.${r.table_name}`) ?? [];
       const columns: Column[] = rcols.map((c) => ({
         name: c.column_name,
+        ...(c.description?.trim() ? { description: c.description.trim() } : {}),
         dataType: c.data_type,
         nullable: c.is_nullable === "YES",
         isPrimaryKey: c.is_pk,
@@ -268,6 +276,7 @@ export async function introspectSchemas(
       return {
         schema: schemaName,
         name: r.table_name,
+        ...(r.description?.trim() ? { description: r.description.trim() } : {}),
         kind: r.table_type === "VIEW" ? "view" : "table",
         columns,
         constraints,

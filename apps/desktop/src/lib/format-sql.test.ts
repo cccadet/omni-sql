@@ -50,4 +50,20 @@ describe("safe SQL formatting", () => {
     const once = formatSql("SELECT a,b FROM t WHERE a=1 AND b=2;", "postgres", DEFAULT_FORMATTER_SETTINGS);
     expect(formatSql(once, "postgres", DEFAULT_FORMATTER_SETTINGS)).toBe(once);
   });
+
+  test("wraps a long BETWEEN predicate in a JOIN", () => {
+    const formatted = formatSql(
+      "SELECT p.CDPROCEDIMENTO, p.DSPROCEDIMENTO, gt.DSGRUPOTUSS, gt.TPGRUPOTUSS FROM AUTORIZADOR.PROCEDIMENTO p LEFT JOIN autorizador.procedimentogrupotuss gt ON TO_NUMBER(p.CDPROCEDIMENTO) BETWEEN TO_NUMBER(gt.cdprocedimentoinicial) AND TO_NUMBER(gt.cdprocedimentofinal) WHERE gt.TPGRUPOTUSS = 'EA'",
+      "oracle",
+      DEFAULT_FORMATTER_SETTINGS,
+    );
+
+    expect(formatted).toContain([
+      "  LEFT JOIN autorizador.procedimentogrupotuss gt",
+      "    ON TO_NUMBER(p.CDPROCEDIMENTO)",
+      "      BETWEEN TO_NUMBER(gt.cdprocedimentoinicial)",
+      "      AND TO_NUMBER(gt.cdprocedimentofinal)",
+    ].join("\n"));
+    expect(formatSql(formatted, "oracle", DEFAULT_FORMATTER_SETTINGS)).toBe(formatted);
+  });
 });

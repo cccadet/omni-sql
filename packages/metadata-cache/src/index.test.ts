@@ -205,6 +205,28 @@ test("lastSyncedAt is populated after ingest", () => {
   }
 });
 
+test("persists relation and column descriptions across reopen", () => {
+  const dbPath = tmpPath();
+  const described: Relation = {
+    ...USERS,
+    description: "Application users",
+    columns: USERS.columns.map((column) => column.name === "name" ? { ...column, description: "Display name" } : column),
+  };
+  const cache = MetadataCache.open(dbPath);
+  cache.upsertConnection(cfg());
+  cache.ingestIntrospection("c1", [{ name: "public", relations: [described], functions: [] }]);
+  cache.close();
+
+  const reopened = MetadataCache.open(dbPath);
+  try {
+    const relation = reopened.getTablesBySchema("c1", "public")[0]!;
+    assert.equal(relation.description, "Application users");
+    assert.equal(relation.columns[1]?.description, "Display name");
+  } finally {
+    reopened.close();
+  }
+});
+
 test("migrates legacy SQLite connections table and persists groups", () => {
   const dbPath = tmpPath();
   const legacy = new DatabaseSync(dbPath);

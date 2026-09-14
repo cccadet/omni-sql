@@ -181,9 +181,11 @@ export interface ListRelationsResult {
   relations: ReadonlyArray<{
     schema: string;
     name: string;
+    description?: string;
     kind: "table" | "view";
     columns?: ReadonlyArray<{
       name: string;
+      description?: string;
       dataType: string;
       nullable: boolean;
       isPrimaryKey: boolean;
@@ -200,6 +202,7 @@ export interface ListColumnsParams {
   table: string;
 }
 export interface ListColumnsResult {
+  description?: string;
   columns: NonNullable<ListRelationsResult["relations"][number]["columns"]>;
   constraints: ReadonlyArray<{
     name: string;

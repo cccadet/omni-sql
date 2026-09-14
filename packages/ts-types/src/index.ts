@@ -20,6 +20,7 @@ export type DialectId =
 
 export interface Column {
   readonly name: string;
+  readonly description?: string;
   readonly dataType: string;
   readonly nullable: boolean;
   readonly isPrimaryKey: boolean;
@@ -50,6 +51,7 @@ export type RelationKind = "table" | "view";
 export interface Relation {
   readonly schema: string;
   readonly name: string;
+  readonly description?: string;
   readonly kind: RelationKind;
   readonly columns: readonly Column[];
   readonly constraints: readonly Constraint[];

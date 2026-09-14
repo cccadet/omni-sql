@@ -19,12 +19,14 @@ export interface RelationRow {
   table_schema: string;
   table_name: string;
   table_type: "BASE TABLE" | "VIEW";
+  description?: string | null;
 }
 
 export interface ColumnRow {
   table_schema: string;
   table_name: string;
   column_name: string;
+  description?: string | null;
   data_type: string;
   is_nullable: "YES" | "NO";
   column_default: string | null;
@@ -70,7 +72,10 @@ export async function listSchemaNames(pool: ConnectionPool): Promise<readonly st
 }
 
 const RELATIONS_SQL = `
-SELECT TABLE_SCHEMA AS table_schema, TABLE_NAME AS table_name, TABLE_TYPE AS table_type
+SELECT TABLE_SCHEMA AS table_schema, TABLE_NAME AS table_name, TABLE_TYPE AS table_type,
+  CAST((SELECT TOP 1 ep.value FROM sys.extended_properties ep
+        WHERE ep.major_id = OBJECT_ID(QUOTENAME(TABLE_SCHEMA) + '.' + QUOTENAME(TABLE_NAME))
+          AND ep.minor_id = 0 AND ep.name = N'MS_Description') AS nvarchar(max)) AS description
 FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
 ORDER BY TABLE_SCHEMA, TABLE_NAME
@@ -87,6 +92,10 @@ SELECT
   c.IS_NULLABLE AS is_nullable,
   c.COLUMN_DEFAULT AS column_default,
   c.ORDINAL_POSITION AS ordinal_position,
+  CAST((SELECT TOP 1 ep.value FROM sys.extended_properties ep
+        WHERE ep.major_id = OBJECT_ID(QUOTENAME(c.TABLE_SCHEMA) + '.' + QUOTENAME(c.TABLE_NAME))
+          AND ep.minor_id = COLUMNPROPERTY(ep.major_id, c.COLUMN_NAME, 'ColumnId')
+          AND ep.name = N'MS_Description') AS nvarchar(max)) AS description,
   CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS is_pk,
   fk.ud_schema AS fk_schema,
   fk.ud_table  AS fk_table,
@@ -227,6 +236,7 @@ export async function introspectSchemas(
       const rcols = colsByTable.get(`${schemaName}.${r.table_name}`) ?? [];
       const columns: Column[] = rcols.map((c) => ({
         name: c.column_name,
+        ...(c.description?.trim() ? { description: c.description.trim() } : {}),
         dataType: c.data_type,
         nullable: c.is_nullable === "YES",
         isPrimaryKey: c.is_pk === 1,
@@ -264,6 +274,7 @@ export async function introspectSchemas(
       return {
         schema: schemaName,
         name: r.table_name,
+        ...(r.description?.trim() ? { description: r.description.trim() } : {}),
         kind: r.table_type === "VIEW" ? "view" : "table",
         columns,
         constraints,

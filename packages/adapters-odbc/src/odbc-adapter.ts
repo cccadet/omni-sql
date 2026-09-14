@@ -7,7 +7,7 @@ type OdbcConnection = odbc.Connection;
 type OdbcResult = odbc.Result<Record<string, unknown>>;
 type OdbcConnector = Pick<typeof odbc, "connect">;
 
-interface TableRef { catalog: string | null; schema: string | null; displaySchema: string; name: string; kind: "table" | "view"; }
+interface TableRef { catalog: string | null; schema: string | null; displaySchema: string; name: string; kind: "table" | "view"; description?: string; }
 
 export class OdbcAdapter extends CachedAdapter implements Adapter {
   readonly dialect = "odbc" as const;
@@ -55,12 +55,13 @@ export class OdbcAdapter extends CachedAdapter implements Adapter {
       const primaryKeys = new Set(primaryKeyRows.map((row) => textField(row, "COLUMN_NAME")));
       const columns = columnRows.map((row, index) => ({
         name: textField(row, "COLUMN_NAME") || `column_${index + 1}`,
+        ...(nullableTextField(row, "REMARKS") ? { description: nullableTextField(row, "REMARKS")!.trim() } : {}),
         dataType: textField(row, "TYPE_NAME") || textField(row, "DATA_TYPE") || "UNKNOWN",
         nullable: numberField(row, "NULLABLE", 1) !== 0,
         isPrimaryKey: primaryKeys.has(textField(row, "COLUMN_NAME")),
         ordinalPosition: numberField(row, "ORDINAL_POSITION", index + 1),
       })).sort((left, right) => left.ordinalPosition - right.ordinalPosition);
-      const relation: Relation = { schema: ref.displaySchema, name: ref.name, kind: ref.kind, columns, constraints: [] };
+      const relation: Relation = { schema: ref.displaySchema, name: ref.name, kind: ref.kind, ...(ref.description ? { description: ref.description } : {}), columns, constraints: [] };
       grouped.set(ref.displaySchema, [...(grouped.get(ref.displaySchema) ?? []), relation]);
     }
     return [...grouped.entries()].sort(([a], [b]) => compareStrings(a, b)).map(([schema, relations]) => [schema, schema, relations] as const);
@@ -116,7 +117,8 @@ export class OdbcAdapter extends CachedAdapter implements Adapter {
       const key = `${catalog ?? ""}\0${schema ?? ""}\0${name}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      refs.push({ catalog, schema, displaySchema, name, kind: textField(row, "TABLE_TYPE").toUpperCase().includes("VIEW") ? "view" : "table" });
+      const description = nullableTextField(row, "REMARKS")?.trim() || undefined;
+      refs.push({ catalog, schema, displaySchema, name, kind: textField(row, "TABLE_TYPE").toUpperCase().includes("VIEW") ? "view" : "table", ...(description ? { description } : {}) });
     }
     return refs;
   }
