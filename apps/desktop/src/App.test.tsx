@@ -526,4 +526,28 @@ describe("App update event listener", () => {
     await waitFor(() => expect(downloadAndInstall).toHaveBeenCalledTimes(1));
     expect(screen.getByText("Installing update…")).toBeTruthy();
   });
+
+  it("reports that the app became current when the signed update is no longer available", async () => {
+    updateCheckResult = { available: true, version: "v0.2.10" };
+    vi.stubGlobal("navigator", { ...window.navigator, userAgent: "Windows" });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.mocked(check).mockResolvedValue(null);
+
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Update v0.2.10 available" }));
+
+    expect(await screen.findByText("Omni SQL is up to date.")).toBeTruthy();
+  });
+
+  it("shows a signed update installation failure", async () => {
+    updateCheckResult = { available: true, version: "v0.2.10" };
+    vi.stubGlobal("navigator", { ...window.navigator, userAgent: "Windows" });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.mocked(check).mockRejectedValue(new Error("signature rejected"));
+
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Update v0.2.10 available" }));
+
+    expect(await screen.findByText("Could not install the update: signature rejected")).toBeTruthy();
+  });
 });
