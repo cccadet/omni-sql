@@ -84,6 +84,23 @@ test("StatusBar: keeps release closed when user declines", () => {
   vi.unstubAllGlobals();
 });
 
+test("StatusBar: starts an in-app update when an installer handler is available", () => {
+  const onInstallUpdate = vi.fn();
+  renderWithLanguage(<StatusBar update={{ available: true, version: "1.2.3" }} onInstallUpdate={onInstallUpdate} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Update v1.2.3 available" }));
+  assert.equal(onInstallUpdate.mock.calls.length, 1);
+  assert.equal(vi.mocked(openUrl).mock.calls.length, 0);
+});
+
+test("StatusBar: exposes updater download progress", () => {
+  const { rerender } = renderWithLanguage(<StatusBar updateStatus={{ state: "downloading", percent: 42 }} />);
+  assert.ok(screen.getByText("Downloading update… 42%"));
+
+  rerender(<LanguageProvider><StatusBar updateStatus={{ state: "installing" }} /></LanguageProvider>);
+  assert.ok(screen.getByText("Installing update…"));
+});
+
 test("StatusBar: makes update check result visible", () => {
   renderWithLanguage(<StatusBar updateStatus={{ state: "up-to-date" }} />);
   assert.ok(screen.getByText("Omni SQL is up to date."));

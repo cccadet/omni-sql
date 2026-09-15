@@ -34,6 +34,8 @@ export type UpdateCheckStatus =
   | { state: "checking" }
   | { state: "up-to-date" }
   | { state: "available"; version: string }
+  | { state: "downloading"; percent: number | null }
+  | { state: "installing" }
   | { state: "error"; message: string };
 
 export type McpVisualState = "inactive" | "listening" | "connected" | "error";
@@ -46,12 +48,13 @@ export interface StatusBarProps {
   health?: ConnectionHealth;
   update?: UpdateInfo | null;
   updateStatus?: UpdateCheckStatus | null;
+  onInstallUpdate?: () => void;
   mcpState?: McpVisualState;
   mcpStatus?: McpStatusResult | null;
   mcpError?: string | null;
 }
 
-export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown", update, updateStatus, mcpState = "inactive", mcpStatus, mcpError }: StatusBarProps) {
+export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError }: StatusBarProps) {
   const { t } = useLanguage();
   const [mcpOpen, setMcpOpen] = useState(false);
   const dialectLabels: Record<string, string> = {
@@ -109,6 +112,16 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
       {updateStatus?.state === "up-to-date" && (
         <Text size={200} role="status" aria-live="polite">{t("upToDate")}</Text>
       )}
+      {updateStatus?.state === "downloading" && (
+        <Text size={200} role="status" aria-live="polite">
+          {updateStatus.percent === null
+            ? t("downloadingUpdate")
+            : t("downloadingUpdateProgress").replace("{percent}", String(updateStatus.percent))}
+        </Text>
+      )}
+      {updateStatus?.state === "installing" && (
+        <Text size={200} role="status" aria-live="polite">{t("installingUpdate")}</Text>
+      )}
       {updateStatus?.state === "error" && (
         <Text size={200} role="status" aria-live="polite" style={{ color: tokens.colorPaletteRedForeground1 }}>
           {updateStatus.message}
@@ -119,6 +132,10 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
           type="button"
           aria-label={t("updateAvailable").replace("{version}", displayUpdateVersion(update.version))}
           onClick={() => {
+            if (onInstallUpdate) {
+              onInstallUpdate();
+              return;
+            }
             if (!update.releaseUrl) return;
             try {
               const url = new URL(update.releaseUrl);

@@ -26,6 +26,7 @@
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-opener": "^2.0.0",
+    "@tauri-apps/plugin-updater": "^2.11.0",
     "monaco-editor": "^0.52.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
