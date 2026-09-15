@@ -56,7 +56,14 @@ installer formats such as `nsis`).
 The release workflow accepts tags matching exactly `vX.Y.Z`. It verifies the
 repository, prepares and validates native resources, and builds separately on
 Windows x64 and Linux x64. Published assets are Windows `.exe`, Linux `.deb`,
-and `SHA256SUMS`; AppImage and macOS are not part of the current release.
+the updater signature and `latest.json`, and `SHA256SUMS`; AppImage and macOS
+are not part of the current release.
+
+The Windows build requires the `TAURI_SIGNING_PRIVATE_KEY` repository secret.
+Set it to the complete contents of the updater private key. If that key has a
+password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep an offline backup:
+losing the private key prevents existing installations from accepting future
+updates. The public key embedded in `tauri.conf.json` is safe to commit.
 
 Source builds target the host platform and architecture only. Cross-target
 resource preparation is rejected because native Node addons cannot be reused

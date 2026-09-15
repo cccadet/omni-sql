@@ -119,8 +119,10 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          printf '{"version":"%s"}\n' "$VERSION" > "$RUNNER_TEMP/tauri-version.json"
+          printf '{"version":"%s","bundle":{"createUpdaterArtifacts":true}}\n' "$VERSION" > "$RUNNER_TEMP/tauri-version.json"
           pnpm --filter desktop exec tauri build \
             --bundles "${{ matrix.bundles }}" \
             --config "$RUNNER_TEMP/tauri-version.json"
@@ -160,7 +162,27 @@ jobs:
               exit 1
             fi
             cp "$file" "release-assets/$name"
-          done < <(find release-files -type f \( -name '*.deb' -o -name '*.exe' \) -print0 | sort -z)
+          done < <(find release-files -type f \( -name '*.deb' -o -name '*.exe' -o -name '*.sig' \) -print0 | sort -z)
+
+      - name: Create updater manifest
+        working-directory: release-assets
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer="$(find . -maxdepth 1 -type f -name '*-setup.exe' -print -quit)"
+          test -n "$installer"
+          signature_file="${installer}.sig"
+          test -f "$signature_file"
+          asset_name="${installer#./}"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg pub_date "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --arg signature "$(cat "$signature_file")" \
+            --arg url "https://github.com/cccadet/omni-sql/releases/download/v${VERSION}/${asset_name}" \
+            '{version: $version, pub_date: $pub_date, platforms: {"windows-x86_64": {signature: $signature, url: $url}}}' \
+            > latest.json
 
       - name: Create SHA256SUMS
         working-directory: release-assets

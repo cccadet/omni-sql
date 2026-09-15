@@ -4,6 +4,7 @@ import { PlugConnectedRegular, PlugDisconnectedRegular, WeatherSunnyRegular, Wea
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { check } from "@tauri-apps/plugin-updater";
 import { useEditorMonacoTheme, type ThemeName } from "./theme";
 import { useSession, makeTab } from "./hooks/useSession";
 import { useConnections } from "./hooks/useConnections";
@@ -46,6 +47,10 @@ const DIALECT_LABELS: Record<string, string> = {
   postgres: "PostgreSQL", mysql: "MySQL", mariadb: "MariaDB", sqlserver: "SQL Server",
   oracle: "Oracle", "jdbc-generic": "JDBC", odbc: "ODBC",
 };
+
+function supportsInAppUpdate(): boolean {
+  return /Windows/u.test(navigator.userAgent);
+}
 
 function connectionDatabase(connection: ConnectionEntry | null): string | null {
   if (!connection) return null;
@@ -246,6 +251,48 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const connectionHealthCheckRef = useRef(0);
   const executionSequenceRef = useRef(0);
   const activeQueryRef = useRef<ActiveQuery | null>(null);
+
+  const installUpdate = useCallback(async () => {
+    const version = updateInfo?.version ?? "";
+    if (!window.confirm(t("installUpdatePrompt").replace("{version}", version))) return;
+
+    setUpdateCheckStatus({ state: "checking" });
+    setBusyMsg(t("checkingForUpdates"));
+    try {
+      const update = await check({ timeout: 30_000 });
+      if (!update) {
+        setUpdateInfo({ available: false });
+        setUpdateCheckStatus({ state: "up-to-date" });
+        return;
+      }
+
+      let downloaded = 0;
+      let contentLength: number | undefined;
+      setBusyMsg(null);
+      setUpdateCheckStatus({ state: "downloading", percent: null });
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          contentLength = event.data.contentLength;
+          setUpdateCheckStatus({ state: "downloading", percent: contentLength === 0 ? null : 0 });
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          const percent = contentLength
+            ? Math.min(100, Math.round((downloaded / contentLength) * 100))
+            : null;
+          setUpdateCheckStatus({ state: "downloading", percent });
+        } else if (event.event === "Finished") {
+          setUpdateCheckStatus({ state: "installing" });
+        }
+      });
+    } catch (error) {
+      setUpdateCheckStatus({
+        state: "error",
+        message: `${t("updateInstallFailed")}: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    } finally {
+      setBusyMsg(null);
+    }
+  }, [t, updateInfo?.version]);
 
   useEffect(() => {
     void getVersion()
@@ -1168,7 +1215,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
-        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
+        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
       </div>
 
       <ConnectionDialog
