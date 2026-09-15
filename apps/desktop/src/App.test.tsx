@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { check } from "@tauri-apps/plugin-updater";
 import App from "./App";
 import { LanguageProvider } from "./i18n";
 import { backend } from "./lib/backend";
@@ -17,6 +18,7 @@ const editorMockState = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
 vi.mock("./lib/backend", () => ({ backend: { call: vi.fn() } }));
 vi.mock("./theme", () => ({ useEditorMonacoTheme: () => "test-monaco-theme" }));
 vi.mock("./lib/file-io", () => ({
@@ -71,6 +73,7 @@ let runError: Error | null;
 let diagnosis: { message: string; severity: "error"; start: number; end: number; source: "database" }[];
 let blockQueryRun: boolean;
 let rejectBlockedQueryRun: ((reason?: unknown) => void) | null;
+let updateCheckResult: { available: boolean; version?: string; releaseUrl?: string };
 
 function seedSession(sql: string, queryLimit = 1000, connectionId: string | null = null) {
   localStorage.setItem("omni-sql:session", JSON.stringify({
@@ -111,6 +114,7 @@ beforeEach(() => {
   diagnosis = [];
   blockQueryRun = false;
   rejectBlockedQueryRun = null;
+  updateCheckResult = { available: false };
   editorMockState.selection = null;
   vi.mocked(getVersion).mockResolvedValue("0.1.0");
   vi.mocked(listen).mockResolvedValue(() => undefined);
@@ -133,7 +137,7 @@ beforeEach(() => {
       case "connectionGroup.list":
         return { groups: [] };
       case "update.check":
-        return { available: false };
+        return updateCheckResult;
       case "connection.status":
         return { online: true };
       case "metadata.listRelations":
@@ -173,6 +177,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 
@@ -497,5 +502,28 @@ describe("App update event listener", () => {
 
     expect(await screen.findByText("Omni SQL is up to date.")).toBeTruthy();
     expect(call).toHaveBeenCalledWith("update.check", { currentVersion: "0.1.0" });
+  });
+
+  it("downloads and installs an available update on Windows", async () => {
+    updateCheckResult = {
+      available: true,
+      version: "v0.2.10",
+      releaseUrl: "https://github.com/cccadet/omni-sql/releases/tag/v0.2.10",
+    };
+    vi.stubGlobal("navigator", { ...window.navigator, userAgent: "Windows" });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const downloadAndInstall = vi.fn(async (onEvent: (event: unknown) => void) => {
+      onEvent({ event: "Started", data: { contentLength: 100 } });
+      onEvent({ event: "Progress", data: { chunkLength: 42 } });
+      onEvent({ event: "Finished" });
+    });
+    vi.mocked(check).mockResolvedValue({ downloadAndInstall } as never);
+
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Update v0.2.10 available" }));
+
+    await waitFor(() => expect(check).toHaveBeenCalledWith({ timeout: 30_000 }));
+    await waitFor(() => expect(downloadAndInstall).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Installing update…")).toBeTruthy();
   });
 });
