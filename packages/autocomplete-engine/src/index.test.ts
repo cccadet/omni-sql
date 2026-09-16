@@ -357,6 +357,57 @@ test("ON prioriza predicado da FK com aliases e aceita FK nos dois sentidos", ()
     .some((suggestion) => suggestion.detail === "chave estrangeira"));
 });
 
+test("ON usa a FK da relação recém-joinada contra qualquer relação anterior", () => {
+  const base = metaOf(postgresDescriptor);
+  const payments: Relation = {
+    schema: "public", name: "payments", kind: "table",
+    columns: [
+      { name: "id", dataType: "integer", nullable: false, isPrimaryKey: true, ordinalPosition: 0 },
+      { name: "order_id", dataType: "integer", nullable: false, isPrimaryKey: false, ordinalPosition: 1,
+        foreignKeyTo: { schema: "public", table: "orders", column: "id" } },
+      { name: "user_id", dataType: "integer", nullable: false, isPrimaryKey: false, ordinalPosition: 2,
+        foreignKeyTo: { schema: "public", table: "users", column: "id" } },
+    ],
+    constraints: [],
+  };
+  const meta: MetadataSource = {
+    ...base,
+    resolveRelation: (ref) => ref.table === "payments" ? payments : base.resolveRelation(ref),
+  };
+  const sql = "SELECT * FROM users u JOIN orders o ON true JOIN payments p ON ";
+  const suggestions = autocompleteTier1(sql, sql.length, meta);
+  assert.deepEqual(suggestions.slice(0, 2).map((suggestion) => suggestion.label), [
+    "p.order_id = o.id", "p.user_id = u.id",
+  ]);
+  assert.ok(suggestions.slice(0, 2).every((suggestion) => suggestion.detail === "chave estrangeira"));
+});
+
+test("ON respeita identificadores citados, schema e prefixo parcial", () => {
+  const base = metaOf(postgresDescriptor);
+  const orders: Relation = {
+    ...ORDERS,
+    columns: ORDERS.columns.map((column) => column.name === "user_id"
+      ? { ...column, foreignKeyTo: { schema: "public", table: "users", column: "id" } }
+      : column),
+  };
+  const meta: MetadataSource = {
+    ...base,
+    resolveRelation: (ref) => ref.table === "orders" ? orders : base.resolveRelation(ref),
+  };
+  const sql = 'SELECT * FROM public.users "User Alias" JOIN public.orders o ON user';
+  const suggestions = autocompleteTier1(sql, sql.length, meta);
+  assert.equal(suggestions[0]?.insertText, 'o.user_id = "User Alias".id');
+  assert.equal(suggestions[0]?.filterText, "user");
+
+  const otherSchema: MetadataSource = {
+    ...meta,
+    resolveRelation: (ref) => ref.table === "users" ? { ...USERS, schema: "audit" } : meta.resolveRelation(ref),
+  };
+  const withoutMatch = "SELECT * FROM audit.users u JOIN public.orders o ON ";
+  assert.ok(!autocompleteTier1(withoutMatch, withoutMatch.length, otherSchema)
+    .some((suggestion) => suggestion.detail === "chave estrangeira"));
+});
+
 test("após relação JOIN sugere ON prioritário, sem transições gerais", () => {
   const sql = "SELECT * FROM users JOIN orders ";
   const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
