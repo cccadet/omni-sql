@@ -451,7 +451,7 @@ describe("App execution flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
 
     await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.introspect", { connectionId: "conn-new" }));
-    await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.listRelations", { connectionId: "conn-new" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.listRelations", { connectionId: "conn-new", includeColumns: true }));
     expect(call).toHaveBeenCalledWith("metadata.listFunctions", { connectionId: "conn-new" });
   });
 
