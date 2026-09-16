@@ -353,6 +353,10 @@ const english = {
   wordBasedSuggestionsHint: "When enabled, Monaco may mix words from the document with contextual database suggestions.",
   description: "Description",
   tableDescription: "Table description",
+  related: "Related",
+  openRelated: "Open related record",
+  closeRelated: "Close related record",
+  relatedNotFound: "Related record not found.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -390,6 +394,7 @@ const portugueseBrazil = [
   "CSV exportado", "Abrir CSV", "{count} linhas salvas em {file}", "Mostrar no Explorer",
   "Editor", "Sugerir palavras do documento SQL atual", "Quando ativado, o Monaco pode misturar palavras do documento com sugestões contextuais do banco.",
   "Descrição", "Descrição da tabela",
+  "Relacionado", "Abrir registro relacionado", "Fechar registro relacionado", "Registro relacionado não encontrado.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

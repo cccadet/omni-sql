@@ -437,7 +437,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     try {
       const [schemaRes, relRes, fnRes] = await Promise.all([
         backend.call<{ schemas: string[] }>("metadata.listSchemas", { connectionId }),
-        backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId }),
+        backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId, includeColumns: true }),
         backend.call<{ functions: FunctionDef[] }>("metadata.listFunctions", { connectionId }),
       ]);
       setSidebarCache((prev) => ({ ...prev, [connectionId]: { schemas: schemaRes.schemas, relations: relRes.relations, functions: fnRes.functions } }));
@@ -1211,7 +1211,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} />
+        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} />
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>

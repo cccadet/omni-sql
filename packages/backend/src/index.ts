@@ -216,6 +216,8 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["query.diagnose"](params as never);
     case "query.analyzeEditability":
       return handlers["query.analyzeEditability"](params as never);
+    case "relation.lookup":
+      return handlers["relation.lookup"](params as never);
     case "row.update":
       return handlers["row.update"](params as never);
     case "row.insert":

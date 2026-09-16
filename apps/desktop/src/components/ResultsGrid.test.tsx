@@ -168,6 +168,28 @@ test("stages editable cells and commits or discards the staged batch", async () 
   expect(discard).toHaveBeenCalledOnce();
 });
 
+test("opens a foreign key in the related tab without starting cell editing", async () => {
+  const lookup = vi.fn().mockResolvedValue({
+    columns: [{ name: "name", dataType: "text", nullable: false }],
+    rows: [["Acme"]], rowsMoreAvailable: false, elapsedMs: 1,
+  });
+  render(<LanguageProvider><ResultsGrid
+    result={{ ...result, columns: [{ name: "customer_id", dataType: "integer", nullable: false }], rows: [[42]] }}
+    editability={{ editable: true, reason: null, table: { schema: "public", name: "orders" }, pkColumns: ["customer_id"], selectStar: true, columns: [] }}
+    relations={[{ schema: "public", name: "orders", kind: "table", columns: [{ name: "customer_id", dataType: "integer", nullable: false, isPrimaryKey: true, foreignKeyTo: { schema: "public", table: "customers", column: "id" } }] }]}
+    onLookupRelated={lookup}
+    onCellEdit={vi.fn()}
+  /></LanguageProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Open related record: 42" }));
+  expect(lookup).toHaveBeenCalledWith({ schema: "public", table: "orders", column: "customer_id" }, 42);
+  expect(screen.queryByRole("textbox", { name: "42" })).toBeNull();
+  expect(await screen.findByText("Acme")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close related record" }));
+  expect(screen.queryByRole("tab", { name: "Related" })).toBeNull();
+  fireEvent.click(screen.getByText("42").closest("td")!);
+  expect(screen.getByDisplayValue("42")).toBeTruthy();
+});
+
 test("adds a row from an empty editable result and omits untouched columns", async () => {
   const insertRow = vi.fn().mockResolvedValue(undefined);
   render(

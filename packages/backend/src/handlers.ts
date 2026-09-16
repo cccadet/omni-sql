@@ -65,6 +65,8 @@ import type {
   DiagnoseQueryResult,
   AnalyzeEditabilityParams,
   AnalyzeEditabilityResult,
+  LookupRelatedRowParams,
+  LookupRelatedRowResult,
   UpdateRowParams,
   UpdateRowResult,
   InsertRowParams,
@@ -777,7 +779,14 @@ export const handlers: BackendRpcRouter = {
     }
     const pkColumns = relation.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
     if (pkColumns.length === 0) {
-      return notEditable("A tabela não tem chave primária conhecida — edição bloqueada por segurança.");
+      return {
+        editable: false,
+        reason: "A tabela não tem chave primária conhecida — edição bloqueada por segurança.",
+        table: { schema: relation.schema, name: relation.name },
+        pkColumns: [],
+        selectStar: raw.selectStar,
+        columns: raw.columns,
+      };
     }
 
     return {
@@ -829,6 +838,37 @@ export const handlers: BackendRpcRouter = {
       );
     }
     return { rowsAffected };
+  },
+
+  async "relation.lookup"({ connectionId, source, value }: LookupRelatedRowParams): Promise<LookupRelatedRowResult> {
+    await connectionsRestored;
+    const session = requireSession(connectionId);
+    if (!source || typeof source.schema !== "string" || typeof source.table !== "string" || typeof source.column !== "string") {
+      throw new RpcValidationError("origem da relação inválida");
+    }
+    const relation = resolveRelationByName(connectionId, source.table, source.schema);
+    const constraint = relation?.constraints.find((item) =>
+      item.kind === "foreign" && item.columns.length === 1 && item.columns[0] === source.column && item.references,
+    );
+    const target = constraint?.references;
+    if (!target) throw new RpcValidationError("chave estrangeira simples não encontrada nos metadados");
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+      throw new RpcValidationError("valor da chave estrangeira inválido");
+    }
+    if (typeof value === "number" && !Number.isFinite(value)) throw new RpcValidationError("valor inválido");
+    if (typeof value === "string" && value.length > 1000) throw new RpcValidationError("valor muito longo");
+    const targetRelation = resolveRelationByName(connectionId, target.table, target.schema);
+    if (!targetRelation?.columns.some((column) => column.name === target.column)) {
+      throw new RpcValidationError("tabela relacionada não encontrada nos metadados");
+    }
+    const q = (identifier: string) => quoteIdentifier(dialectDescriptor(session.config.dialect), identifier);
+    const backslashEscapes = session.config.dialect === "postgres" || session.config.dialect === "mysql" || session.config.dialect === "mariadb";
+    const literal = typeof value === "number" ? String(value)
+      : typeof value === "boolean" ? (value ? "1" : "0")
+      : `${session.config.dialect === "sqlserver" ? "N" : session.config.dialect === "postgres" ? "E" : ""}'${(backslashEscapes ? value.replaceAll("\\", "\\\\") : value).replaceAll("'", "''")}'`;
+    const sql = `SELECT * FROM ${q(target.schema)}.${q(target.table)} WHERE ${q(target.column)} = ${literal}`;
+    await session.adapter.connect();
+    return session.adapter.runQuery(sql, 2);
   },
 
   async "row.insert"({ connectionId, table, values }: InsertRowParams): Promise<InsertRowResult> {
