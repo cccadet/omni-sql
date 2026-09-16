@@ -33,8 +33,10 @@ import {
   TableRegular,
   ChatRegular,
   WrenchRegular,
+  OpenRegular,
 } from "@fluentui/react-icons";
 import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
+import type { RelationInfo } from "../lib/backend";
 import { useLanguage } from "../i18n";
 import { exportCsvFile, openExportedFile, revealExportedFile } from "../lib/file-io";
 
@@ -44,6 +46,8 @@ export interface ResultsGridProps {
   running?: boolean;
   planText?: string | null;
   editability?: RowEditability | null;
+  relations?: readonly RelationInfo[];
+  onLookupRelated?: (source: { schema: string; table: string; column: string }, value: string | number | boolean) => Promise<QueryResult>;
   /** Called when an edit is made. It must only update the parent's staged state. */
   onStageCellEdit?: (rowIndex: number, colIndex: number, value: unknown) => void;
   /** Controlled staged values. The indexes are indexes in the original result. */
@@ -146,6 +150,8 @@ export function ResultsGrid({
   running = false,
   planText,
   editability,
+  relations = [],
+  onLookupRelated,
   onStageCellEdit,
   stagedChanges,
   onDiscardChanges,
@@ -158,7 +164,9 @@ export function ResultsGrid({
   const { t } = useLanguage();
   const toasterId = useId();
   const { dispatchToast } = useToastController(toasterId);
-  const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan">("data");
+  const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan" | "related">("data");
+  const [related, setRelated] = useState<{ title: string; result: QueryResult | null; error: string | null; loading: boolean } | null>(null);
+  const relatedRequestRef = useRef(0);
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFinder, setColumnFinder] = useState("");
   const [hiddenColumnIndexes, setHiddenColumnIndexes] = useState<ReadonlySet<number>>(() => new Set());
@@ -182,6 +190,8 @@ export function ResultsGrid({
 
   // Reset sort/filters/selection on new result
   useEffect(() => {
+    relatedRequestRef.current += 1;
+    setRelated(null);
     setSortColumn(undefined);
     setPage(0);
     setSelectedRow(null);
@@ -194,6 +204,36 @@ export function ResultsGrid({
       setActiveTab("data");
     }
   }, [result?.columns, error]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sourceRelation = useMemo(() => {
+    if (!editability?.table) return null;
+    return relations.find((relation) => relation.schema === editability.table?.schema && relation.name === editability.table.name) ?? null;
+  }, [editability, relations]);
+
+  const foreignKeyColumns = useMemo(() => {
+    const resultColumns = result?.columns ?? [];
+    return resultColumns.map((column, index) => {
+      const sourceName = editability?.selectStar ? column.name : editability?.columns[index]?.sourceColumn;
+      if (!sourceName || resultColumns.filter((item) => item.name === column.name).length !== 1) return null;
+      return sourceRelation?.columns?.find((item) => item.name === sourceName)?.foreignKeyTo ?? null;
+    });
+  }, [result?.columns, editability, sourceRelation]);
+
+  const lookupRelated = useCallback(async (columnIndex: number, value: unknown) => {
+    const target = foreignKeyColumns[columnIndex];
+    const table = editability?.table;
+    const column = editability?.selectStar ? result?.columns[columnIndex]?.name : editability?.columns[columnIndex]?.sourceColumn;
+    if (!target || !table?.schema || !column || !onLookupRelated || (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean")) return;
+    const request = ++relatedRequestRef.current;
+    setRelated({ title: `${target.schema}.${target.table} · ${target.column} = ${serializeCellValue(value)}`, result: null, error: null, loading: true });
+    setActiveTab("related");
+    try {
+      const next = await onLookupRelated({ schema: table.schema, table: table.name, column }, value);
+      if (request === relatedRequestRef.current) setRelated((current) => current && { ...current, result: next, loading: false });
+    } catch (error) {
+      if (request === relatedRequestRef.current) setRelated((current) => current && { ...current, error: error instanceof Error ? error.message : String(error), loading: false });
+    }
+  }, [foreignKeyColumns, editability, result?.columns, onLookupRelated]);
 
   useEffect(() => {
     if (previousResultRef.current !== result) {
@@ -538,10 +578,11 @@ export function ResultsGrid({
       >
         <TabList
           selectedValue={activeTab}
-          onTabSelect={(_, data) => setActiveTab(data.value as "data" | "messages" | "plan")}
+          onTabSelect={(_, data) => setActiveTab(data.value as "data" | "messages" | "plan" | "related")}
         >
           <Tab value="data" icon={<TableRegular fontSize={12} />}>{t("data")}</Tab>
           <Tab value="messages" icon={<ChatRegular fontSize={12} />}>{t("messages")}</Tab>
+          {related && <Tab value="related" icon={<OpenRegular fontSize={12} />}>{t("related")}</Tab>}
           {planText && <Tab value="plan" icon={<WrenchRegular fontSize={12} />}>{t("plan")}</Tab>}
         </TabList>
         {activeTab === "data" && (
@@ -838,6 +879,9 @@ export function ResultsGrid({
                             ) : (
                               <div
                                 style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4,
                                   whiteSpace: "nowrap",
                                   padding: "2px 0",
                                   background: changeByCell.has(cellKey) ? tokens.colorPaletteYellowBackground2 : undefined,
@@ -847,7 +891,14 @@ export function ResultsGrid({
                                   borderRadius: 2,
                                 }}
                               >
-                                {serializeCellValue(cellValue)}
+                                <span>{serializeCellValue(cellValue)}</span>
+                                {cellValue != null && foreignKeyColumns[col.index] && onLookupRelated && (typeof cellValue === "string" || typeof cellValue === "number" || typeof cellValue === "boolean") && (
+                                  <Button size="small" appearance="subtle" icon={<OpenRegular fontSize={12} />}
+                                    aria-label={`${t("openRelated")}: ${serializeCellValue(cellValue)}`}
+                                    title={`${t("openRelated")}: ${foreignKeyColumns[col.index]?.schema}.${foreignKeyColumns[col.index]?.table}`}
+                                    onClick={(event) => { event.stopPropagation(); void lookupRelated(col.index, cellValue); }}
+                                    onKeyDown={(event) => event.stopPropagation()} />
+                                )}
                               </div>
                             )}
                           </td>
@@ -859,6 +910,24 @@ export function ResultsGrid({
               </table>
             )}
           </>
+        )}
+
+        {activeTab === "related" && related && (
+          <div style={{ padding: 16, overflow: "auto", flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <Text weight="semibold">{related.title}</Text>
+              <Button size="small" appearance="subtle" icon={<DismissRegular />} aria-label={t("closeRelated")} onClick={() => { relatedRequestRef.current += 1; setRelated(null); setActiveTab("data"); }} />
+            </div>
+            {related.loading ? <Spinner label={t("loading")} /> : related.error ? <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{related.error}</Text>
+              : related.result?.rows.length ? related.result.rows.map((row, rowIndex) => (
+                <table key={rowIndex} style={{ borderCollapse: "collapse", width: "100%", marginBottom: 12 }}><tbody>
+                  {related.result?.columns.map((column, columnIndex) => (
+                    <tr key={columnIndex}><th style={{ textAlign: "left", padding: 6, borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>{column.name}</th>
+                      <td style={{ padding: 6, borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>{serializeCellValue(row[columnIndex])}</td></tr>
+                  ))}
+                </tbody></table>
+              )) : <Text>{t("relatedNotFound")}</Text>}
+          </div>
         )}
 
         {activeTab === "messages" && (

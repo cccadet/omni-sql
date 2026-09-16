@@ -148,6 +148,13 @@ export interface AnalyzeEditabilityParams {
 }
 export type AnalyzeEditabilityResult = RowEditability;
 
+export interface LookupRelatedRowParams {
+  connectionId: string;
+  source: { schema: string; table: string; column: string };
+  value: string | number | boolean;
+}
+export type LookupRelatedRowResult = QueryResult;
+
 export interface UpdateRowParams {
   connectionId: string;
   table: { schema: string; name: string };
@@ -294,6 +301,7 @@ export interface RpcRouter {
   "query.explain": (p: ExplainQueryParams) => Promise<ExplainQueryResult>;
   "query.diagnose": (p: DiagnoseQueryParams) => Promise<DiagnoseQueryResult>;
   "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;
+  "relation.lookup": (p: LookupRelatedRowParams) => Promise<LookupRelatedRowResult>;
   "row.update": (p: UpdateRowParams) => Promise<UpdateRowResult>;
   "row.insert": (p: InsertRowParams) => Promise<InsertRowResult>;
   "metadata.introspect": (p: IntrospectParams) => Promise<IntrospectResult>;
