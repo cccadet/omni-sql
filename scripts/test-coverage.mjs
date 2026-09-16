@@ -12,6 +12,7 @@ const reports = [
   ["packages/adapters-mssql", "coverage/lcov.info"],
   ["packages/adapters-oracle", "coverage/lcov.info"],
   ["packages/adapters-jdbc", "coverage/lcov.info"],
+  ["packages/adapters-odbc", "coverage/lcov.info"],
   ["packages/autocomplete-engine", "coverage/lcov.info"],
   ["packages/dialect-descriptors", "coverage/lcov.info"],
   ["packages/metadata-cache", "coverage/lcov.info"],

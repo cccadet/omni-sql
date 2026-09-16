@@ -380,7 +380,7 @@ function joinForeignKeySuggestions(ctx: ResolvedContext, meta: MetadataSource): 
         ...(partial ? { filterText: partial } : {}), relevance: 1000 });
     }
   };
-  for (const entry of left) {
+  for (const entry of left.reverse()) {
     add(rightRef, right, entry.ref, entry.relation);
     add(entry.ref, entry.relation, rightRef, right);
   }
