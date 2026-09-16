@@ -504,6 +504,24 @@ describe("App update event listener", () => {
     expect(call).toHaveBeenCalledWith("update.check", { currentVersion: "0.1.0" });
   });
 
+  it("reports an event-triggered update check failure", async () => {
+    let checkForUpdates: (() => Promise<void>) | null = null;
+    vi.mocked(listen).mockImplementation(async (event, listener) => {
+      if (event === "check-for-updates") checkForUpdates = listener as unknown as () => Promise<void>;
+      return () => undefined;
+    });
+
+    renderApp();
+    await waitFor(() => expect(checkForUpdates).not.toBeNull());
+    vi.mocked(getVersion).mockRejectedValueOnce(new Error("version unavailable"));
+
+    await act(async () => {
+      await checkForUpdates!();
+    });
+
+    expect(await screen.findByText("Could not check for updates: version unavailable")).toBeTruthy();
+  });
+
   it("downloads and installs an available update on Windows", async () => {
     updateCheckResult = {
       available: true,
@@ -525,6 +543,40 @@ describe("App update event listener", () => {
     await waitFor(() => expect(check).toHaveBeenCalledWith({ timeout: 30_000 }));
     await waitFor(() => expect(downloadAndInstall).toHaveBeenCalledTimes(1));
     expect(screen.getByText("Installing update…")).toBeTruthy();
+  });
+
+  it("keeps the update available when installation is declined", async () => {
+    updateCheckResult = { available: true, version: "v0.2.10" };
+    vi.stubGlobal("navigator", { ...window.navigator, userAgent: "Windows" });
+    vi.stubGlobal("confirm", vi.fn(() => false));
+
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Update v0.2.10 available" }));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(check).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Update v0.2.10 available" })).toBeTruthy();
+  });
+
+  it("shows download progress and caps it at 100 percent", async () => {
+    updateCheckResult = { available: true, version: "v0.2.10" };
+    vi.stubGlobal("navigator", { ...window.navigator, userAgent: "Windows" });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    let onProgress: ((event: unknown) => void) | undefined;
+    vi.mocked(check).mockResolvedValue({
+      downloadAndInstall: vi.fn(async (callback: (event: unknown) => void) => {
+        onProgress = callback;
+        await new Promise<void>(() => undefined);
+      }),
+    } as never);
+
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Update v0.2.10 available" }));
+    await waitFor(() => expect(onProgress).toBeDefined());
+
+    act(() => onProgress!({ event: "Started", data: { contentLength: 100 } }));
+    act(() => onProgress!({ event: "Progress", data: { chunkLength: 150 } }));
+    expect(screen.getByText("Downloading update… 100%")).toBeTruthy();
   });
 
   it("reports that the app became current when the signed update is no longer available", async () => {
