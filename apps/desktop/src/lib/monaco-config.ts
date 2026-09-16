@@ -16,6 +16,7 @@ import {
   parseKeybinding,
 } from "./format-sql";
 import { splitStatements, statementAt } from "./sql-statements";
+import { commandsForDialect, searchSqlCommands } from "./sql-command-library";
 export { createEditorActions, type EditorActionCallback } from "./editor-actions";
 
 const LANGUAGE_ID = "sql-omni";
@@ -308,11 +309,57 @@ export function configureFormatter(
 export function configureAutocomplete(
   monacoInstance: typeof monaco,
   onAutocompleteRef: { current: AutocompleteCallback | null },
+  dialectRef: { current: DialectId } = { current: "jdbc-generic" },
 ): monaco.IDisposable {
   return monacoInstance.languages.registerCompletionItemProvider(LANGUAGE_ID, {
-    triggerCharacters: [".", " "],
+    triggerCharacters: [".", " ", "/"],
     async provideCompletionItems(model, position, _context, token) {
       const cursor = model.getOffsetAt(position);
+      const textBeforeCursor = model.getValue().slice(0, cursor);
+      const currentLine = textBeforeCursor.slice(textBeforeCursor.lastIndexOf("\n") + 1);
+      const partialCatalogMatch = /^(\s*)(\/[a-z]*)$/i.exec(currentLine);
+      const partialCatalog = partialCatalogMatch?.[2];
+      if (partialCatalog && "/catalog".startsWith(partialCatalog.toLowerCase())
+        && partialCatalog.toLowerCase() !== "/catalog") {
+        return {
+          suggestions: [{
+            label: "/catalog",
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            detail: "SQL command catalog",
+            insertText: "/catalog",
+            filterText: "/catalog",
+            range: {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: position.column - partialCatalog.length,
+              endColumn: position.column,
+            },
+          }],
+        };
+      }
+      const catalogMatch = /^(\s*)(\/catalog)(?:\s+(.*))?$/i.exec(currentLine);
+      if (catalogMatch) {
+        const invocation = currentLine.slice(catalogMatch[1]?.length ?? 0);
+        const query = catalogMatch[3] ?? "";
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: position.column - invocation.length,
+          endColumn: position.column,
+        };
+        return {
+          suggestions: searchSqlCommands(commandsForDialect(dialectRef.current), query, "all").map((command, index) => ({
+            label: command.title,
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            detail: command.description,
+            documentation: { value: `\`\`\`sql\n${command.sql}\n\`\`\`` },
+            filterText: query ? invocation : `/catalog ${command.title}`,
+            insertText: command.sql,
+            sortText: `!catalog:${String(index).padStart(3, "0")}`,
+            range,
+          })),
+        };
+      }
       const word = model.getWordUntilPosition(position);
       const onAutocomplete = onAutocompleteRef.current;
       let suggestions: Suggestion[] = [];
