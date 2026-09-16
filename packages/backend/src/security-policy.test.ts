@@ -16,6 +16,19 @@ test("query run policy requires explicit acknowledgement for destructive SQL", (
 
 test("explain policy permits one read-only SELECT", () => {
   assert.doesNotThrow(() => assertSafeExplainSql("WITH totals AS (SELECT 1) SELECT * FROM totals;", "postgres"));
+  const sql = `SELECT
+  p.NRCPFCNPJ AS CPF
+FROM
+  AUTORIZADOR.GUIA g
+  JOIN AUTORIZADOR.BENEFICIARIO b ON g.IDBENEFICIARIO = b.IDBENEFICIARIO
+  JOIN AUTORIZADOR.PESSOA p ON b.IDPESSOA = p.IDPESSOA
+WHERE
+  g.CDGUIASTATUS = 'EXEC'
+  AND g.DTSOLICITACAO BETWEEN DATE '2026-08-01' AND DATE\u00a0 '2026-08-31'
+  AND TPGUIA = 'CONS'
+GROUP BY
+  p.NRCPFCNPJ;\u00a0`;
+  assert.doesNotThrow(() => assertSafeExplainSql(sql, "oracle"));
 });
 
 test("explain policy rejects batches, modifying CTEs, and locking reads", () => {

@@ -769,11 +769,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   );
 
   const handleExplain = useCallback(() => {
-    if (!activeConnectionId || !activeTab?.sql.trim()) return;
+    if (!activeConnectionId) return;
+    const sql = editorRef.current?.getSelectionOrCurrent().sql ?? activeTab.sql;
+    if (!sql.trim()) return;
     setBusyMsg(t("explaining"));
     setPlanText(null);
     backend
-      .call<{ textual: string }>("query.explain", { connectionId: activeConnectionId, sql: activeTab.sql })
+      .call<{ textual: string }>("query.explain", { connectionId: activeConnectionId, sql })
       .then((res) => setPlanText(res.textual))
       .catch((e) => updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) }))
       .finally(() => setBusyMsg(null));
