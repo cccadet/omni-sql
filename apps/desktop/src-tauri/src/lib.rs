@@ -2,6 +2,8 @@
 use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::io::FromRawHandle;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::fs;
 #[cfg(windows)]
 use std::mem::{size_of, zeroed};
@@ -39,6 +41,12 @@ use windows_sys::Win32::Storage::FileSystem::{
 #[cfg(windows)]
 use windows_sys::Win32::System::SystemServices::SECURITY_DESCRIPTOR_REVISION;
 #[cfg(windows)]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
+    JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
+#[cfg(windows)]
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager};
@@ -47,6 +55,65 @@ use tauri_plugin_opener::OpenerExt;
 
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
+#[cfg(windows)]
+struct ChildJob(Mutex<Option<windows_sys::Win32::Foundation::HANDLE>>);
+#[cfg(windows)]
+// The handle is only used by thread-safe Win32 APIs and closed once on drop.
+unsafe impl Send for ChildJob {}
+#[cfg(windows)]
+unsafe impl Sync for ChildJob {}
+
+#[cfg(windows)]
+impl ChildJob {
+    fn new() -> std::io::Result<Self> {
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let job = Self(Mutex::new(Some(handle)));
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ok = unsafe {
+            SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                &limits as *const _ as *const _,
+                std::mem::size_of_val(&limits) as u32,
+            )
+        };
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(job)
+    }
+
+    fn assign(&self, child: &mut Child) -> std::io::Result<()> {
+        let guard = self.0.lock().unwrap();
+        let handle = guard.ok_or_else(|| std::io::Error::other("sidecar job is closed"))?;
+        let ok = unsafe { AssignProcessToJobObject(handle, child.as_raw_handle()) };
+        if ok == 0 {
+            let err = std::io::Error::last_os_error();
+            let _ = stop_child(child, "unmanaged sidecar");
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    fn close(&self) {
+        if let Some(handle) = self.0.lock().unwrap().take() {
+            unsafe { CloseHandle(handle) };
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ChildJob {
+    fn drop(&mut self) {
+        if let Some(handle) = self.0.get_mut().unwrap().take() {
+            unsafe { CloseHandle(handle) };
+        }
+    }
+}
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SidecarDiagnostics {
@@ -66,11 +133,11 @@ struct McpDescriptorPath(Mutex<Option<PathBuf>>);
 /// Stops a child owned by this app and reaps it before an updater can replace
 /// its executable. `kill` only requests termination; waiting here makes the
 /// lifetime of the child explicit and surfaces failures in the app log.
-fn stop_child(child: &mut Child, name: &str) {
+fn stop_child(child: &mut Child, name: &str) -> Result<(), String> {
     match child.try_wait() {
         Ok(Some(status)) => {
             log::info!("{name} had already exited with status {status}");
-            return;
+            return Ok(());
         }
         Ok(None) => {}
         Err(err) => {
@@ -79,30 +146,48 @@ fn stop_child(child: &mut Child, name: &str) {
     }
 
     if let Err(err) = child.kill() {
+        if let Ok(Some(status)) = child.try_wait() {
+            log::info!("{name} exited during shutdown with status {status}");
+            return Ok(());
+        }
         log::warn!("failed to terminate {name}: {err}");
-        return;
+        return Err(format!("failed to terminate {name}: {err}"));
     }
     match child.wait() {
-        Ok(status) => log::info!("{name} stopped with status {status}"),
-        Err(err) => log::warn!("failed to reap {name} after termination: {err}"),
+        Ok(status) => {
+            log::info!("{name} stopped with status {status}");
+            Ok(())
+        }
+        Err(err) => {
+            log::warn!("failed to reap {name} after termination: {err}");
+            Err(format!("failed to reap {name}: {err}"))
+        }
     }
 }
 
 /// This is intentionally callable from both window destruction and the global
 /// application-exit event. Either event may be absent depending on how the
 /// process is closed (notably during an installer-driven update).
-fn stop_managed_sidecars<R: tauri::Runtime>(app: &AppHandle<R>) {
+fn stop_managed_sidecars<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let mut errors = Vec::new();
     let state: tauri::State<'_, BackendChild> = app.state();
     let backend_child = state.0.lock().unwrap().take();
     if let Some(mut child) = backend_child {
-        stop_child(&mut child, "Node backend sidecar");
+        if let Err(err) = stop_child(&mut child, "Node backend sidecar") {
+            errors.push(err);
+        }
     }
 
     let sidecar_state: tauri::State<'_, SidecarChild> = app.state();
     let sidecar_child = sidecar_state.0.lock().unwrap().take();
     if let Some(mut child) = sidecar_child {
-        stop_child(&mut child, "JVM sidecar");
+        if let Err(err) = stop_child(&mut child, "JVM sidecar") {
+            errors.push(err);
+        }
     }
+    #[cfg(windows)]
+    app.state::<ChildJob>().close();
+    if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
 }
 
 #[derive(Serialize)]
@@ -217,6 +302,13 @@ fn native_menu(app: &AppHandle, language: &str) -> tauri::Result<Menu<tauri::Wry
     MenuBuilder::new(app)
         .items(&[&file, &edit, &view, &help])
         .build()
+}
+
+#[tauri::command]
+fn prepare_update_install(app: AppHandle) -> Result<(), String> {
+    stop_managed_sidecars(&app)?;
+    remove_mcp_runtime_descriptor(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1317,6 +1409,7 @@ pub fn run() {
             get_sidecar_diagnostics,
             get_auth_token,
             get_mcp_launcher_config,
+            prepare_update_install,
             set_native_menu_language
         ])
         .manage(AuthToken {
@@ -1358,6 +1451,8 @@ pub fn run() {
                 }
             };
             app.handle().plugin(log_plugin)?;
+            #[cfg(windows)]
+            app.manage(ChildJob::new()?);
 
             // O ícone do bundle (tauri.conf.json `bundle.icon`) tem o texto
             // "Omni SQL" e é o que o Windows usa para o .exe/instalador/Explorer.
@@ -1416,7 +1511,7 @@ pub fn run() {
             backend_command.creation_flags(CREATE_NO_WINDOW);
             #[cfg(debug_assertions)]
             backend_command.args(["--import", "tsx"]);
-            let child = backend_command
+            let mut child = backend_command
                     .arg(&backend_entry)
                     .current_dir(&backend_cwd)
                     .env("OMNI_SQL_PORT", BACKEND_PORT.to_string())
@@ -1436,13 +1531,15 @@ pub fn run() {
                         log::error!("failed to spawn Node backend: {e}");
                         e
                     })?;
+            #[cfg(windows)]
+            app.state::<ChildJob>().assign(&mut child)?;
             let state: tauri::State<'_, BackendChild> = app.state();
             *state.0.lock().unwrap() = Some(child);
 
             let runtime_dir = match mcp_runtime_dir(app.handle()) {
                 Ok(dir) => dir,
                 Err(err) => {
-                    stop_managed_sidecars(app.handle());
+                    let _ = stop_managed_sidecars(app.handle());
                     return Err(err.into());
                 }
             };
@@ -1630,7 +1727,9 @@ pub fn run() {
                     .stderr(sidecar_log_stdio(app.handle(), "sidecar.log"));
 
                 match cmd.spawn() {
-                    Ok(child) => {
+                    Ok(mut child) => {
+                        #[cfg(windows)]
+                        app.state::<ChildJob>().assign(&mut child)?;
                         log::info!("Starting JVM sidecar (tier2, background boot)");
                         let sidecar_state: tauri::State<'_, SidecarChild> = app.state();
                         *sidecar_state.0.lock().unwrap() = Some(child);
@@ -1718,7 +1817,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                stop_managed_sidecars(window.app_handle());
+                let _ = stop_managed_sidecars(window.app_handle());
                 remove_mcp_runtime_descriptor(window.app_handle());
             }
         })
@@ -1726,7 +1825,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                stop_managed_sidecars(app_handle);
+                let _ = stop_managed_sidecars(app_handle);
                 remove_mcp_runtime_descriptor(app_handle);
             }
         })

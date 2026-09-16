@@ -270,7 +270,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       let contentLength: number | undefined;
       setBusyMsg(null);
       setUpdateCheckStatus({ state: "downloading", percent: null });
-      await update.downloadAndInstall((event) => {
+      await update.download((event) => {
         if (event.event === "Started") {
           contentLength = event.data.contentLength;
           setUpdateCheckStatus({ state: "downloading", percent: contentLength === 0 ? null : 0 });
@@ -280,10 +280,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             ? Math.min(100, Math.round((downloaded / contentLength) * 100))
             : null;
           setUpdateCheckStatus({ state: "downloading", percent });
-        } else if (event.event === "Finished") {
-          setUpdateCheckStatus({ state: "installing" });
         }
       });
+      setUpdateCheckStatus({ state: "installing" });
+      await invoke("prepare_update_install");
+      await update.install();
     } catch (error) {
       setUpdateCheckStatus({
         state: "error",

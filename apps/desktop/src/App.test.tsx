@@ -530,18 +530,23 @@ describe("App update event listener", () => {
     };
     vi.stubGlobal("navigator", { ...window.navigator, userAgent: "Windows" });
     vi.stubGlobal("confirm", vi.fn(() => true));
-    const downloadAndInstall = vi.fn(async (onEvent: (event: unknown) => void) => {
+    const download = vi.fn(async (onEvent: (event: unknown) => void) => {
       onEvent({ event: "Started", data: { contentLength: 100 } });
       onEvent({ event: "Progress", data: { chunkLength: 42 } });
       onEvent({ event: "Finished" });
     });
-    vi.mocked(check).mockResolvedValue({ downloadAndInstall } as never);
+    const install = vi.fn(async () => undefined);
+    vi.mocked(check).mockResolvedValue({ download, install } as never);
 
     renderApp();
     fireEvent.click(await screen.findByRole("button", { name: "Update v0.2.10 available" }));
 
     await waitFor(() => expect(check).toHaveBeenCalledWith({ timeout: 30_000 }));
-    await waitFor(() => expect(downloadAndInstall).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("prepare_update_install");
+    const prepareIndex = vi.mocked(invoke).mock.calls.findIndex(([command]) => command === "prepare_update_install");
+    expect(vi.mocked(invoke).mock.invocationCallOrder[prepareIndex] ?? Infinity).toBeLessThan(install.mock.invocationCallOrder[0] ?? -1);
     expect(screen.getByText("Installing update…")).toBeTruthy();
   });
 
@@ -564,7 +569,7 @@ describe("App update event listener", () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     let onProgress: ((event: unknown) => void) | undefined;
     vi.mocked(check).mockResolvedValue({
-      downloadAndInstall: vi.fn(async (callback: (event: unknown) => void) => {
+      download: vi.fn(async (callback: (event: unknown) => void) => {
         onProgress = callback;
         await new Promise<void>(() => undefined);
       }),
