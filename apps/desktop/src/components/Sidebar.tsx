@@ -160,7 +160,7 @@ function TreeNode({ label, icon, children, defaultExpanded = false, forceExpande
   return (
     <div style={{ marginLeft: 10, minWidth: 0 }}>
       <div
-        style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 0" }}
+        style={{ display: "flex", alignItems: "center", gap: 4, minHeight: 24 }}
         onContextMenu={onContextMenu}
       >
         <div
@@ -922,7 +922,7 @@ export function Sidebar({
                                     e.stopPropagation();
                                     insertQualified(g.name, t.name);
                                   }}
-                                  style={{ padding: 0, height: "auto", minWidth: 0 }}
+                                  style={{ padding: 0, height: 20, minWidth: 0 }}
                                   aria-label={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)}
                                 />
                               </Tooltip>
@@ -1060,7 +1060,7 @@ export function Sidebar({
                                     e.stopPropagation();
                                     insertQualified(g.name, v.name);
                                   }}
-                                  style={{ padding: 0, height: "auto", minWidth: 0 }}
+                                  style={{ padding: 0, height: 20, minWidth: 0 }}
                                   aria-label={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)}
                                 />
                               </Tooltip>
@@ -1121,7 +1121,7 @@ export function Sidebar({
                           appearance="transparent"
                           size="small"
                           onClick={() => insertQualified(g.name, f.name)}
-                          style={{ padding: 0, height: "auto", minWidth: 0, flex: 1, justifyContent: "flex-start" }}
+                          style={{ padding: 0, height: 20, minWidth: 0, flex: 1, justifyContent: "flex-start" }}
                         >
                           <span className="obj-name">{f.name}</span>
                         </Button>
@@ -1131,7 +1131,7 @@ export function Sidebar({
                             size="small"
                             icon={<ArrowEnterRegular fontSize={11} />}
                             onClick={() => insertQualified(g.name, f.name)}
-                            style={{ padding: 0, height: "auto", minWidth: 0 }}
+                            style={{ padding: 0, height: 20, minWidth: 0 }}
                             aria-label={tr("insertObject").replace("{object}", `${g.name}.${f.name}`)}
                           />
                         </Tooltip>
