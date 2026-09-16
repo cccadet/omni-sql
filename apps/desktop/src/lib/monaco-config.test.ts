@@ -105,3 +105,58 @@ test("autocomplete sortText ranks relevance descending and preserves ties", asyn
   assert.equal(result.suggestions[3]?.filterText, "unm");
   assert.ok(result.suggestions.every((suggestion) => suggestion.sortText?.startsWith("!omni:")));
 });
+
+test("/catalog suggests existing examples and replaces the full command with SQL", async () => {
+  type CompletionProvider = Parameters<typeof monaco.languages.registerCompletionItemProvider>[1];
+  let provider: CompletionProvider | undefined;
+  const backendCompletion = vi.fn();
+  const monacoInstance = {
+    languages: {
+      registerCompletionItemProvider: (_language: string, registeredProvider: CompletionProvider) => {
+        provider = registeredProvider;
+        return { dispose: vi.fn() };
+      },
+    },
+  } as never;
+  const dialectRef = { current: "postgres" as const };
+  configureAutocomplete(monacoInstance, { current: backendCompletion }, dialectRef);
+  if (!provider) throw new Error("completion provider was not registered");
+  const catalogProvider = provider;
+
+  const complete = async (value: string) => catalogProvider.provideCompletionItems(
+    {
+      getOffsetAt: () => value.length,
+      getValue: () => value,
+      getWordUntilPosition: () => ({ startColumn: 1, endColumn: 1 }),
+    } as never,
+    { lineNumber: 1, column: value.length + 1 } as never,
+    {} as never,
+    {
+      isCancellationRequested: false,
+      onCancellationRequested: () => ({ dispose: vi.fn() }),
+    } as never,
+  );
+
+  const all = await complete("/catalog");
+  if (!all) throw new Error("catalog completion was not returned");
+  assert.ok(all.suggestions.some((suggestion) => suggestion.label === "Create table"));
+  assert.ok(all.suggestions.some((suggestion) => suggestion.label === "Add column"));
+  assert.ok(all.suggestions.some((suggestion) => suggestion.label === "Upsert"));
+
+  const partial = await complete("/cat");
+  if (!partial) throw new Error("partial catalog completion was not returned");
+  assert.deepEqual(partial.suggestions.map((suggestion) => suggestion.label), ["/catalog"]);
+  assert.equal(partial.suggestions[0]?.insertText, "/catalog");
+  assert.deepEqual(partial.suggestions[0]?.range, {
+    startLineNumber: 1, endLineNumber: 1, startColumn: 1, endColumn: 5,
+  });
+
+  const filtered = await complete("/catalog add col");
+  if (!filtered) throw new Error("filtered catalog completion was not returned");
+  assert.deepEqual(filtered.suggestions.map((suggestion) => suggestion.label), ["Add column"]);
+  assert.equal(filtered.suggestions[0]?.insertText, "ALTER TABLE table_name\nADD COLUMN column_name VARCHAR(255);");
+  assert.deepEqual(filtered.suggestions[0]?.range, {
+    startLineNumber: 1, endLineNumber: 1, startColumn: 1, endColumn: 17,
+  });
+  assert.equal(backendCompletion.mock.calls.length, 0);
+});
