@@ -49,9 +49,9 @@ export function tokenize(input: string, dialect: DialectDescriptor): Token[] {
     const start = i;
 
     // Whitespace
-    if (c === " " || c === "\t" || c === "\r" || c === "\n") {
+    if (/\s/u.test(c)) {
       let j = i + 1;
-      while (j < n && /[ \t\r\n]/.test(input[j]!)) j++;
+      while (j < n && /\s/u.test(input[j]!)) j++;
       tokens.push({ type: "whitespace", value: input.slice(start, j), start, end: j });
       i = j;
       continue;

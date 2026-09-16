@@ -204,6 +204,19 @@ describe("App history persistence", () => {
   });
 });
 describe("App execution flow", () => {
+  it("explains the selected statement instead of the whole editor", async () => {
+    seedSession("SELECT 1;\nSELECT 2", 1000, "conn-1");
+    editorMockState.selection = { sql: "SELECT 2", start: 10 };
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Explain SQL" }));
+
+    await waitFor(() => expect(call).toHaveBeenCalledWith("query.explain", {
+      connectionId: "conn-1",
+      sql: "SELECT 2",
+    }));
+  });
+
   it("runs current SQL and renders returned rows", async () => {
     renderApp();
 
