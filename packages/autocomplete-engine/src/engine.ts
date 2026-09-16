@@ -329,6 +329,64 @@ function usingColumnSuggestions(ctx: ResolvedContext, meta: MetadataSource): Sug
     }));
 }
 
+function joinForeignKeySuggestions(ctx: ResolvedContext, meta: MetadataSource): Suggestion[] {
+  if (ctx.clause !== "on" || ctx.qualifier) return [];
+  let depth = 0;
+  let joinIndex = -1;
+  let onIndex = -1;
+  for (let i = 0; i < ctx.prelude.length; i++) {
+    const token = ctx.prelude[i]!;
+    if (token.type === "punct" && token.value === "(") depth++;
+    else if (token.type === "punct" && token.value === ")") depth = Math.max(0, depth - 1);
+    if (depth !== 0 || token.type !== "keyword") continue;
+    if (token.upper === "JOIN" || token.upper === "STRAIGHT_JOIN") joinIndex = i;
+    else if (token.upper === "ON") onIndex = i;
+  }
+  if (joinIndex < 0 || onIndex < joinIndex) return [];
+  // Offer a complete predicate only at the beginning of this ON expression.
+  const remainder = ctx.prelude.slice(onIndex + 1);
+  if (remainder.length > 1 || (remainder.length === 1 && remainder[0] !== ctx.cursorToken)) return [];
+  const partial = ctx.cursorToken?.value ?? "";
+  const onToken = ctx.prelude[onIndex]!;
+  const sqlBeforeCondition = ctx.statementText.slice(0, onToken.end);
+  const refs = resolveContext(sqlBeforeCondition, sqlBeforeCondition.length, meta.dialect).scope;
+  if (refs.length < 2) return [];
+  const rightRef = refs[refs.length - 1]!;
+  const right = meta.resolveRelation(rightRef);
+  if (!right) return [];
+  const left = refs.slice(0, -1).map((ref) => ({ ref, relation: meta.resolveRelation(ref) }))
+    .filter((entry): entry is { ref: ScopeRef; relation: Relation } => entry.relation !== null);
+  const matches: Suggestion[] = [];
+  const seen = new Set<string>();
+  const sameTarget = (schema: string, table: string, relation: Relation) =>
+    schema.toLowerCase() === relation.schema.toLowerCase() && table.toLowerCase() === relation.name.toLowerCase();
+  const name = (ref: ScopeRef, column: string) =>
+    `${identifierText(ref.alias, meta.dialect, ref.aliasQuoted === true, false)}.${identifierText(column, meta.dialect)}`;
+  const add = (sourceRef: ScopeRef, source: Relation, targetRef: ScopeRef, target: Relation) => {
+    const keys = source.constraints
+      .filter((constraint) => constraint.kind === "foreign" && constraint.columns.length === 1 && constraint.references)
+      .map((constraint) => ({ column: constraint.columns[0]!, target: constraint.references! }));
+    for (const column of source.columns) {
+      if (column.foreignKeyTo && !keys.some((key) => key.column === column.name)) {
+        keys.push({ column: column.name, target: column.foreignKeyTo });
+      }
+    }
+    for (const key of keys) {
+      if (!sameTarget(key.target.schema, key.target.table, target)) continue;
+      const predicate = `${name(sourceRef, key.column)} = ${name(targetRef, key.target.column)}`;
+      if (seen.has(predicate) || (partial && !predicate.toLowerCase().includes(partial.toLowerCase()))) continue;
+      seen.add(predicate);
+      matches.push({ kind: "keyword", label: predicate, detail: "chave estrangeira", insertText: predicate,
+        ...(partial ? { filterText: partial } : {}), relevance: 1000 });
+    }
+  };
+  for (const entry of left) {
+    add(rightRef, right, entry.ref, entry.relation);
+    add(entry.ref, entry.relation, rightRef, right);
+  }
+  return matches;
+}
+
 /** Autocomplete tier1: lexer context plus in-memory metadata. */
 export function autocompleteTier1(input: string, cursor: number, meta: MetadataSource): Suggestion[] {
   const ctx = resolveContext(input, cursor, meta.dialect);
@@ -392,6 +450,7 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
   }
 
   if (isUsingContext(ctx)) return usingColumnSuggestions(ctx, meta);
+  const foreignKeySuggestions = joinForeignKeySuggestions(ctx, meta);
 
   if (ctx.qualifier) {
     const ref = ctx.scope.find((scopeRef) => matchesQualifier(ctx, scopeRef, meta.dialect));
@@ -468,7 +527,7 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
     }
   }
   columns.sort((a, b) => b.relevance - a.relevance || a.label.localeCompare(b.label));
-  const result: Suggestion[] = [...columns, ...functionSuggestions(ctx, meta, 50)];
+  const result: Suggestion[] = [...foreignKeySuggestions, ...columns, ...functionSuggestions(ctx, meta, 50)];
   if (isSelectList && allColumnNames.length > 0) {
     result.push({
       kind: "all-columns",

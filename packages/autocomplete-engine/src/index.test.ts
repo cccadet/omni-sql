@@ -332,6 +332,31 @@ test("JOIN orders ON não transforma ON em alias e sugere colunas de orders", ()
   assert.ok(!out.some((suggestion) => suggestion.detail?.startsWith("ON.")));
 });
 
+test("ON prioriza predicado da FK com aliases e aceita FK nos dois sentidos", () => {
+  const base = metaOf(postgresDescriptor);
+  const orders: Relation = {
+    ...ORDERS,
+    constraints: [{ name: "orders_user_fk", kind: "foreign", columns: ["user_id"],
+      references: { schema: "public", table: "users", column: "id" } }],
+  };
+  const meta: MetadataSource = {
+    ...base,
+    resolveRelation: (ref) => ref.table === "orders" ? orders : base.resolveRelation(ref),
+  };
+  for (const [sql, expected] of [
+    ["SELECT * FROM users u JOIN orders o ON ", "o.user_id = u.id"],
+    ["SELECT * FROM orders o JOIN users u ON ", "o.user_id = u.id"],
+  ] as const) {
+    const out = autocompleteTier1(sql, sql.length, meta);
+    assert.equal(out[0]?.label, expected);
+    assert.equal(out[0]?.insertText, expected);
+    assert.ok(out.some((suggestion) => suggestion.label === "user_id"));
+  }
+  const completed = "SELECT * FROM users u JOIN orders o ON o.user_id = ";
+  assert.ok(!autocompleteTier1(completed, completed.length, meta)
+    .some((suggestion) => suggestion.detail === "chave estrangeira"));
+});
+
 test("após relação JOIN sugere ON prioritário, sem transições gerais", () => {
   const sql = "SELECT * FROM users JOIN orders ";
   const out = autocompleteTier1(sql, sql.length, metaOf(postgresDescriptor));
