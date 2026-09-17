@@ -59,6 +59,8 @@ export interface Adapter {
   listIndexes(schema: string, table: string): Promise<readonly IndexInfo[]>;
   /** Texto de definição (`CREATE VIEW`/`CREATE FUNCTION`) de uma view ou função — consulta ao vivo. */
   getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string>;
+  /** DDL de tabela obtido do catálogo do banco, quando o dialeto oferece suporte. */
+  getTableDefinition?(schema: string, name: string): Promise<string>;
 
   /**
    * `UPDATE` de uma linha via chave primária — edição inline da grade de
