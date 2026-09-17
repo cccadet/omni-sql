@@ -41,6 +41,19 @@ body {
   background-color: var(--colorBrandBackgroundPressed);
 }
 
+.fui-Button.fui-Button--appearance-primary.omni-cancel-run {
+  background-color: #b42318;
+  color: #ffffff;
+}
+
+.fui-Button.fui-Button--appearance-primary.omni-cancel-run:hover {
+  background-color: #921d16;
+}
+
+.fui-Button.fui-Button--appearance-primary.omni-cancel-run:active {
+  background-color: #7a1913;
+}
+
 .fui-Button.fui-Button--appearance-subtle:hover,
 .fui-Button.fui-Button--appearance-transparent:hover {
   color: var(--colorBrandForeground1);

@@ -66,10 +66,11 @@ export function Toolbar({
       <div className="omni-toolbar-group omni-toolbar-group-primary">
             {running ? (
               <ToolbarButton
+                className="omni-cancel-run"
                 icon={<StopRegular fontSize={14} />}
                 onClick={onCancelRun}
                 appearance="primary"
-                style={{ backgroundColor: tokens.colorPaletteRedBackground1, fontWeight: 600 }}
+                style={{ fontWeight: 600 }}
                 title={t("cancel")}
               >
                 {t("cancel")}
