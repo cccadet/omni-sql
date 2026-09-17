@@ -7,14 +7,15 @@ use std::os::windows::io::AsRawHandle;
 use std::fs;
 #[cfg(windows)]
 use std::mem::{size_of, zeroed};
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 #[cfg(windows)]
 use std::ptr::null_mut;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use serde::Serialize;
@@ -991,6 +992,20 @@ fn get_mcp_launcher_config<R: tauri::Runtime>(
         ));
     }
     let server_entry_path = mcp_server_entry_path(&app)?;
+    // The MCP client owns this process, so the app's child job cannot stop it
+    // before an installer replaces bundled resources. Run immutable copies
+    // outside the installation directory instead.
+    #[cfg(not(debug_assertions))]
+    let (node_executable, server_entry_path) = {
+        let cache_dir = app.path()
+            .app_data_dir()
+            .map_err(|err| format!("failed to resolve MCP launcher cache: {err}"))?
+            .join("mcp-launcher-cache");
+        (
+            stage_mcp_launcher_file(&node_executable, &cache_dir, "node", "exe")?,
+            stage_mcp_launcher_file(&server_entry_path, &cache_dir, "server", "mjs")?,
+        )
+    };
     Ok(McpLauncherConfig {
         command: strip_verbatim_prefix(node_executable).display().to_string(),
         args: vec![
@@ -998,6 +1013,51 @@ fn get_mcp_launcher_config<R: tauri::Runtime>(
             strip_verbatim_prefix(descriptor_path).display().to_string(),
         ],
     })
+}
+
+fn file_sha256(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path)
+        .map_err(|err| format!("failed to open MCP launcher resource {}: {err}", path.display()))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)
+            .map_err(|err| format!("failed to read MCP launcher resource {}: {err}", path.display()))?;
+        if read == 0 { break; }
+        digest.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn stage_mcp_launcher_file(
+    source: &Path,
+    cache_dir: &Path,
+    stem: &str,
+    extension: &str,
+) -> Result<PathBuf, String> {
+    let hash = file_sha256(source)?;
+    fs::create_dir_all(cache_dir)
+        .map_err(|err| format!("failed to create MCP launcher cache {}: {err}", cache_dir.display()))?;
+    let target = cache_dir.join(format!("{stem}-{hash}.{extension}"));
+    if target.is_file() {
+        if file_sha256(&target)? == hash { return Ok(target); }
+        return Err(format!("MCP launcher cache file has changed: {}", target.display()));
+    }
+    let temporary = cache_dir.join(format!(".{stem}-{}.tmp", generate_auth_token()?));
+    let staged = (|| {
+        fs::copy(source, &temporary)
+            .map_err(|err| format!("failed to stage MCP launcher resource {}: {err}", source.display()))?;
+        if file_sha256(&temporary)? != hash {
+            return Err(format!("MCP launcher resource changed while staging: {}", source.display()));
+        }
+        match fs::rename(&temporary, &target) {
+            Ok(()) => Ok(target.clone()),
+            Err(_) if target.is_file() && file_sha256(&target)? == hash => Ok(target.clone()),
+            Err(err) => Err(format!("failed to finish MCP launcher cache {}: {err}", target.display())),
+        }
+    })();
+    let _ = fs::remove_file(&temporary);
+    staged
 }
 
 #[cfg(debug_assertions)]
@@ -2059,6 +2119,28 @@ mod tests {
             })
         );
         assert!(value.get("mcp_token").is_none());
+    }
+
+    #[test]
+    fn mcp_launcher_cache_keeps_old_runtime_available_during_updates() {
+        let directory = std::env::temp_dir().join(format!(
+            "omni-sql-mcp-launcher-test-{}-{}",
+            std::process::id(),
+            generate_auth_token().unwrap()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("bundled-node.exe");
+        let cache = directory.join("cache");
+        fs::write(&source, b"old runtime").unwrap();
+        let old = stage_mcp_launcher_file(&source, &cache, "node", "exe").unwrap();
+        assert_eq!(stage_mcp_launcher_file(&source, &cache, "node", "exe").unwrap(), old);
+
+        fs::write(&source, b"new runtime").unwrap();
+        let new = stage_mcp_launcher_file(&source, &cache, "node", "exe").unwrap();
+        assert_ne!(new, old);
+        assert_eq!(fs::read(&old).unwrap(), b"old runtime");
+        assert_eq!(fs::read(&new).unwrap(), b"new runtime");
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
