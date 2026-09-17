@@ -56,6 +56,13 @@ use tauri_plugin_opener::OpenerExt;
 
 struct BackendChild(Mutex<Option<Child>>);
 struct SidecarChild(Mutex<Option<Child>>);
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedProcess {
+    id: &'static str,
+    pid: Option<u32>,
+    running: bool,
+}
 #[cfg(windows)]
 struct ChildJob(Mutex<Option<windows_sys::Win32::Foundation::HANDLE>>);
 #[cfg(windows)]
@@ -223,6 +230,8 @@ const SIDECAR_STATUS_READY: &str = "ready";
 const SIDECAR_STATUS_UNAVAILABLE: &str = "unavailable";
 const CHECK_FOR_UPDATES_MENU_ID: &str = "check-for-updates";
 const CHECK_FOR_UPDATES_EVENT: &str = "check-for-updates";
+const SHOW_PROCESSES_MENU_ID: &str = "show-background-processes";
+const SHOW_PROCESSES_EVENT: &str = "show-background-processes";
 const NATIVE_MENU_EVENT: &str = "native-menu-action";
 const NEW_SQL_MENU_ID: &str = "new-sql";
 const OPEN_SQL_MENU_ID: &str = "open-sql";
@@ -297,6 +306,8 @@ fn native_menu(app: &AppHandle, language: &str) -> tauri::Result<Menu<tauri::Wry
     )
     .build(app)?;
     let help = SubmenuBuilder::new(app, label("Help", "Ajuda"))
+        .item(&MenuItemBuilder::with_id(SHOW_PROCESSES_MENU_ID, label("Background processes…", "Processos em segundo plano…")).build(app)?)
+        .separator()
         .item(&check_for_updates)
         .build()?;
 
@@ -310,6 +321,60 @@ fn prepare_update_install(app: AppHandle) -> Result<(), String> {
     stop_managed_sidecars(&app)?;
     remove_mcp_runtime_descriptor(&app);
     Ok(())
+}
+
+fn managed_process(id: &'static str, slot: &Mutex<Option<Child>>) -> ManagedProcess {
+    let mut guard = slot.lock().unwrap();
+    let (pid, running) = match guard.as_mut() {
+        Some(child) => (Some(child.id()), matches!(child.try_wait(), Ok(None))),
+        None => (None, false),
+    };
+    ManagedProcess { id, pid, running }
+}
+
+#[tauri::command]
+fn get_managed_processes(app: AppHandle) -> Vec<ManagedProcess> {
+    vec![
+        managed_process("backend", &app.state::<BackendChild>().0),
+        managed_process("jvm", &app.state::<SidecarChild>().0),
+    ]
+}
+
+#[tauri::command]
+fn stop_managed_process(app: AppHandle, id: String) -> Result<(), String> {
+    match id.as_str() {
+        "backend" => {
+            let state = app.state::<BackendChild>();
+            let mut guard = state.0.lock().unwrap();
+            if let Some(child) = guard.as_mut() {
+                stop_child(child, "Node backend sidecar")?;
+            }
+            guard.take();
+            drop(guard);
+            remove_mcp_runtime_descriptor(&app);
+            *app.state::<AuthToken>().token.lock().unwrap() = None;
+            Ok(())
+        }
+        "jvm" => {
+            let state = app.state::<SidecarChild>();
+            let mut guard = state.0.lock().unwrap();
+            if let Some(child) = guard.as_mut() {
+                stop_child(child, "JVM sidecar")?;
+            }
+            guard.take();
+            drop(guard);
+            emit_sidecar_status(&app, SIDECAR_STATUS_UNAVAILABLE);
+            Ok(())
+        }
+        _ => Err("unknown managed process".to_string()),
+    }
+}
+
+#[tauri::command]
+fn restart_managed_processes(app: AppHandle) -> Result<(), String> {
+    stop_managed_sidecars(&app)?;
+    remove_mcp_runtime_descriptor(&app);
+    app.restart();
 }
 
 #[tauri::command]
@@ -1453,6 +1518,10 @@ pub fn run() {
                 if let Err(err) = app.emit(CHECK_FOR_UPDATES_EVENT, ()) {
                     log::warn!("failed to emit {CHECK_FOR_UPDATES_EVENT}: {err}");
                 }
+            } else if event.id() == SHOW_PROCESSES_MENU_ID {
+                if let Err(err) = app.emit(SHOW_PROCESSES_EVENT, ()) {
+                    log::warn!("failed to emit {SHOW_PROCESSES_EVENT}: {err}");
+                }
             } else if event.id() == EXIT_MENU_ID {
                 app.exit(0);
             } else if let Err(err) = app.emit(NATIVE_MENU_EVENT, event.id().as_ref()) {
@@ -1467,6 +1536,9 @@ pub fn run() {
             read_text_file,
             get_sidecar_status,
             get_sidecar_diagnostics,
+            get_managed_processes,
+            stop_managed_process,
+            restart_managed_processes,
             get_auth_token,
             get_mcp_launcher_config,
             prepare_update_install,
