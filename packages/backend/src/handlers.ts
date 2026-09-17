@@ -449,9 +449,8 @@ function resolveRelationByName(
   return fallback;
 }
 
-// DDL construída a partir dos metadados já cacheados (colunas + PK/FK) — não
-// é uma cópia fiel do DDL real (sem índices, checks, storage etc.), mas
-// dispensa uma ida ao banco só para visualização rápida da estrutura.
+// Fallback para dialetos sem extração de DDL pelo adaptador. O aviso evita
+// apresentar metadados cacheados como uma definição fiel do banco.
 function buildTableDdl(dialect: ConnectionConfig["dialect"], relation: Relation): string {
   const descriptor = dialectDescriptor(dialect);
   const q = (id: string) => quoteIdentifier(descriptor, id);
@@ -479,7 +478,7 @@ function buildTableDdl(dialect: ConnectionConfig["dialect"], relation: Relation)
     );
   }
 
-  return `CREATE TABLE ${tableRef} (\n${[...columnLines, ...constraintLines].join(",\n")}\n);`;
+  return `-- DDL parcial reconstruído do cache; índices, CHECKs, comentários e opções de armazenamento podem estar ausentes.\nCREATE TABLE ${tableRef} (\n${[...columnLines, ...constraintLines].join(",\n")}\n);`;
 }
 
 export function metaSourceOf(
@@ -1006,6 +1005,10 @@ export const handlers: BackendRpcRouter = {
   }: GetDefinitionParams): Promise<GetDefinitionResult> {
     const s = requireSession(connectionId);
     if (kind === "table") {
+      if (s.adapter.getTableDefinition) {
+        await s.adapter.connect();
+        return { sql: await s.adapter.getTableDefinition(schema, name) };
+      }
       const relation = resolveRelationByName(connectionId, name, schema);
       if (!relation) throw new RpcValidationError("tabela não encontrada");
       return { sql: buildTableDdl(s.config.dialect, relation) };

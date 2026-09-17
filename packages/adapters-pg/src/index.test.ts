@@ -5,6 +5,7 @@ import { PostgresAdapter } from "./index.ts";
 import {
   applyServerRowCap,
   getDefinitionViaPool,
+  getTableDefinitionViaPool,
   introspectSchemas,
   listFunctionsPerSchema,
   listIndexesViaPool,
@@ -13,6 +14,21 @@ import {
   updateRowViaPool,
 } from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
+
+test("table DDL includes catalog constraints, indexes, and comments", async () => {
+  const responses = [
+    { rows: [{ oid: 42, description: "owner's orders" }] },
+    { rows: [{ name: "id", type: "integer", nullable: false, default_value: null, identity: "", generated: "", description: "order's id" }] },
+    { rows: [{ name: "orders_id_check", definition: "CHECK (id > 0)" }] },
+    { rows: [{ definition: "CREATE INDEX orders_id_idx ON public.orders USING btree (id)" }] },
+  ];
+  const pool = { query: async () => responses.shift() } as unknown as Pool;
+  const ddl = await getTableDefinitionViaPool(pool, "public", "orders");
+  assert.match(ddl, /CONSTRAINT "orders_id_check" CHECK \(id > 0\)/u);
+  assert.match(ddl, /CREATE INDEX orders_id_idx/u);
+  assert.match(ddl, /COMMENT ON TABLE "public"\."orders" IS 'owner''s orders'/u);
+  assert.match(ddl, /COMMENT ON COLUMN "public"\."orders"\."id" IS 'order''s id'/u);
+});
 
 // Sem docker/Postgres local: smoke só valida construção + dial refusal.
 // Em CI/uso local, setar `PG_TEST_CONNECTION_STRING` para acionar testes reais.

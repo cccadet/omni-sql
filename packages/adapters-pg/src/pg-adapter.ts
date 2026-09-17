@@ -12,6 +12,7 @@ import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpe
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
+  getTableDefinitionViaPool,
   insertRowViaPool,
   introspectSchemas,
   listFunctionsPerSchema,
@@ -161,6 +162,10 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
 
   async getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string> {
     return getDefinitionViaPool(this.pool, kind, schema, name);
+  }
+
+  async getTableDefinition(schema: string, name: string): Promise<string> {
+    return getTableDefinitionViaPool(this.pool, schema, name);
   }
 
   dialectDescriptor() {

@@ -169,6 +169,14 @@ export async function listIndexesViaPool(pool: Pool, schema: string, table: stri
 }
 
 /** Texto de definição (`CREATE VIEW`/`CREATE FUNCTION`) — consulta ao vivo via `SHOW CREATE`. */
+export async function getTableDefinitionViaPool(pool: Pool, schema: string, name: string): Promise<string> {
+  const ref = `${quoteIdentifier(mysqlDescriptor, schema)}.${quoteIdentifier(mysqlDescriptor, name)}`;
+  const [rows] = await pool.query<(RowDataPacket & { "Create Table": string })[]>(`SHOW CREATE TABLE ${ref}`);
+  if (rows.length === 0) throw new Error(`tabela não encontrada: ${schema}.${name}`);
+  return `${rows[0]!["Create Table"].replace(/;\s*$/u, "")};`;
+}
+
+/** Texto de definição (`CREATE VIEW`/`CREATE FUNCTION`) — consulta ao vivo via `SHOW CREATE`. */
 export async function getDefinitionViaPool(
   pool: Pool,
   kind: "view" | "function",

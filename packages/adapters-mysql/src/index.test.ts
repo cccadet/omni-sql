@@ -5,6 +5,7 @@ import type { ConnectionConfig } from "@omni-sql/ts-types";
 import {
   cancelQueryViaPool,
   getDefinitionViaPool,
+  getTableDefinitionViaPool,
   introspectSchemas,
   listFunctionsPerSchema,
   listIndexesViaPool,
@@ -14,6 +15,13 @@ import {
   updateRowViaPool,
 } from "./introspection.ts";
 import { MysqlAdapter } from "./index.ts";
+
+test("table DDL uses SHOW CREATE TABLE", async () => {
+  const pool = { query: async () => [[{ "Create Table": "CREATE TABLE `orders` (`id` int, CHECK (`id` > 0), KEY `idx_id` (`id`))" }]] } as unknown as Pool;
+  const ddl = await getTableDefinitionViaPool(pool, "app", "orders");
+  assert.match(ddl, /CHECK \(`id` > 0\).*KEY `idx_id`/u);
+  assert.ok(ddl.endsWith(";"));
+});
 
 // Sem docker/MySQL local: smoke só valida construção + recusa de dial.
 // Em CI/uso local, setar `MYSQL_TEST_CONNECTION_STRING` para acionar testes reais.

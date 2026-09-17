@@ -177,6 +177,63 @@ export async function listIndexesViaPool(pool: Pool, schema: string, table: stri
   }));
 }
 
+/** Reconstrói o DDL da tabela usando definições do catálogo, inclusive CHECKs e índices independentes. */
+export async function getTableDefinitionViaPool(pool: Pool, schema: string, name: string): Promise<string> {
+  const { rows: tables } = await pool.query<{ oid: number; description: string | null }>(
+    `SELECT c.oid, obj_description(c.oid, 'pg_class') AS description
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p')`,
+    [schema, name],
+  );
+  const table = tables[0];
+  if (!table) throw new Error(`tabela não encontrada: ${schema}.${name}`);
+  const { rows: columns } = await pool.query<{
+    name: string; type: string; nullable: boolean; default_value: string | null;
+    identity: string; generated: string; description: string | null;
+  }>(
+    `SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type,
+            NOT a.attnotnull AS nullable, pg_get_expr(d.adbin, d.adrelid) AS default_value,
+            a.attidentity AS identity, a.attgenerated AS generated,
+            col_description(a.attrelid, a.attnum) AS description
+     FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+     WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`,
+    [table.oid],
+  );
+  const { rows: constraints } = await pool.query<{ name: string; definition: string }>(
+    `SELECT conname AS name, pg_get_constraintdef(oid, true) AS definition
+     FROM pg_constraint WHERE conrelid = $1 AND contype IN ('p', 'u', 'f', 'c', 'x') ORDER BY oid`,
+    [table.oid],
+  );
+  const { rows: indexes } = await pool.query<{ definition: string }>(
+    `SELECT pg_get_indexdef(i.indexrelid) AS definition
+     FROM pg_index i LEFT JOIN pg_constraint c ON c.conindid = i.indexrelid
+     WHERE i.indrelid = $1 AND c.oid IS NULL ORDER BY i.indexrelid`,
+    [table.oid],
+  );
+  const q = (id: string) => quoteIdentifier(postgresDescriptor, id);
+  const literal = (value: string) => `'${value.replace(/'/gu, "''")}'`;
+  const tableRef = `${q(schema)}.${q(name)}`;
+  const lines = columns.map((column) => {
+    const parts = [q(column.name), column.type];
+    if (column.generated === "s" && column.default_value !== null) {
+      parts.push(`GENERATED ALWAYS AS (${column.default_value}) STORED`);
+    } else if (column.identity === "a" || column.identity === "d") {
+      parts.push(`GENERATED ${column.identity === "a" ? "ALWAYS" : "BY DEFAULT"} AS IDENTITY`);
+    } else if (column.default_value !== null) {
+      parts.push(`DEFAULT ${column.default_value}`);
+    }
+    if (!column.nullable) parts.push("NOT NULL");
+    return `  ${parts.join(" ")}`;
+  });
+  lines.push(...constraints.map((constraint) => `  CONSTRAINT ${q(constraint.name)} ${constraint.definition}`));
+  const statements = [`CREATE TABLE ${tableRef} (\n${lines.join(",\n")}\n);`];
+  statements.push(...indexes.map((index) => `${index.definition.replace(/;\s*$/u, "")};`));
+  if (table.description !== null) statements.push(`COMMENT ON TABLE ${tableRef} IS ${literal(table.description)};`);
+  statements.push(...columns.filter((column) => column.description !== null)
+    .map((column) => `COMMENT ON COLUMN ${tableRef}.${q(column.name)} IS ${literal(column.description!)};`));
+  return statements.join("\n\n");
+}
+
 /** Texto de definição (`CREATE VIEW`/`CREATE FUNCTION`) — consulta ao vivo via catálogo. */
 export async function getDefinitionViaPool(
   pool: Pool,
