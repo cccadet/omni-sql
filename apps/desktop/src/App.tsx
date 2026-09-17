@@ -15,6 +15,7 @@ import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { StatusBar, type ConnectionHealth, type McpVisualState, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
 import { McpEditDialog, type McpEditProposal } from "./components/McpEditDialog";
+import { BackgroundProcessesDialog } from "./components/BackgroundProcessesDialog";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
@@ -36,6 +37,7 @@ import type { McpStatusResult } from "@omni-sql/ts-types";
 
 const HISTORY_KEY = "omni-sql:history";
 const CHECK_FOR_UPDATES_EVENT = "check-for-updates";
+const SHOW_PROCESSES_EVENT = "show-background-processes";
 const NATIVE_MENU_EVENT = "native-menu-action";
 const MCP_PROPOSAL_SAFETY_WINDOW_MS = 1_000;
 const TRUSTED_WARNING_CONNECTIONS_KEY = "omni-sql:trusted-warning-connections";
@@ -209,6 +211,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const editorRef = useRef<EditorHandle | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [backgroundProcessesOpen, setBackgroundProcessesOpen] = useState(false);
   const [editingConfig, setEditingConfig] = useState<ConnectionEntry | null>(null);
   const [duplicatingConnection, setDuplicatingConnection] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -340,6 +343,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       unlisten?.();
     };
   }, [t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void listen(SHOW_PROCESSES_EVENT, () => setBackgroundProcessesOpen(true))
+      .then((cleanup) => { if (cancelled) cleanup(); else unlisten = cleanup; })
+      .catch(() => undefined);
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
 
   useEffect(() => {
     void loadConnections();
@@ -1228,6 +1240,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         onClose={() => setDialogOpen(false)}
         onSaved={onConnectionSaved}
       />
+
+      <BackgroundProcessesDialog open={backgroundProcessesOpen} onClose={() => setBackgroundProcessesOpen(false)} language={language} />
 
       <Dialog open={metadataRefreshConfirmOpen} onOpenChange={(_, data) => setMetadataRefreshConfirmOpen(data.open)}>
         <DialogSurface className="omni-standard-dialog omni-confirm-dialog">
