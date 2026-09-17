@@ -101,6 +101,9 @@ test("introspectSchemas ignora FK incompleta e preserva FK válida", async () =>
         return { rows: [{ table_schema: "APP", table_name: "CHILD", table_type: "TABLE" }] };
       }
       if (sql.includes("FROM all_tab_columns")) {
+        assert.match(sql, /c\.owner AS "table_schema"/);
+        assert.match(sql, /c\.table_name AS "table_name"/);
+        assert.match(sql, /c\.column_name AS "column_name"/);
         return {
           rows: [
             { table_schema: "APP", table_name: "CHILD", column_name: "BROKEN_ID", data_type: "NUMBER", is_nullable: "Y", column_default: null, ordinal_position: 1 },

@@ -55,6 +55,7 @@ const TARGETS: Record<string, Target> = {
       dialect: "sqlserver",
       endpoint: "127.0.0.1:1433/omni_test",
       user: "sa",
+      options: { trustServerCertificate: true, serverName: "localhost" },
     },
     password: "Omni!2024",
   },
@@ -153,7 +154,7 @@ for (const [key, target] of targets) {
       const pub = findSchema(schemas);
 
       const tables = adapter.listTables(pub.name);
-      const tableNames = tables.map((t) => t.name);
+      const tableNames = tables.map((t) => t.name.toLowerCase());
       assert.ok(tableNames.includes("customers"), `customers missing, got: ${tableNames}`);
       assert.ok(tableNames.includes("orders"), `orders missing, got: ${tableNames}`);
       assert.ok(tableNames.includes("products"), `products missing, got: ${tableNames}`);
@@ -163,7 +164,7 @@ for (const [key, target] of targets) {
     it("listColumns (customers)", () => {
       const schemas = adapter.listSchemas();
       const pub = findSchema(schemas);
-      const cols = adapter.listColumns(pub.name, "customers");
+      const cols = adapter.listColumns(pub.name, key === "oracle" ? "CUSTOMERS" : "customers");
       assert.ok(cols.length >= 4, `expected 4+ columns, got ${cols.length}`);
 
       const idCol = cols.find((c) => c.name === "id" || c.name === "ID");
@@ -177,7 +178,7 @@ for (const [key, target] of targets) {
     it("listColumns (orders with FK)", () => {
       const schemas = adapter.listSchemas();
       const pub = findSchema(schemas);
-      const cols = adapter.listColumns(pub.name, "orders");
+      const cols = adapter.listColumns(pub.name, key === "oracle" ? "ORDERS" : "orders");
       const fkCol = cols.find(
         (c) => c.name === "customer_id" || c.name === "CUSTOMER_ID",
       );
