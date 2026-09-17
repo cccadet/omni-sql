@@ -56,3 +56,17 @@ test("exposes the multi-statement chooser as a dismissible dialog", () => {
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(onRunChoiceCancel).toHaveBeenCalledOnce();
 });
+
+test("shows the visible cancel action while a query is running", () => {
+  const onCancelRun = vi.fn();
+  render(
+    <LanguageProvider>
+      <Toolbar activeConnectionId="connection-1" running onCancelRun={onCancelRun} />
+    </LanguageProvider>,
+  );
+  const cancel = screen.getByRole("button", { name: "Cancel" });
+  expect(cancel.classList.contains("omni-cancel-run")).toBe(true);
+  expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+  fireEvent.click(cancel);
+  expect(onCancelRun).toHaveBeenCalledOnce();
+});
