@@ -688,6 +688,9 @@ export const handlers: BackendRpcRouter = {
         `in ${Date.now() - tList}ms`,
       );
       return { schemas };
+    } catch (error) {
+      if (config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
+      throw error;
     } finally {
       await adapter.close().catch((e) => console.warn(`[omni-sql] listSchemas: close failed: ${errorMessage(e)}`));
     }
@@ -897,12 +900,17 @@ export const handlers: BackendRpcRouter = {
       `[omni-sql] introspect start: dialect=${logValue(s.config.dialect)}`,
     );
     const tConnect = Date.now();
-    await s.adapter.connect();
-    console.log(`[omni-sql] introspect: connected in ${Date.now() - tConnect}ms, querying metadata…`);
-    const tIntro = Date.now();
-    const db: Database = await refreshMetadataCache(connectionId, s);
-    console.log(`[omni-sql] introspect: adapter.introspect() returned in ${Date.now() - tIntro}ms`);
-    return db;
+    try {
+      await s.adapter.connect();
+      console.log(`[omni-sql] introspect: connected in ${Date.now() - tConnect}ms, querying metadata…`);
+      const tIntro = Date.now();
+      const db: Database = await refreshMetadataCache(connectionId, s);
+      console.log(`[omni-sql] introspect: adapter.introspect() returned in ${Date.now() - tIntro}ms`);
+      return db;
+    } catch (error) {
+      if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
+      throw error;
+    }
   },
 
   async "metadata.listRelations"({

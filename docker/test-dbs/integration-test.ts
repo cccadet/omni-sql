@@ -48,6 +48,7 @@ const RPC_AUTH_HEADERS = {
 };
 
 const { startServer } = await import("@omni-sql/backend");
+const { closeBackendResources } = await import("../../packages/backend/src/handlers.ts");
 
 const SIDECAR_HEALTH_URL = "http://127.0.0.1:41921/health";
 const SIDECAR_SCOPE_URL = "http://127.0.0.1:41921/scope/resolve";
@@ -208,6 +209,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),
     );
+    await closeBackendResources();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 

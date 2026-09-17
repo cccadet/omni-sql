@@ -74,12 +74,12 @@ ORDER BY 1, 2
 
 const COLUMNS_SQL = `
 SELECT
-  owner AS "table_schema",
-  table_name AS "table_name",
-  column_name AS "column_name",
-  data_type AS "data_type",
-  nullable AS "is_nullable",
-  data_default AS "column_default",
+  c.owner AS "table_schema",
+  c.table_name AS "table_name",
+  c.column_name AS "column_name",
+  c.data_type AS "data_type",
+  c.nullable AS "is_nullable",
+  c.data_default AS "column_default",
   c.column_id AS "ordinal_position",
   cc.comments AS "description"
 FROM all_tab_columns c
