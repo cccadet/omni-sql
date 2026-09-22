@@ -187,6 +187,41 @@ test("backend: release CORS origin follows the Tauri platform without wildcard",
   assert.notEqual(defaultAllowedOrigin("production", "win32"), "*");
 });
 
+test("backend: authenticated analytical endpoint streams bounded NDJSON batches", async () => {
+  const port = TEST_PORT + 20;
+  const server = startServer(port);
+  try {
+    const rpcUrl = `http://127.0.0.1:${port}/rpc`;
+    const add = await rpc("connection.add", { config: {
+      id: "analysis-stream",
+      label: "Analysis stream",
+      dialect: "jdbc-generic",
+      endpoint: "memory://local",
+      user: "anon",
+    } }, rpcUrl);
+    assert.equal((add.result as AddConnectionResult).ok, true);
+
+    const denied = await fetch(`http://127.0.0.1:${port}/analysis/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ connectionId: "analysis-stream", sql: "SELECT 1", batchSize: 100 }),
+    });
+    assert.equal(denied.status, 401);
+
+    const response = await fetch(`http://127.0.0.1:${port}/analysis/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({ connectionId: "analysis-stream", sql: "SELECT 1", batchSize: 100 }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "application/x-ndjson");
+    const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string });
+    assert.deepEqual(lines.map((line) => line.type), ["batch", "complete"]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("smoke: add connection → introspect → list relations → run query → completion", async () => {
   const server = startServer(TEST_PORT);
   try {

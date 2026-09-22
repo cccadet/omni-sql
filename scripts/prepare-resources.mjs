@@ -131,7 +131,16 @@ export function extract(archive, destination, platform = process.platform, run =
       // Windows PowerShell, so embed both paths as escaped PowerShell literals.
       const quote = (value) => `'${value.replaceAll("'", "''")}'`;
       const command = `Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(destination)} -Force`;
-      run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], { stdio: "inherit" });
+      try {
+        run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], { stdio: "inherit" });
+      } catch (powerShellError) {
+        const archiveRoot = path.parse(path.resolve(archive)).root;
+        const destinationRoot = path.parse(path.resolve(destination)).root;
+        if (archiveRoot.toLowerCase() !== destinationRoot.toLowerCase()) throw powerShellError;
+        // bsdtar bundled with Windows reads ZIP files. Run from the drive root
+        // so neither argument contains a drive-letter colon.
+        run("tar.exe", ["-xf", path.relative(archiveRoot, archive), "-C", path.relative(archiveRoot, destination)], { cwd: archiveRoot, stdio: "inherit" });
+      }
     } else {
       run("unzip", ["-q", archive, "-d", destination], { stdio: "inherit" });
     }

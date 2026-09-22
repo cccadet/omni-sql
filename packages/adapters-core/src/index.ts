@@ -44,6 +44,10 @@ export interface Adapter {
 
   /** Execução de query para results grid. Delegates ao pool do adaptador. */
   runQuery(sql: string, limit: number): Promise<QueryResult>;
+  /** Optional large-result path. Batches remain bounded and are released by
+   * returning from the async iterator. Implementations must close cursors in a
+   * finally block when the consumer stops early or aborts. */
+  streamQuery?(sql: string, options: QueryStreamOptions): AsyncIterable<QueryBatch>;
   /**
    * Cancela a query em andamento iniciada pela última chamada a `runQuery`,
    * se houver. Best-effort: sem query rodando, é um no-op. Mecanismo é
@@ -110,6 +114,16 @@ export class AdapterError extends Error {
     this.name = "AdapterError";
     this.causeTag = causeTag;
   }
+}
+
+export interface QueryStreamOptions {
+  readonly batchSize: number;
+  readonly signal: AbortSignal;
+}
+
+export interface QueryBatch {
+  readonly columns: QueryResult["columns"];
+  readonly rows: QueryResult["rows"];
 }
 
 export interface RowInsertSpec {

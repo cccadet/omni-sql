@@ -59,6 +59,8 @@ export interface ResultsGridProps {
   /** Kept for compatibility; it is now called only when applying all edits. */
   onCellEdit?: (rowIndex: number, colIndex: number, value: unknown) => Promise<void>;
   onInsertRow?: (values: Readonly<Record<number, unknown>>) => void | Promise<void>;
+  onAnalyzeLocally?: () => void | Promise<void>;
+  analyzingLocally?: boolean;
 }
 
 export interface StagedCellEdit {
@@ -160,6 +162,8 @@ export function ResultsGrid({
   committing = false,
   onCellEdit,
   onInsertRow,
+  onAnalyzeLocally,
+  analyzingLocally = false,
 }: ResultsGridProps) {
   const { t } = useLanguage();
   const toasterId = useId();
@@ -698,6 +702,16 @@ export function ResultsGrid({
             >
               {committing ? t("applying") : `${t("apply")}${changes.length ? ` ${changes.length}` : ""}`}
             </Button>
+            {onAnalyzeLocally && (
+              <Button
+                appearance="outline"
+                icon={<TableRegular />}
+                onClick={() => void onAnalyzeLocally()}
+                disabled={!result || analyzingLocally}
+              >
+                {analyzingLocally ? t("analysisImporting") : t("analyzeLocally")}
+              </Button>
+            )}
             <Tooltip content={t("exportCsv")} relationship="label">
               <Button icon={<ArrowDownloadRegular />} onClick={() => void handleExportCsv()} disabled={!result || rows.length === 0}>
                 {t("export")}

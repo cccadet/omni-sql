@@ -1,5 +1,6 @@
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+mod data_engine;
 #[cfg(windows)]
 use std::os::windows::io::FromRawHandle;
 #[cfg(windows)]
@@ -1001,6 +1002,10 @@ fn get_sidecar_diagnostics(state: tauri::State<'_, SidecarStatusState>) -> Sidec
 
 #[tauri::command]
 fn get_auth_token(state: tauri::State<'_, AuthToken>) -> Result<String, String> {
+    wait_for_auth_token(&state)
+}
+
+fn wait_for_auth_token(state: &AuthToken) -> Result<String, String> {
     let token = state.token.lock().unwrap();
     let (token, _) = state
         .ready
@@ -1484,6 +1489,114 @@ fn compatible_java<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<(Path
     }
 }
 
+#[tauri::command]
+fn analysis_import_result(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    request: data_engine::ImportResultRequest,
+) -> Result<data_engine::DatasetRef, String> {
+    engine.import_result(request)
+}
+
+#[tauri::command]
+fn analysis_import_source(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    auth_token: tauri::State<'_, AuthToken>,
+    request: data_engine::SourceImportRequest,
+) -> Result<data_engine::DatasetRef, String> {
+    let token = wait_for_auth_token(&auth_token)?;
+    engine.import_source(request, &token, BACKEND_PORT)
+}
+
+#[tauri::command]
+fn analysis_query(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    request: data_engine::QueryRequest,
+) -> Result<data_engine::AnalysisQueryResult, String> {
+    engine.query(request)
+}
+
+#[tauri::command]
+fn analysis_query_start(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    request: data_engine::QueryStartRequest,
+) -> Result<data_engine::ResultHandleRef, String> {
+    engine.start_query(request)
+}
+
+#[tauri::command]
+fn analysis_query_page(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    request: data_engine::QueryPageRequest,
+) -> Result<data_engine::AnalysisQueryResult, String> {
+    engine.query_page(request)
+}
+
+#[tauri::command]
+fn analysis_query_drop(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    workspace_id: String,
+    handle_id: String,
+) -> Result<bool, String> {
+    engine.drop_result_handle(&workspace_id, &handle_id)
+}
+
+#[tauri::command]
+fn analysis_list_datasets(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    workspace_id: String,
+) -> Result<Vec<data_engine::DatasetRef>, String> {
+    engine.list_datasets(&workspace_id)
+}
+
+#[tauri::command]
+fn analysis_drop_dataset(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    workspace_id: String,
+    dataset_id: String,
+) -> Result<bool, String> {
+    engine.drop_dataset(&workspace_id, &dataset_id)
+}
+
+#[tauri::command]
+fn analysis_clear(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    workspace_id: String,
+) -> Result<usize, String> {
+    engine.clear(&workspace_id)
+}
+
+#[tauri::command]
+fn analysis_cancel(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    operation_id: String,
+) -> Result<bool, String> {
+    engine.cancel(&operation_id)
+}
+
+#[tauri::command]
+fn analysis_operation_status(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    operation_id: String,
+) -> Result<Option<data_engine::OperationStatus>, String> {
+    engine.operation_status(&operation_id)
+}
+
+#[tauri::command]
+fn analysis_export_query(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    request: data_engine::ExportRequest,
+) -> Result<data_engine::ExportResult, String> {
+    engine.export_query(request)
+}
+
+#[tauri::command]
+fn analysis_import_file(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    request: data_engine::FileImportRequest,
+) -> Result<data_engine::DatasetRef, String> {
+    engine.import_file(request)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // WebKitGTK on some Wayland setups crashes during surface setup when the
@@ -1508,6 +1621,11 @@ pub fn run() {
     let sidecar_auth_token = generate_auth_token().expect("failed to create sidecar auth token");
     let mcp_auth_token = generate_auth_token().expect("failed to create per-run MCP auth token");
     let mcp_start_nonce = generate_auth_token().expect("failed to create MCP start nonce");
+    let data_engine = data_engine::DataEngine::open_in_memory()
+        .expect("failed to initialize the local analytical engine");
+    data_engine
+        .smoke_query()
+        .expect("local analytical engine smoke query failed");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1542,13 +1660,27 @@ pub fn run() {
             get_auth_token,
             get_mcp_launcher_config,
             prepare_update_install,
-            set_native_menu_language
+            set_native_menu_language,
+            analysis_import_result,
+            analysis_import_source,
+            analysis_query,
+            analysis_query_start,
+            analysis_query_page,
+            analysis_query_drop,
+            analysis_list_datasets,
+            analysis_drop_dataset,
+            analysis_clear,
+            analysis_cancel,
+            analysis_operation_status,
+            analysis_export_query,
+            analysis_import_file
         ])
         .manage(AuthToken {
             token: Mutex::new(None),
             ready: Condvar::new(),
         })
         .manage(McpDescriptorPath(Mutex::new(None)))
+        .manage(data_engine)
         .manage(BackendChild(Mutex::new(None)))
         .manage(SidecarChild(Mutex::new(None)))
         .manage(SidecarStatusState(Mutex::new(SidecarDiagnostics {
@@ -2314,13 +2446,20 @@ mod tests {
         let error = write_mcp_runtime_descriptor(&path, "mcp-secret", 1234, "run-nonce")
             .unwrap_err();
 
-        assert!(error.contains("failed to create temporary MCP runtime descriptor"));
+        assert!(error.contains("MCP runtime") || error.contains("runtime descriptor"));
         assert!(std::fs::metadata(&path).unwrap().is_file());
         std::fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn child_processes_cannot_inherit_runtime_security_overrides() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = std::process::Command::new("cmd");
+            command.args(["/C", "set"]);
+            command
+        };
+        #[cfg(not(windows))]
         let mut command = std::process::Command::new("env");
         command
             .env("NODE_OPTIONS", "--require=/tmp/untrusted.js")

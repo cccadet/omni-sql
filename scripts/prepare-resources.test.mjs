@@ -70,18 +70,21 @@ test("preserves ./gradlew on Unix", () => {
   assert.deepEqual(gradleInvocation(["jar"], "linux"), { command: "./gradlew", args: ["jar"] });
 });
 
-test("converts Tauri Linux platform/arch environment to linux-x64", () => {
+test("converts the native Tauri platform/arch environment to the resource target", () => {
+  const tauriPlatform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
+  const expected = process.platform === "win32" ? "windows-x64" : process.platform === "darwin" ? "darwin-x64" : "linux-x64";
   const output = execFileSync(process.execPath, [script, "--print-target"], {
-    env: { ...process.env, TAURI_ENV_PLATFORM: "linux", TAURI_ENV_ARCH: "x86_64" },
+    env: { ...process.env, TAURI_ENV_PLATFORM: tauriPlatform, TAURI_ENV_ARCH: "x86_64" },
     encoding: "utf8",
   });
-  assert.equal(output.trim(), "linux-x64");
+  assert.equal(output.trim(), expected);
 });
 
 test("rejects a Tauri target that differs from the host", () => {
+  const foreignPlatform = process.platform === "win32" ? "linux" : "windows";
   assert.throws(
     () => execFileSync(process.execPath, [script, "--print-target"], {
-      env: { ...process.env, TAURI_ENV_PLATFORM: "windows", TAURI_ENV_ARCH: "x64" },
+      env: { ...process.env, TAURI_ENV_PLATFORM: foreignPlatform, TAURI_ENV_ARCH: "x64" },
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }),
@@ -112,6 +115,21 @@ test("escapes Windows paths when invoking PowerShell", () => {
   extract(archive, destination, "win32", (file, args) => { command = { file, args }; });
   assert.equal(command.file, "powershell.exe");
   assert.match(command.args[4], /-LiteralPath 'D:\\runner\\O''Reilly\\node\.zip'/);
+  fs.rmSync(destination, { recursive: true, force: true });
+});
+
+test("falls back to Windows tar when the PowerShell archive module is unavailable", () => {
+  const root = path.parse(os.tmpdir()).root;
+  const destination = path.join(os.tmpdir(), "omni-sql-fallback-extract");
+  const archive = path.join(os.tmpdir(), "node.zip");
+  const calls = [];
+  extract(archive, destination, "win32", (file, args, options) => {
+    calls.push({ file, args, options });
+    if (file === "powershell.exe") throw new Error("archive module unavailable");
+  });
+  assert.equal(calls[1].file, "tar.exe");
+  assert.equal(calls[1].options.cwd.toLowerCase(), root.toLowerCase());
+  assert.equal(calls[1].args.some((value) => value.includes(":")), false);
   fs.rmSync(destination, { recursive: true, force: true });
 });
 

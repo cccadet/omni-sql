@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import type { ConnectionConfig, Relation, Database } from "@omni-sql/ts-types";
-import type { Adapter } from "@omni-sql/adapters-core";
+import type { Adapter, QueryBatch } from "@omni-sql/adapters-core";
 import { registerAdapter, resolveAdapter } from "@omni-sql/adapters-core";
 import { PostgresAdapter } from "@omni-sql/adapters-pg";
 import { OracleAdapter } from "@omni-sql/adapters-oracle";
@@ -287,6 +287,30 @@ function requireSession(id: string): Session {
   const s = sessions.get(id);
   if (!s) throw new Error(`connection not found: ${id}`);
   return s;
+}
+
+export async function* streamAnalysisQuery(
+  connectionId: string,
+  sql: string,
+  batchSize: number,
+  signal: AbortSignal,
+): AsyncIterable<QueryBatch> {
+  if (typeof sql !== "string" || sql.length === 0 || sql.length > 1_048_576) {
+    throw new RpcValidationError("invalid analytical SQL");
+  }
+  if (!/^\s*(?:select|with)\b/iu.test(sql) || /;\s*\S/u.test(sql)) {
+    throw new RpcValidationError("analytical streaming accepts one SELECT or WITH statement");
+  }
+  if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 10_000) {
+    throw new RpcValidationError("analytical batch size must be between 1 and 10000");
+  }
+  await connectionsRestored;
+  const session = requireSession(connectionId);
+  assertSafeExplainSql(sql, session.config.dialect);
+  const adapter = session.adapter;
+  if (!adapter.streamQuery) throw new RpcValidationError("analytical streaming is unavailable for this adapter");
+  await adapter.connect();
+  yield* adapter.streamQuery(sql, { batchSize, signal });
 }
 
 function requireNonEmptyText(value: unknown, field: string): string {

@@ -1,11 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { once } from "node:events";
 import { pathToFileURL } from "node:url";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
   JsonRpcError,
 } from "./protocol.ts";
-import { closeBackendResources, handlers } from "./handlers.ts";
+import { closeBackendResources, handlers, streamAnalysisQuery } from "./handlers.ts";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { RpcDatabaseError, RpcValidationError } from "./rpc-errors.ts";
 import { closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
@@ -19,6 +20,7 @@ import {
 const DEFAULT_PORT = Number(process.env.OMNI_SQL_PORT ?? 41920);
 const AUTH_HEADER = "authorization";
 const MAX_RPC_BODY_BYTES = 1_048_576;
+const MAX_ANALYSIS_FRAME_BYTES = 16 * 1024 * 1024;
 const HEALTH_CHALLENGE_RE = /^[a-f0-9]{64}$/i;
 export function defaultAllowedOrigin(
   nodeEnv = process.env.NODE_ENV,
@@ -388,6 +390,76 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
       send(res, 401, { error: "unauthorized" }, origin);
       return;
     }
+    if (req.method === "POST" && requestUrl.pathname === "/analysis/stream") {
+      let raw: string;
+      try {
+        raw = await readBody(req, MAX_RPC_BODY_BYTES);
+      } catch (error) {
+        send(res, error instanceof BodyTooLargeError ? 413 : 400, { error: "invalid request body" });
+        return;
+      }
+      let body: unknown;
+      try {
+        body = JSON.parse(raw) as unknown;
+      } catch {
+        send(res, 400, { error: "invalid JSON body" });
+        return;
+      }
+      const input = body as { connectionId?: unknown; sql?: unknown; batchSize?: unknown };
+      if (!body || typeof body !== "object" || typeof input.connectionId !== "string" ||
+          typeof input.sql !== "string" || typeof input.batchSize !== "number") {
+        send(res, 400, { error: "invalid analytical stream request" });
+        return;
+      }
+      const requestAbort = trackRequestAbort(req, res);
+      try {
+        const batches = streamAnalysisQuery(input.connectionId, input.sql, input.batchSize, requestAbort.signal);
+        res.writeHead(200, {
+          "content-type": "application/x-ndjson",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        });
+        for await (const batch of batches) {
+          const prefix = `{"type":"batch","columns":${JSON.stringify(batch.columns)},"rows":[`;
+          const suffix = `]}\n`;
+          const baseBytes = Buffer.byteLength(prefix) + Buffer.byteLength(suffix);
+          let encodedRows: string[] = [];
+          let frameBytes = baseBytes;
+          for (const sourceRow of batch.rows) {
+            const row = sourceRow.map(normalizeAnalysisValue);
+            const encoded = JSON.stringify(row);
+            const encodedBytes = Buffer.byteLength(encoded) + (encodedRows.length > 0 ? 1 : 0);
+            if (frameBytes + encodedBytes > MAX_ANALYSIS_FRAME_BYTES) {
+              if (encodedRows.length === 0) throw new RpcValidationError("analytical source row exceeds 16 MiB");
+              if (!res.write(`${prefix}${encodedRows.join(",")}${suffix}`)) await once(res, "drain");
+              encodedRows = [encoded];
+              frameBytes = baseBytes + Buffer.byteLength(encoded);
+            } else {
+              encodedRows.push(encoded);
+              frameBytes += encodedBytes;
+            }
+          }
+          if (encodedRows.length > 0 || batch.rows.length === 0) {
+            const line = `${prefix}${encodedRows.join(",")}${suffix}`;
+            if (Buffer.byteLength(line) > MAX_ANALYSIS_FRAME_BYTES) throw new RpcValidationError("analytical source row exceeds 16 MiB");
+            if (!res.write(line)) await once(res, "drain");
+          }
+        }
+        res.end(`${JSON.stringify({ type: "complete" })}\n`);
+      } catch (error) {
+        logFailure("analysis.stream", error, 0);
+        if (!res.headersSent) {
+          const message = error instanceof RpcValidationError ? error.message : INTERNAL_ERROR_MESSAGE;
+          send(res, error instanceof RpcValidationError ? 400 : 500, { error: message });
+        } else {
+          const message = error instanceof RpcValidationError ? error.message : INTERNAL_ERROR_MESSAGE;
+          res.end(`${JSON.stringify({ type: "error", error: message })}\n`);
+        }
+      } finally {
+        requestAbort.cleanup();
+      }
+      return;
+    }
     if (req.method !== "POST" || route !== "/rpc") {
       send(res, 404, { error: "not found" }, origin);
       return;
@@ -447,6 +519,17 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
   });
   console.log(`[omni-sql] backend HTTP listening on http://127.0.0.1:${port}/rpc`);
   return server;
+}
+
+function normalizeAnalysisValue(value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (Buffer.isBuffer(value)) return [...value];
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(normalizeAnalysisValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, normalizeAnalysisValue(nested)]));
+  }
+  return value;
 }
 
 // Auto-start when executed via `pnpm start`.
