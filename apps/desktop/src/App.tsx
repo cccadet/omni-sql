@@ -215,6 +215,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [dialogOpen, setDialogOpen] = useState(false);
   const [backgroundProcessesOpen, setBackgroundProcessesOpen] = useState(false);
   const [analysisDataset, setAnalysisDataset] = useState<DatasetRef | null>(null);
+  const [analysisWorkspaceId, setAnalysisWorkspaceId] = useState<string | null>(null);
   const [analysisImporting, setAnalysisImporting] = useState(false);
   const [analysisImportOperationId, setAnalysisImportOperationId] = useState<string | null>(null);
   const [analysisImportStatus, setAnalysisImportStatus] = useState<AnalysisOperationStatus | null>(null);
@@ -411,9 +412,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const activeConnectionId = activeTab?.connectionId ?? null;
 
   const closeAnalysisWorkspace = useCallback(async () => {
-    if (analysisDataset) await clearAnalysis(analysisDataset.workspaceId).catch(() => undefined);
+    if (analysisWorkspaceId) await clearAnalysis(analysisWorkspaceId).catch(() => undefined);
     setAnalysisDataset(null);
-  }, [analysisDataset]);
+    setAnalysisWorkspaceId(null);
+  }, [analysisWorkspaceId]);
+
+  const openAnalysisWorkspace = useCallback(() => {
+    setAnalysisWorkspaceId(activeTab.id);
+  }, [activeTab.id]);
 
   const importCurrentResultForAnalysis = useCallback(async () => {
     if (!result || analysisImporting) return;
@@ -447,6 +453,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             selection,
           });
       setAnalysisDataset(dataset);
+      setAnalysisWorkspaceId(activeTab.id);
       setAnalysisImportOpen(false);
     } catch (error) {
       setBusyMsg(`${t("error")}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1231,8 +1238,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onToggleHistory={() => setHistoryOpen((v) => !v)}
           onOpenCommandLibrary={() => setCommandLibraryOpen(true)}
-          globalOnly={analysisDataset !== null}
-          analysisMode={analysisDataset !== null}
+          globalOnly={analysisWorkspaceId !== null}
+          analysisMode={analysisWorkspaceId !== null}
           onExitAnalysis={() => void closeAnalysisWorkspace()}
         />
       </div>
@@ -1262,12 +1269,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onMoveConnection={onMoveConnection}
           onOpenInNewTab={onOpenInNewTab}
           health={connectionHealth}
-          analysisActive={analysisDataset !== null}
+          analysisActive={analysisWorkspaceId !== null}
+          onOpenAnalysis={openAnalysisWorkspace}
           onAnalysisHostChange={setAnalysisSidebarHost}
         />
       </aside>
 
-      {!analysisDataset && <section
+      {!analysisWorkspaceId && <section
         style={{ gridColumn: 2, gridRow: 3, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
       >
         <TabBar
@@ -1306,13 +1314,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         </div>
       </section>}
 
-      {!analysisDataset && <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
+      {!analysisWorkspaceId && <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
         <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(activeDialect === "postgres" && analysisSourceSql ? "source" : "displayed"); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} />
       </section>}
 
-      {analysisDataset && (
+      {analysisWorkspaceId && (
         <section style={{ gridColumn: 2, gridRow: "3 / span 2", display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <AnalysisWorkspace dataset={analysisDataset} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated />
+          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated />
         </section>
       )}
 

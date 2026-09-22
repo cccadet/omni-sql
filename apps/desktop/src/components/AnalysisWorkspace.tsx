@@ -23,6 +23,7 @@ import { useLanguage } from "../i18n";
 import { ResultsGrid } from "./ResultsGrid";
 
 interface AnalysisWorkspaceProps {
+  readonly workspaceId: string;
   readonly dataset: DatasetRef | null;
   readonly onDatasetSelected?: (dataset: DatasetRef | null) => void;
   readonly sourceConnections?: readonly { id: string; label: string; dialect: string }[];
@@ -35,7 +36,7 @@ function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false }: AnalysisWorkspaceProps) {
+export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false }: AnalysisWorkspaceProps) {
   const { t } = useLanguage();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -53,15 +54,19 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
   const selectedDatasetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!dataset) return;
-    if (selectedDatasetIdRef.current !== dataset.id) {
+    if (dataset && selectedDatasetIdRef.current !== dataset.id) {
       selectedDatasetIdRef.current = dataset.id;
       setSql(`SELECT * FROM ${quoteIdentifier(dataset.relationName)}`);
       setResult(null);
       setError(null);
     }
-    void listAnalysisDatasets(dataset.workspaceId).then(setDatasets).catch(() => setDatasets([dataset]));
-  }, [dataset]);
+    void listAnalysisDatasets(workspaceId)
+      .then((items) => {
+        setDatasets(items);
+        if (!dataset && items[0]) onDatasetSelected?.(items[0]);
+      })
+      .catch(() => setDatasets(dataset ? [dataset] : []));
+  }, [dataset, onDatasetSelected, workspaceId]);
 
   useEffect(() => {
     const connectionIds = [...new Set([sourceConnectionId, ...datasets.map((item) => item.sourceConnectionId ?? "")].filter(Boolean))];
@@ -81,7 +86,7 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
     setOperationId(nextOperationId);
     setError(null);
     try {
-      setResult(await runAnalysis(dataset.workspaceId, sql, 1_000, nextOperationId));
+      setResult(await runAnalysis(workspaceId, sql, 1_000, nextOperationId));
     } catch (cause) {
       setResult(null);
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -100,7 +105,7 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
     setOperationId(nextOperationId);
     setError(null);
     try {
-      await exportAnalysis({ workspaceId: dataset.workspaceId, sql, path, format, operationId: nextOperationId });
+      await exportAnalysis({ workspaceId, sql, path, format, operationId: nextOperationId });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -110,7 +115,7 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
   };
 
   const importFile = async () => {
-    if (!dataset || running) return;
+    if (running) return;
     const path = await pickAnalysisImportPath();
     if (!path) return;
     const format = path.toLowerCase().endsWith(".parquet") ? "parquet" : "csv";
@@ -120,8 +125,8 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
     setOperationId(nextOperationId);
     setError(null);
     try {
-      await importAnalysisFile({
-        workspaceId: dataset.workspaceId,
+      const imported = await importAnalysisFile({
+        workspaceId,
         name,
         path,
         format,
@@ -130,7 +135,8 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
           ? { mode: "first_n", rows: fileSampleRows }
           : { mode: "reservoir", rows: fileSampleRows, seed: 42 },
       });
-      setDatasets(await listAnalysisDatasets(dataset.workspaceId));
+      setDatasets(await listAnalysisDatasets(workspaceId));
+      onDatasetSelected?.(imported);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -140,7 +146,7 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
   };
 
   const importSource = async () => {
-    if (!dataset || running || !sourceConnectionId || !sourceSql.trim()) return;
+    if (running || !sourceConnectionId || !sourceSql.trim()) return;
     const source = normalizeAnalysisSource(sourceSql);
     if (!source) {
       setError(t("analysisInvalidSource"));
@@ -151,8 +157,8 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
     setOperationId(nextOperationId);
     setError(null);
     try {
-      await importQuerySource({
-        workspaceId: dataset.workspaceId,
+      const imported = await importQuerySource({
+        workspaceId,
         name: source.suggestedName ?? `${sourceConnections.find((item) => item.id === sourceConnectionId)?.label ?? "Source"} query`,
         connectionId: sourceConnectionId,
         sql: source.sql,
@@ -161,7 +167,8 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
           ? { mode: "first_n", rows: fileSampleRows }
           : { mode: "reservoir", rows: fileSampleRows, seed: 42 },
       });
-      setDatasets(await listAnalysisDatasets(dataset.workspaceId));
+      setDatasets(await listAnalysisDatasets(workspaceId));
+      onDatasetSelected?.(imported);
       setSourceSql("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -256,7 +263,7 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
         <option value="reservoir">{t("analysisReservoir")}</option>
       </select>
       {fileSelection !== "full" && <Input size="small" type="number" min={1} max={10_000} value={String(fileSampleRows)} onChange={(_, data) => setFileSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))} aria-label={t("analysisSampleRows")} />}
-      <Button size="small" appearance="secondary" onClick={() => void importFile()} disabled={!dataset || running}>{t("analysisImportFile")}</Button>
+      <Button size="small" appearance="secondary" onClick={() => void importFile()} disabled={running}>{t("analysisImportFile")}</Button>
     </div>
   </aside>;
 

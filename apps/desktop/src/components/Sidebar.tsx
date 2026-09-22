@@ -74,6 +74,7 @@ export interface SidebarProps {
   health?: ConnectionHealth;
   metadataRefreshFailed?: boolean;
   analysisActive?: boolean;
+  onOpenAnalysis?: () => void;
   onAnalysisHostChange?: (element: HTMLDivElement | null) => void;
 }
 
@@ -281,6 +282,7 @@ export function Sidebar({
   health = "unknown",
   metadataRefreshFailed = false,
   analysisActive = false,
+  onOpenAnalysis,
   onAnalysisHostChange,
 }: SidebarProps) {
   const { t: tr } = useLanguage();
@@ -1214,19 +1216,19 @@ export function Sidebar({
       </>}
       </section>
       {analysisActive && objectsExpanded && analysisExpanded && <div className={`connections-resize-handle${resizingAnalysis ? " resizing" : ""}`} role="separator" aria-orientation="horizontal" tabIndex={0} aria-label={tr("resizeAnalysisPanel")} onPointerDown={onAnalysisResizeStart} onKeyDown={onAnalysisResizeKeyDown} />}
-      {analysisActive && <section ref={analysisSectionRef} className={`omni-sidebar-analysis-section${analysisExpanded ? "" : " collapsed"}`}>
+      {onOpenAnalysis && <section ref={analysisSectionRef} className={`omni-sidebar-analysis-section${analysisActive && analysisExpanded ? "" : " collapsed"}`}>
         <div className="omni-sidebar-section-header">
           <Button
             appearance="transparent"
             size="small"
-            icon={analysisExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
-            onClick={() => setAnalysisExpanded((value) => !value)}
-            aria-expanded={analysisExpanded}
+            icon={analysisActive && analysisExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
+            onClick={() => analysisActive ? setAnalysisExpanded((value) => !value) : onOpenAnalysis()}
+            aria-expanded={analysisActive && analysisExpanded}
           >
             <span className="omni-sidebar-section-title">{tr("analyzeLocally")}</span>
           </Button>
         </div>
-        <div ref={onAnalysisHostChange} className="omni-sidebar-analysis-content" />
+        {analysisActive && analysisExpanded && <div ref={onAnalysisHostChange} className="omni-sidebar-analysis-content" />}
       </section>}
       {connection && <CreateTableDialog
         open={createTableSchema !== null}
