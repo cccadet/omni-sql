@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react";
 import {
   Button,
+  Combobox,
   Input,
   MessageBar,
   MessageBarBody,
   Spinner,
   Text,
   Textarea,
+  Option,
 } from "@fluentui/react-components";
-import { ArrowLeftRegular, CheckmarkRegular, EditRegular } from "@fluentui/react-icons";
+import { ArrowLeftRegular, CheckmarkRegular, DeleteRegular, EditRegular } from "@fluentui/react-icons";
 import type { QueryResult } from "@omni-sql/ts-types";
 import type { DatasetRef } from "../lib/analysis";
-import { cancelAnalysis, clearAnalysis, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
+import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
+import { backend, type RelationInfo } from "../lib/backend";
 import { pickAnalysisExportPath, pickAnalysisImportPath } from "../lib/file-io";
 import { useLanguage } from "../i18n";
 import { ResultsGrid } from "./ResultsGrid";
@@ -20,7 +23,7 @@ import { DuckDbIcon } from "./DuckDbIcon";
 interface AnalysisWorkspaceProps {
   readonly dataset: DatasetRef | null;
   readonly onClose: () => void;
-  readonly onDatasetAdded?: (dataset: DatasetRef) => void;
+  readonly onDatasetSelected?: (dataset: DatasetRef | null) => void;
   readonly sourceConnections?: readonly { id: string; label: string; dialect: string }[];
 }
 
@@ -28,7 +31,7 @@ function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConnections = [] }: AnalysisWorkspaceProps) {
+export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceConnections = [] }: AnalysisWorkspaceProps) {
   const { t } = useLanguage();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -40,6 +43,7 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
   const [fileSampleRows, setFileSampleRows] = useState(1_000);
   const [sourceConnectionId, setSourceConnectionId] = useState("");
   const [sourceSql, setSourceSql] = useState("");
+  const [sourceRelations, setSourceRelations] = useState<readonly RelationInfo[]>([]);
   const [renamingDatasetId, setRenamingDatasetId] = useState<string | null>(null);
   const [datasetName, setDatasetName] = useState("");
 
@@ -50,6 +54,18 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
     setError(null);
     void listAnalysisDatasets(dataset.workspaceId).then(setDatasets).catch(() => setDatasets([dataset]));
   }, [dataset]);
+
+  useEffect(() => {
+    if (!sourceConnectionId) {
+      setSourceRelations([]);
+      return;
+    }
+    let cancelled = false;
+    void backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId: sourceConnectionId })
+      .then(({ relations }) => { if (!cancelled) setSourceRelations(relations); })
+      .catch(() => { if (!cancelled) setSourceRelations([]); });
+    return () => { cancelled = true; };
+  }, [sourceConnectionId]);
 
   const close = async () => {
     if (dataset) await clearAnalysis(dataset.workspaceId).catch(() => undefined);
@@ -113,7 +129,7 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
           : { mode: "reservoir", rows: fileSampleRows, seed: 42 },
       });
       setDatasets(await listAnalysisDatasets(dataset.workspaceId));
-      onDatasetAdded?.(imported);
+      onDatasetSelected?.(imported);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -145,7 +161,7 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
           : { mode: "reservoir", rows: fileSampleRows, seed: 42 },
       });
       setDatasets(await listAnalysisDatasets(dataset.workspaceId));
-      onDatasetAdded?.(imported);
+      onDatasetSelected?.(imported);
       setSourceSql("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -165,7 +181,7 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
       setDatasets((current) => current.map((candidate) => candidate.id === renamed.id ? renamed : candidate));
       setSql((current) => current.replaceAll(quoteIdentifier(item.relationName), quoteIdentifier(renamed.relationName)));
       if (dataset?.id === renamed.id) {
-        onDatasetAdded?.(renamed);
+        onDatasetSelected?.(renamed);
       }
       setRenamingDatasetId(null);
     } catch (cause) {
@@ -174,6 +190,28 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
       setRunning(false);
     }
   };
+
+  const dropDataset = async (item: DatasetRef) => {
+    if (running || !window.confirm(t("analysisDeleteDatasetConfirm").replace("{name}", item.name))) return;
+    setRunning(true);
+    setError(null);
+    try {
+      await dropAnalysisDataset(item.workspaceId, item.id);
+      const remaining = datasets.filter((candidate) => candidate.id !== item.id);
+      setDatasets(remaining);
+      if (dataset?.id === item.id) onDatasetSelected?.(remaining[0] ?? null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const relationQuery = sourceSql.trim().toLocaleLowerCase();
+  const sourceSuggestions = sourceRelations
+    .filter((relation) => relation.kind === "table")
+    .filter((relation) => !relationQuery || `${relation.schema}.${relation.name}`.toLocaleLowerCase().includes(relationQuery))
+    .slice(0, 50);
 
   return (
     <section className="omni-analysis-workspace" aria-label={t("analyzeLocally")}>
@@ -196,10 +234,11 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
                 </>
               ) : (
                 <>
-                  <button type="button" className="omni-analysis-dataset-select" onClick={() => onDatasetAdded?.(item)}>
+                  <button type="button" className="omni-analysis-dataset-select" onClick={() => onDatasetSelected?.(item)}>
                     <span>{item.name}</span><code>{item.relationName}</code>
                   </button>
                   <Button appearance="subtle" icon={<EditRegular />} aria-label={t("analysisRenameDataset")} onClick={() => { setRenamingDatasetId(item.id); setDatasetName(item.name); }} />
+                  <Button appearance="subtle" icon={<DeleteRegular />} aria-label={t("analysisDeleteDataset")} onClick={() => void dropDataset(item)} disabled={running} />
                 </>
               )}
             </div>
@@ -210,7 +249,12 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
               <option value="">{t("headerNoConnection")}</option>
               {sourceConnections.filter((item) => item.dialect === "postgres").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
-            <Input value={sourceSql} onChange={(_, data) => setSourceSql(data.value)} placeholder={t("analysisSourcePlaceholder")} aria-label={t("analysisSourceSql")} />
+            <Combobox freeform value={sourceSql} onChange={(event) => setSourceSql(event.currentTarget.value)} onOptionSelect={(_, data) => { if (data.optionValue) setSourceSql(data.optionValue); }} placeholder={t("analysisSourcePlaceholder")} aria-label={t("analysisSourceSql")}>
+              {sourceSuggestions.map((relation) => {
+                const value = `${relation.schema}.${relation.name}`;
+                return <Option key={value} value={value}>{value}</Option>;
+              })}
+            </Combobox>
             <Button onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
           </details>
           <div className="omni-analysis-import-controls">

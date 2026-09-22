@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { clearAnalysis, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "./analysis";
+import { clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -91,5 +91,14 @@ test("renames an analytical dataset through the Tauri bridge", async () => {
     workspaceId: "tab-1",
     datasetId: "dataset-1",
     name: "Orders 2026",
+  });
+});
+
+test("drops an analytical dataset through the Tauri bridge", async () => {
+  vi.mocked(invoke).mockResolvedValueOnce(true);
+  await expect(dropAnalysisDataset("tab-1", "dataset-1")).resolves.toBe(true);
+  expect(invoke).toHaveBeenCalledWith("analysis_drop_dataset", {
+    workspaceId: "tab-1",
+    datasetId: "dataset-1",
   });
 });

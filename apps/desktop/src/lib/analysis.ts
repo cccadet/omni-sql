@@ -240,6 +240,10 @@ export async function renameAnalysisDataset(workspaceId: string, datasetId: stri
   return invoke<DatasetRef>("analysis_rename_dataset", { workspaceId, datasetId, name });
 }
 
+export async function dropAnalysisDataset(workspaceId: string, datasetId: string): Promise<boolean> {
+  return invoke<boolean>("analysis_drop_dataset", { workspaceId, datasetId });
+}
+
 export async function clearAnalysis(workspaceId: string): Promise<number> {
   return invoke<number>("analysis_clear", { workspaceId });
 }

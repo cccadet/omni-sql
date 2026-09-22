@@ -385,6 +385,8 @@ const english = {
   analysisSaveDatasetName: "Save dataset name",
   analysisSourcePlaceholder: "public.orders or SELECT …",
   analysisInvalidSource: "Enter a table name or a SELECT/WITH query.",
+  analysisDeleteDataset: "Delete dataset",
+  analysisDeleteDatasetConfirm: "Delete dataset {name}?",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -433,6 +435,7 @@ const portugueseBrazil = [
   "Adicionar outra origem PostgreSQL para joins", "Tabela ou consulta SELECT/WITH", "Importar origem",
   "Voltar ao editor SQL", "Datasets", "Nome do dataset", "Renomear dataset", "Salvar nome do dataset",
   "public.orders ou SELECT …", "Informe uma tabela ou uma consulta SELECT/WITH.",
+  "Excluir dataset", "Excluir o dataset {name}?",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

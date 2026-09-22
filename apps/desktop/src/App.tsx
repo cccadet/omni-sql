@@ -1299,7 +1299,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       {analysisDataset && (
         <section style={{ gridColumn: 2, gridRow: "2 / span 3", minHeight: 0, overflow: "hidden" }}>
-          <AnalysisWorkspace dataset={analysisDataset} onClose={() => setAnalysisDataset(null)} onDatasetAdded={setAnalysisDataset} sourceConnections={connections} />
+          <AnalysisWorkspace dataset={analysisDataset} onClose={() => setAnalysisDataset(null)} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} />
         </section>
       )}
 

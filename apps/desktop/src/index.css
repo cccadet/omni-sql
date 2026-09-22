@@ -55,7 +55,7 @@ body {
 .omni-analysis-source-panel { min-width: 0; max-width: 100%; margin-top: 6px; }
 .omni-analysis-source-panel summary { cursor: pointer; margin-bottom: 8px; }
 .omni-analysis-source-panel[open] { display: grid; gap: 8px; }
-.omni-analysis-source-panel select, .omni-analysis-source-panel .fui-Input, .omni-analysis-source-panel .fui-Button,
+.omni-analysis-source-panel select, .omni-analysis-source-panel .fui-Input, .omni-analysis-source-panel .fui-Combobox, .omni-analysis-source-panel .fui-Button,
 .omni-analysis-import-controls select, .omni-analysis-import-controls .fui-Input, .omni-analysis-import-controls .fui-Button { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
 .omni-analysis-import-controls { display: grid; gap: 8px; min-width: 0; max-width: 100%; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--colorNeutralStroke2); }
 .omni-analysis-main { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 10px; padding: 12px; }
