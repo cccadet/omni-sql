@@ -35,6 +35,7 @@ export interface ToolbarProps {
   onToggleSidebar?: () => void;
   onToggleHistory?: () => void;
   onOpenCommandLibrary?: () => void;
+  globalOnly?: boolean;
 }
 
 const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
@@ -59,11 +60,12 @@ export function Toolbar({
   onToggleSidebar,
   onToggleHistory,
   onOpenCommandLibrary,
+  globalOnly = false,
 }: ToolbarProps) {
   const { t } = useLanguage();
   return (
     <FluentToolbar className="omni-toolbar">
-      <div className="omni-toolbar-group omni-toolbar-group-primary">
+      {!globalOnly && <div className="omni-toolbar-group omni-toolbar-group-primary">
             {running ? (
               <ToolbarButton
                 className="omni-cancel-run"
@@ -90,9 +92,9 @@ export function Toolbar({
             <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running} aria-label={t("explainQuery")} title={t("explainQuery")}>
               EXPLAIN
             </ToolbarButton>
-      </div>
+      </div>}
 
-      <div className="omni-toolbar-group">
+      {!globalOnly && <div className="omni-toolbar-group">
           <span className="omni-toolbar-inline-label">{t("rowLimit")}</span>
           <select
             aria-label={t("rowLimit")}
@@ -113,9 +115,9 @@ export function Toolbar({
               </option>
             ))}
           </select>
-      </div>
+      </div>}
 
-      <div className="omni-toolbar-group omni-toolbar-tab-actions" role="group" aria-label={t("tabActions")}>
+      {!globalOnly && <div className="omni-toolbar-group omni-toolbar-tab-actions" role="group" aria-label={t("tabActions")}>
             <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onAdd} aria-label={t("newSqlTab")} title={t("newSqlTab")} />
             <ToolbarButton icon={<FolderOpenRegular fontSize={14} />} onClick={onOpen} aria-label={t("openSavedTab")}>
               {t("openSavedTab")}
@@ -123,7 +125,7 @@ export function Toolbar({
             <ToolbarButton icon={<SaveRegular fontSize={14} />} onClick={onSave} aria-label={t("saveTab")}>
               {t("saveTab")}
             </ToolbarButton>
-      </div>
+      </div>}
 
       <div
         className="omni-toolbar-group"
