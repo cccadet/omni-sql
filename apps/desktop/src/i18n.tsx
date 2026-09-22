@@ -376,13 +376,15 @@ const english = {
   analysisImportFile: "Import CSV/Parquet",
   analysisFileSelection: "File load selection",
   analysisAddSource: "Add another PostgreSQL source for joins",
-  analysisSourceSql: "Source SQL",
+  analysisSourceSql: "Table or SELECT/WITH query",
   analysisImportSource: "Import source",
   analysisBackToSql: "Back to SQL editor",
   analysisDatasets: "Datasets",
   analysisDatasetName: "Dataset name",
   analysisRenameDataset: "Rename dataset",
   analysisSaveDatasetName: "Save dataset name",
+  analysisSourcePlaceholder: "public.orders or SELECT …",
+  analysisInvalidSource: "Enter a table name or a SELECT/WITH query.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -428,8 +430,9 @@ const portugueseBrazil = [
   "linhas lidas", "linhas retidas",
   "Exportar CSV completo", "Exportar Parquet completo",
   "Importar CSV/Parquet", "Seleção da carga do arquivo",
-  "Adicionar outra origem PostgreSQL para joins", "SQL da origem", "Importar origem",
+  "Adicionar outra origem PostgreSQL para joins", "Tabela ou consulta SELECT/WITH", "Importar origem",
   "Voltar ao editor SQL", "Datasets", "Nome do dataset", "Renomear dataset", "Salvar nome do dataset",
+  "public.orders ou SELECT …", "Informe uma tabela ou uma consulta SELECT/WITH.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
