@@ -89,6 +89,10 @@ stale/legacy; current frontend uses React, not Svelte.
 ## Memory persistida
 - Plano + decisões arquiteturais salvos no `mymem0ry` (project scope). Buscar
   por "Plano omni-sql" para recap se uma nova sessão começar do zero.
+- Releases do omni-sql costumam levar cerca de 20 minutos para concluir no
+  GitHub Actions. Depois de disparar uma release, informe o link do workflow
+  e não fique consultando o status repetidamente na mesma conversa; confira
+  o resultado apenas quando o usuário pedir ou em uma tarefa posterior.
 
 <!-- headroom:memory-instructions -->
 ## Memory
