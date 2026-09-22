@@ -323,8 +323,10 @@ impl DataEngine {
         }
 
         let id = random_id()?;
-        let relation_name = format!("dataset_{}", id.replace('-', ""));
         let columns = normalize_columns(&request.columns)?;
+        let mut inner = self.lock()?;
+        ensure_dataset_capacity(&inner)?;
+        let relation_name = available_relation_name(&inner, &request.name, None);
         let create_sql = format!(
             "CREATE TABLE {} ({})",
             quote_identifier(&relation_name),
@@ -335,8 +337,6 @@ impl DataEngine {
                 .join(", ")
         );
 
-        let mut inner = self.lock()?;
-        ensure_dataset_capacity(&inner)?;
         let transaction = inner
             .connection
             .transaction()
@@ -479,7 +479,9 @@ impl DataEngine {
         };
         let columns = normalize_columns(&source_columns)?;
         let id = random_id()?;
-        let relation_name = format!("dataset_{}", id.replace('-', ""));
+        let mut inner = self.lock()?;
+        ensure_dataset_capacity(&inner)?;
+        let relation_name = available_relation_name(&inner, &request.name, None);
         let create_sql = format!(
             "CREATE TABLE {} ({})",
             quote_identifier(&relation_name),
@@ -490,8 +492,6 @@ impl DataEngine {
                 .join(", ")
         );
 
-        let mut inner = self.lock()?;
-        ensure_dataset_capacity(&inner)?;
         let transaction = inner.connection.transaction()
             .map_err(|error| format!("failed to start source import: {error}"))?;
         transaction.execute_batch(&create_sql)
@@ -650,17 +650,7 @@ impl DataEngine {
             .ok_or_else(|| "analytical dataset was not found".to_string())?;
         if dataset.workspace_id != workspace_id { return Err("dataset does not belong to this workspace".to_string()); }
         let old_relation_name = dataset.relation_name.clone();
-        let base_relation_name = readable_relation_name(name);
-        let occupied = inner.datasets.iter()
-            .filter(|(id, _)| id.as_str() != dataset_id)
-            .map(|(_, item)| item.relation_name.to_ascii_lowercase())
-            .collect::<HashSet<_>>();
-        let mut relation_name = base_relation_name.clone();
-        let mut suffix = 2usize;
-        while occupied.contains(&relation_name.to_ascii_lowercase()) {
-            relation_name = format!("{base_relation_name}_{suffix}");
-            suffix += 1;
-        }
+        let relation_name = available_relation_name(&inner, name, Some(dataset_id));
         if relation_name != old_relation_name {
             inner.connection.execute_batch(&format!(
                 "ALTER TABLE {} RENAME TO {}", quote_identifier(&old_relation_name), quote_identifier(&relation_name)
@@ -811,14 +801,14 @@ impl DataEngine {
         }
         let columns = normalize_arrow_columns(schema.fields())?;
         let id = random_id()?;
-        let relation_name = format!("dataset_{}", id.replace('-', ""));
+        let mut inner = self.lock()?;
+        ensure_dataset_capacity(&inner)?;
+        let relation_name = available_relation_name(&inner, &request.name, None);
         let create_sql = format!(
             "CREATE TABLE {} ({})",
             quote_identifier(&relation_name),
             columns.iter().map(|column| format!("{} {}", quote_identifier(&column.name), column.data_type)).collect::<Vec<_>>().join(", ")
         );
-        let mut inner = self.lock()?;
-        ensure_dataset_capacity(&inner)?;
         let transaction = inner.connection.transaction()
             .map_err(|error| format!("failed to start analytical file import: {error}"))?;
         transaction.execute_batch(&create_sql)
@@ -1911,6 +1901,21 @@ fn readable_relation_name(name: &str) -> String {
     relation
 }
 
+fn available_relation_name(inner: &EngineInner, name: &str, excluded_dataset_id: Option<&str>) -> String {
+    let base = readable_relation_name(name);
+    let occupied = inner.datasets.iter()
+        .filter(|(id, _)| excluded_dataset_id != Some(id.as_str()))
+        .map(|(_, dataset)| dataset.relation_name.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let mut candidate = base.clone();
+    let mut suffix = 2usize;
+    while occupied.contains(&candidate.to_ascii_lowercase()) {
+        candidate = format!("{base}_{suffix}");
+        suffix += 1;
+    }
+    candidate
+}
+
 fn random_id() -> Result<String, String> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes)
@@ -2115,6 +2120,7 @@ mod tests {
     fn imports_queries_lists_and_drops_a_partial_snapshot() {
         let engine = DataEngine::open_in_memory().unwrap();
         let dataset = engine.import_result(request("workspace-a")).unwrap();
+        assert_eq!(dataset.relation_name, "orders");
         assert!(matches!(dataset.coverage, DatasetCoverage::Truncated));
         assert_eq!(dataset.columns[1].data_type, "DECIMAL(18,2)");
         let result = engine
@@ -2132,6 +2138,15 @@ mod tests {
         assert_eq!(engine.list_datasets("workspace-a").unwrap().len(), 1);
         assert!(engine.drop_dataset("workspace-a", &dataset.id).unwrap());
         assert!(engine.list_datasets("workspace-a").unwrap().is_empty());
+    }
+
+    #[test]
+    fn gives_imported_datasets_readable_unique_relation_names() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let first = engine.import_result(request("workspace-names")).unwrap();
+        let second = engine.import_result(request("workspace-names")).unwrap();
+        assert_eq!(first.relation_name, "orders");
+        assert_eq!(second.relation_name, "orders_2");
     }
 
     #[test]
