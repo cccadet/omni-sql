@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
   Combobox,
@@ -49,12 +49,16 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
   const [sourceRelations, setSourceRelations] = useState<readonly RelationInfo[]>([]);
   const [renamingDatasetId, setRenamingDatasetId] = useState<string | null>(null);
   const [datasetName, setDatasetName] = useState("");
+  const selectedDatasetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!dataset) return;
-    setSql(`SELECT * FROM ${quoteIdentifier(dataset.relationName)}`);
-    setResult(null);
-    setError(null);
+    if (selectedDatasetIdRef.current !== dataset.id) {
+      selectedDatasetIdRef.current = dataset.id;
+      setSql(`SELECT * FROM ${quoteIdentifier(dataset.relationName)}`);
+      setResult(null);
+      setError(null);
+    }
     void listAnalysisDatasets(dataset.workspaceId).then(setDatasets).catch(() => setDatasets([dataset]));
   }, [dataset]);
 
@@ -121,7 +125,7 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
     setOperationId(nextOperationId);
     setError(null);
     try {
-      const imported = await importAnalysisFile({
+      await importAnalysisFile({
         workspaceId: dataset.workspaceId,
         name,
         path,
@@ -132,7 +136,6 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
           : { mode: "reservoir", rows: fileSampleRows, seed: 42 },
       });
       setDatasets(await listAnalysisDatasets(dataset.workspaceId));
-      onDatasetSelected?.(imported);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -153,7 +156,7 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
     setOperationId(nextOperationId);
     setError(null);
     try {
-      const imported = await importQuerySource({
+      await importQuerySource({
         workspaceId: dataset.workspaceId,
         name: source.suggestedName ?? `${sourceConnections.find((item) => item.id === sourceConnectionId)?.label ?? "Source"} query`,
         connectionId: sourceConnectionId,
@@ -164,7 +167,6 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
           : { mode: "reservoir", rows: fileSampleRows, seed: 42 },
       });
       setDatasets(await listAnalysisDatasets(dataset.workspaceId));
-      onDatasetSelected?.(imported);
       setSourceSql("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
