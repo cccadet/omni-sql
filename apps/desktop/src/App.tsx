@@ -665,7 +665,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     },
     [activeConnectionId, t],
   );
-  const analysisSourceStreaming = activeDialect === "postgres" || activeDialect === "oracle";
+  const analysisSourceStreaming = activeConnectionId !== null;
 
   const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
     if (!diagnostic.transpiledSql) return;

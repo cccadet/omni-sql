@@ -8,7 +8,7 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
-import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type QueryBatch, type QueryStreamOptions, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
@@ -116,6 +116,47 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
   async cancelRunning(): Promise<void> {
     this.activeRequest?.cancel();
+  }
+
+  async *streamQuery(sqlText: string, options: QueryStreamOptions): AsyncIterable<QueryBatch> {
+    if (!Number.isSafeInteger(options.batchSize) || options.batchSize < 1 || options.batchSize > 10_000) {
+      throw new Error("stream batch size must be between 1 and 10000");
+    }
+    const pool = await this.getPool();
+    const request = pool.request();
+    this.activeRequest = request;
+    let columns: QueryBatch["columns"] = [];
+    request.once("recordset", (metadata: Record<string, { type?: { declaration?: string } }>) => {
+      columns = Object.entries(metadata).map(([name, value]) => ({
+        name,
+        dataType: value.type?.declaration ?? "unknown",
+        nullable: true,
+      }));
+    });
+    const abort = () => request.cancel();
+    options.signal.addEventListener("abort", abort, { once: true });
+    const readable = request.toReadableStream({ highWaterMark: options.batchSize });
+    const queryPromise = request.query(sqlText);
+    try {
+      let rows: QueryBatch["rows"][number][] = [];
+      let emittedRows = false;
+      for await (const row of readable) {
+        if (options.signal.aborted) break;
+        rows.push(columns.map((column) => (row as Record<string, unknown>)[column.name] ?? null));
+        if (rows.length >= options.batchSize) {
+          yield { columns, rows };
+          emittedRows = true;
+          rows = [];
+        }
+      }
+      await queryPromise;
+      if (options.signal.aborted) throw new Error("analytical source query cancelled");
+      if (rows.length > 0 || !emittedRows) yield { columns, rows };
+    } finally {
+      options.signal.removeEventListener("abort", abort);
+      if (this.activeRequest === request) this.activeRequest = null;
+      await queryPromise.catch(() => undefined);
+    }
   }
 
   async updateRow(spec: RowUpdateSpec): Promise<number> {

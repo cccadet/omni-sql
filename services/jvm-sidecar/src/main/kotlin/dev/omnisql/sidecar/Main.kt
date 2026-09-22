@@ -211,6 +211,56 @@ internal fun createSidecarServer(
         }
     }
 
+    server.createAuthenticatedContext("/jdbc/stream", authToken) { exchange ->
+        requestCount.incrementAndGet()
+        if (exchange.requestMethod != "POST") {
+            exchange.sendResponseHeaders(405, -1)
+            exchange.close()
+            return@createAuthenticatedContext
+        }
+        var streamingStarted = false
+        try {
+            val body = JSONObject(exchange.requestBody.readBytes().toString(Charsets.UTF_8))
+            val connectionId = body.getString("connectionId")
+            val sql = body.getString("sql")
+            val batchSize = body.optInt("batchSize", 0).also { JdbcConnectionManager.requireQueryLimit(it) }
+            exchange.responseHeaders.add("content-type", "application/x-ndjson")
+            exchange.responseHeaders.add("cache-control", "no-store")
+            addCorsHeaders(exchange)
+            exchange.sendResponseHeaders(200, 0)
+            streamingStarted = true
+            val output = exchange.responseBody.bufferedWriter(Charsets.UTF_8)
+            JdbcConnectionManager.streamQuery(connectionId, sql, batchSize) { columns, rows ->
+                val frame =
+                    JSONObject()
+                        .put("type", "batch")
+                        .put("columns", JSONArray(columns.map { c -> JSONObject().put("name", c.name).put("dataType", c.dataType).put("nullable", c.nullable) }))
+                        .put("rows", JSONArray(rows.map { row -> JSONArray(row.map { it ?: JSONObject.NULL }) }))
+                output.write(frame.toString())
+                output.newLine()
+                output.flush()
+            }
+            output.write(JSONObject().put("type", "complete").toString())
+            output.newLine()
+            output.flush()
+        } catch (e: Exception) {
+            requestFailures.incrementAndGet()
+            val frame = JSONObject().put("type", "error").put("error", e.message ?: "JDBC streaming failed")
+            if (streamingStarted) runCatching { exchange.responseBody.write((frame.toString() + "\n").toByteArray(Charsets.UTF_8)) }
+            else writeJson(exchange, 200, frame)
+        } finally {
+            exchange.close()
+        }
+    }
+
+    server.createAuthenticatedContext("/jdbc/cancel", authToken) { exchange ->
+        requestCount.incrementAndGet()
+        handleJdbc(exchange) { body ->
+            JdbcConnectionManager.cancel(body.getString("connectionId"))
+            JSONObject().put("ok", true)
+        }
+    }
+
     server.createAuthenticatedContext("/jdbc/close", authToken) { exchange ->
         requestCount.incrementAndGet()
         handleJdbc(exchange) { body ->

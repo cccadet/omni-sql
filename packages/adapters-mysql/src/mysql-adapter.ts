@@ -1,4 +1,5 @@
 import mysql, { type Pool, type PoolConnection, type RowDataPacket } from "mysql2/promise";
+import type { Connection as CallbackConnection, FieldPacket } from "mysql2";
 import type {
   ConnectionConfig,
   ExplainResult,
@@ -8,7 +9,7 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { mysqlDescriptor, mariadbDescriptor } from "@omni-sql/dialect-descriptors";
-import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type QueryBatch, type QueryStreamOptions, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
@@ -148,6 +149,46 @@ export class MysqlAdapter extends CachedAdapter implements Adapter {
 
   async getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string> {
     return getDefinitionViaPool(this.pool, kind, schema, name);
+  }
+
+  async *streamQuery(sql: string, options: QueryStreamOptions): AsyncIterable<QueryBatch> {
+    if (!Number.isSafeInteger(options.batchSize) || options.batchSize < 1 || options.batchSize > 10_000) {
+      throw new Error("stream batch size must be between 1 and 10000");
+    }
+    const connection = await this.pool.getConnection();
+    const activeQuery = { threadId: connection.threadId, token: Symbol() };
+    this.activeQuery = activeQuery;
+    const abort = () => { void this.cancelRunning().catch(() => undefined); };
+    options.signal.addEventListener("abort", abort, { once: true });
+    try {
+      const query = (connection.connection as unknown as CallbackConnection).query({ sql, rowsAsArray: true });
+      let columns: QueryBatch["columns"] = [];
+      query.once("fields", (fields: FieldPacket[]) => {
+        columns = fields.map((field) => ({
+          name: field.name,
+          dataType: field.type?.toString() ?? "unknown",
+          nullable: true,
+        }));
+      });
+      const stream = query.stream({ highWaterMark: options.batchSize });
+      let rows: QueryBatch["rows"][number][] = [];
+      let emittedRows = false;
+      for await (const row of stream) {
+        if (options.signal.aborted) break;
+        rows.push(row as unknown[]);
+        if (rows.length >= options.batchSize) {
+          yield { columns, rows };
+          emittedRows = true;
+          rows = [];
+        }
+      }
+      if (options.signal.aborted) throw new Error("analytical source query cancelled");
+      if (rows.length > 0 || !emittedRows) yield { columns, rows };
+    } finally {
+      options.signal.removeEventListener("abort", abort);
+      if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
+      connection.release();
+    }
   }
 
   async getTableDefinition(schema: string, name: string): Promise<string> {
