@@ -8,7 +8,7 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { oracleDescriptor } from "@omni-sql/dialect-descriptors";
-import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type QueryBatch, type QueryStreamOptions, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaConnection,
@@ -19,6 +19,7 @@ import {
   listIndexesViaConnection,
   listSchemaNames,
   runQueryViaConnection,
+  streamQueryViaConnection,
   stripTrailingStatementDelimiter,
   updateRowViaConnection,
 } from "./introspection.ts";
@@ -224,6 +225,22 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
       await activeQuery.connection.break();
     } catch {
       // `break()` is best-effort; runQuery owns query and connection cleanup.
+    }
+  }
+
+  async *streamQuery(sql: string, options: QueryStreamOptions): AsyncIterable<QueryBatch> {
+    const pool = await this.getPool();
+    const conn = await pool.getConnection();
+    const activeQuery = { connection: conn, token: Symbol() };
+    this.activeQuery = activeQuery;
+    const abort = () => { void conn.break().catch(() => undefined); };
+    options.signal.addEventListener("abort", abort, { once: true });
+    try {
+      yield* streamQueryViaConnection(conn, sql, options);
+    } finally {
+      options.signal.removeEventListener("abort", abort);
+      if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
+      await conn.close();
     }
   }
 

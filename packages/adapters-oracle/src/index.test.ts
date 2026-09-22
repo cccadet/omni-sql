@@ -11,6 +11,7 @@ import {
   listSchemaNames,
   prepareOracleQuery,
   runQueryViaConnection,
+  streamQueryViaConnection,
   updateRowViaConnection,
 } from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
@@ -255,6 +256,44 @@ test("runQuery mantém execução direta e commit para instrução sem result se
   assert.deepEqual(result.rows, []);
   assert.equal(result.rowsAffected, 3);
   assert.equal(result.rowsMoreAvailable, false);
+});
+
+test("streamQuery lê o resultado Oracle completo em lotes e fecha o cursor", async () => {
+  const getRowsCalls: number[] = [];
+  let closed = false;
+  let executedSql = "";
+  let executeOptions: Record<string, unknown> | undefined;
+  const pendingRows = [[[1], [2]], [[3]], []] as unknown[][][];
+  const conn = {
+    execute: async (sql: string, _binds: unknown, options: Record<string, unknown>) => {
+      executedSql = sql;
+      executeOptions = options;
+      return {
+        metaData: [{ name: "ID", dbTypeName: "NUMBER" }],
+        resultSet: {
+          getRows: async (count: number) => {
+            getRowsCalls.push(count);
+            return pendingRows.shift() ?? [];
+          },
+          close: async () => { closed = true; },
+        },
+      };
+    },
+  } as unknown as Connection;
+
+  const batches = [];
+  for await (const batch of streamQueryViaConnection(conn, "SELECT id FROM orders;", {
+    batchSize: 2,
+    signal: new AbortController().signal,
+  })) batches.push(batch);
+
+  assert.equal(executedSql, "SELECT id FROM orders");
+  assert.equal(executeOptions?.resultSet, true);
+  assert.equal(executeOptions?.fetchArraySize, 2);
+  assert.deepEqual(getRowsCalls, [2, 2, 2]);
+  assert.deepEqual(batches.map((batch) => batch.rows), [[[1], [2]], [[3]]]);
+  assert.deepEqual(batches[0]?.columns, [{ name: "ID", dataType: "number", nullable: true }]);
+  assert.equal(closed, true);
 });
 
 test("runQuery executa a DDL gerada pela tela de criação de tabela", async () => {

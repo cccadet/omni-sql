@@ -246,7 +246,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
       <summary>{t("analysisAddSource")}</summary>
       <select aria-label={t("activeConnection")} value={sourceConnectionId} onChange={(event) => setSourceConnectionId(event.target.value)}>
         <option value="">{t("headerNoConnection")}</option>
-        {sourceConnections.filter((item) => item.dialect === "postgres").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+        {sourceConnections.filter((item) => item.dialect === "postgres" || item.dialect === "oracle").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
       </select>
       <Combobox size="small" freeform value={sourceSql} onChange={(event) => setSourceSql(event.currentTarget.value)} onOptionSelect={(_, data) => { if (data.optionValue) setSourceSql(data.optionValue); }} placeholder={t("analysisSourcePlaceholder")} aria-label={t("analysisSourceSql")}>
         {sourceSuggestions.map((relation) => {

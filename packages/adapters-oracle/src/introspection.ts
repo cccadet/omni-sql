@@ -10,7 +10,7 @@ import type {
   QueryResultColumn,
   Relation,
 } from "@omni-sql/ts-types";
-import type { RowInsertSpec, RowUpdateSpec } from "@omni-sql/adapters-core";
+import type { QueryBatch, QueryStreamOptions, RowInsertSpec, RowUpdateSpec } from "@omni-sql/adapters-core";
 import { oracleDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 
 // ─────────────────────────── Types
@@ -586,6 +586,46 @@ export async function runQueryViaConnection(
     };
   } finally {
     await rs.close();
+  }
+}
+
+export async function* streamQueryViaConnection(
+  conn: Connection,
+  sql: string,
+  options: QueryStreamOptions,
+): AsyncIterable<QueryBatch> {
+  if (!Number.isSafeInteger(options.batchSize) || options.batchSize < 1 || options.batchSize > 10_000) {
+    throw new Error("stream batch size must be between 1 and 10000");
+  }
+  const normalized = stripTrailingStatementDelimiter(sql);
+  const needsDual = /^\s*SELECT\b/i.test(normalized) && !/\bFROM\b/i.test(normalized);
+  const result = await conn.execute(needsDual ? `${normalized} FROM DUAL` : normalized, [], {
+    resultSet: true,
+    outFormat: oracledb.OUT_FORMAT_ARRAY,
+    fetchArraySize: options.batchSize,
+  });
+  if (!result.resultSet) throw new Error("analytical source query did not return rows");
+
+  const columns: QueryResultColumn[] = (result.metaData ?? []).map((metadata) => ({
+    name: metadata.name,
+    dataType: (metadata.dbTypeName ?? "unknown").replace(/^DB_TYPE_/, "").toLowerCase(),
+    nullable: true,
+  }));
+  const resultSet = result.resultSet;
+  let emittedRows = false;
+  try {
+    while (!options.signal.aborted) {
+      const rows = (await resultSet.getRows(options.batchSize)) as unknown[][];
+      if (rows.length === 0) {
+        if (!emittedRows) yield { columns, rows: [] };
+        break;
+      }
+      emittedRows = true;
+      yield { columns, rows };
+    }
+    if (options.signal.aborted) throw new Error("analytical source query cancelled");
+  } finally {
+    await resultSet.close().catch(() => undefined);
   }
 }
 
