@@ -46,7 +46,7 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
   const [fileSampleRows, setFileSampleRows] = useState(1_000);
   const [sourceConnectionId, setSourceConnectionId] = useState("");
   const [sourceSql, setSourceSql] = useState("");
-  const [sourceRelations, setSourceRelations] = useState<readonly RelationInfo[]>([]);
+  const [sourceMetadata, setSourceMetadata] = useState<Record<string, readonly RelationInfo[]>>({});
   const [renamingDatasetId, setRenamingDatasetId] = useState<string | null>(null);
   const [datasetName, setDatasetName] = useState("");
   const selectedDatasetIdRef = useRef<string | null>(null);
@@ -63,16 +63,15 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
   }, [dataset]);
 
   useEffect(() => {
-    if (!sourceConnectionId) {
-      setSourceRelations([]);
-      return;
-    }
+    const connectionIds = [...new Set([sourceConnectionId, ...datasets.map((item) => item.sourceConnectionId ?? "")].filter(Boolean))];
+    if (connectionIds.length === 0) return;
     let cancelled = false;
-    void backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId: sourceConnectionId })
-      .then(({ relations }) => { if (!cancelled) setSourceRelations(relations); })
-      .catch(() => { if (!cancelled) setSourceRelations([]); });
+    void Promise.all(connectionIds.map(async (connectionId) => {
+      const { relations } = await backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId, includeColumns: true });
+      return [connectionId, relations] as const;
+    })).then((entries) => { if (!cancelled) setSourceMetadata((current) => ({ ...current, ...Object.fromEntries(entries) })); }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [sourceConnectionId]);
+  }, [datasets, sourceConnectionId]);
 
   const close = async () => {
     if (dataset) await clearAnalysis(dataset.workspaceId).catch(() => undefined);
@@ -213,12 +212,12 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
   };
 
   const relationQuery = sourceSql.trim().toLocaleLowerCase();
-  const sourceSuggestions = sourceRelations
+  const sourceSuggestions = (sourceMetadata[sourceConnectionId] ?? [])
     .filter((relation) => relation.kind === "table")
     .filter((relation) => !relationQuery || `${relation.schema}.${relation.name}`.toLocaleLowerCase().includes(relationQuery))
     .slice(0, 50);
   const autocomplete = useCallback(async (cursor: number, currentSql = "") =>
-    localAnalysisSuggestions(currentSql, cursor, datasets), [datasets]);
+    localAnalysisSuggestions(currentSql, cursor, datasets, sourceMetadata), [datasets, sourceMetadata]);
 
   return (
     <section className="omni-analysis-workspace" aria-label={t("analyzeLocally")}>
