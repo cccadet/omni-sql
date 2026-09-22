@@ -70,3 +70,16 @@ test("shows the visible cancel action while a query is running", () => {
   fireEvent.click(cancel);
   expect(onCancelRun).toHaveBeenCalledOnce();
 });
+
+test("keeps global actions together in analysis mode", () => {
+  render(
+    <LanguageProvider>
+      <Toolbar activeConnectionId="connection-1" globalOnly />
+    </LanguageProvider>,
+  );
+  expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+  expect(screen.getByRole("group", { name: "Settings" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "SQL command library" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
+});

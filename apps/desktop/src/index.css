@@ -27,9 +27,12 @@ body {
 
 .omni-analysis-workspace {
   display: flex;
+  box-sizing: border-box;
+  flex: 1;
   flex-direction: column;
-  height: 100%;
+  max-height: 100%;
   min-height: 0;
+  overflow: hidden;
   background: var(--colorNeutralBackground1);
 }
 
@@ -60,7 +63,7 @@ body {
 .omni-analysis-import-controls { display: grid; gap: 8px; min-width: 0; max-width: 100%; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--colorNeutralStroke2); }
 .omni-analysis-main { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 10px; padding: 12px; }
 .omni-analysis-editor { height: clamp(140px, 24vh, 260px); min-height: 140px; overflow: hidden; border: 1px solid var(--colorNeutralStroke2); border-radius: 4px; }
-.omni-analysis-results { flex: 1; min-height: 220px; overflow: hidden; border: 1px solid var(--colorNeutralStroke2); border-radius: 4px; }
+.omni-analysis-results { flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--colorNeutralStroke2); border-radius: 4px; }
 .omni-analysis-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
 @media (max-width: 820px) {

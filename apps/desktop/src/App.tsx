@@ -1301,7 +1301,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>}
 
       {analysisDataset && (
-        <section style={{ gridColumn: 2, gridRow: "3 / span 2", minHeight: 0, overflow: "hidden" }}>
+        <section style={{ gridColumn: 2, gridRow: "3 / span 2", display: "flex", minHeight: 0, overflow: "hidden" }}>
           <AnalysisWorkspace dataset={analysisDataset} onClose={() => setAnalysisDataset(null)} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} />
         </section>
       )}

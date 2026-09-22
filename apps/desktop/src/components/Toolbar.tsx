@@ -127,24 +127,19 @@ export function Toolbar({
             </ToolbarButton>
       </div>}
 
-      <div
-        className="omni-toolbar-group"
-        role="group"
-        aria-label={t("settings")}
-      >
-            <ToolbarButton icon={<SettingsRegular fontSize={14} />} onClick={onOpenFormatSettings} aria-label={t("settings")} title={t("settings")} />
-      </div>
-
       <div style={{ flex: 1 }} />
 
       <span className="omni-toolbar-progress" aria-live="polite">
         {busyMsg && <Tooltip content={busyMsg} relationship="description"><Spinner size="tiny" aria-label={busyMsg} /></Tooltip>}
       </span>
 
-      <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} title={t("toggleSidebar")} />
-      <ToolbarButton icon={<BookRegular fontSize={14} />} onClick={onOpenCommandLibrary} aria-label={t("commandLibrary")} title={t("commandLibrary")} />
-      <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} title={t("history")} />
-      <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} title={t("moreOptions")} />
+      <div className="omni-toolbar-group omni-toolbar-global-actions" role="group" aria-label={t("settings")}>
+        <ToolbarButton icon={<SettingsRegular fontSize={14} />} onClick={onOpenFormatSettings} aria-label={t("settings")} title={t("settings")} />
+        <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} title={t("toggleSidebar")} />
+        <ToolbarButton icon={<BookRegular fontSize={14} />} onClick={onOpenCommandLibrary} aria-label={t("commandLibrary")} title={t("commandLibrary")} />
+        <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} title={t("history")} />
+        <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} title={t("moreOptions")} />
+      </div>
       {pendingRunCount && (
         <Dialog open onOpenChange={(_, data) => !data.open && onRunChoiceCancel?.()}>
           <DialogSurface className="omni-standard-dialog omni-confirm-dialog" style={{ minWidth: 280 }}>
