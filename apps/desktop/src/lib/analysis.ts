@@ -100,6 +100,14 @@ export function normalizeAnalysisSource(value: string): NormalizedAnalysisSource
   };
 }
 
+export function suggestAnalysisDatasetName(sql: string, fallback: string): string {
+  const identifier = '(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)';
+  const match = new RegExp(`\\bfrom\\s+(${identifier}(?:\\s*\\.\\s*${identifier}){0,2})`, "i").exec(sql);
+  const relationParts = match?.[1] ? parseRelationPath(match[1]) : null;
+  if (relationParts?.length) return relationParts.at(-1)!;
+  return /^(?:query|consulta|sql)\s*\d+$/i.test(fallback.trim()) ? "Local analysis" : fallback;
+}
+
 function transportValue(value: unknown): unknown {
   if (value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
   if (typeof value === "bigint") return value.toString();

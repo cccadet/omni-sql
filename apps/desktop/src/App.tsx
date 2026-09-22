@@ -34,7 +34,7 @@ import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } 
 import { useLanguage } from "./i18n";
 import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
-import { cancelAnalysis, getAnalysisOperationStatus, importQueryResult, importQuerySource, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
+import { cancelAnalysis, getAnalysisOperationStatus, importQueryResult, importQuerySource, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import type { McpStatusResult } from "@omni-sql/ts-types";
 
 const HISTORY_KEY = "omni-sql:history";
@@ -421,10 +421,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         : analysisSelection === "first_n"
           ? { mode: "first_n" as const, rows: analysisSampleRows }
           : { mode: "reservoir" as const, rows: analysisSampleRows, seed: 42 };
+      const sourceSql = analysisSourceSql ?? activeTab.sql;
+      const datasetName = suggestAnalysisDatasetName(sourceSql, activeTab.title);
       const dataset = analysisLoadOrigin === "source"
         ? await importQuerySource({
             workspaceId: activeTab.id,
-            name: activeTab.title,
+            name: datasetName,
             connectionId: activeConnectionId!,
             sql: analysisSourceSql!,
             operationId,
@@ -432,10 +434,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           })
         : await importQueryResult({
             workspaceId: activeTab.id,
-            name: activeTab.title,
+            name: datasetName,
             result,
             ...(activeConnectionId ? { sourceConnectionId: activeConnectionId } : {}),
-            sourceSql: analysisSourceSql ?? activeTab.sql,
+            sourceSql,
             selection,
           });
       setAnalysisDataset(dataset);
