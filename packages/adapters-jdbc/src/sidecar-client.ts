@@ -1,4 +1,5 @@
 import type { QueryResult } from "@omni-sql/ts-types";
+import type { QueryBatch } from "@omni-sql/adapters-core";
 
 const SIDECAR_URL = validatedSidecarUrl();
 // O sidecar JVM tem uma capability própria, separada do bearer que protege o
@@ -128,6 +129,62 @@ export async function jdbcQuery(connectionId: string, sql: string, limit: number
     rowsMoreAvailable: body.rowsMoreAvailable,
     elapsedMs: body.elapsedMs,
   };
+}
+
+export async function jdbcCancel(connectionId: string): Promise<void> {
+  await callSidecar("/jdbc/cancel", { connectionId });
+}
+
+export async function* jdbcStreamQuery(
+  connectionId: string,
+  sql: string,
+  batchSize: number,
+  signal: AbortSignal,
+): AsyncIterable<QueryBatch> {
+  const response = await fetch(`${SIDECAR_URL}/jdbc/stream`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(AUTH_TOKEN ? { authorization: `Bearer ${AUTH_TOKEN}` } : {}),
+    },
+    body: JSON.stringify({ connectionId, sql, batchSize }),
+    signal,
+  });
+  if (!response.ok || !response.body) throw new Error(`sidecar JVM recusou o streaming JDBC (HTTP ${response.status})`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const parseLine = (line: string): QueryBatch | null => {
+    const frame = JSON.parse(line) as { type?: string; columns?: QueryBatch["columns"]; rows?: QueryBatch["rows"]; error?: string };
+    if (frame.type === "error") throw new Error(frame.error ?? "JDBC streaming failed");
+    if (frame.type !== "batch") return null;
+    if (!Array.isArray(frame.columns) || !Array.isArray(frame.rows)) throw new Error("sidecar JVM retornou um lote JDBC inválido");
+    return { columns: frame.columns, rows: frame.rows };
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (line) {
+          const batch = parseLine(line);
+          if (batch) yield batch;
+        }
+        newline = buffer.indexOf("\n");
+      }
+      if (done) break;
+    }
+    const tail = buffer.trim();
+    if (tail) {
+      const batch = parseLine(tail);
+      if (batch) yield batch;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
 }
 
 export async function jdbcListSchemas(connectionId: string): Promise<readonly string[]> {

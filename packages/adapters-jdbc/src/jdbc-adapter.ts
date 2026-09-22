@@ -8,9 +8,9 @@ import type {
 } from "@omni-sql/ts-types";
 import { randomUUID } from "node:crypto";
 import { jdbcGenericDescriptor } from "@omni-sql/dialect-descriptors";
-import type { Adapter, RowInsertSpec, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
+import type { Adapter, QueryBatch, QueryStreamOptions, RowInsertSpec, RowUpdateSpec, TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
-import { jdbcClose, jdbcConnect, jdbcIntrospect, jdbcListSchemas, jdbcQuery, type JdbcTableBody } from "./sidecar-client.ts";
+import { jdbcCancel, jdbcClose, jdbcConnect, jdbcIntrospect, jdbcListSchemas, jdbcQuery, jdbcStreamQuery, type JdbcTableBody } from "./sidecar-client.ts";
 
 /**
  * Adaptador JDBC genérico (Fase 6). Não fala com o banco diretamente — o
@@ -120,6 +120,20 @@ export class JdbcAdapter extends CachedAdapter implements Adapter {
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
     return jdbcQuery(this.remoteHandleId, sql, limit);
+  }
+
+  async *streamQuery(sql: string, options: QueryStreamOptions): AsyncIterable<QueryBatch> {
+    const abort = () => { void jdbcCancel(this.remoteHandleId).catch(() => undefined); };
+    options.signal.addEventListener("abort", abort, { once: true });
+    try {
+      yield* jdbcStreamQuery(this.remoteHandleId, sql, options.batchSize, options.signal);
+    } finally {
+      options.signal.removeEventListener("abort", abort);
+    }
+  }
+
+  async cancelRunning(): Promise<void> {
+    await jdbcCancel(this.remoteHandleId);
   }
 
   async explain(_sql: string): Promise<ExplainResult> {

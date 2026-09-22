@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { Readable } from "node:stream";
 import type { ConnectionPool, Request } from "mssql";
 import { MssqlAdapter } from "./index.ts";
 import {
@@ -105,6 +107,25 @@ test("cancelRunning cancela Request ativo e não limpa Request mais novo", async
   await a.cancelRunning();
 
   assert.equal(cancelCalls, 1);
+});
+
+test("streamQuery entrega todos os lotes SQL Server", async () => {
+  const request = new EventEmitter() as EventEmitter & Request;
+  request.cancel = () => undefined;
+  request.toReadableStream = () => Readable.from([{ id: 1 }, { id: 2 }, { id: 3 }], { objectMode: true });
+  request.query = (async () => {
+    request.emit("recordset", { id: { type: { declaration: "int" } } });
+    return { recordset: [], recordsets: [], rowsAffected: [], output: {} };
+  }) as unknown as Request["query"];
+  const pool = { request: () => request } as unknown as ConnectionPool;
+  const adapter = new MssqlAdapter(cfg());
+  (adapter as unknown as { poolPromise: Promise<ConnectionPool> | null }).poolPromise = Promise.resolve(pool);
+
+  const batches = [];
+  for await (const batch of adapter.streamQuery("SELECT id FROM t", { batchSize: 2, signal: new AbortController().signal })) batches.push(batch);
+
+  assert.deepEqual(batches.map((batch) => batch.rows), [[[1], [2]], [[3]]]);
+  assert.deepEqual(batches[0]?.columns, [{ name: "id", dataType: "int", nullable: true }]);
 });
 
 test("runQueryViaPool caps simple SELECT server-side and preserves ORDER BY", async () => {

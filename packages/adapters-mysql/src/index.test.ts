@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { EventEmitter } from "node:events";
+import { Readable } from "node:stream";
 import type { FieldPacket, Pool, PoolConnection, QueryOptions } from "mysql2/promise";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import {
@@ -110,6 +112,30 @@ test("runQuery aplica cap server-side com bind e calcula rowsMoreAvailable", asy
   });
   assert.deepEqual(result.rows, [[0], [1], [2]]);
   assert.equal(result.rowsMoreAvailable, true);
+});
+
+test("streamQuery entrega todos os lotes MySQL e libera a conexão", async () => {
+  const query = new EventEmitter() as EventEmitter & { stream: (options: { highWaterMark: number }) => Readable };
+  query.stream = (options) => {
+    assert.equal(options.highWaterMark, 2);
+    query.emit("fields", [{ name: "id", type: 3 }]);
+    return Readable.from([[1], [2], [3]], { objectMode: true });
+  };
+  let released = false;
+  const connection = {
+    threadId: 42,
+    connection: { query: () => query },
+    release: () => { released = true; },
+  } as unknown as PoolConnection;
+  const adapter = new MysqlAdapter(cfg());
+  (adapter as unknown as { pool: Pool }).pool = { getConnection: async () => connection } as unknown as Pool;
+
+  const batches = [];
+  for await (const batch of adapter.streamQuery("SELECT id FROM t", { batchSize: 2, signal: new AbortController().signal })) batches.push(batch);
+
+  assert.deepEqual(batches.map((batch) => batch.rows), [[[1], [2]], [[3]]]);
+  assert.equal(batches[0]?.columns[0]?.name, "id");
+  assert.equal(released, true);
 });
 
 test("runQuery mantém conexão ativa e cancelQuery usa outra conexão", async () => {

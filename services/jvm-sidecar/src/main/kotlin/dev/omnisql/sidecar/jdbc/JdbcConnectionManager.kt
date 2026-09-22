@@ -6,6 +6,8 @@ import java.sql.Connection
 import java.sql.DatabaseMetaData
 import java.sql.Driver
 import java.sql.ResultSetMetaData
+import java.sql.Statement
+import java.util.concurrent.ConcurrentHashMap
 import java.sql.SQLException
 import java.util.Properties
 
@@ -56,6 +58,7 @@ object JdbcConnectionManager {
     private data class Handle(val connection: Connection, val classLoader: URLClassLoader)
 
     private val connections = HashMap<String, Handle>()
+    private val activeStatements = ConcurrentHashMap<String, Statement>()
 
     fun connect(
         connectionId: String,
@@ -103,7 +106,16 @@ object JdbcConnectionManager {
     }
 
     fun close(connectionId: String) {
+        runCatching { activeStatements.remove(connectionId)?.cancel() }
         connections.remove(connectionId)?.let { closeQuietly(it) }
+    }
+
+    fun cancel(connectionId: String) {
+        try {
+            activeStatements[connectionId]?.cancel()
+        } catch (e: SQLException) {
+            throw toJdbcError(e)
+        }
     }
 
     /** Closes every live JDBC resource; safe to call repeatedly during shutdown. */
@@ -284,6 +296,49 @@ object JdbcConnectionManager {
             }
         } catch (e: SQLException) {
             throw toJdbcError(e)
+        }
+    }
+
+    fun streamQuery(
+        connectionId: String,
+        sql: String,
+        batchSize: Int,
+        emit: (List<QueryResultColumn>, List<List<Any?>>) -> Unit,
+    ) {
+        requireQueryLimit(batchSize)
+        val handle = connections[connectionId] ?: throw JdbcError("unsupported", "no open connection: $connectionId")
+        try {
+            handle.connection.createStatement().use { stmt ->
+                activeStatements[connectionId] = stmt
+                runCatching { stmt.fetchSize = batchSize }
+                if (!stmt.execute(sql)) throw JdbcError("unsupported", "analytical source query did not return rows")
+                stmt.resultSet.use { rs ->
+                    val meta = rs.metaData
+                    val columns =
+                        (1..meta.columnCount).map { i ->
+                            QueryResultColumn(
+                                meta.getColumnLabel(i),
+                                meta.getColumnTypeName(i),
+                                meta.isNullable(i) != ResultSetMetaData.columnNoNulls,
+                            )
+                        }
+                    var rows = ArrayList<List<Any?>>(batchSize)
+                    var emitted = false
+                    while (rs.next()) {
+                        rows.add((1..meta.columnCount).map { i -> toJsonValue(rs.getObject(i)) })
+                        if (rows.size >= batchSize) {
+                            emit(columns, rows)
+                            emitted = true
+                            rows = ArrayList(batchSize)
+                        }
+                    }
+                    if (rows.isNotEmpty() || !emitted) emit(columns, rows)
+                }
+            }
+        } catch (e: SQLException) {
+            throw toJdbcError(e)
+        } finally {
+            activeStatements.remove(connectionId)
         }
     }
 

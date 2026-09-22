@@ -61,6 +61,30 @@ class JdbcConnectionManagerTest {
     }
 
     @Test
+    fun `streams the complete JDBC result in bounded batches`() {
+        val connectionId = "test-${System.nanoTime()}"
+        JdbcConnectionManager.connect(connectionId, h2JarPath, "org.h2.Driver", "jdbc:h2:mem:$connectionId;DB_CLOSE_DELAY=-1", "sa", "")
+        try {
+            JdbcConnectionManager.query(connectionId, "create table t (id int)", 100)
+            JdbcConnectionManager.query(connectionId, "insert into t values (1), (2), (3), (4), (5)", 100)
+            val batches = mutableListOf<List<List<Any?>>>()
+            val columnNames = mutableListOf<List<String>>()
+
+            JdbcConnectionManager.streamQuery(connectionId, "select id from t order by id", 2) { columns, rows ->
+                columnNames.add(columns.map { it.name })
+                batches.add(rows)
+            }
+
+            assertEquals(listOf(listOf(1), listOf(2)), batches[0])
+            assertEquals(listOf(listOf(3), listOf(4)), batches[1])
+            assertEquals(listOf(listOf(5)), batches[2])
+            assertEquals(listOf("ID"), columnNames.first())
+        } finally {
+            JdbcConnectionManager.close(connectionId)
+        }
+    }
+
+    @Test
     fun `introspect discovers schema, table and columns via DatabaseMetaData`() {
         val connectionId = "test-${System.nanoTime()}"
         JdbcConnectionManager.connect(
