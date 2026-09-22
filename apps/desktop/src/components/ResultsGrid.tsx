@@ -35,6 +35,7 @@ import {
   WrenchRegular,
   OpenRegular,
 } from "@fluentui/react-icons";
+import { DuckDbIcon } from "./DuckDbIcon";
 import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
 import type { RelationInfo } from "../lib/backend";
 import { useLanguage } from "../i18n";
@@ -705,7 +706,7 @@ export function ResultsGrid({
             {onAnalyzeLocally && (
               <Button
                 appearance="outline"
-                icon={<TableRegular />}
+                icon={<DuckDbIcon size={18} />}
                 onClick={() => void onAnalyzeLocally()}
                 disabled={!result || analyzingLocally}
               >

@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   Button,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
   Input,
   MessageBar,
   MessageBarBody,
@@ -14,12 +8,14 @@ import {
   Text,
   Textarea,
 } from "@fluentui/react-components";
+import { ArrowLeftRegular, CheckmarkRegular, EditRegular } from "@fluentui/react-icons";
 import type { QueryResult } from "@omni-sql/ts-types";
 import type { DatasetRef } from "../lib/analysis";
-import { cancelAnalysis, clearAnalysis, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, runAnalysis } from "../lib/analysis";
+import { cancelAnalysis, clearAnalysis, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
 import { pickAnalysisExportPath, pickAnalysisImportPath } from "../lib/file-io";
 import { useLanguage } from "../i18n";
 import { ResultsGrid } from "./ResultsGrid";
+import { DuckDbIcon } from "./DuckDbIcon";
 
 interface AnalysisWorkspaceProps {
   readonly dataset: DatasetRef | null;
@@ -44,6 +40,8 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
   const [fileSampleRows, setFileSampleRows] = useState(1_000);
   const [sourceConnectionId, setSourceConnectionId] = useState("");
   const [sourceSql, setSourceSql] = useState("");
+  const [renamingDatasetId, setRenamingDatasetId] = useState<string | null>(null);
+  const [datasetName, setDatasetName] = useState("");
 
   useEffect(() => {
     if (!dataset) return;
@@ -152,12 +150,75 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
     }
   };
 
+  const renameDataset = async (item: DatasetRef) => {
+    const name = datasetName.trim();
+    if (!name || running) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const renamed = await renameAnalysisDataset(item.workspaceId, item.id, name);
+      setDatasets((current) => current.map((candidate) => candidate.id === renamed.id ? renamed : candidate));
+      setSql((current) => current.replaceAll(quoteIdentifier(item.relationName), quoteIdentifier(renamed.relationName)));
+      if (dataset?.id === renamed.id) {
+        onDatasetAdded?.(renamed);
+      }
+      setRenamingDatasetId(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRunning(false);
+    }
+  };
+
   return (
-    <Dialog open={dataset !== null} onOpenChange={(_, data) => { if (!data.open) void close(); }}>
-      <DialogSurface style={{ width: "min(1100px, 92vw)", maxWidth: "none", height: "min(780px, 90vh)" }}>
-        <DialogBody style={{ height: "100%" }}>
-          <DialogTitle>{t("analyzeLocally")}: {dataset?.name}</DialogTitle>
-          <DialogContent style={{ display: "flex", minHeight: 0, flexDirection: "column", gap: 10 }}>
+    <section className="omni-analysis-workspace" aria-label={t("analyzeLocally")}>
+      <header className="omni-analysis-header">
+        <div className="omni-analysis-title">
+          <DuckDbIcon size={30} />
+          <div><strong>{t("analyzeLocally")}</strong><Text size={200}>DuckDB</Text></div>
+        </div>
+        <Button appearance="subtle" icon={<ArrowLeftRegular />} onClick={() => void close()}>{t("analysisBackToSql")}</Button>
+      </header>
+      <div className="omni-analysis-body">
+        <aside className="omni-analysis-datasets">
+          <Text weight="semibold">{t("analysisDatasets")}</Text>
+          {datasets.map((item) => (
+            <div className={`omni-analysis-dataset${item.id === dataset?.id ? " is-active" : ""}`} key={item.id}>
+              {renamingDatasetId === item.id ? (
+                <>
+                  <Input autoFocus value={datasetName} onChange={(_, data) => setDatasetName(data.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameDataset(item); }} aria-label={t("analysisDatasetName")} />
+                  <Button appearance="subtle" icon={<CheckmarkRegular />} aria-label={t("analysisSaveDatasetName")} onClick={() => void renameDataset(item)} disabled={!datasetName.trim() || running} />
+                </>
+              ) : (
+                <>
+                  <button type="button" className="omni-analysis-dataset-select" onClick={() => onDatasetAdded?.(item)}>
+                    <span>{item.name}</span><code>{item.relationName}</code>
+                  </button>
+                  <Button appearance="subtle" icon={<EditRegular />} aria-label={t("analysisRenameDataset")} onClick={() => { setRenamingDatasetId(item.id); setDatasetName(item.name); }} />
+                </>
+              )}
+            </div>
+          ))}
+          <details className="omni-analysis-source-panel">
+            <summary>{t("analysisAddSource")}</summary>
+            <select aria-label={t("activeConnection")} value={sourceConnectionId} onChange={(event) => setSourceConnectionId(event.target.value)}>
+              <option value="">{t("headerNoConnection")}</option>
+              {sourceConnections.filter((item) => item.dialect === "postgres").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+            <Input value={sourceSql} onChange={(_, data) => setSourceSql(data.value)} placeholder="SELECT …" aria-label={t("analysisSourceSql")} />
+            <Button onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
+          </details>
+          <div className="omni-analysis-import-controls">
+            <select aria-label={t("analysisFileSelection")} value={fileSelection} onChange={(event) => setFileSelection(event.target.value as typeof fileSelection)} disabled={running}>
+              <option value="full">{t("analysisFullSnapshot")}</option>
+              <option value="first_n">{t("analysisFirstN")}</option>
+              <option value="reservoir">{t("analysisReservoir")}</option>
+            </select>
+            {fileSelection !== "full" && <Input type="number" min={1} max={10_000} value={String(fileSampleRows)} onChange={(_, data) => setFileSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))} aria-label={t("analysisSampleRows")} />}
+            <Button appearance="secondary" onClick={() => void importFile()} disabled={!dataset || running}>{t("analysisImportFile")}</Button>
+          </div>
+        </aside>
+        <main className="omni-analysis-main">
             {dataset && dataset.coverage !== "complete" && (
               <MessageBar intent="warning"><MessageBarBody>{dataset.coverage === "sampled" ? t("analysisSampledSnapshot") : t("analysisPartialSnapshot")}</MessageBarBody></MessageBar>
             )}
@@ -166,20 +227,6 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
                 {dataset.rowCount} {t("rows")} · {dataset.scannedRows} {t("analysisRowsScanned")} · SQL: {quoteIdentifier(dataset.relationName)}
               </Text>
             )}
-            {datasets.length > 0 && (
-              <Text size={200}>{datasets.map((item) => `${item.name}: ${quoteIdentifier(item.relationName)}`).join(" · ")}</Text>
-            )}
-            <details>
-              <summary>{t("analysisAddSource")}</summary>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-                <select aria-label={t("activeConnection")} value={sourceConnectionId} onChange={(event) => setSourceConnectionId(event.target.value)}>
-                  <option value="">{t("headerNoConnection")}</option>
-                  {sourceConnections.filter((item) => item.dialect === "postgres").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-                <Input value={sourceSql} onChange={(_, data) => setSourceSql(data.value)} placeholder="SELECT …" aria-label={t("analysisSourceSql")} style={{ flex: 1 }} />
-                <Button onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
-              </div>
-            </details>
             <Textarea
               aria-label={t("analysisSql")}
               resize="vertical"
@@ -188,28 +235,19 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
               style={{ minHeight: 90, fontFamily: "monospace" }}
             />
             {running && <Spinner size="small" label={t("running")} />}
-            <div style={{ flex: 1, minHeight: 260 }}>
+            <div className="omni-analysis-results">
               <ResultsGrid result={result} error={error} running={running} />
             </div>
-          </DialogContent>
-          <DialogActions>
-            <Button appearance="secondary" onClick={() => void close()}>{t("close")}</Button>
+          <footer className="omni-analysis-actions">
             {running && operationId && (
               <Button appearance="secondary" onClick={() => void cancelAnalysis(operationId)}>{t("stop")}</Button>
             )}
             <Button appearance="secondary" onClick={() => void exportResult("csv")} disabled={!dataset || running || !sql.trim()}>{t("analysisExportCsv")}</Button>
             <Button appearance="secondary" onClick={() => void exportResult("parquet")} disabled={!dataset || running || !sql.trim()}>{t("analysisExportParquet")}</Button>
-            <select aria-label={t("analysisFileSelection")} value={fileSelection} onChange={(event) => setFileSelection(event.target.value as typeof fileSelection)} disabled={running}>
-              <option value="full">{t("analysisFullSnapshot")}</option>
-              <option value="first_n">{t("analysisFirstN")}</option>
-              <option value="reservoir">{t("analysisReservoir")}</option>
-            </select>
-            {fileSelection !== "full" && <Input type="number" min={1} max={10_000} value={String(fileSampleRows)} onChange={(_, data) => setFileSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))} aria-label={t("analysisSampleRows")} style={{ width: 90 }} />}
-            <Button appearance="secondary" onClick={() => void importFile()} disabled={!dataset || running}>{t("analysisImportFile")}</Button>
             <Button appearance="primary" onClick={() => void run()} disabled={!dataset || running || !sql.trim()}>{t("run")}</Button>
-          </DialogActions>
-        </DialogBody>
-      </DialogSurface>
-    </Dialog>
+          </footer>
+        </main>
+      </div>
+    </section>
   );
 }

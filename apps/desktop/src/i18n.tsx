@@ -378,6 +378,11 @@ const english = {
   analysisAddSource: "Add another PostgreSQL source for joins",
   analysisSourceSql: "Source SQL",
   analysisImportSource: "Import source",
+  analysisBackToSql: "Back to SQL editor",
+  analysisDatasets: "Datasets",
+  analysisDatasetName: "Dataset name",
+  analysisRenameDataset: "Rename dataset",
+  analysisSaveDatasetName: "Save dataset name",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -424,6 +429,7 @@ const portugueseBrazil = [
   "Exportar CSV completo", "Exportar Parquet completo",
   "Importar CSV/Parquet", "Seleção da carga do arquivo",
   "Adicionar outra origem PostgreSQL para joins", "SQL da origem", "Importar origem",
+  "Voltar ao editor SQL", "Datasets", "Nome do dataset", "Renomear dataset", "Salvar nome do dataset",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

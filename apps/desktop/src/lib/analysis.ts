@@ -181,6 +181,10 @@ export async function listAnalysisDatasets(workspaceId: string): Promise<readonl
   return invoke<DatasetRef[]>("analysis_list_datasets", { workspaceId });
 }
 
+export async function renameAnalysisDataset(workspaceId: string, datasetId: string, name: string): Promise<DatasetRef> {
+  return invoke<DatasetRef>("analysis_rename_dataset", { workspaceId, datasetId, name });
+}
+
 export async function clearAnalysis(workspaceId: string): Promise<number> {
   return invoke<number>("analysis_clear", { workspaceId });
 }
