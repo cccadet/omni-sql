@@ -217,6 +217,10 @@ const MIN_CONNECTIONS_HEIGHT = 150;
 const MIN_OBJECTS_HEIGHT = 180;
 const DEFAULT_CONNECTIONS_HEIGHT = 220;
 const CONNECTIONS_HEIGHT_KEY = "omni-sql:connectionsHeight";
+const DEFAULT_OBJECTS_HEIGHT = 360;
+const MIN_ANALYSIS_HEIGHT = 120;
+const MIN_ANALYSIS_OBJECTS_HEIGHT = 100;
+const OBJECTS_HEIGHT_KEY = "omni-sql:analysisObjectsHeight";
 
 function relationKey(schema: string, name: string) {
   return `${schema}.${name}`;
@@ -239,6 +243,16 @@ function loadConnectionsHeight(): number {
     return Number.isFinite(value) ? Math.max(MIN_CONNECTIONS_HEIGHT, value) : DEFAULT_CONNECTIONS_HEIGHT;
   } catch {
     return DEFAULT_CONNECTIONS_HEIGHT;
+  }
+}
+
+function loadObjectsHeight(): number {
+  try {
+    const raw = localStorage.getItem(OBJECTS_HEIGHT_KEY);
+    const value = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(value) ? Math.max(MIN_ANALYSIS_OBJECTS_HEIGHT, value) : DEFAULT_OBJECTS_HEIGHT;
+  } catch {
+    return DEFAULT_OBJECTS_HEIGHT;
   }
 }
 
@@ -283,6 +297,8 @@ export function Sidebar({
   const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const [objectsExpanded, setObjectsExpanded] = useState(true);
   const [analysisExpanded, setAnalysisExpanded] = useState(true);
+  const [objectsHeight, setObjectsHeight] = useState(loadObjectsHeight);
+  const [resizingAnalysis, setResizingAnalysis] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(connectionId ?? null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(connectionGroups.map((group) => group.id)));
   const [newGroupName, setNewGroupName] = useState("");
@@ -298,6 +314,8 @@ export function Sidebar({
   const [structureTable, setStructureTable] = useState<{ schema: string; table: string } | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const connectionsHeightRef = useRef(connectionsHeight);
+  const objectsSectionRef = useRef<HTMLElement | null>(null);
+  const analysisSectionRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setExpanded(new Set());
@@ -564,6 +582,36 @@ export function Sidebar({
     setConnectionsHeightValue(next);
   }, [connectionsHeight, getMaxConnectionsHeight, setConnectionsHeightValue]);
 
+  const setObjectsHeightValue = useCallback((value: number) => {
+    const combined = (objectsSectionRef.current?.clientHeight ?? objectsHeight) + (analysisSectionRef.current?.clientHeight ?? MIN_ANALYSIS_HEIGHT);
+    const bounded = Math.max(MIN_ANALYSIS_OBJECTS_HEIGHT, Math.min(combined - MIN_ANALYSIS_HEIGHT, value));
+    setObjectsHeight(bounded);
+    try { localStorage.setItem(OBJECTS_HEIGHT_KEY, String(bounded)); } catch { /* best effort */ }
+  }, [objectsHeight]);
+
+  const onAnalysisResizeStart = useCallback((event: React.PointerEvent) => {
+    event.preventDefault();
+    setResizingAnalysis(true);
+    const startY = event.clientY;
+    const startHeight = objectsSectionRef.current?.clientHeight ?? objectsHeight;
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
+    const onMove = (moveEvent: PointerEvent) => setObjectsHeightValue(startHeight + moveEvent.clientY - startY);
+    const onUp = () => {
+      setResizingAnalysis(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [objectsHeight, setObjectsHeightValue]);
+
+  const onAnalysisResizeKeyDown = useCallback((event: React.KeyboardEvent) => {
+    const next = event.key === "ArrowUp" ? objectsHeight - 16 : event.key === "ArrowDown" ? objectsHeight + 16 : null;
+    if (next === null) return;
+    event.preventDefault();
+    setObjectsHeightValue(next);
+  }, [objectsHeight, setObjectsHeightValue]);
+
   const rootConnections = connections.filter((item) => !item.groupId || !connectionGroups.some((group) => group.id === item.groupId));
   const moveOptions: MoveOption[] = [{ id: null, label: "Root" }, ...connectionGroups.map((group) => ({ id: group.id, label: group.name }))];
   const renderConnection = (item: ConnectionEntry) => {
@@ -792,7 +840,7 @@ export function Sidebar({
           onKeyDown={onConnectionsResizeKeyDown}
         />
       )}
-      <section className={`omni-sidebar-objects-section${objectsExpanded ? "" : " collapsed"}`}>
+      <section ref={objectsSectionRef} className={`omni-sidebar-objects-section${objectsExpanded ? "" : " collapsed"}`} style={analysisActive && objectsExpanded && analysisExpanded ? { flex: `0 0 ${objectsHeight}px` } : undefined}>
         <div className="omni-sidebar-section-header">
           <Button
             appearance="transparent"
@@ -1165,7 +1213,8 @@ export function Sidebar({
       </div>
       </>}
       </section>
-      {analysisActive && <section className={`omni-sidebar-analysis-section${analysisExpanded ? "" : " collapsed"}`}>
+      {analysisActive && objectsExpanded && analysisExpanded && <div className={`connections-resize-handle${resizingAnalysis ? " resizing" : ""}`} role="separator" aria-orientation="horizontal" tabIndex={0} aria-label={tr("resizeAnalysisPanel")} onPointerDown={onAnalysisResizeStart} onKeyDown={onAnalysisResizeKeyDown} />}
+      {analysisActive && <section ref={analysisSectionRef} className={`omni-sidebar-analysis-section${analysisExpanded ? "" : " collapsed"}`}>
         <div className="omni-sidebar-section-header">
           <Button
             appearance="transparent"

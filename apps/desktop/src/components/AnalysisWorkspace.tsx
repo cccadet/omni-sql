@@ -221,16 +221,16 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
       <div className={`omni-analysis-dataset${item.id === dataset?.id ? " is-active" : ""}`} key={item.id}>
         {renamingDatasetId === item.id ? (
           <>
-            <Input autoFocus value={datasetName} onChange={(_, data) => setDatasetName(data.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameDataset(item); }} aria-label={t("analysisDatasetName")} />
-            <Button appearance="subtle" icon={<CheckmarkRegular />} aria-label={t("analysisSaveDatasetName")} onClick={() => void renameDataset(item)} disabled={!datasetName.trim() || running} />
+            <Input size="small" autoFocus value={datasetName} onChange={(_, data) => setDatasetName(data.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameDataset(item); }} aria-label={t("analysisDatasetName")} />
+            <Button size="small" appearance="subtle" icon={<CheckmarkRegular />} aria-label={t("analysisSaveDatasetName")} onClick={() => void renameDataset(item)} disabled={!datasetName.trim() || running} />
           </>
         ) : (
           <>
             <button type="button" className="omni-analysis-dataset-select" onClick={() => onDatasetSelected?.(item)}>
               <span>{item.name}</span><code>{item.relationName}</code>
             </button>
-            <Button appearance="subtle" icon={<EditRegular />} aria-label={t("analysisRenameDataset")} onClick={() => { setRenamingDatasetId(item.id); setDatasetName(item.name); }} />
-            <Button appearance="subtle" icon={<DeleteRegular />} aria-label={t("analysisDeleteDataset")} onClick={() => void dropDataset(item)} disabled={running} />
+            <Button size="small" appearance="subtle" icon={<EditRegular />} aria-label={t("analysisRenameDataset")} onClick={() => { setRenamingDatasetId(item.id); setDatasetName(item.name); }} />
+            <Button size="small" appearance="subtle" icon={<DeleteRegular />} aria-label={t("analysisDeleteDataset")} onClick={() => void dropDataset(item)} disabled={running} />
           </>
         )}
       </div>
@@ -241,13 +241,13 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
         <option value="">{t("headerNoConnection")}</option>
         {sourceConnections.filter((item) => item.dialect === "postgres").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
       </select>
-      <Combobox freeform value={sourceSql} onChange={(event) => setSourceSql(event.currentTarget.value)} onOptionSelect={(_, data) => { if (data.optionValue) setSourceSql(data.optionValue); }} placeholder={t("analysisSourcePlaceholder")} aria-label={t("analysisSourceSql")}>
+      <Combobox size="small" freeform value={sourceSql} onChange={(event) => setSourceSql(event.currentTarget.value)} onOptionSelect={(_, data) => { if (data.optionValue) setSourceSql(data.optionValue); }} placeholder={t("analysisSourcePlaceholder")} aria-label={t("analysisSourceSql")}>
         {sourceSuggestions.map((relation) => {
           const value = `${relation.schema}.${relation.name}`;
           return <Option key={value} value={value}>{value}</Option>;
         })}
       </Combobox>
-      <Button onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
+      <Button size="small" onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
     </details>
     <div className="omni-analysis-import-controls">
       <select aria-label={t("analysisFileSelection")} value={fileSelection} onChange={(event) => setFileSelection(event.target.value as typeof fileSelection)} disabled={running}>
@@ -255,8 +255,8 @@ export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnection
         <option value="first_n">{t("analysisFirstN")}</option>
         <option value="reservoir">{t("analysisReservoir")}</option>
       </select>
-      {fileSelection !== "full" && <Input type="number" min={1} max={10_000} value={String(fileSampleRows)} onChange={(_, data) => setFileSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))} aria-label={t("analysisSampleRows")} />}
-      <Button appearance="secondary" onClick={() => void importFile()} disabled={!dataset || running}>{t("analysisImportFile")}</Button>
+      {fileSelection !== "full" && <Input size="small" type="number" min={1} max={10_000} value={String(fileSampleRows)} onChange={(_, data) => setFileSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))} aria-label={t("analysisSampleRows")} />}
+      <Button size="small" appearance="secondary" onClick={() => void importFile()} disabled={!dataset || running}>{t("analysisImportFile")}</Button>
     </div>
   </aside>;
 
