@@ -72,6 +72,15 @@ body {
 .omni-sidebar-analysis-section.collapsed .omni-sidebar-analysis-content { display: none; }
 .omni-sidebar-analysis-content { flex: 1; min-height: 0; overflow: hidden; }
 .omni-sidebar-analysis-content .omni-analysis-datasets { box-sizing: border-box; height: 100%; border-right: 0; background: transparent; }
+.omni-sidebar-analysis-content .omni-analysis-datasets { gap: 4px; padding: 6px 8px; }
+.omni-sidebar-analysis-content .omni-analysis-dataset { padding: 1px; }
+.omni-sidebar-analysis-content .omni-analysis-dataset-select { gap: 0; padding: 3px 5px; }
+.omni-sidebar-analysis-content .omni-analysis-source-panel { margin-top: 2px; font-size: 12px; }
+.omni-sidebar-analysis-content .omni-analysis-source-panel summary { margin-bottom: 4px; line-height: 1.25; }
+.omni-sidebar-analysis-content .omni-analysis-source-panel[open] { gap: 4px; }
+.omni-sidebar-analysis-content .omni-analysis-source-panel select,
+.omni-sidebar-analysis-content .omni-analysis-import-controls select { height: 28px; }
+.omni-sidebar-analysis-content .omni-analysis-import-controls { gap: 4px; padding-top: 6px; }
 .omni-analysis-workspace.has-sidebar-portal .omni-analysis-body { display: flex; }
 .omni-analysis-workspace.has-sidebar-portal .omni-analysis-main { flex: 1; }
 
@@ -244,11 +253,17 @@ select option {
 }
 
 .omni-sidebar-section-header {
+  box-sizing: border-box;
   display: flex;
+  flex: 0 0 32px;
   align-items: center;
   justify-content: space-between;
+  height: 32px;
   min-width: 0;
+  padding: 0 8px;
 }
+
+.omni-connections-section > .omni-sidebar-section-header { margin: 0 -8px; }
 
 .omni-sidebar-section-header .fui-Button {
   min-width: 0;
