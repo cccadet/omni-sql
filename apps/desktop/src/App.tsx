@@ -1202,7 +1202,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         </button>
       </header>
 
-      <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
+      {!analysisDataset && <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
         <Toolbar
           activeConnectionId={activeConnectionId}
           busyMsg={busyMsg}
@@ -1224,7 +1224,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onToggleHistory={() => setHistoryOpen((v) => !v)}
           onOpenCommandLibrary={() => setCommandLibraryOpen(true)}
         />
-      </div>
+      </div>}
 
       <aside style={{ gridColumn: 1, gridRow: "3 / span 2" }}>
         <Sidebar
@@ -1254,7 +1254,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         />
       </aside>
 
-      <section
+      {!analysisDataset && <section
         style={{ gridColumn: 2, gridRow: 3, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
       >
         <TabBar
@@ -1291,11 +1291,17 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             }}
           />
         </div>
-      </section>
+      </section>}
 
-      <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
+      {!analysisDataset && <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
         <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(activeDialect === "postgres" && analysisSourceSql ? "source" : "displayed"); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} />
-      </section>
+      </section>}
+
+      {analysisDataset && (
+        <section style={{ gridColumn: 2, gridRow: "2 / span 3", minHeight: 0, overflow: "hidden" }}>
+          <AnalysisWorkspace dataset={analysisDataset} onClose={() => setAnalysisDataset(null)} onDatasetAdded={setAnalysisDataset} sourceConnections={connections} />
+        </section>
+      )}
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
         <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
@@ -1310,8 +1316,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       />
 
       <BackgroundProcessesDialog open={backgroundProcessesOpen} onClose={() => setBackgroundProcessesOpen(false)} language={language} />
-
-      <AnalysisWorkspace dataset={analysisDataset} onClose={() => setAnalysisDataset(null)} onDatasetAdded={setAnalysisDataset} sourceConnections={connections} />
 
       <Dialog open={analysisImportOpen} onOpenChange={(_, data) => setAnalysisImportOpen(data.open)}>
         <DialogSurface className="omni-standard-dialog">

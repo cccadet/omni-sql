@@ -1558,6 +1558,14 @@ fn analysis_drop_dataset(
 }
 
 #[tauri::command]
+fn analysis_rename_dataset(
+    engine: tauri::State<'_, data_engine::DataEngine>, workspace_id: String,
+    dataset_id: String, name: String,
+) -> Result<data_engine::DatasetRef, String> {
+    engine.rename_dataset(&workspace_id, &dataset_id, &name)
+}
+
+#[tauri::command]
 fn analysis_clear(
     engine: tauri::State<'_, data_engine::DataEngine>,
     workspace_id: String,
@@ -1669,6 +1677,7 @@ pub fn run() {
             analysis_query_drop,
             analysis_list_datasets,
             analysis_drop_dataset,
+            analysis_rename_dataset,
             analysis_clear,
             analysis_cancel,
             analysis_operation_status,

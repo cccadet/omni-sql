@@ -640,6 +640,39 @@ impl DataEngine {
         Ok(datasets)
     }
 
+    pub fn rename_dataset(&self, workspace_id: &str, dataset_id: &str, name: &str) -> Result<DatasetRef, String> {
+        validate_workspace_id(workspace_id)?;
+        let name = name.trim();
+        if name.is_empty() { return Err("dataset name cannot be empty".to_string()); }
+        if name.chars().count() > 128 { return Err("dataset name cannot exceed 128 characters".to_string()); }
+        let mut inner = self.lock()?;
+        let dataset = inner.datasets.get(dataset_id)
+            .ok_or_else(|| "analytical dataset was not found".to_string())?;
+        if dataset.workspace_id != workspace_id { return Err("dataset does not belong to this workspace".to_string()); }
+        let old_relation_name = dataset.relation_name.clone();
+        let base_relation_name = readable_relation_name(name);
+        let occupied = inner.datasets.iter()
+            .filter(|(id, _)| id.as_str() != dataset_id)
+            .map(|(_, item)| item.relation_name.to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        let mut relation_name = base_relation_name.clone();
+        let mut suffix = 2usize;
+        while occupied.contains(&relation_name.to_ascii_lowercase()) {
+            relation_name = format!("{base_relation_name}_{suffix}");
+            suffix += 1;
+        }
+        if relation_name != old_relation_name {
+            inner.connection.execute_batch(&format!(
+                "ALTER TABLE {} RENAME TO {}", quote_identifier(&old_relation_name), quote_identifier(&relation_name)
+            )).map_err(|error| format!("failed to rename analytical dataset: {error}"))?;
+        }
+        let dataset = inner.datasets.get_mut(dataset_id)
+            .ok_or_else(|| "analytical dataset was not found".to_string())?;
+        dataset.name = name.to_string();
+        dataset.relation_name = relation_name;
+        Ok(dataset.clone())
+    }
+
     pub fn drop_dataset(&self, workspace_id: &str, dataset_id: &str) -> Result<bool, String> {
         validate_workspace_id(workspace_id)?;
         let mut inner = self.lock()?;
@@ -1859,6 +1892,25 @@ fn quote_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
+fn readable_relation_name(name: &str) -> String {
+    let mut relation = String::with_capacity(name.len().min(64));
+    let mut previous_was_separator = false;
+    for character in name.chars() {
+        if character.is_ascii_alphanumeric() {
+            relation.push(character.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !relation.is_empty() && !previous_was_separator {
+            relation.push('_');
+            previous_was_separator = true;
+        }
+        if relation.len() >= 56 { break; }
+    }
+    while relation.ends_with('_') { relation.pop(); }
+    if relation.is_empty() { relation.push_str("dataset"); }
+    else if relation.as_bytes()[0].is_ascii_digit() { relation.insert_str(0, "dataset_"); }
+    relation
+}
+
 fn random_id() -> Result<String, String> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes)
@@ -2080,6 +2132,20 @@ mod tests {
         assert_eq!(engine.list_datasets("workspace-a").unwrap().len(), 1);
         assert!(engine.drop_dataset("workspace-a", &dataset.id).unwrap());
         assert!(engine.list_datasets("workspace-a").unwrap().is_empty());
+    }
+
+    #[test]
+    fn renames_dataset_and_its_sql_relation_without_losing_rows() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let dataset = engine.import_result(request("workspace-rename")).unwrap();
+        let renamed = engine.rename_dataset("workspace-rename", &dataset.id, "Quarterly Orders").unwrap();
+        assert_eq!(renamed.name, "Quarterly Orders");
+        assert_eq!(renamed.relation_name, "quarterly_orders");
+        let result = engine.query(QueryRequest {
+            operation_id: "query-renamed".into(), workspace_id: "workspace-rename".into(),
+            sql: "SELECT count(*) AS total FROM quarterly_orders".into(), limit: 10,
+        }).unwrap();
+        assert_eq!(result.rows, vec![vec![JsonValue::from(1)]]);
     }
 
     #[test]

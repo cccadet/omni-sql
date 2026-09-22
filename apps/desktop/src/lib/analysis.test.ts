@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { clearAnalysis, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, runAnalysis } from "./analysis";
+import { clearAnalysis, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, renameAnalysisDataset, runAnalysis } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -71,4 +71,14 @@ test("uses scoped file commands for full export and sampled import", async () =>
   await importAnalysisFile({ workspaceId: "tab-1", name: "Orders", path: "C:\\tmp\\orders.parquet", format: "parquet", selection: { mode: "reservoir", rows: 25, seed: 42 }, operationId: "file-1" });
   expect(invoke).toHaveBeenNthCalledWith(1, "analysis_export_query", { request: expect.objectContaining({ operationId: "export-1", format: "parquet" }) });
   expect(invoke).toHaveBeenNthCalledWith(2, "analysis_import_file", { request: expect.objectContaining({ operationId: "file-1", selection: { mode: "reservoir", rows: 25, seed: 42 } }) });
+});
+
+test("renames an analytical dataset through the Tauri bridge", async () => {
+  vi.mocked(invoke).mockResolvedValueOnce({ id: "dataset-1", name: "Orders 2026", relationName: "orders_2026" });
+  await renameAnalysisDataset("tab-1", "dataset-1", "Orders 2026");
+  expect(invoke).toHaveBeenCalledWith("analysis_rename_dataset", {
+    workspaceId: "tab-1",
+    datasetId: "dataset-1",
+    name: "Orders 2026",
+  });
 });
