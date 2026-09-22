@@ -466,15 +466,13 @@ impl DataEngine {
         }
 
         let mut reader = BufReader::new(response);
-        let (source_columns, first_rows) = loop {
-            match read_stream_message(&mut reader)? {
-                Some(StreamMessage::Batch { columns, rows }) => break (columns, rows),
-                Some(StreamMessage::Complete) | None => {
-                    return Err("analytical source returned no schema".to_string())
-                }
-                Some(StreamMessage::Error { error }) => {
-                    return Err(format!("analytical source failed: {error}"))
-                }
+        let (source_columns, first_rows) = match read_stream_message(&mut reader)? {
+            Some(StreamMessage::Batch { columns, rows }) => (columns, rows),
+            Some(StreamMessage::Complete) | None => {
+                return Err("analytical source returned no schema".to_string())
+            }
+            Some(StreamMessage::Error { error }) => {
+                return Err(format!("analytical source failed: {error}"))
             }
         };
         let columns = normalize_columns(&source_columns)?;
