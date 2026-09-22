@@ -12,8 +12,10 @@ import {
   WrenchRegular,
   MoreVerticalRegular,
   BookRegular,
+  ArrowLeftRegular,
 } from "@fluentui/react-icons";
 import { useLanguage } from "../i18n";
+import { DuckDbIcon } from "./DuckDbIcon";
 
 export interface ToolbarProps {
   activeConnectionId: string | null;
@@ -36,6 +38,8 @@ export interface ToolbarProps {
   onToggleHistory?: () => void;
   onOpenCommandLibrary?: () => void;
   globalOnly?: boolean;
+  analysisMode?: boolean;
+  onExitAnalysis?: () => void;
 }
 
 const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
@@ -61,10 +65,16 @@ export function Toolbar({
   onToggleHistory,
   onOpenCommandLibrary,
   globalOnly = false,
+  analysisMode = false,
+  onExitAnalysis,
 }: ToolbarProps) {
   const { t } = useLanguage();
   return (
     <FluentToolbar className="omni-toolbar">
+      {analysisMode && <div className="omni-toolbar-analysis-context">
+        <DuckDbIcon size={24} />
+        <span><strong>{t("analyzeLocally")}</strong><small>DuckDB</small></span>
+      </div>}
       {!globalOnly && <div className="omni-toolbar-group omni-toolbar-group-primary">
             {running ? (
               <ToolbarButton
@@ -132,6 +142,8 @@ export function Toolbar({
       <span className="omni-toolbar-progress" aria-live="polite">
         {busyMsg && <Tooltip content={busyMsg} relationship="description"><Spinner size="tiny" aria-label={busyMsg} /></Tooltip>}
       </span>
+
+      {analysisMode && <ToolbarButton icon={<ArrowLeftRegular fontSize={14} />} onClick={onExitAnalysis}>{t("analysisBackToSql")}</ToolbarButton>}
 
       <div className="omni-toolbar-group omni-toolbar-global-actions" role="group" aria-label={t("settings")}>
         <ToolbarButton icon={<SettingsRegular fontSize={14} />} onClick={onOpenFormatSettings} aria-label={t("settings")} title={t("settings")} />

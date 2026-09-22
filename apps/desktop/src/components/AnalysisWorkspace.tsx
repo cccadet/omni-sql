@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Button,
   Combobox,
@@ -9,10 +10,10 @@ import {
   Text,
   Option,
 } from "@fluentui/react-components";
-import { ArrowLeftRegular, CheckmarkRegular, DeleteRegular, EditRegular } from "@fluentui/react-icons";
+import { CheckmarkRegular, DeleteRegular, EditRegular } from "@fluentui/react-icons";
 import type { QueryResult } from "@omni-sql/ts-types";
 import type { DatasetRef } from "../lib/analysis";
-import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
+import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
 import { backend, type RelationInfo } from "../lib/backend";
 import { localAnalysisSuggestions } from "../lib/analysis-autocomplete";
 import type { EditorProps } from "./Editor";
@@ -20,21 +21,21 @@ import { Editor } from "./Editor";
 import { pickAnalysisExportPath, pickAnalysisImportPath } from "../lib/file-io";
 import { useLanguage } from "../i18n";
 import { ResultsGrid } from "./ResultsGrid";
-import { DuckDbIcon } from "./DuckDbIcon";
 
 interface AnalysisWorkspaceProps {
   readonly dataset: DatasetRef | null;
-  readonly onClose: () => void;
   readonly onDatasetSelected?: (dataset: DatasetRef | null) => void;
   readonly sourceConnections?: readonly { id: string; label: string; dialect: string }[];
   readonly editorTheme?: EditorProps["theme"];
+  readonly sidebarHost?: HTMLElement | null;
+  readonly sidebarIntegrated?: boolean;
 }
 
 function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceConnections = [], editorTheme }: AnalysisWorkspaceProps) {
+export function AnalysisWorkspace({ dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false }: AnalysisWorkspaceProps) {
   const { t } = useLanguage();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -72,11 +73,6 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
     })).then((entries) => { if (!cancelled) setSourceMetadata((current) => ({ ...current, ...Object.fromEntries(entries) })); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [datasets, sourceConnectionId]);
-
-  const close = async () => {
-    if (dataset) await clearAnalysis(dataset.workspaceId).catch(() => undefined);
-    onClose();
-  };
 
   const run = async () => {
     if (!dataset || running) return;
@@ -219,60 +215,56 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
   const autocomplete = useCallback(async (cursor: number, currentSql = "") =>
     localAnalysisSuggestions(currentSql, cursor, datasets, sourceMetadata), [datasets, sourceMetadata]);
 
+  const datasetPanel = <aside className="omni-analysis-datasets">
+    <Text weight="semibold">{t("analysisDatasets")}</Text>
+    {datasets.map((item) => (
+      <div className={`omni-analysis-dataset${item.id === dataset?.id ? " is-active" : ""}`} key={item.id}>
+        {renamingDatasetId === item.id ? (
+          <>
+            <Input autoFocus value={datasetName} onChange={(_, data) => setDatasetName(data.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameDataset(item); }} aria-label={t("analysisDatasetName")} />
+            <Button appearance="subtle" icon={<CheckmarkRegular />} aria-label={t("analysisSaveDatasetName")} onClick={() => void renameDataset(item)} disabled={!datasetName.trim() || running} />
+          </>
+        ) : (
+          <>
+            <button type="button" className="omni-analysis-dataset-select" onClick={() => onDatasetSelected?.(item)}>
+              <span>{item.name}</span><code>{item.relationName}</code>
+            </button>
+            <Button appearance="subtle" icon={<EditRegular />} aria-label={t("analysisRenameDataset")} onClick={() => { setRenamingDatasetId(item.id); setDatasetName(item.name); }} />
+            <Button appearance="subtle" icon={<DeleteRegular />} aria-label={t("analysisDeleteDataset")} onClick={() => void dropDataset(item)} disabled={running} />
+          </>
+        )}
+      </div>
+    ))}
+    <details className="omni-analysis-source-panel">
+      <summary>{t("analysisAddSource")}</summary>
+      <select aria-label={t("activeConnection")} value={sourceConnectionId} onChange={(event) => setSourceConnectionId(event.target.value)}>
+        <option value="">{t("headerNoConnection")}</option>
+        {sourceConnections.filter((item) => item.dialect === "postgres").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+      </select>
+      <Combobox freeform value={sourceSql} onChange={(event) => setSourceSql(event.currentTarget.value)} onOptionSelect={(_, data) => { if (data.optionValue) setSourceSql(data.optionValue); }} placeholder={t("analysisSourcePlaceholder")} aria-label={t("analysisSourceSql")}>
+        {sourceSuggestions.map((relation) => {
+          const value = `${relation.schema}.${relation.name}`;
+          return <Option key={value} value={value}>{value}</Option>;
+        })}
+      </Combobox>
+      <Button onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
+    </details>
+    <div className="omni-analysis-import-controls">
+      <select aria-label={t("analysisFileSelection")} value={fileSelection} onChange={(event) => setFileSelection(event.target.value as typeof fileSelection)} disabled={running}>
+        <option value="full">{t("analysisFullSnapshot")}</option>
+        <option value="first_n">{t("analysisFirstN")}</option>
+        <option value="reservoir">{t("analysisReservoir")}</option>
+      </select>
+      {fileSelection !== "full" && <Input type="number" min={1} max={10_000} value={String(fileSampleRows)} onChange={(_, data) => setFileSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))} aria-label={t("analysisSampleRows")} />}
+      <Button appearance="secondary" onClick={() => void importFile()} disabled={!dataset || running}>{t("analysisImportFile")}</Button>
+    </div>
+  </aside>;
+
   return (
-    <section className="omni-analysis-workspace" aria-label={t("analyzeLocally")}>
-      <header className="omni-analysis-header">
-        <div className="omni-analysis-title">
-          <DuckDbIcon size={30} />
-          <div><strong>{t("analyzeLocally")}</strong><Text size={200}>DuckDB</Text></div>
-        </div>
-        <Button appearance="subtle" icon={<ArrowLeftRegular />} onClick={() => void close()}>{t("analysisBackToSql")}</Button>
-      </header>
+    <section className={`omni-analysis-workspace${sidebarIntegrated ? " has-sidebar-portal" : ""}`} aria-label={t("analyzeLocally")}>
+      {sidebarHost && createPortal(datasetPanel, sidebarHost)}
       <div className="omni-analysis-body">
-        <aside className="omni-analysis-datasets">
-          <Text weight="semibold">{t("analysisDatasets")}</Text>
-          {datasets.map((item) => (
-            <div className={`omni-analysis-dataset${item.id === dataset?.id ? " is-active" : ""}`} key={item.id}>
-              {renamingDatasetId === item.id ? (
-                <>
-                  <Input autoFocus value={datasetName} onChange={(_, data) => setDatasetName(data.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameDataset(item); }} aria-label={t("analysisDatasetName")} />
-                  <Button appearance="subtle" icon={<CheckmarkRegular />} aria-label={t("analysisSaveDatasetName")} onClick={() => void renameDataset(item)} disabled={!datasetName.trim() || running} />
-                </>
-              ) : (
-                <>
-                  <button type="button" className="omni-analysis-dataset-select" onClick={() => onDatasetSelected?.(item)}>
-                    <span>{item.name}</span><code>{item.relationName}</code>
-                  </button>
-                  <Button appearance="subtle" icon={<EditRegular />} aria-label={t("analysisRenameDataset")} onClick={() => { setRenamingDatasetId(item.id); setDatasetName(item.name); }} />
-                  <Button appearance="subtle" icon={<DeleteRegular />} aria-label={t("analysisDeleteDataset")} onClick={() => void dropDataset(item)} disabled={running} />
-                </>
-              )}
-            </div>
-          ))}
-          <details className="omni-analysis-source-panel">
-            <summary>{t("analysisAddSource")}</summary>
-            <select aria-label={t("activeConnection")} value={sourceConnectionId} onChange={(event) => setSourceConnectionId(event.target.value)}>
-              <option value="">{t("headerNoConnection")}</option>
-              {sourceConnections.filter((item) => item.dialect === "postgres").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-            </select>
-            <Combobox freeform value={sourceSql} onChange={(event) => setSourceSql(event.currentTarget.value)} onOptionSelect={(_, data) => { if (data.optionValue) setSourceSql(data.optionValue); }} placeholder={t("analysisSourcePlaceholder")} aria-label={t("analysisSourceSql")}>
-              {sourceSuggestions.map((relation) => {
-                const value = `${relation.schema}.${relation.name}`;
-                return <Option key={value} value={value}>{value}</Option>;
-              })}
-            </Combobox>
-            <Button onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
-          </details>
-          <div className="omni-analysis-import-controls">
-            <select aria-label={t("analysisFileSelection")} value={fileSelection} onChange={(event) => setFileSelection(event.target.value as typeof fileSelection)} disabled={running}>
-              <option value="full">{t("analysisFullSnapshot")}</option>
-              <option value="first_n">{t("analysisFirstN")}</option>
-              <option value="reservoir">{t("analysisReservoir")}</option>
-            </select>
-            {fileSelection !== "full" && <Input type="number" min={1} max={10_000} value={String(fileSampleRows)} onChange={(_, data) => setFileSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))} aria-label={t("analysisSampleRows")} />}
-            <Button appearance="secondary" onClick={() => void importFile()} disabled={!dataset || running}>{t("analysisImportFile")}</Button>
-          </div>
-        </aside>
+        {!sidebarIntegrated && datasetPanel}
         <main className="omni-analysis-main">
             {dataset && dataset.coverage !== "complete" && (
               <MessageBar intent="warning"><MessageBarBody>{dataset.coverage === "sampled" ? t("analysisSampledSnapshot") : t("analysisPartialSnapshot")}</MessageBarBody></MessageBar>

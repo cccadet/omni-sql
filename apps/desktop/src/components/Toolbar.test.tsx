@@ -7,6 +7,7 @@ vi.mock("@fluentui/react-icons", () => {
   const Icon = () => null;
   return {
     AddRegular: Icon,
+    ArrowLeftRegular: Icon,
     ArrowSyncRegular: Icon,
     BookRegular: Icon,
     DatabaseRegular: Icon,

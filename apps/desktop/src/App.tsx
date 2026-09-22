@@ -34,7 +34,7 @@ import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } 
 import { useLanguage } from "./i18n";
 import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
-import { cancelAnalysis, getAnalysisOperationStatus, importQueryResult, importQuerySource, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
+import { cancelAnalysis, clearAnalysis, getAnalysisOperationStatus, importQueryResult, importQuerySource, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import type { McpStatusResult } from "@omni-sql/ts-types";
 
 const HISTORY_KEY = "omni-sql:history";
@@ -223,6 +223,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [analysisLoadOrigin, setAnalysisLoadOrigin] = useState<"displayed" | "source">("source");
   const [analysisSampleRows, setAnalysisSampleRows] = useState(1_000);
   const [analysisSourceSql, setAnalysisSourceSql] = useState<string | null>(null);
+  const [analysisSidebarHost, setAnalysisSidebarHost] = useState<HTMLDivElement | null>(null);
   const [editingConfig, setEditingConfig] = useState<ConnectionEntry | null>(null);
   const [duplicatingConnection, setDuplicatingConnection] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -408,6 +409,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   const activeConnectionId = activeTab?.connectionId ?? null;
+
+  const closeAnalysisWorkspace = useCallback(async () => {
+    if (analysisDataset) await clearAnalysis(analysisDataset.workspaceId).catch(() => undefined);
+    setAnalysisDataset(null);
+  }, [analysisDataset]);
 
   const importCurrentResultForAnalysis = useCallback(async () => {
     if (!result || analysisImporting) return;
@@ -1226,6 +1232,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onToggleHistory={() => setHistoryOpen((v) => !v)}
           onOpenCommandLibrary={() => setCommandLibraryOpen(true)}
           globalOnly={analysisDataset !== null}
+          analysisMode={analysisDataset !== null}
+          onExitAnalysis={() => void closeAnalysisWorkspace()}
         />
       </div>
 
@@ -1254,6 +1262,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onMoveConnection={onMoveConnection}
           onOpenInNewTab={onOpenInNewTab}
           health={connectionHealth}
+          analysisActive={analysisDataset !== null}
+          onAnalysisHostChange={setAnalysisSidebarHost}
         />
       </aside>
 
@@ -1302,7 +1312,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       {analysisDataset && (
         <section style={{ gridColumn: 2, gridRow: "3 / span 2", display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <AnalysisWorkspace dataset={analysisDataset} onClose={() => setAnalysisDataset(null)} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} />
+          <AnalysisWorkspace dataset={analysisDataset} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated />
         </section>
       )}
 
