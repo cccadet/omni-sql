@@ -12,7 +12,7 @@ import {
   dialectDescriptor,
   type DialectDescriptor,
 } from "@omni-sql/dialect-descriptors";
-import type { Adapter, TestResult } from "@omni-sql/adapters-core";
+import type { Adapter, QueryBatch, QueryStreamOptions, TestResult } from "@omni-sql/adapters-core";
 
 /**
  * Adaptador in-memory para smoke tests E2E: sem dependência externa,
@@ -166,6 +166,12 @@ export class InMemoryAdapter implements Adapter {
       };
     }
     throw new Error(`InMemoryAdapter: query não suportada: ${sql.slice(0, 64)}`);
+  }
+
+  async *streamQuery(sql: string, options: QueryStreamOptions): AsyncIterable<QueryBatch> {
+    const result = await this.runQuery(sql, options.batchSize);
+    if (options.signal.aborted) throw new Error("analytical source query cancelled");
+    yield { columns: result.columns, rows: result.rows };
   }
 
   async explain(sql: string): Promise<ExplainResult> {

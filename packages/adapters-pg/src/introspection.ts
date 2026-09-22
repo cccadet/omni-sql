@@ -678,7 +678,7 @@ export async function updateRowViaPool(pool: Pool, spec: RowUpdateSpec): Promise
   }
 }
 
-function mapPgOidToDataType(oid: number): string {
+export function mapPgOidToDataType(oid: number): string {
   // libpg returns numeric OIDs; text fallback for unknown. Keep numeric types
   // surface-friendly for fast scanning by UI later.
   const map: Record<number, string> = {

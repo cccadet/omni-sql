@@ -357,6 +357,27 @@ const english = {
   openRelated: "Open related record",
   closeRelated: "Close related record",
   relatedNotFound: "Related record not found.",
+  analyzeLocally: "Analyze locally",
+  analysisImporting: "Importing source data…",
+  analysisPartialSnapshot: "This dataset contains only the rows displayed by the source query. More rows exist at the source.",
+  analysisSql: "Local analytical SQL",
+  analysisImportTitle: "Choose the analytical load",
+  analysisFullSnapshot: "Full query result",
+  analysisFirstN: "First N source rows",
+  analysisReservoir: "Random sample from the full result (fixed seed)",
+  analysisSampleRows: "Sample rows",
+  analysisSampledSnapshot: "This analytical dataset is an explicit sample of the source query.",
+  analysisSourceQuery: "Run the source query again (PostgreSQL streaming)",
+  analysisDisplayedResult: "Use the rows already displayed",
+  analysisRowsScanned: "rows scanned",
+  analysisRowsRetained: "rows retained",
+  analysisExportCsv: "Export full CSV",
+  analysisExportParquet: "Export full Parquet",
+  analysisImportFile: "Import CSV/Parquet",
+  analysisFileSelection: "File load selection",
+  analysisAddSource: "Add another PostgreSQL source for joins",
+  analysisSourceSql: "Source SQL",
+  analysisImportSource: "Import source",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -395,6 +416,14 @@ const portugueseBrazil = [
   "Editor", "Sugerir palavras do documento SQL atual", "Quando ativado, o Monaco pode misturar palavras do documento com sugestões contextuais do banco.",
   "Descrição", "Descrição da tabela",
   "Relacionado", "Abrir registro relacionado", "Fechar registro relacionado", "Registro relacionado não encontrado.",
+  "Analisar localmente", "Importando dados da origem…", "Este dataset contém apenas as linhas exibidas pela consulta de origem. Existem mais linhas na origem.", "SQL analítico local",
+  "Escolha a carga analítica", "Resultado completo da consulta", "Primeiras N linhas da origem", "Amostra aleatória do resultado completo (semente fixa)", "Linhas da amostra",
+  "Este dataset analítico é uma amostra explícita da consulta de origem.",
+  "Executar novamente a consulta de origem (streaming PostgreSQL)", "Usar as linhas já exibidas",
+  "linhas lidas", "linhas retidas",
+  "Exportar CSV completo", "Exportar Parquet completo",
+  "Importar CSV/Parquet", "Seleção da carga do arquivo",
+  "Adicionar outra origem PostgreSQL para joins", "SQL da origem", "Importar origem",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

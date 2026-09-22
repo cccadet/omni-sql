@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Title1, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
 import { PlugConnectedRegular, PlugDisconnectedRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -16,6 +16,7 @@ import { ResultsGrid } from "./components/ResultsGrid";
 import { StatusBar, type ConnectionHealth, type McpVisualState, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
 import { McpEditDialog, type McpEditProposal } from "./components/McpEditDialog";
 import { BackgroundProcessesDialog } from "./components/BackgroundProcessesDialog";
+import { AnalysisWorkspace } from "./components/AnalysisWorkspace";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
@@ -33,6 +34,7 @@ import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } 
 import { useLanguage } from "./i18n";
 import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
+import { cancelAnalysis, getAnalysisOperationStatus, importQueryResult, importQuerySource, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import type { McpStatusResult } from "@omni-sql/ts-types";
 
 const HISTORY_KEY = "omni-sql:history";
@@ -212,6 +214,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [backgroundProcessesOpen, setBackgroundProcessesOpen] = useState(false);
+  const [analysisDataset, setAnalysisDataset] = useState<DatasetRef | null>(null);
+  const [analysisImporting, setAnalysisImporting] = useState(false);
+  const [analysisImportOperationId, setAnalysisImportOperationId] = useState<string | null>(null);
+  const [analysisImportStatus, setAnalysisImportStatus] = useState<AnalysisOperationStatus | null>(null);
+  const [analysisImportOpen, setAnalysisImportOpen] = useState(false);
+  const [analysisSelection, setAnalysisSelection] = useState<"full" | "first_n" | "reservoir">("full");
+  const [analysisLoadOrigin, setAnalysisLoadOrigin] = useState<"displayed" | "source">("source");
+  const [analysisSampleRows, setAnalysisSampleRows] = useState(1_000);
+  const [analysisSourceSql, setAnalysisSourceSql] = useState<string | null>(null);
   const [editingConfig, setEditingConfig] = useState<ConnectionEntry | null>(null);
   const [duplicatingConnection, setDuplicatingConnection] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -380,8 +391,63 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     saveHistory(history);
   }, [history]);
 
+  useEffect(() => {
+    if (!analysisImportOperationId) {
+      setAnalysisImportStatus(null);
+      return;
+    }
+    let stopped = false;
+    const refresh = async () => {
+      const status = await getAnalysisOperationStatus(analysisImportOperationId).catch(() => null);
+      if (!stopped && status) setAnalysisImportStatus(status);
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 300);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [analysisImportOperationId]);
+
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   const activeConnectionId = activeTab?.connectionId ?? null;
+
+  const importCurrentResultForAnalysis = useCallback(async () => {
+    if (!result || analysisImporting) return;
+    if (analysisLoadOrigin === "source" && (!activeConnectionId || !analysisSourceSql)) return;
+    setAnalysisImporting(true);
+    const operationId = `import-${crypto.randomUUID()}`;
+    setAnalysisImportOperationId(operationId);
+    try {
+      const selection = analysisSelection === "full"
+        ? { mode: "full" as const }
+        : analysisSelection === "first_n"
+          ? { mode: "first_n" as const, rows: analysisSampleRows }
+          : { mode: "reservoir" as const, rows: analysisSampleRows, seed: 42 };
+      const dataset = analysisLoadOrigin === "source"
+        ? await importQuerySource({
+            workspaceId: activeTab.id,
+            name: activeTab.title,
+            connectionId: activeConnectionId!,
+            sql: analysisSourceSql!,
+            operationId,
+            selection,
+          })
+        : await importQueryResult({
+            workspaceId: activeTab.id,
+            name: activeTab.title,
+            result,
+            ...(activeConnectionId ? { sourceConnectionId: activeConnectionId } : {}),
+            sourceSql: analysisSourceSql ?? activeTab.sql,
+            selection,
+          });
+      setAnalysisDataset(dataset);
+      setAnalysisImportOpen(false);
+    } catch (error) {
+      setBusyMsg(`${t("error")}: ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => setBusyMsg(null), 6_000);
+    } finally {
+      setAnalysisImporting(false);
+      setAnalysisImportOperationId(null);
+    }
+  }, [activeConnectionId, activeTab.id, activeTab.sql, activeTab.title, analysisImporting, analysisLoadOrigin, analysisSampleRows, analysisSelection, analysisSourceSql, result, t]);
 
   const activeDialect: DialectId = useMemo(
     () => connections.find((c) => c.id === activeConnectionId)?.dialect ?? "jdbc-generic",
@@ -651,6 +717,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       setRunning(true);
       setBusyMsg(label);
       setResult(null);
+      setAnalysisSourceSql(null);
       setEditability(null);
       setPlanText(null);
       try {
@@ -665,6 +732,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         }
         if (!lastResult) return;
         setResult(lastResult);
+        setAnalysisSourceSql(sqls.at(-1) ?? null);
         updateTab(activeTab.id, { error: null, latestSqlExecutionError: null });
         ++connectionHealthCheckRef.current;
         setConnectionHealth("online");
@@ -1226,7 +1294,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>
 
       <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} />
+        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(activeDialect === "postgres" && analysisSourceSql ? "source" : "displayed"); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} />
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
@@ -1242,6 +1310,57 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       />
 
       <BackgroundProcessesDialog open={backgroundProcessesOpen} onClose={() => setBackgroundProcessesOpen(false)} language={language} />
+
+      <AnalysisWorkspace dataset={analysisDataset} onClose={() => setAnalysisDataset(null)} onDatasetAdded={setAnalysisDataset} sourceConnections={connections} />
+
+      <Dialog open={analysisImportOpen} onOpenChange={(_, data) => setAnalysisImportOpen(data.open)}>
+        <DialogSurface className="omni-standard-dialog">
+          <DialogBody>
+            <DialogTitle>{t("analysisImportTitle")}</DialogTitle>
+            <DialogContent style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <RadioGroup
+                value={analysisLoadOrigin}
+                onChange={(_, data) => setAnalysisLoadOrigin(data.value as "displayed" | "source")}
+              >
+                <Radio value="source" disabled={activeDialect !== "postgres" || !analysisSourceSql} label={t("analysisSourceQuery")} />
+                <Radio value="displayed" label={t("analysisDisplayedResult")} />
+              </RadioGroup>
+              <RadioGroup
+                value={analysisSelection}
+                onChange={(_, data) => setAnalysisSelection(data.value as "full" | "first_n" | "reservoir")}
+              >
+                <Radio value="full" label={t("analysisFullSnapshot")} />
+                <Radio value="first_n" label={t("analysisFirstN")} />
+                <Radio value="reservoir" label={t("analysisReservoir")} />
+              </RadioGroup>
+              {analysisSelection !== "full" && (
+                <Input
+                  type="number"
+                  min={1}
+                  max={10_000}
+                  value={String(analysisSampleRows)}
+                  aria-label={t("analysisSampleRows")}
+                  onChange={(_, data) => setAnalysisSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))}
+                />
+              )}
+              {analysisImportStatus && (
+                <div role="status" aria-live="polite">
+                  {analysisImportStatus.scannedRows.toLocaleString(language)} {t("analysisRowsScanned")} · {analysisImportStatus.retainedRows.toLocaleString(language)} {t("analysisRowsRetained")} · {(analysisImportStatus.processedBytes / 1_048_576).toFixed(1)} MiB
+                </div>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setAnalysisImportOpen(false)}>{t("cancel")}</Button>
+              <Button appearance="primary" disabled={analysisImporting || (analysisLoadOrigin === "source" && (activeDialect !== "postgres" || !analysisSourceSql))} onClick={() => void importCurrentResultForAnalysis()}>
+                {analysisImporting ? t("analysisImporting") : t("analyzeLocally")}
+              </Button>
+              {analysisImporting && analysisImportOperationId && (
+                <Button appearance="secondary" onClick={() => void cancelAnalysis(analysisImportOperationId)}>{t("stop")}</Button>
+              )}
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
 
       <Dialog open={metadataRefreshConfirmOpen} onOpenChange={(_, data) => setMetadataRefreshConfirmOpen(data.open)}>
         <DialogSurface className="omni-standard-dialog omni-confirm-dialog">

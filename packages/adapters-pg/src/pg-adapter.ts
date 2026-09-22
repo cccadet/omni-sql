@@ -1,4 +1,5 @@
-import pg, { type Pool, type PoolClient, type Query as PgQuery } from "pg";
+import pg, { type Pool, type PoolClient, type Query as PgQuery, type QueryResult as PgQueryResult } from "pg";
+import { randomUUID } from "node:crypto";
 import type {
   ConnectionConfig,
   ExplainResult,
@@ -8,7 +9,7 @@ import type {
   Relation,
 } from "@omni-sql/ts-types";
 import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
-import { databaseDiagnostic, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { databaseDiagnostic, type Adapter, type QueryBatch, type QueryStreamOptions, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 import { CachedAdapter } from "@omni-sql/adapters-core";
 import {
   getDefinitionViaPool,
@@ -18,6 +19,7 @@ import {
   listFunctionsPerSchema,
   listIndexesViaPool,
   listSchemaNames,
+  mapPgOidToDataType,
   runQueryViaPool,
   updateRowViaPool,
 } from "./introspection.ts";
@@ -162,6 +164,53 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
 
   async getDefinition(kind: "view" | "function", schema: string, name: string): Promise<string> {
     return getDefinitionViaPool(this.pool, kind, schema, name);
+  }
+
+  async *streamQuery(sql: string, options: QueryStreamOptions): AsyncIterable<QueryBatch> {
+    if (!Number.isSafeInteger(options.batchSize) || options.batchSize < 1 || options.batchSize > 10_000) {
+      throw new Error("stream batch size must be between 1 and 10000");
+    }
+    const client = await this.pool.connect();
+    const cursorName = `omni_analysis_${randomUUID().replaceAll("-", "")}`;
+    const abort = () => { void this.cancelRunning(); };
+    options.signal.addEventListener("abort", abort, { once: true });
+    try {
+      await client.query("BEGIN READ ONLY");
+      await client.query(`DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sql}`);
+      let emittedSchema = false;
+      while (!options.signal.aborted) {
+        const query = new pg.Query(`FETCH ${options.batchSize} FROM ${cursorName}`);
+        const activeQuery = { client, query, token: Symbol() };
+        this.activeQuery = activeQuery;
+        const result = await new Promise<PgQueryResult>((resolve, reject) => {
+          query.once("error", reject);
+          query.once("end", resolve);
+          client.query(query);
+        }).finally(() => {
+          if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
+        });
+        const columns = result.fields.map((field) => ({
+          name: field.name,
+          dataType: mapPgOidToDataType(field.dataTypeID),
+          nullable: true,
+        }));
+        if (result.rows.length === 0) {
+          if (!emittedSchema) yield { columns, rows: [] };
+          break;
+        }
+        emittedSchema = true;
+        yield {
+          columns,
+          rows: result.rows.map((row) => columns.map((column) => (row as Record<string, unknown>)[column.name] ?? null)),
+        };
+      }
+      if (options.signal.aborted) throw new Error("analytical source query cancelled");
+    } finally {
+      options.signal.removeEventListener("abort", abort);
+      this.activeQuery = null;
+      await client.query("ROLLBACK").catch(() => undefined);
+      client.release();
+    }
   }
 
   async getTableDefinition(schema: string, name: string): Promise<string> {

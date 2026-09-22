@@ -42,3 +42,19 @@ export async function pickJarPath(): Promise<string | null> {
   const result = await openDialog({ filters: JAR_FILTERS, multiple: false });
   return typeof result === "string" ? result : null;
 }
+
+export async function pickAnalysisExportPath(defaultName: string, format: "csv" | "parquet" | "arrow"): Promise<string | null> {
+  const labels = { csv: "CSV", parquet: "Parquet", arrow: "Arrow IPC" } as const;
+  return (await save({
+    filters: [{ name: labels[format], extensions: [format] }],
+    defaultPath: `${defaultName}.${format}`,
+  })) ?? null;
+}
+
+export async function pickAnalysisImportPath(): Promise<string | null> {
+  const result = await openDialog({
+    filters: [{ name: "Analytical data", extensions: ["csv", "parquet"] }],
+    multiple: false,
+  });
+  return typeof result === "string" ? result : null;
+}
