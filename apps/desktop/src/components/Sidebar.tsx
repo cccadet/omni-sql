@@ -73,6 +73,8 @@ export interface SidebarProps {
   onOpenInNewTab?: (title: string, sql: string) => void;
   health?: ConnectionHealth;
   metadataRefreshFailed?: boolean;
+  analysisActive?: boolean;
+  onAnalysisHostChange?: (element: HTMLDivElement | null) => void;
 }
 
 interface SchemaGroup {
@@ -264,6 +266,8 @@ export function Sidebar({
   onOpenInNewTab,
   health = "unknown",
   metadataRefreshFailed = false,
+  analysisActive = false,
+  onAnalysisHostChange,
 }: SidebarProps) {
   const { t: tr } = useLanguage();
   const [search, setSearch] = useState("");
@@ -277,6 +281,8 @@ export function Sidebar({
   const [columnCache, setColumnCache] = useState<Record<string, { loading: boolean; error: string | null; columns: RelationColumn[] }>>({});
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string; moveSubmenuOpen: boolean; moveSubmenuPosition?: { left: number; top: number } } | null>(null);
   const [connectionsExpanded, setConnectionsExpanded] = useState(true);
+  const [objectsExpanded, setObjectsExpanded] = useState(true);
+  const [analysisExpanded, setAnalysisExpanded] = useState(true);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(connectionId ?? null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(connectionGroups.map((group) => group.id)));
   const [newGroupName, setNewGroupName] = useState("");
@@ -786,6 +792,19 @@ export function Sidebar({
           onKeyDown={onConnectionsResizeKeyDown}
         />
       )}
+      <section className={`omni-sidebar-objects-section${objectsExpanded ? "" : " collapsed"}`}>
+        <div className="omni-sidebar-section-header">
+          <Button
+            appearance="transparent"
+            size="small"
+            icon={objectsExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
+            onClick={() => setObjectsExpanded((value) => !value)}
+            aria-expanded={objectsExpanded}
+          >
+            <span className="omni-sidebar-section-title">{tr("objects")}</span>
+          </Button>
+        </div>
+      {objectsExpanded && <>
       <div
         style={{
           padding: "10px 12px",
@@ -1144,6 +1163,22 @@ export function Sidebar({
           ))
         )}
       </div>
+      </>}
+      </section>
+      {analysisActive && <section className={`omni-sidebar-analysis-section${analysisExpanded ? "" : " collapsed"}`}>
+        <div className="omni-sidebar-section-header">
+          <Button
+            appearance="transparent"
+            size="small"
+            icon={analysisExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
+            onClick={() => setAnalysisExpanded((value) => !value)}
+            aria-expanded={analysisExpanded}
+          >
+            <span className="omni-sidebar-section-title">{tr("analyzeLocally")}</span>
+          </Button>
+        </div>
+        <div ref={onAnalysisHostChange} className="omni-sidebar-analysis-content" />
+      </section>}
       {connection && <CreateTableDialog
         open={createTableSchema !== null}
         dialect={connection.dialect}
