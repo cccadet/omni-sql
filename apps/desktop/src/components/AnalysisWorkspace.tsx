@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Button,
   Combobox,
@@ -7,7 +7,6 @@ import {
   MessageBarBody,
   Spinner,
   Text,
-  Textarea,
   Option,
 } from "@fluentui/react-components";
 import { ArrowLeftRegular, CheckmarkRegular, DeleteRegular, EditRegular } from "@fluentui/react-icons";
@@ -15,6 +14,9 @@ import type { QueryResult } from "@omni-sql/ts-types";
 import type { DatasetRef } from "../lib/analysis";
 import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
 import { backend, type RelationInfo } from "../lib/backend";
+import { localAnalysisSuggestions } from "../lib/analysis-autocomplete";
+import type { EditorProps } from "./Editor";
+import { Editor } from "./Editor";
 import { pickAnalysisExportPath, pickAnalysisImportPath } from "../lib/file-io";
 import { useLanguage } from "../i18n";
 import { ResultsGrid } from "./ResultsGrid";
@@ -25,13 +27,14 @@ interface AnalysisWorkspaceProps {
   readonly onClose: () => void;
   readonly onDatasetSelected?: (dataset: DatasetRef | null) => void;
   readonly sourceConnections?: readonly { id: string; label: string; dialect: string }[];
+  readonly editorTheme?: EditorProps["theme"];
 }
 
 function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceConnections = [] }: AnalysisWorkspaceProps) {
+export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceConnections = [], editorTheme }: AnalysisWorkspaceProps) {
   const { t } = useLanguage();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -212,6 +215,8 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
     .filter((relation) => relation.kind === "table")
     .filter((relation) => !relationQuery || `${relation.schema}.${relation.name}`.toLocaleLowerCase().includes(relationQuery))
     .slice(0, 50);
+  const autocomplete = useCallback(async (cursor: number, currentSql = "") =>
+    localAnalysisSuggestions(currentSql, cursor, datasets), [datasets]);
 
   return (
     <section className="omni-analysis-workspace" aria-label={t("analyzeLocally")}>
@@ -276,13 +281,9 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetSelected, sourceC
                 {dataset.rowCount} {t("rows")} · {dataset.scannedRows} {t("analysisRowsScanned")} · SQL: {quoteIdentifier(dataset.relationName)}
               </Text>
             )}
-            <Textarea
-              aria-label={t("analysisSql")}
-              resize="vertical"
-              value={sql}
-              onChange={(_, data) => setSql(data.value)}
-              style={{ minHeight: 90, fontFamily: "monospace" }}
-            />
+            <div className="omni-analysis-editor" aria-label={t("analysisSql")}>
+              <Editor value={sql} onChange={setSql} onRun={() => void run()} onRunAll={() => void run()} onAutocomplete={autocomplete} dialect="postgres" theme={editorTheme} />
+            </div>
             {running && <Spinner size="small" label={t("running")} />}
             <div className="omni-analysis-results">
               <ResultsGrid result={result} error={error} running={running} />
