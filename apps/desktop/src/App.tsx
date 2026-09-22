@@ -1204,7 +1204,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         </button>
       </header>
 
-      {!analysisDataset && <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
+      <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
         <Toolbar
           activeConnectionId={activeConnectionId}
           busyMsg={busyMsg}
@@ -1225,8 +1225,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onToggleHistory={() => setHistoryOpen((v) => !v)}
           onOpenCommandLibrary={() => setCommandLibraryOpen(true)}
+          globalOnly={analysisDataset !== null}
         />
-      </div>}
+      </div>
 
       <aside style={{ gridColumn: 1, gridRow: "3 / span 2" }}>
         <Sidebar
@@ -1300,7 +1301,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>}
 
       {analysisDataset && (
-        <section style={{ gridColumn: 2, gridRow: "2 / span 3", minHeight: 0, overflow: "hidden" }}>
+        <section style={{ gridColumn: 2, gridRow: "3 / span 2", minHeight: 0, overflow: "hidden" }}>
           <AnalysisWorkspace dataset={analysisDataset} onClose={() => setAnalysisDataset(null)} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} />
         </section>
       )}
