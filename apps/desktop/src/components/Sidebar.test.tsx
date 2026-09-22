@@ -71,6 +71,15 @@ describe("Sidebar", () => {
     vi.clearAllMocks();
   });
 
+  it("opens local analysis before a query result or dataset exists", () => {
+    const onOpenAnalysis = vi.fn();
+    renderSidebar({ onOpenAnalysis, analysisActive: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Analyze locally" }));
+
+    expect(onOpenAnalysis).toHaveBeenCalledOnce();
+  });
+
   it("searches objects, inserts qualified names, and loads indexes on expansion", async () => {
     const onInsert = vi.fn();
     renderSidebar({ onInsert });
