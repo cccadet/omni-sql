@@ -665,6 +665,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     },
     [activeConnectionId, t],
   );
+  const analysisSourceStreaming = activeDialect === "postgres" || activeDialect === "oracle";
 
   const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
     if (!diagnostic.transpiledSql) return;
@@ -1315,7 +1316,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>}
 
       {!analysisWorkspaceId && <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(activeDialect === "postgres" && analysisSourceSql ? "source" : "displayed"); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} />
+        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} />
       </section>}
 
       {analysisWorkspaceId && (
@@ -1340,23 +1341,23 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       <Dialog open={analysisImportOpen} onOpenChange={(_, data) => setAnalysisImportOpen(data.open)}>
         <DialogSurface className="omni-standard-dialog">
-          <DialogBody>
+          <DialogBody className="omni-dialog-body">
             <DialogTitle>{t("analysisImportTitle")}</DialogTitle>
             <DialogContent style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <RadioGroup
                 value={analysisLoadOrigin}
                 onChange={(_, data) => setAnalysisLoadOrigin(data.value as "displayed" | "source")}
               >
-                <Radio value="source" disabled={activeDialect !== "postgres" || !analysisSourceSql} label={t("analysisSourceQuery")} />
+                <Radio value="source" disabled={!analysisSourceStreaming || !analysisSourceSql} label={t("analysisSourceQuery")} />
                 <Radio value="displayed" label={t("analysisDisplayedResult")} />
               </RadioGroup>
               <RadioGroup
                 value={analysisSelection}
                 onChange={(_, data) => setAnalysisSelection(data.value as "full" | "first_n" | "reservoir")}
               >
-                <Radio value="full" label={t("analysisFullSnapshot")} />
-                <Radio value="first_n" label={t("analysisFirstN")} />
-                <Radio value="reservoir" label={t("analysisReservoir")} />
+                <Radio value="full" label={t(analysisLoadOrigin === "source" ? "analysisFullSnapshot" : "analysisDisplayedFull")} />
+                <Radio value="first_n" label={t(analysisLoadOrigin === "source" ? "analysisFirstN" : "analysisDisplayedFirstN")} />
+                <Radio value="reservoir" label={t(analysisLoadOrigin === "source" ? "analysisReservoir" : "analysisDisplayedReservoir")} />
               </RadioGroup>
               {analysisSelection !== "full" && (
                 <Input
@@ -1374,9 +1375,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
                 </div>
               )}
             </DialogContent>
-            <DialogActions>
+            <DialogActions className="omni-dialog-actions">
               <Button appearance="secondary" onClick={() => setAnalysisImportOpen(false)}>{t("cancel")}</Button>
-              <Button appearance="primary" disabled={analysisImporting || (analysisLoadOrigin === "source" && (activeDialect !== "postgres" || !analysisSourceSql))} onClick={() => void importCurrentResultForAnalysis()}>
+              <Button appearance="primary" disabled={analysisImporting || (analysisLoadOrigin === "source" && (!analysisSourceStreaming || !analysisSourceSql))} onClick={() => void importCurrentResultForAnalysis()}>
                 {analysisImporting ? t("analysisImporting") : t("analyzeLocally")}
               </Button>
               {analysisImporting && analysisImportOperationId && (
