@@ -1,10 +1,21 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { clearAnalysis, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, renameAnalysisDataset, runAnalysis } from "./analysis";
+import { clearAnalysis, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 beforeEach(() => vi.mocked(invoke).mockReset());
+
+test("turns a relation name into a safe source query", () => {
+  expect(normalizeAnalysisSource("orders")).toEqual({ sql: 'SELECT * FROM "orders"', suggestedName: "orders" });
+  expect(normalizeAnalysisSource('sales."Order Items"')).toEqual({ sql: 'SELECT * FROM "sales"."Order Items"', suggestedName: "Order Items" });
+});
+
+test("preserves source queries and rejects unsupported input", () => {
+  expect(normalizeAnalysisSource("  WITH recent AS (SELECT 1) SELECT * FROM recent  ")).toEqual({ sql: "WITH recent AS (SELECT 1) SELECT * FROM recent" });
+  expect(normalizeAnalysisSource("DELETE FROM orders")).toBeNull();
+  expect(normalizeAnalysisSource("orders; SELECT 1")).toBeNull();
+});
 
 test("imports a bounded query result with lossless transport values", async () => {
   vi.mocked(invoke).mockResolvedValueOnce({ id: "dataset-1" });

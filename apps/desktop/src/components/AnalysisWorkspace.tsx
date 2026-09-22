@@ -11,7 +11,7 @@ import {
 import { ArrowLeftRegular, CheckmarkRegular, EditRegular } from "@fluentui/react-icons";
 import type { QueryResult } from "@omni-sql/ts-types";
 import type { DatasetRef } from "../lib/analysis";
-import { cancelAnalysis, clearAnalysis, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
+import { cancelAnalysis, clearAnalysis, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
 import { pickAnalysisExportPath, pickAnalysisImportPath } from "../lib/file-io";
 import { useLanguage } from "../i18n";
 import { ResultsGrid } from "./ResultsGrid";
@@ -124,6 +124,11 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
 
   const importSource = async () => {
     if (!dataset || running || !sourceConnectionId || !sourceSql.trim()) return;
+    const source = normalizeAnalysisSource(sourceSql);
+    if (!source) {
+      setError(t("analysisInvalidSource"));
+      return;
+    }
     setRunning(true);
     const nextOperationId = `source-import-${crypto.randomUUID()}`;
     setOperationId(nextOperationId);
@@ -131,9 +136,9 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
     try {
       const imported = await importQuerySource({
         workspaceId: dataset.workspaceId,
-        name: sourceConnections.find((item) => item.id === sourceConnectionId)?.label ?? "Source dataset",
+        name: source.suggestedName ?? `${sourceConnections.find((item) => item.id === sourceConnectionId)?.label ?? "Source"} query`,
         connectionId: sourceConnectionId,
-        sql: sourceSql,
+        sql: source.sql,
         operationId: nextOperationId,
         selection: fileSelection === "full" ? { mode: "full" } : fileSelection === "first_n"
           ? { mode: "first_n", rows: fileSampleRows }
@@ -205,7 +210,7 @@ export function AnalysisWorkspace({ dataset, onClose, onDatasetAdded, sourceConn
               <option value="">{t("headerNoConnection")}</option>
               {sourceConnections.filter((item) => item.dialect === "postgres").map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
-            <Input value={sourceSql} onChange={(_, data) => setSourceSql(data.value)} placeholder="SELECT …" aria-label={t("analysisSourceSql")} />
+            <Input value={sourceSql} onChange={(_, data) => setSourceSql(data.value)} placeholder={t("analysisSourcePlaceholder")} aria-label={t("analysisSourceSql")} />
             <Button onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
           </details>
           <div className="omni-analysis-import-controls">

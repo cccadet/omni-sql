@@ -45,6 +45,61 @@ export interface AnalysisResultHandle {
   readonly createdAtMs: number;
 }
 
+export interface NormalizedAnalysisSource {
+  readonly sql: string;
+  readonly suggestedName?: string;
+}
+
+function parseRelationPath(value: string): string[] | null {
+  const parts: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (character === '"') {
+      current += character;
+      if (quoted && value[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "." && !quoted) {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += character;
+    }
+  }
+  parts.push(current.trim());
+  if (quoted || parts.length > 3 || parts.some((part) => !part)) return null;
+
+  const identifiers = parts.map((part) => {
+    if (/^[A-Za-z_][A-Za-z0-9_$]*$/.test(part)) return part;
+    if (/^"(?:[^"]|"")+"$/.test(part)) return part.slice(1, -1).replaceAll('""', '"');
+    return null;
+  });
+  return identifiers.every((part): part is string => part !== null) ? identifiers : null;
+}
+
+function quoteSourceIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+/** Accepts a PostgreSQL SELECT/WITH query or a one-to-three-part relation name. */
+export function normalizeAnalysisSource(value: string): NormalizedAnalysisSource | null {
+  const trimmed = value.trim();
+  if (/^(?:select|with)\b/i.test(trimmed)) return { sql: trimmed };
+
+  const relationParts = parseRelationPath(trimmed);
+  if (!relationParts) return null;
+  return {
+    sql: `SELECT * FROM ${relationParts.map(quoteSourceIdentifier).join(".")}`,
+    suggestedName: relationParts.at(-1),
+  };
+}
+
 function transportValue(value: unknown): unknown {
   if (value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
   if (typeof value === "bigint") return value.toString();
