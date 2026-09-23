@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Button,
   Combobox,
+  Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle,
   Input,
   MessageBar,
   MessageBarBody,
@@ -30,9 +31,10 @@ interface AnalysisWorkspaceProps {
   readonly editorTheme?: EditorProps["theme"];
   readonly sidebarHost?: HTMLElement | null;
   readonly sidebarIntegrated?: boolean;
+  readonly initialSource?: { connectionId: string; sql: string } | null;
 }
 
-export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false }: AnalysisWorkspaceProps) {
+export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false, initialSource }: AnalysisWorkspaceProps) {
   const { t } = useLanguage();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -44,10 +46,18 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
   const [fileSampleRows, setFileSampleRows] = useState(1_000);
   const [sourceConnectionId, setSourceConnectionId] = useState("");
   const [sourceSql, setSourceSql] = useState("");
+  const [sourceEditorOpen, setSourceEditorOpen] = useState(false);
   const [sourceMetadata, setSourceMetadata] = useState<Record<string, readonly RelationInfo[]>>({});
   const [renamingDatasetId, setRenamingDatasetId] = useState<string | null>(null);
   const [datasetName, setDatasetName] = useState("");
   const selectedDatasetIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!initialSource) return;
+    setSourceConnectionId(initialSource.connectionId);
+    setSourceSql(initialSource.sql);
+    setSourceEditorOpen(true);
+  }, [initialSource]);
 
   useEffect(() => {
     if (dataset && selectedDatasetIdRef.current !== dataset.id) {
@@ -255,6 +265,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
           return <Option key={value} value={value}>{value}</Option>;
         })}
       </Combobox>
+      <Button size="small" appearance="secondary" onClick={() => setSourceEditorOpen(true)}>{t("analysisExpandSourceSql")}</Button>
       <Button size="small" onClick={() => void importSource()} disabled={running || !sourceConnectionId || !sourceSql.trim()}>{t("analysisImportSource")}</Button>
     </details>
     <div className="omni-analysis-import-controls">
@@ -270,6 +281,19 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
 
   return (
     <section className={`omni-analysis-workspace${sidebarIntegrated ? " has-sidebar-portal" : ""}`} aria-label={t("analyzeLocally")}>
+      <Dialog open={sourceEditorOpen} onOpenChange={(_, data) => setSourceEditorOpen(data.open)}>
+        <DialogSurface className="omni-standard-dialog" style={{ width: "min(850px, 90vw)", maxWidth: "90vw" }}>
+          <DialogBody className="omni-dialog-body">
+            <DialogTitle>{t("analysisSourceSql")}</DialogTitle>
+            <DialogContent>
+              <textarea className="omni-analysis-source-sql-editor" value={sourceSql} onChange={(event) => setSourceSql(event.target.value)} aria-label={t("analysisSourceSql")} spellCheck={false} autoFocus />
+            </DialogContent>
+            <DialogActions className="omni-dialog-actions">
+              <Button appearance="primary" onClick={() => setSourceEditorOpen(false)}>{t("analysisDoneEditing")}</Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
       {sidebarHost && createPortal(datasetPanel, sidebarHost)}
       <div className="omni-analysis-body">
         {!sidebarIntegrated && datasetPanel}

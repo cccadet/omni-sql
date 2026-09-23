@@ -224,6 +224,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [analysisLoadOrigin, setAnalysisLoadOrigin] = useState<"displayed" | "source">("source");
   const [analysisSampleRows, setAnalysisSampleRows] = useState(1_000);
   const [analysisSourceSql, setAnalysisSourceSql] = useState<string | null>(null);
+  const [analysisInitialSource, setAnalysisInitialSource] = useState<{ connectionId: string; sql: string } | null>(null);
   const [analysisSidebarHost, setAnalysisSidebarHost] = useState<HTMLDivElement | null>(null);
   const [editingConfig, setEditingConfig] = useState<ConnectionEntry | null>(null);
   const [duplicatingConnection, setDuplicatingConnection] = useState(false);
@@ -418,8 +419,17 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   }, [analysisWorkspaceId]);
 
   const openAnalysisWorkspace = useCallback(() => {
+    setAnalysisInitialSource(null);
     setAnalysisWorkspaceId(activeTab.id);
   }, [activeTab.id]);
+
+  const sendCurrentSqlToAnalysis = useCallback(() => {
+    if (!activeConnectionId) return;
+    const sql = (editorRef.current?.getSelectionOrCurrent().sql ?? activeTab.sql).trim();
+    if (!sql) return;
+    setAnalysisInitialSource({ connectionId: activeConnectionId, sql });
+    setAnalysisWorkspaceId(activeTab.id);
+  }, [activeConnectionId, activeTab.id, activeTab.sql]);
 
   const importCurrentResultForAnalysis = useCallback(async () => {
     if (!result || analysisImporting) return;
@@ -1242,6 +1252,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           globalOnly={analysisWorkspaceId !== null}
           analysisMode={analysisWorkspaceId !== null}
           onExitAnalysis={() => void closeAnalysisWorkspace()}
+          onSendToAnalysis={sendCurrentSqlToAnalysis}
         />
       </div>
 
@@ -1321,7 +1332,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       {analysisWorkspaceId && (
         <section style={{ gridColumn: 2, gridRow: "3 / span 2", display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated />
+          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} />
         </section>
       )}
 

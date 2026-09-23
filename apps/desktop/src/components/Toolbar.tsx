@@ -40,6 +40,7 @@ export interface ToolbarProps {
   globalOnly?: boolean;
   analysisMode?: boolean;
   onExitAnalysis?: () => void;
+  onSendToAnalysis?: () => void;
 }
 
 const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
@@ -67,6 +68,7 @@ export function Toolbar({
   globalOnly = false,
   analysisMode = false,
   onExitAnalysis,
+  onSendToAnalysis,
 }: ToolbarProps) {
   const { t } = useLanguage();
   return (
@@ -136,6 +138,8 @@ export function Toolbar({
               {t("saveTab")}
             </ToolbarButton>
       </div>}
+
+      {!globalOnly && <ToolbarButton onClick={onSendToAnalysis} disabled={!activeConnectionId} title={t("analysisSendToLocal")}>{t("analysisSendToLocal")}</ToolbarButton>}
 
       <div style={{ flex: 1 }} />
 
