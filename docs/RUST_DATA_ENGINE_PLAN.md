@@ -1,28 +1,30 @@
 # Rust Data Engine Plan
 
-Status: M0–M4 implemented and verified; M5 deferred by its benefit gate
+Status: analytical MVP shipped; M0–M4 functionality is substantially implemented,
+but some original acceptance criteria remain open. M5 is optional and deferred.
 
-Branch: `codex/rust-data-engine`
+Delivery: merged into `main` for v0.3.0
 
-Last updated: 2026-09-22
+Last updated: 2026-09-23
 
 ## Implementation record
 
-M0–M4 are implemented in the desktop application. The shipped path uses
+The analytical MVP is implemented in the desktop application. The shipped path uses
 DuckDB 1.10505 through `duckdb-rs`, Arrow/Parquet 58, an authenticated bounded
 NDJSON source stream, Arrow batches for local file I/O, and Tauri commands under
-the `analysis_` prefix. PostgreSQL is the first and currently only live-source
-adapter enabled for streaming; every other adapter retains the bounded displayed
-result workflow until it passes the same fidelity, cursor, and cancellation gate.
+the `analysis_` prefix. PostgreSQL, Oracle, MySQL/MariaDB, SQL Server, and generic
+JDBC now implement live-source streaming. Cross-dialect type-fidelity and failure
+recovery evidence still needs to be completed before declaring every original
+per-adapter acceptance criterion satisfied.
 
 The completed implementation includes:
 
 - bounded snapshot imports and direct Appender-based source ingestion;
 - full, first-N, and seeded reservoir selection with coverage provenance;
-- progress counters, coordinated PostgreSQL/DuckDB cancellation, transactional
+- progress counters, coordinated source/DuckDB cancellation, transactional
   rollback, one active operation, and bounded frames, datasets, previews, and
   stable result handles;
-- local joins across multiple PostgreSQL sources and CSV/Parquet datasets in one
+- local joins across multiple database sources and CSV/Parquet datasets in one
   workspace, plus workspace ownership and cleanup;
 - read-only SQL policy, locked DuckDB configuration, 512 MiB memory, two threads,
   a 4 GiB owned spill directory, and cleanup of current/stale owned artifacts;
@@ -31,8 +33,8 @@ The completed implementation includes:
 - a desktop workflow that distinguishes displayed rows from a newly executed
   source query and explains full/prefix/reservoir cost semantics.
 
-The PostgreSQL-to-Rust transport remains typed NDJSON rather than Arrow IPC.
-PostgreSQL currently produces driver row objects, so converting those rows to
+The database-to-Rust transport remains typed NDJSON rather than Arrow IPC.
+The drivers currently produce row objects, so converting those rows to
 Arrow in Node and immediately decoding them in Rust would add another conversion
 and dependency without a measured source-side benefit. Arrow IPC is implemented
 for local export, while source transport can change behind the same batch
@@ -51,6 +53,13 @@ Verification on Windows x64 with rustc 1.98.0 and cargo 1.98.0:
   rebuild completed in 3m53s;
 - packaged executable: 59,660,288 bytes; MSI: 148,457,437 bytes; NSIS installer:
   97,881,632 bytes. MSI and NSIS packaging both completed successfully.
+
+The original M0–M4 text below records the intended milestones; it should not be
+read as a claim that every deliverable and exit test passed. In particular,
+per-dataset sampling at local query time, user-configurable analytical budgets,
+a dedicated worker/queue, and the broader cross-dialect fidelity and stress-test
+matrix remain open. The prioritized, evidence-based checklist is in
+[RUST_DATA_ENGINE_TODO.md](RUST_DATA_ENGINE_TODO.md).
 
 M5 was not started. No measured product or operational benefit currently
 justifies replacing the mature Node adapters, which is the explicit M5 gate.

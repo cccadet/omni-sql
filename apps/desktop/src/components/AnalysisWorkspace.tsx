@@ -15,7 +15,7 @@ import type { QueryResult } from "@omni-sql/ts-types";
 import type { DatasetRef } from "../lib/analysis";
 import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
 import { backend, type RelationInfo } from "../lib/backend";
-import { localAnalysisSuggestions } from "../lib/analysis-autocomplete";
+import { localAnalysisIdentifier, localAnalysisSuggestions } from "../lib/analysis-autocomplete";
 import type { EditorProps } from "./Editor";
 import { Editor } from "./Editor";
 import { pickAnalysisExportPath, pickAnalysisImportPath } from "../lib/file-io";
@@ -30,10 +30,6 @@ interface AnalysisWorkspaceProps {
   readonly editorTheme?: EditorProps["theme"];
   readonly sidebarHost?: HTMLElement | null;
   readonly sidebarIntegrated?: boolean;
-}
-
-function quoteIdentifier(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false }: AnalysisWorkspaceProps) {
@@ -56,7 +52,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
   useEffect(() => {
     if (dataset && selectedDatasetIdRef.current !== dataset.id) {
       selectedDatasetIdRef.current = dataset.id;
-      setSql(`SELECT * FROM ${quoteIdentifier(dataset.relationName)}`);
+      setSql(`SELECT * FROM ${localAnalysisIdentifier(dataset.relationName)}`);
       setResult(null);
       setError(null);
     }
@@ -186,7 +182,12 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
     try {
       const renamed = await renameAnalysisDataset(item.workspaceId, item.id, name);
       setDatasets((current) => current.map((candidate) => candidate.id === renamed.id ? renamed : candidate));
-      setSql((current) => current.replaceAll(quoteIdentifier(item.relationName), quoteIdentifier(renamed.relationName)));
+      setSql((current) => {
+        const quoted = `"${item.relationName.replaceAll('"', '""')}"`;
+        const next = localAnalysisIdentifier(renamed.relationName);
+        const escaped = item.relationName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return current.replaceAll(quoted, next).replace(new RegExp(`(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`, "g"), next);
+      });
       if (dataset?.id === renamed.id) {
         onDatasetSelected?.(renamed);
       }
@@ -278,7 +279,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
             )}
             {dataset && (
               <Text size={200}>
-                {dataset.rowCount} {t("rows")} · {dataset.scannedRows} {t("analysisRowsScanned")} · SQL: {quoteIdentifier(dataset.relationName)}
+                {dataset.rowCount} {t("rows")} · {dataset.scannedRows} {t("analysisRowsScanned")} · SQL: {localAnalysisIdentifier(dataset.relationName)}
               </Text>
             )}
             <div className="omni-analysis-editor" aria-label={t("analysisSql")}>
