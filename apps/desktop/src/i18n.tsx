@@ -391,6 +391,9 @@ const english = {
   analysisDeleteDataset: "Delete dataset",
   analysisDeleteDatasetConfirm: "Delete dataset {name}?",
   resizeAnalysisPanel: "Resize Objects and Analyze locally panels",
+  analysisSendToLocal: "Send to Analyze locally",
+  analysisExpandSourceSql: "Expand SQL editor",
+  analysisDoneEditing: "Done editing",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -442,6 +445,7 @@ const portugueseBrazil = [
   "public.orders ou SELECT …", "Informe uma tabela ou uma consulta SELECT/WITH.",
   "Excluir dataset", "Excluir o dataset {name}?",
   "Redimensionar os painéis Objetos e Analisar localmente",
+  "Enviar para Analisar localmente", "Expandir editor SQL", "Concluir edição",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

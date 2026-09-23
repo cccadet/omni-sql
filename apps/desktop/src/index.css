@@ -51,13 +51,19 @@ body {
 .omni-analysis-body { display: grid; grid-template-columns: minmax(210px, 260px) minmax(0, 1fr); flex: 1; min-height: 0; }
 .omni-analysis-datasets { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 12px; overflow-x: hidden; overflow-y: auto; border-right: 1px solid var(--colorNeutralStroke2); background: var(--colorNeutralBackground2); }
 .omni-analysis-dataset { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; border: 1px solid transparent; border-radius: 5px; padding: 3px; }
-.omni-analysis-dataset.is-active { border-color: var(--colorBrandStroke1); background: var(--colorBrandBackground2); }
-.omni-analysis-dataset-select { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px; padding: 5px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.omni-analysis-dataset.is-active { border-color: var(--colorNeutralStroke1); background: var(--colorNeutralBackground3); box-shadow: inset 3px 0 var(--colorBrandStroke1); }
+.omni-analysis-dataset-select { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px; padding: 5px; border: 0; background: transparent; color: var(--colorNeutralForeground1); text-align: left; cursor: pointer; }
 .omni-analysis-dataset-select span, .omni-analysis-dataset-select code { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .omni-analysis-dataset-select code { color: var(--colorNeutralForeground3); font-size: 11px; }
+.omni-analysis-dataset .fui-Button { color: var(--colorNeutralForeground2); }
+.omni-analysis-dataset .fui-Button:hover { color: var(--colorNeutralForeground1); }
 .omni-analysis-source-panel { min-width: 0; max-width: 100%; margin-top: 6px; }
 .omni-analysis-source-panel summary { cursor: pointer; margin-bottom: 8px; }
 .omni-analysis-source-panel[open] { display: grid; gap: 8px; }
+.omni-analysis-source-panel select { border: 1px solid var(--colorNeutralStroke1); border-radius: 4px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); }
+.omni-analysis-source-panel .fui-Combobox { background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); }
+.omni-analysis-source-panel .fui-Combobox input::placeholder { color: var(--colorNeutralForeground3); opacity: 1; }
+.omni-analysis-source-sql-editor { box-sizing: border-box; display: block; width: 100%; min-height: 320px; max-height: 65vh; resize: vertical; padding: 12px; border: 1px solid var(--colorNeutralStroke1); border-radius: 4px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: 13px/1.5 Consolas, "Courier New", monospace; white-space: pre; overflow: auto; }
 .omni-analysis-source-panel select, .omni-analysis-source-panel .fui-Input, .omni-analysis-source-panel .fui-Combobox, .omni-analysis-source-panel .fui-Button,
 .omni-analysis-import-controls select, .omni-analysis-import-controls .fui-Input, .omni-analysis-import-controls .fui-Button { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
 .omni-analysis-import-controls { display: grid; gap: 8px; min-width: 0; max-width: 100%; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--colorNeutralStroke2); }
