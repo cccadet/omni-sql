@@ -30,6 +30,7 @@ engines and want useful SQL intelligence without sending their schema to a hoste
 | **Dialect intelligence** | Turn supported dialect diagnostics into database-compatible SQL through editor quick fixes. |
 | **Local desktop workflow** | Connections, metadata, queries, and results stay in the desktop application; no account is required. |
 | **Safety-minded editing** | Inline row edits are enabled only when primary-key checks establish a safe update path. |
+| **Local analysis with DuckDB** | Load full results or samples from supported connections and CSV/Parquet files, join local datasets, and export complete analytical results without sending the dataset through the grid. |
 | **Ready-to-run installers** | Release packages bundle the required runtimes; users do not install Node.js, Java, Rust, or vendor client SDKs. |
 
 ## From connection to result
@@ -78,6 +79,14 @@ do not need to install Node.js, Java, Rust, a database client, or a vendor clien
 4. Configure SSL and schema settings when needed, then connect.
 5. Browse metadata or open a SQL tab and start writing.
 6. Run the selection or current statement, then inspect, filter, sort, page, or export the results.
+7. Open **Analyze locally** to import a displayed result, stream a full query or sample, or add CSV/Parquet datasets for local joins.
+
+The grid preview limit is separate from analytical ingestion. A full analytical load
+reads the source query to completion, subject to local resource budgets; a sample
+retains only the selected rows. The local SQL editor uses DuckDB syntax and omits
+identifier quotes when they are unnecessary. See the [Rust data engine plan](docs/RUST_DATA_ENGINE_PLAN.md)
+and [remaining-work checklist](docs/RUST_DATA_ENGINE_TODO.md) for implementation
+status and validation still needed.
 
 Need help connecting? Read [Database support](docs/DATABASE-SUPPORT.md) or [Troubleshooting](docs/TROUBLESHOOTING.md).
 
@@ -164,6 +173,7 @@ verification steps, limits, and the complete security model.
 - [Development](docs/DEVELOPMENT.md)
 - [Building](docs/BUILDING.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Local analysis implementation and remaining work](docs/RUST_DATA_ENGINE_TODO.md)
 
 Built with Tauri, React, Fluent UI, Monaco Editor, TypeScript, Rust, and Kotlin.
 

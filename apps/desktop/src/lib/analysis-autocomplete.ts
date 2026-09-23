@@ -1,5 +1,5 @@
 import { autocompleteTier1, type MetadataSource, type Suggestion } from "@omni-sql/autocomplete-engine";
-import { postgresDescriptor } from "@omni-sql/dialect-descriptors";
+import { formatIdentifier, identifierNeedsQuote, postgresDescriptor } from "@omni-sql/dialect-descriptors";
 import type { Relation } from "@omni-sql/ts-types";
 import type { DatasetRef } from "./analysis";
 import type { RelationInfo } from "./backend";
@@ -8,6 +8,18 @@ const KEYWORDS = ["SELECT", "FROM", "WHERE", "JOIN", "LEFT JOIN", "INNER JOIN", 
 
 function unquoteIdentifier(value: string): string {
   return value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1).replaceAll('""', '"') : value;
+}
+
+/** DuckDB resolves ordinary identifiers without PostgreSQL's case folding. */
+export function localAnalysisIdentifier(value: string): string {
+  return formatIdentifier(postgresDescriptor, value, false);
+}
+
+function localInsertText(value: string): string {
+  return value.replace(/"(?:[^"]|"")*"/g, (quoted) => {
+    const identifier = unquoteIdentifier(quoted);
+    return identifierNeedsQuote(postgresDescriptor, identifier, false) ? quoted : identifier;
+  });
 }
 
 function datasetForQualifier(sql: string, sqlBeforeCursor: string, datasets: readonly DatasetRef[]): DatasetRef | undefined {
@@ -89,10 +101,15 @@ export function localAnalysisSuggestions(
       && (!ref.schema || relation.schema.toLocaleLowerCase() === ref.schema.toLocaleLowerCase())) ?? null,
   };
   const suggestions = autocompleteTier1(sql, cursor, metadata);
-  if (suggestions.length > 0) return suggestions;
+  if (suggestions.length > 0) return suggestions.map((suggestion) => suggestion.insertText
+    ? { ...suggestion, insertText: localInsertText(suggestion.insertText) }
+    : suggestion);
 
   const sqlBeforeCursor = sql.slice(0, cursor);
   const qualifiedDataset = datasetForQualifier(sql, sqlBeforeCursor, datasets);
-  if (qualifiedDataset) return qualifiedDataset.columns.map((column) => ({ kind: "column", label: column.name, detail: `${qualifiedDataset.name} · ${column.dataType}`, relevance: 100 }));
+  if (qualifiedDataset) return qualifiedDataset.columns.map((column) => ({
+    kind: "column", label: column.name, detail: `${qualifiedDataset.name} · ${column.dataType}`, relevance: 100,
+    ...(localAnalysisIdentifier(column.name) !== column.name ? { insertText: localAnalysisIdentifier(column.name) } : {}),
+  }));
   return KEYWORDS.map((keyword) => ({ kind: "keyword", label: keyword, relevance: 20 }));
 }

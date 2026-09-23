@@ -71,6 +71,7 @@ describe("AnalysisWorkspace", () => {
     const view = show(customer, select);
     await screen.findByText("Orders");
     const editor = screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement;
+    expect(editor.value).toBe("SELECT * FROM customers");
     fireEvent.change(editor, { target: { value: "SELECT count(*) FROM customers" } });
     view.rerender(<FluentProvider theme={webDarkTheme}><LanguageProvider>
       <AnalysisWorkspace workspaceId="workspace-1" dataset={customer} onDatasetSelected={select}
@@ -91,7 +92,7 @@ describe("AnalysisWorkspace", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Dataset name" }), { target: { value: "Clients" } });
     fireEvent.click(screen.getByRole("button", { name: "Save dataset name" }));
     await waitFor(() => expect(renameAnalysisDataset).toHaveBeenCalledWith("workspace-1", "dataset-1", "Clients"));
-    expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toContain('FROM "clients"');
+    expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toContain("FROM clients");
     expect(select).toHaveBeenCalledWith(expect.objectContaining({ name: "Clients" }));
   });
 
