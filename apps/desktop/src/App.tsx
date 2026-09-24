@@ -1652,7 +1652,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         </DialogSurface>
       </Dialog>
 
-      <Dialog open={analysisImportOpen} onOpenChange={(_, data) => setAnalysisImportOpen(data.open)}>
+      <Dialog open={analysisImportOpen}>
         <DialogSurface className="omni-standard-dialog">
           <DialogBody className="omni-dialog-body">
             <DialogTitle>{t("analysisImportTitle")}</DialogTitle>
