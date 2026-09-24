@@ -61,10 +61,15 @@ export interface SidebarProps {
   loading?: boolean;
   onInsert?: (text: string) => void;
   onAddConnection?: () => void;
+  onImportLocalFile?: () => void;
+  onImportDatabaseTable?: () => void;
   onEditConnection?: (id: string) => void;
   onDuplicateConnection?: (id: string) => void;
   onRemoveConnection?: (id: string) => void;
   onRefreshMetadata?: () => void;
+  onLoadS3Columns?: (schema: string, table: string) => Promise<RelationColumn[]>;
+  s3Prefix?: string;
+  onS3PrefixChange?: (prefix: string) => void;
   onSelectConnection?: (id: string) => void;
   onCreateConnectionGroup?: (name: string) => Promise<void>;
   onRenameConnectionGroup?: (id: string, name: string) => Promise<void>;
@@ -74,6 +79,7 @@ export interface SidebarProps {
   health?: ConnectionHealth;
   metadataRefreshFailed?: boolean;
   analysisActive?: boolean;
+  analysisConnectionId?: string | null;
   onOpenAnalysis?: () => void;
   onAnalysisHostChange?: (element: HTMLDivElement | null) => void;
 }
@@ -269,10 +275,15 @@ export function Sidebar({
   loading = false,
   onInsert,
   onAddConnection,
+  onImportLocalFile,
+  onImportDatabaseTable,
   onEditConnection,
   onDuplicateConnection,
   onRemoveConnection,
   onRefreshMetadata,
+  onLoadS3Columns,
+  s3Prefix = "",
+  onS3PrefixChange,
   onSelectConnection,
   onCreateConnectionGroup,
   onRenameConnectionGroup,
@@ -282,6 +293,7 @@ export function Sidebar({
   health = "unknown",
   metadataRefreshFailed = false,
   analysisActive = false,
+  analysisConnectionId = null,
   onOpenAnalysis,
   onAnalysisHostChange,
 }: SidebarProps) {
@@ -299,6 +311,9 @@ export function Sidebar({
   const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const [objectsExpanded, setObjectsExpanded] = useState(true);
   const [analysisExpanded, setAnalysisExpanded] = useState(true);
+  const [s3PrefixDraft, setS3PrefixDraft] = useState(s3Prefix);
+
+  useEffect(() => setS3PrefixDraft(s3Prefix), [s3Prefix, connectionId]);
   const [objectsHeight, setObjectsHeight] = useState(loadObjectsHeight);
   const [resizingAnalysis, setResizingAnalysis] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(connectionId ?? null);
@@ -308,6 +323,7 @@ export function Sidebar({
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [groupDraft, setGroupDraft] = useState("");
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
+
   const dragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor),
@@ -410,11 +426,9 @@ export function Sidebar({
     if (columnCache[key] || bundledColumns !== undefined || !connectionId) return;
     setColumnCache((previous) => ({ ...previous, [key]: { loading: true, error: null, columns: [] } }));
     try {
-      const { columns } = await backend.call<{ columns: RelationColumn[] }>("metadata.listColumns", {
-        connectionId,
-        schema,
-        table,
-      });
+      const columns = connection?.dialect === "s3"
+        ? await onLoadS3Columns?.(schema, table) ?? []
+        : (await backend.call<{ columns: RelationColumn[] }>("metadata.listColumns", { connectionId, schema, table })).columns;
       setColumnCache((previous) => ({ ...previous, [key]: { loading: false, error: null, columns } }));
     } catch (error) {
       setColumnCache((previous) => ({
@@ -422,11 +436,11 @@ export function Sidebar({
         [key]: { loading: false, error: error instanceof Error ? error.message : String(error), columns: [] },
       }));
     }
-  }, [columnCache, connectionId, relations]);
+  }, [columnCache, connection, connectionId, onLoadS3Columns, relations]);
 
   const ensureIndexes = useCallback(async (schema: string, table: string) => {
     const key = relationKey(schema, table);
-    if (indexCache[key] || !connectionId) return;
+    if (indexCache[key] || !connectionId || connection?.dialect === "s3") return;
     setIndexCache((prev) => ({ ...prev, [key]: { loading: true, error: null, indexes: [] } }));
     try {
       const { indexes } = await backend.call<{ indexes: IndexInfo[] }>("metadata.listIndexes", {
@@ -441,7 +455,7 @@ export function Sidebar({
         [key]: { loading: false, error: (e as Error).message, indexes: [] },
       }));
     }
-  }, [connectionId, indexCache]);
+  }, [connection, connectionId, indexCache]);
 
   const toggleExpand = useCallback((schema: string, name: string, withIndexes: boolean) => {
     const key = relationKey(schema, name);
@@ -617,7 +631,7 @@ export function Sidebar({
   const rootConnections = connections.filter((item) => !item.groupId || !connectionGroups.some((group) => group.id === item.groupId));
   const moveOptions: MoveOption[] = [{ id: null, label: "Root" }, ...connectionGroups.map((group) => ({ id: group.id, label: group.name }))];
   const renderConnection = (item: ConnectionEntry) => {
-    const isActive = item.id === connectionId;
+    const isActive = item.id === connectionId || item.id === analysisConnectionId;
     const isSelected = item.id === selectedConnectionId;
     return (
       <div
@@ -634,7 +648,7 @@ export function Sidebar({
           id={item.id}
           className="omni-connection-item"
           selected={isSelected}
-          onClick={() => setSelectedConnectionId(item.id)}
+          onClick={() => { setSelectedConnectionId(item.id); if (item.dialect === "s3") onSelectConnection?.(item.id); }}
         >
           <DialectIcon dialect={item.dialect} size={13} />
           <span>{item.label}</span>
@@ -669,7 +683,11 @@ export function Sidebar({
   if (!open) return null;
 
   const isSearching = !!search.trim();
-  const insertQualified = (schema: string, name: string) => onInsert?.(`${schema}.${name}`);
+  const qualified = (schema: string, name: string) => connection?.dialect === "s3" || connection?.dialect === "duckdb"
+    ? `"${schema.replaceAll('"', '""')}"."${name.replaceAll('"', '""')}"`
+    : `${schema}.${name}`;
+  const insertQualified = (schema: string, name: string) => onInsert?.(qualified(schema, name));
+  const openTable = (schema: string, name: string) => onOpenInNewTab?.(name, `SELECT * FROM ${qualified(schema, name)} LIMIT 1000`);
   const metadataFreshness = getMetadataFreshness(connection?.lastSyncedAt);
   const metadataTimestamp = formatLastSyncedAt(connection?.lastSyncedAt);
   const metadataTooltip = `${metadataRefreshFailed ? `${tr("error")}: ${tr("refreshMetadata")}` : metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
@@ -885,8 +903,11 @@ export function Sidebar({
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
           {loading && <Spinner size="tiny" />}
+          <Tooltip content="Import CSV, JSON or Parquet into local DuckDB" relationship="label">
+            <Button icon={<AddRegular fontSize={14} />} appearance="transparent" size="small" onClick={onImportLocalFile} aria-label="Import CSV, JSON or Parquet" />
+          </Tooltip>
           {connection && (
-            <Tooltip content={metadataTooltip} relationship="description">
+            <Tooltip content={connection.dialect === "s3" ? tr("refreshMetadata") : metadataTooltip} relationship="description">
               <Button
                 icon={metadataRefreshFailed ? <ErrorCircleRegular fontSize={14} style={{ color: tokens.colorPaletteRedForeground1 }} /> : metadataFreshness === "today" ? <CheckmarkCircleRegular fontSize={14} style={{ color: tokens.colorPaletteGreenForeground1 }} /> : metadataFreshness === "stale" ? <WarningRegular fontSize={14} style={{ color: tokens.colorPaletteYellowForeground1 }} /> : <CircleRegular fontSize={13} style={{ color: tokens.colorNeutralForeground3 }} />}
                 appearance="transparent"
@@ -901,6 +922,13 @@ export function Sidebar({
         </div>
       </div>
       <div style={{ padding: 8 }}>
+        {connection?.dialect === "s3" && <div className="omni-s3-objects-prefix">
+          <Input size="small" value={s3PrefixDraft} onChange={(_, data) => setS3PrefixDraft(data.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") onS3PrefixChange?.(s3PrefixDraft); }}
+            placeholder="Prefixo em cada bucket" aria-label="Prefixo S3" />
+          <Button size="small" onClick={() => onS3PrefixChange?.(s3PrefixDraft)}>Listar</Button>
+        </div>}
+        {connection?.dialect === "s3" && <Button size="small" appearance="subtle" style={{ width: "100%", marginBottom: 8 }} onClick={onImportDatabaseTable}>Adicionar tabela de outro banco ao JOIN</Button>}
         <Input
           placeholder={tr("searchObjects")}
           value={search}
@@ -932,7 +960,7 @@ export function Sidebar({
               icon={<DatabaseRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
               defaultExpanded={isSearching}
               forceExpanded={isSearching || undefined}
-              onContextMenu={(event) => openMenu(event, [
+              onContextMenu={connection?.dialect === "s3" ? undefined : (event) => openMenu(event, [
                 { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
               ])}
             >
@@ -941,7 +969,7 @@ export function Sidebar({
                   icon={<TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
-                  onContextMenu={(event) => openMenu(event, [
+                  onContextMenu={connection?.dialect === "s3" ? undefined : (event) => openMenu(event, [
                     { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
                   ])}
                 >
@@ -957,7 +985,10 @@ export function Sidebar({
                           className="obj-row"
                           role="presentation"
                           onContextMenu={(e) =>
-                            openMenu(e, [
+                            openMenu(e, connection?.dialect === "s3" ? [
+                              { label: "Abrir SELECT em nova aba", action: () => openTable(g.name, t.name) },
+                              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
+                            ] : [
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
                               { label: tr("viewStructure"), action: () => setStructureTable({ schema: g.name, table: t.name }) },
                               { label: tr("generateDdl"), action: () => void openDefinition("table", g.name, t.name) },
@@ -966,7 +997,7 @@ export function Sidebar({
                         >
                           <TreeNode
                             label={
-                              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ display: "flex", alignItems: "center", gap: 4 }} onDoubleClick={() => openTable(g.name, t.name)}>
                                 <TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
                                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                   <span title={t.description}>{t.name}</span>
@@ -978,7 +1009,7 @@ export function Sidebar({
                             onExpandedChange={(nextExpanded) => {
                               if (nextExpanded) {
                                 void ensureColumns(g.name, t.name);
-                                void ensureIndexes(g.name, t.name);
+                                if (connection?.dialect !== "s3") void ensureIndexes(g.name, t.name);
                               }
                             }}
                             actions={
@@ -1230,7 +1261,7 @@ export function Sidebar({
         </div>
         {analysisActive && analysisExpanded && <div ref={onAnalysisHostChange} className="omni-sidebar-analysis-content" />}
       </section>}
-      {connection && <CreateTableDialog
+      {connection && connection.dialect !== "s3" && connection.dialect !== "duckdb" && <CreateTableDialog
         open={createTableSchema !== null}
         dialect={connection.dialect}
         schemas={schemas}

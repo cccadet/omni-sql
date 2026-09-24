@@ -73,6 +73,30 @@ test("ODBC returns bounded query rows and closes its cursor", async () => {
   await adapter.close();
 });
 
+test("ODBC streams bounded batches into Analyze Locally and closes the cursor", async () => {
+  let fetches = 0;
+  let closed = false;
+  const columns = [{ name: "id", dataTypeName: "INTEGER", dataType: 4, nullable: false }];
+  const connection = {
+    close: async () => undefined,
+    query: async () => ({
+      fetch: async () => {
+        fetches++;
+        return Object.assign(fetches === 1 ? [{ id: 1 }, { id: 2 }] : [{ id: 3 }], { columns, count: -1 });
+      },
+      get noData() { return fetches >= 2; },
+      close: async () => { closed = true; },
+    }),
+  };
+  const driver = { connect: async () => connection } as unknown as ConstructorParameters<typeof OdbcAdapter>[2];
+  const adapter = new OdbcAdapter(config, undefined, driver);
+  const batches = [];
+  for await (const batch of adapter.streamQuery("SELECT id FROM customers", { batchSize: 2, signal: new AbortController().signal })) batches.push(batch);
+  assert.deepEqual(batches.map((batch) => batch.rows), [[[1], [2]], [[3]]]);
+  assert.equal(closed, true);
+  await adapter.close();
+});
+
 test("ODBC classifies driver errors without exposing passwords", async () => {
   const driver = { connect: async () => { throw new Error("IM002 driver not found;PWD=secret"); } } as unknown as ConstructorParameters<typeof OdbcAdapter>[2];
   const adapter = new OdbcAdapter(config, "secret", driver);

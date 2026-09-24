@@ -1,7 +1,7 @@
 import odbc from "odbc";
 import type { ConnectionConfig, ExplainResult, FunctionDef, IndexInfo, QueryResult, Relation } from "@omni-sql/ts-types";
 import { odbcDescriptor } from "@omni-sql/dialect-descriptors";
-import { AdapterError, CachedAdapter, type Adapter, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
+import { AdapterError, CachedAdapter, type Adapter, type QueryBatch, type QueryStreamOptions, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
 
 type OdbcConnection = odbc.Connection;
 type OdbcResult = odbc.Result<Record<string, unknown>>;
@@ -85,6 +85,36 @@ export class OdbcAdapter extends CachedAdapter implements Adapter {
         };
       } finally { await cursor.close().catch(() => undefined); }
     } catch (error) { throw classifyOdbcError(error); }
+  }
+
+  async *streamQuery(sql: string, options: QueryStreamOptions): AsyncIterable<QueryBatch> {
+    if (!Number.isSafeInteger(options.batchSize) || options.batchSize < 1 || options.batchSize > 10_000) {
+      throw new Error("stream batch size must be between 1 and 10000");
+    }
+    const connection = await this.getConnection();
+    const cursor = await connection.query(sql, { cursor: true, fetchSize: options.batchSize, timeout: this.timeout });
+    try {
+      let emitted = false;
+      while (!options.signal.aborted) {
+        const result = await cursor.fetch<Record<string, unknown>>();
+        const columns = result.columns.map((column) => ({
+          name: column.name,
+          dataType: column.dataTypeName || String(column.dataType),
+          nullable: column.nullable,
+        }));
+        if (result.length > 0 || !emitted) {
+          emitted = true;
+          yield { columns, rows: result.map((row) => columns.map((column) => jsonSafe(row[column.name]))) };
+        }
+        if (cursor.noData || result.length === 0) break;
+      }
+      if (options.signal.aborted) throw new Error("analytical source query cancelled");
+    } catch (error) {
+      if (options.signal.aborted) throw error;
+      throw classifyOdbcError(error);
+    } finally {
+      await cursor.close().catch(() => undefined);
+    }
   }
 
   async explain(_sql: string): Promise<ExplainResult> { throw new AdapterError("unsupported", "EXPLAIN não é portável via ODBC"); }

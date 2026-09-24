@@ -221,7 +221,7 @@ export async function importAnalysisFile(input: {
   workspaceId: string;
   name: string;
   path: string;
-  format: "csv" | "parquet";
+  format: "csv" | "parquet" | "json";
   selection:
     | { mode: "full" }
     | { mode: "first_n"; rows: number }
@@ -238,6 +238,62 @@ export async function importAnalysisFile(input: {
       selection: input.selection,
     },
   });
+}
+
+export async function importAnalysisS3(input: {
+  workspaceId: string;
+  name: string;
+  uri: string;
+  format: "csv" | "parquet" | "delta" | "iceberg";
+  region: string;
+  endpoint?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  selection: { mode: "full" } | { mode: "first_n"; rows: number } | { mode: "reservoir"; rows: number; seed: number };
+  operationId?: string;
+}): Promise<DatasetRef> {
+  return invoke<DatasetRef>("analysis_import_s3", {
+    request: { ...input, operationId: input.operationId ?? `s3-import-${crypto.randomUUID()}` },
+  });
+}
+
+export async function runAnalysisS3(input: {
+  workspaceId: string;
+  uri: string;
+  format: "csv" | "parquet" | "delta" | "iceberg";
+  region: string;
+  endpoint?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sql: string;
+  limit?: number;
+  operationId?: string;
+}): Promise<QueryResult> {
+  const result = await invoke<Omit<QueryResult, "elapsedMs">>("analysis_query_s3", {
+    request: { ...input, limit: input.limit ?? 1_000, operationId: input.operationId ?? `s3-query-${crypto.randomUUID()}` },
+  });
+  return { ...result, elapsedMs: 0 };
+}
+
+export async function listAnalysisS3(input: { uri: string; region: string; endpoint?: string; accessKeyId?: string; secretAccessKey?: string; prefix: string }): Promise<string[]> {
+  return invoke<string[]>("analysis_list_s3", { request: input });
+}
+
+export async function runS3CatalogQuery(input: {
+  workspaceId: string;
+  sources: readonly { schema: string; name: string; uri: string; format: "csv" | "parquet" | "delta" | "iceberg" }[];
+  region: string;
+  endpoint?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sql: string;
+  limit: number;
+  operationId?: string;
+}): Promise<QueryResult> {
+  const result = await invoke<Omit<QueryResult, "elapsedMs">>("analysis_query_s3_catalog", {
+    request: { ...input, operationId: input.operationId ?? `s3-catalog-${crypto.randomUUID()}` },
+  });
+  return { ...result, elapsedMs: 0 };
 }
 
 export async function listAnalysisDatasets(workspaceId: string): Promise<readonly DatasetRef[]> {

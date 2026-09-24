@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { DuckDbIcon } from "./DuckDbIcon";
 
 export interface DialectIconProps {
   dialect?: string;
@@ -12,6 +13,8 @@ export function DialectIcon({ dialect, size = 14, className }: DialectIconProps)
   const oraGrad = `oraGrad-${uid}`;
 
   switch (dialect) {
+    case "duckdb":
+      return <DuckDbIcon size={size} />;
     case "postgres":
       return (
         <svg
@@ -146,6 +149,13 @@ export function DialectIcon({ dialect, size = 14, className }: DialectIconProps)
         >
           <ellipse cx="6" cy="8" rx="3.5" ry="2.5" stroke="#888" strokeWidth="1.5" fill="none" />
           <ellipse cx="10" cy="8" rx="3.5" ry="2.5" stroke="#888" strokeWidth="1.5" fill="none" />
+        </svg>
+      );
+    case "s3":
+      return (
+        <svg className={className} width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M3 5.5C3 4.1 5.2 3 8 3s5 1.1 5 2.5S10.8 8 8 8 3 6.9 3 5.5Z" fill="#D6530B" />
+          <path d="M3 5.5v5C3 11.9 5.2 13 8 13s5-1.1 5-2.5v-5" stroke="#D6530B" strokeWidth="1.5" />
         </svg>
       );
     default:
