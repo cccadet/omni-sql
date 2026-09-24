@@ -3,10 +3,12 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { ConnectionDialog } from "./ConnectionDialog";
 import { LanguageProvider } from "../i18n";
 import { backend } from "../lib/backend";
+import { listAnalysisS3 } from "../lib/analysis";
 
 const renderWithLanguage = (ui: React.ReactElement) => render(<LanguageProvider>{ui}</LanguageProvider>);
 
 vi.mock("../lib/backend", () => ({ backend: { call: vi.fn() } }));
+vi.mock("../lib/analysis", () => ({ listAnalysisS3: vi.fn() }));
 vi.mock("../lib/file-io", () => ({ pickJarPath: vi.fn() }));
 
 const close = vi.fn();
@@ -16,6 +18,36 @@ beforeEach(() => {
   vi.mocked(backend.call).mockReset();
   close.mockReset();
   saved.mockReset();
+  vi.mocked(listAnalysisS3).mockReset();
+});
+
+test("registers multiple S3 buckets without choosing a format", async () => {
+  vi.mocked(backend.call).mockResolvedValue({ connectionId: "s3-1", ok: true });
+  vi.mocked(listAnalysisS3).mockResolvedValue([]);
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+  const dialog = screen.getByRole("dialog");
+  fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "s3" } });
+  fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Sales lake" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Buckets S3 (um por linha)" }), { target: { value: "s3://bucket\ns3://bucket-two" } });
+  assert.equal(screen.queryByRole("combobox", { name: "Formato S3" }), null);
+  fireEvent.change(screen.getByPlaceholderText("us-east-1 (opcional)"), { target: { value: "us-east-1" } });
+  fireEvent.change(screen.getByPlaceholderText("https://host:9000 (opcional)"), { target: { value: "http://127.0.0.1:9000" } });
+  fireEvent.change(screen.getByPlaceholderText("Access Key ID (opcional)"), { target: { value: "omni_test" } });
+  fireEvent.change(screen.getByPlaceholderText("Secret Access Key (opcional)"), { target: { value: "omni_test_secret" } });
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  await waitFor(() => assert.equal(vi.mocked(listAnalysisS3).mock.calls.length, 1));
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  assert.ok(add);
+  const params = add[1] as { config: { label: string; dialect: string; endpoint: string; user: string; options: unknown }; password: string };
+  const config = params.config;
+  assert.equal(config.label, "Sales lake");
+  assert.equal(config.dialect, "s3");
+  assert.equal(config.endpoint, "s3://bucket");
+  assert.equal(config.user, "omni_test");
+  assert.equal(params.password, "omni_test_secret");
+  assert.deepEqual(config.options, { region: "us-east-1", endpoint: "http://127.0.0.1:9000", buckets: '["s3://bucket","s3://bucket-two"]' });
 });
 
 test("does not expose an existing connection internal ID", () => {

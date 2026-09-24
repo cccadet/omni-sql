@@ -8,7 +8,7 @@ import type {
 } from "./protocol.ts";
 import { closeBackendResources, handlers, streamAnalysisQuery } from "./handlers.ts";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { RpcDatabaseError, RpcValidationError } from "./rpc-errors.ts";
+import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
 import { closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
 import { McpBridgeError } from "./mcp-bridge.ts";
 import {
@@ -192,6 +192,8 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["connection.add"](params as never);
     case "connection.list":
       return handlers["connection.list"]();
+    case "connection.s3Credentials":
+      return handlers["connection.s3Credentials"](params as never);
     case "connection.remove":
       return handlers["connection.remove"](params as never);
     case "connectionGroup.list":
@@ -448,11 +450,12 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         res.end(`${JSON.stringify({ type: "complete" })}\n`);
       } catch (error) {
         logFailure("analysis.stream", error, 0);
+        const safeError = error instanceof RpcValidationError || error instanceof RpcDatabaseError
+          ? error : safePostgresDatabaseError(error) ?? safeOracleDatabaseError(error);
+        const message = safeError?.message ?? "source query failed; run the SELECT on its connection to inspect the database error";
         if (!res.headersSent) {
-          const message = error instanceof RpcValidationError ? error.message : INTERNAL_ERROR_MESSAGE;
-          send(res, error instanceof RpcValidationError ? 400 : 500, { error: message });
+          send(res, safeError instanceof RpcValidationError ? 400 : 500, { error: message });
         } else {
-          const message = error instanceof RpcValidationError ? error.message : INTERNAL_ERROR_MESSAGE;
           res.end(`${JSON.stringify({ type: "error", error: message })}\n`);
         }
       } finally {

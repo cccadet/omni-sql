@@ -126,5 +126,30 @@ services:
       - ./init/05-h2.sql:/init.sql:ro
     restart: "no"
 
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: omni_test
+      MINIO_ROOT_PASSWORD: omni_test_secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - s3-data:/data
+
+  minio-fixtures:
+    build: ./s3-fixtures
+    environment:
+      AWS_ACCESS_KEY_ID: omni_test
+      AWS_SECRET_ACCESS_KEY: omni_test_secret
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://minio:9000
+    depends_on:
+      minio:
+        condition: service_started
+    restart: "no"
+
 volumes:
   h2-data:
+  s3-data:

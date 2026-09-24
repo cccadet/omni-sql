@@ -61,7 +61,7 @@ pub enum ImportSelection {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetRef {
     pub id: String,
@@ -83,7 +83,7 @@ pub struct DatasetRef {
     pub source_sql: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetColumn {
     pub name: String,
@@ -93,7 +93,7 @@ pub struct DatasetColumn {
     pub nullable: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DatasetCoverage {
     Complete,
@@ -191,6 +191,7 @@ pub enum ExportFormat {
 pub enum FileFormat {
     Csv,
     Parquet,
+    Json,
 }
 
 #[derive(Debug, Deserialize)]
@@ -203,6 +204,152 @@ pub struct FileImportRequest {
     pub format: FileFormat,
     #[serde(default)]
     pub selection: ImportSelection,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct S3ImportRequest {
+    pub operation_id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub uri: String,
+    pub format: S3Format,
+    pub region: String,
+    pub endpoint: Option<String>,
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
+    #[serde(default)]
+    pub selection: ImportSelection,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum S3Format { Csv, Parquet, Delta, Iceberg }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct S3QueryRequest {
+    pub operation_id: String,
+    pub workspace_id: String,
+    pub uri: String,
+    pub format: S3Format,
+    pub region: String,
+    pub endpoint: Option<String>,
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
+    pub sql: String,
+    pub limit: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct S3CatalogSource {
+    pub schema: String,
+    pub name: String,
+    pub uri: String,
+    pub format: S3Format,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct S3CatalogQueryRequest {
+    pub operation_id: String,
+    pub workspace_id: String,
+    pub sources: Vec<S3CatalogSource>,
+    pub region: String,
+    pub endpoint: Option<String>,
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
+    pub sql: String,
+    pub limit: usize,
+}
+
+fn s3_scan_function(format: S3Format) -> &'static str {
+    match format {
+        S3Format::Csv => "read_csv_auto",
+        S3Format::Parquet => "read_parquet",
+        S3Format::Delta => "delta_scan",
+        S3Format::Iceberg => "iceberg_scan",
+    }
+}
+
+fn open_s3_reader(uri: &str, format: S3Format, region: &str, endpoint: Option<&str>, access_key_id: Option<&str>, secret_access_key: Option<&str>) -> Result<Connection, String> {
+    let uri = uri.trim();
+    if !uri.starts_with("s3://") || uri.len() > 2048 || uri[5..].split('/').next().is_none_or(|bucket| bucket.is_empty() || bucket.contains('@'))
+        || uri.chars().any(char::is_control) {
+        return Err("S3 source must be an s3://bucket/path URI".to_string());
+    }
+    if region.len() > 128 || !region.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("invalid S3 region".to_string());
+    }
+    if let Some(endpoint) = endpoint {
+        if endpoint.len() > 255 || endpoint.chars().any(|c| c.is_control() || c == '\'' || c == ';') {
+            return Err("invalid S3 endpoint".to_string());
+        }
+    }
+    let remote = Connection::open_in_memory()
+        .map_err(|error| format!("failed to open S3 reader: {error}"))?;
+    remote.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS};"))
+        .map_err(|error| format!("failed to limit S3 reader resources: {error}"))?;
+    remote.execute_batch("SET allow_unsigned_extensions = false; INSTALL httpfs; LOAD httpfs; INSTALL aws; LOAD aws;")
+        .map_err(|error| format!("failed to load S3 support: {error}"))?;
+    if matches!(format, S3Format::Delta | S3Format::Iceberg) {
+        let extension = if matches!(format, S3Format::Delta) { "delta" } else { "iceberg" };
+        remote.execute_batch(&format!("INSTALL {extension}; LOAD {extension};"))
+            .map_err(|error| format!("failed to load {extension} support: {error}"))?;
+    }
+    if access_key_id.is_some() != secret_access_key.is_some() {
+        return Err("S3 access key and secret key must be provided together".to_string());
+    }
+    let mut secret = if let (Some(key), Some(value)) = (access_key_id, secret_access_key) {
+        if key.is_empty() || value.is_empty() || key.len() > 1024 || value.len() > 1024
+            || key.chars().any(char::is_control) || value.chars().any(char::is_control) {
+            return Err("invalid S3 credentials".to_string());
+        }
+        format!("CREATE SECRET (TYPE s3, PROVIDER config, KEY_ID '{}', SECRET '{}'", key.replace('\'', "''"), value.replace('\'', "''"))
+    } else {
+        String::from("CREATE SECRET (TYPE s3, PROVIDER credential_chain")
+    };
+    if !region.is_empty() { secret.push_str(&format!(", REGION '{region}'")); }
+    if let Some(endpoint) = endpoint.filter(|value| !value.is_empty()) {
+        let (endpoint, ssl) = if let Some(value) = endpoint.strip_prefix("http://") {
+            (value, false)
+        } else if let Some(value) = endpoint.strip_prefix("https://") {
+            (value, true)
+        } else { (endpoint, true) };
+        secret.push_str(&format!(", ENDPOINT '{endpoint}', USE_SSL {}, URL_STYLE 'path'", if ssl { "true" } else { "false" }));
+    }
+    secret.push_str(");");
+    remote.execute_batch(&secret)
+        .map_err(|_| "failed to configure S3 credentials".to_string())?;
+    Ok(remote)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct S3ListRequest {
+    pub uri: String,
+    pub region: String,
+    pub endpoint: Option<String>,
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
+    pub prefix: String,
+}
+
+pub fn list_s3_objects(request: S3ListRequest) -> Result<Vec<String>, String> {
+    if request.prefix.len() > 512 || request.prefix.contains("..") || request.prefix.chars().any(char::is_control)
+        || request.prefix.chars().any(|c| matches!(c, '*' | '?' | '[' | ']' | '\'')) {
+        return Err("invalid S3 prefix".to_string());
+    }
+    let root = request.uri.trim().trim_end_matches('/');
+    let remote = open_s3_reader(root, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
+    let prefix = request.prefix.trim_start_matches('/');
+    let pattern = format!("{root}/{prefix}**");
+    let mut statement = remote.prepare("SELECT file FROM glob(?) LIMIT 500")
+        .map_err(|error| format!("failed to prepare S3 listing: {error}"))?;
+    let rows = statement.query_map([pattern], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("failed to list S3 objects: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|error| format!("failed to read S3 listing: {error}"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -251,6 +398,16 @@ struct SourceCancellation {
     backend_port: u16,
 }
 
+struct RemoteInterruptGuard<'a> {
+    slot: &'a Mutex<Option<Arc<InterruptHandle>>>,
+}
+
+impl Drop for RemoteInterruptGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = self.slot.lock() { *slot = None; }
+    }
+}
+
 impl Drop for TempDirectory {
     fn drop(&mut self) {
         if let Err(error) = std::fs::remove_dir_all(&self.0) {
@@ -266,6 +423,7 @@ impl Drop for TempDirectory {
 pub struct DataEngine {
     inner: Mutex<EngineInner>,
     interrupt: Arc<InterruptHandle>,
+    remote_interrupt: Mutex<Option<Arc<InterruptHandle>>>,
     current_operation: Mutex<Option<String>>,
     operation_status: Mutex<Option<OperationStatus>>,
     source_cancellation: Mutex<Option<SourceCancellation>>,
@@ -274,20 +432,52 @@ pub struct DataEngine {
     _temp_directory: TempDirectory,
 }
 
+fn persist_dataset(connection: &Connection, dataset: &DatasetRef) -> Result<(), String> {
+    let metadata = serde_json::to_string(dataset)
+        .map_err(|error| format!("failed to serialize DuckDB dataset: {error}"))?;
+    connection.execute("INSERT OR REPLACE INTO omni_local_dataset_registry (id, metadata) VALUES (?, ?)",
+        duckdb::params![dataset.id, metadata])
+        .map_err(|error| format!("failed to save DuckDB dataset: {error}"))?;
+    Ok(())
+}
+
 impl DataEngine {
     pub fn open_in_memory() -> Result<Self, String> {
+        Self::open_at(None)
+    }
+
+    pub fn open_persistent(path: &Path) -> Result<Self, String> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| format!("failed to create DuckDB data directory: {error}"))?;
+        }
+        Self::open_at(Some(path))
+    }
+
+    fn open_at(path: Option<&Path>) -> Result<Self, String> {
         let temp_directory = TempDirectory(create_temp_directory()?);
-        let connection = Connection::open_in_memory()
+        let connection = match path { Some(path) => Connection::open(path), None => Connection::open_in_memory() }
             .map_err(|error| format!("failed to open the DuckDB data engine: {error}"))?;
         initialize_connection(&connection, &temp_directory.0)?;
+        connection.execute_batch("CREATE TABLE IF NOT EXISTS omni_local_dataset_registry (id VARCHAR PRIMARY KEY, metadata VARCHAR NOT NULL)")
+            .map_err(|error| format!("failed to initialize DuckDB dataset registry: {error}"))?;
+        let datasets = {
+            let mut statement = connection.prepare("SELECT metadata FROM omni_local_dataset_registry")
+                .map_err(|error| format!("failed to read DuckDB dataset registry: {error}"))?;
+            statement.query_map([], |row| row.get::<_, String>(0))
+                .map_err(|error| format!("failed to list DuckDB datasets: {error}"))?
+                .map(|row| row.map_err(|error| error.to_string()).and_then(|json| serde_json::from_str::<DatasetRef>(&json).map_err(|error| error.to_string())))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter().map(|dataset| (dataset.id.clone(), dataset)).collect()
+        };
         let interrupt = connection.interrupt_handle();
         Ok(Self {
             inner: Mutex::new(EngineInner {
                 connection,
-                datasets: HashMap::new(),
+                datasets,
                 result_handles: HashMap::new(),
             }),
             interrupt,
+            remote_interrupt: Mutex::new(None),
             current_operation: Mutex::new(None),
             operation_status: Mutex::new(None),
             source_cancellation: Mutex::new(None),
@@ -328,7 +518,8 @@ impl DataEngine {
         ensure_dataset_capacity(&inner)?;
         let relation_name = available_relation_name(&inner, &request.name, None);
         let create_sql = format!(
-            "CREATE TABLE {} ({})",
+            "CREATE {}TABLE {} ({})",
+            if request.workspace_id == "federated" { "TEMP " } else { "" },
             quote_identifier(&relation_name),
             columns
                 .iter()
@@ -401,6 +592,7 @@ impl DataEngine {
             source_sql: request.source_sql,
         };
         inner.datasets.insert(id, dataset.clone());
+        if dataset.workspace_id != "federated" { persist_dataset(&inner.connection, &dataset)?; }
         Ok(dataset)
     }
 
@@ -462,7 +654,10 @@ impl DataEngine {
             .send()
             .map_err(|error| format!("failed to start analytical source stream: {error}"))?;
         if !response.status().is_success() {
-            return Err(format!("analytical source stream failed with HTTP {}", response.status()));
+            let status = response.status();
+            let detail = response.json::<serde_json::Value>().ok()
+                .and_then(|body| body.get("error").and_then(|value| value.as_str()).map(str::to_owned));
+            return Err(detail.unwrap_or_else(|| format!("analytical source stream failed with HTTP {status}")));
         }
 
         let mut reader = BufReader::new(response);
@@ -481,7 +676,8 @@ impl DataEngine {
         ensure_dataset_capacity(&inner)?;
         let relation_name = available_relation_name(&inner, &request.name, None);
         let create_sql = format!(
-            "CREATE TABLE {} ({})",
+            "CREATE {}TABLE {} ({})",
+            if request.workspace_id == "federated" { "TEMP " } else { "" },
             quote_identifier(&relation_name),
             columns
                 .iter()
@@ -622,6 +818,7 @@ impl DataEngine {
             source_sql: Some(request.sql),
         };
         inner.datasets.insert(id, dataset.clone());
+        if dataset.workspace_id != "federated" { persist_dataset(&inner.connection, &dataset)?; }
         Ok(dataset)
     }
 
@@ -658,7 +855,9 @@ impl DataEngine {
             .ok_or_else(|| "analytical dataset was not found".to_string())?;
         dataset.name = name.to_string();
         dataset.relation_name = relation_name;
-        Ok(dataset.clone())
+        let updated = dataset.clone();
+        persist_dataset(&inner.connection, &updated)?;
+        Ok(updated)
     }
 
     pub fn drop_dataset(&self, workspace_id: &str, dataset_id: &str) -> Result<bool, String> {
@@ -676,6 +875,8 @@ impl DataEngine {
             .execute_batch(&format!("DROP TABLE {}", quote_identifier(&relation_name)))
             .map_err(|error| format!("failed to drop analytical dataset: {error}"))?;
         inner.datasets.remove(dataset_id);
+        inner.connection.execute("DELETE FROM omni_local_dataset_registry WHERE id = ?", [dataset_id])
+            .map_err(|error| format!("failed to update DuckDB dataset registry: {error}"))?;
         Ok(true)
     }
 
@@ -786,6 +987,151 @@ impl DataEngine {
         self.run_operation(operation_id, || self.import_file_inner(request))
     }
 
+    pub fn import_s3(&self, request: S3ImportRequest) -> Result<DatasetRef, String> {
+        let operation_id = request.operation_id.clone();
+        self.run_operation(operation_id, || self.import_s3_inner(request))
+    }
+
+    pub fn query_s3(&self, request: S3QueryRequest) -> Result<AnalysisQueryResult, String> {
+        let operation_id = request.operation_id.clone();
+        self.run_operation(operation_id, || {
+            validate_workspace_id(&request.workspace_id)?;
+            if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
+                return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
+            }
+            let sql = validate_read_only_sql(&request.sql)?;
+            let remote = open_s3_reader(&request.uri, request.format, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
+            let _remote_guard = self.arm_remote_interrupt(&remote)?;
+            let source = s3_scan_function(request.format);
+            remote.execute_batch(&format!(
+                "CREATE VIEW s3_source AS SELECT * FROM {source}('{}')",
+                request.uri.trim().replace('\'', "''")
+            )).map_err(|error| format!("failed to open S3 source: {error}"))?;
+            remote.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
+                .map_err(|error| format!("failed to restrict S3 reader: {error}"))?;
+            // The editor can refer to the registered view, but cannot invoke file readers.
+            Self::query_preview(&remote, sql, request.limit)
+        })
+    }
+
+    pub fn query_s3_catalog(&self, request: S3CatalogQueryRequest) -> Result<AnalysisQueryResult, String> {
+        let operation_id = request.operation_id.clone();
+        self.run_operation(operation_id, || {
+            validate_workspace_id(&request.workspace_id)?;
+            if request.sources.is_empty() || request.sources.len() > 500 {
+                return Err("S3 catalog must contain between 1 and 500 sources".to_string());
+            }
+            if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
+                return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
+            }
+            let sql = validate_read_only_sql(&request.sql)?;
+            let first = &request.sources[0];
+            let remote = open_s3_reader(&first.uri, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
+            let _remote_guard = self.arm_remote_interrupt(&remote)?;
+            if request.sources.iter().any(|source| matches!(source.format, S3Format::Delta)) {
+                remote.execute_batch("INSTALL delta; LOAD delta;").map_err(|error| format!("failed to load Delta support: {error}"))?;
+            }
+            if request.sources.iter().any(|source| matches!(source.format, S3Format::Iceberg)) {
+                remote.execute_batch("INSTALL iceberg; LOAD iceberg;").map_err(|error| format!("failed to load Iceberg support: {error}"))?;
+            }
+            let mut schemas = HashSet::new();
+            for source in &request.sources {
+                if source.schema.is_empty() || source.name.is_empty() || source.schema.len() > 128 || source.name.len() > 256
+                    || !source.uri.starts_with("s3://") || source.uri.len() > 2048 {
+                    return Err("invalid S3 catalog source".to_string());
+                }
+                if schemas.insert(source.schema.clone()) {
+                    remote.execute_batch(&format!("CREATE SCHEMA {}", quote_identifier(&source.schema)))
+                        .map_err(|error| format!("failed to create S3 schema: {error}"))?;
+                }
+                let scan = s3_scan_function(source.format);
+                let statement = format!("CREATE VIEW {}.{} AS SELECT * FROM {scan}('{}')",
+                    quote_identifier(&source.schema), quote_identifier(&source.name), source.uri.replace('\'', "''"));
+                remote.execute_batch(&statement)
+                    .map_err(|error| format!("failed to register S3 source: {error}"))?;
+            }
+            let normalized_sql = sql.to_ascii_lowercase();
+            let local_datasets = {
+                let inner = self.lock()?;
+                inner.datasets.values()
+                    .filter(|dataset| dataset.workspace_id == "local-duckdb" || dataset.workspace_id == "federated")
+                    .filter(|dataset| {
+                        let name = dataset.relation_name.to_ascii_lowercase();
+                        [
+                            format!("local.{name}"),
+                            format!("local.{}", quote_identifier(&name)),
+                            format!("\"local\".{name}"),
+                            format!("\"local\".{}", quote_identifier(&name)),
+                        ].iter().any(|reference| normalized_sql.contains(reference))
+                    })
+                    .map(|dataset| dataset.relation_name.clone())
+                    .collect::<Vec<_>>()
+            };
+            if !local_datasets.is_empty() {
+                remote.execute_batch("LOAD parquet")
+                    .map_err(|error| format!("failed to load Parquet for local join: {error}"))?;
+                remote.execute_batch("CREATE SCHEMA local")
+                    .map_err(|error| format!("failed to create local schema: {error}"))?;
+            }
+            for relation_name in local_datasets {
+                let temporary_path = self._temp_directory.0.join(format!("{}.parquet", random_id()?));
+                let escaped_path = temporary_path.to_string_lossy().replace('\'', "''");
+                let export_result = self.export_query_inner(ExportRequest {
+                    operation_id: request.operation_id.clone(),
+                    workspace_id: "local-duckdb".to_string(),
+                    sql: format!("SELECT * FROM {}", quote_identifier(&relation_name)),
+                    path: temporary_path.clone(),
+                    format: ExportFormat::Parquet,
+                });
+                if let Err(error) = export_result {
+                    let _ = std::fs::remove_file(&temporary_path);
+                    return Err(format!("failed to stage local dataset for S3 join: {error}"));
+                }
+                let stage_result = remote.execute_batch(&format!(
+                    "CREATE TABLE local.{} AS SELECT * FROM read_parquet('{}')",
+                    quote_identifier(&relation_name), escaped_path
+                ));
+                let _ = std::fs::remove_file(&temporary_path);
+                stage_result.map_err(|error| format!("failed to stage local dataset for S3 join: {error}"))?;
+            }
+            remote.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
+                .map_err(|error| format!("failed to restrict S3 reader: {error}"))?;
+            Self::query_preview(&remote, sql, request.limit)
+        })
+    }
+
+    fn import_s3_inner(&self, request: S3ImportRequest) -> Result<DatasetRef, String> {
+        validate_workspace_id(&request.workspace_id)?;
+        validate_selection(&request.selection)?;
+        let uri = request.uri.trim();
+        let source = s3_scan_function(request.format);
+        let escaped_uri = uri.replace('\'', "''");
+        let remote = open_s3_reader(uri, request.format, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
+        let _remote_guard = self.arm_remote_interrupt(&remote)?;
+        let temporary_path = self._temp_directory.0.join(format!("{}.parquet", random_id()?));
+        let escaped_path = temporary_path.to_string_lossy().replace('\'', "''");
+        let limit = match &request.selection {
+            ImportSelection::FirstN { rows } => format!(" LIMIT {rows}"),
+            _ => String::new(),
+        };
+        let copy = format!("COPY (SELECT * FROM {source}('{escaped_uri}'){limit}) TO '{escaped_path}' (FORMAT PARQUET)");
+        let result = remote.execute_batch(&copy)
+            .map_err(|error| format!("failed to read S3 source: {error}"));
+        if let Err(error) = result { let _ = std::fs::remove_file(&temporary_path); return Err(error); }
+        drop(_remote_guard);
+        drop(remote);
+        let imported = self.import_file_inner(FileImportRequest {
+            operation_id: request.operation_id,
+            workspace_id: request.workspace_id,
+            name: request.name,
+            path: temporary_path.clone(),
+            format: FileFormat::Parquet,
+            selection: request.selection,
+        });
+        let _ = std::fs::remove_file(&temporary_path);
+        imported
+    }
+
     fn import_file_inner(&self, request: FileImportRequest) -> Result<DatasetRef, String> {
         validate_workspace_id(&request.workspace_id)?;
         if request.name.trim().is_empty() || request.name.len() > 128 {
@@ -793,6 +1139,9 @@ impl DataEngine {
         }
         validate_selection(&request.selection)?;
         validate_import_path(&request.path, request.format)?;
+        if matches!(request.format, FileFormat::Json) {
+            return self.import_json_file_inner(request);
+        }
         let (schema, mut batches) = open_file_batches(&request.path, request.format)?;
         if schema.fields().is_empty() || schema.fields().len() > 1024 {
             return Err("analytical file must contain between 1 and 1024 columns".to_string());
@@ -906,7 +1255,29 @@ impl DataEngine {
             source_sql: None,
         };
         inner.datasets.insert(id, dataset.clone());
+        persist_dataset(&inner.connection, &dataset)?;
         Ok(dataset)
+    }
+
+    fn import_json_file_inner(&self, request: FileImportRequest) -> Result<DatasetRef, String> {
+        let temporary_path = self._temp_directory.0.join(format!("{}.parquet", random_id()?));
+        let escaped_source = request.path.to_string_lossy().replace('\'', "''");
+        let escaped_target = temporary_path.to_string_lossy().replace('\'', "''");
+        let convert = (|| {
+            let reader = Connection::open_in_memory()
+                .map_err(|error| format!("failed to open JSON reader: {error}"))?;
+            reader.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS}; INSTALL json; LOAD json; INSTALL parquet; LOAD parquet;"))
+                .map_err(|error| format!("failed to load JSON support: {error}"))?;
+            reader.execute_batch(&format!("COPY (SELECT * FROM read_json_auto('{escaped_source}')) TO '{escaped_target}' (FORMAT PARQUET)"))
+                .map_err(|error| format!("failed to read JSON file: {error}"))?;
+            self.import_file_inner(FileImportRequest {
+                operation_id: request.operation_id, workspace_id: request.workspace_id,
+                name: request.name, path: temporary_path.clone(), format: FileFormat::Parquet,
+                selection: request.selection,
+            })
+        })();
+        let _ = std::fs::remove_file(&temporary_path);
+        convert
     }
 
     fn export_query_inner(&self, request: ExportRequest) -> Result<ExportResult, String> {
@@ -996,12 +1367,15 @@ impl DataEngine {
         let sql = validate_read_only_sql(&request.sql)?;
         let inner = self.lock()?;
         ensure_workspace_relations(&inner, &request.workspace_id, sql)?;
+        Self::query_preview(&inner.connection, sql, request.limit)
+    }
+
+    fn query_preview(connection: &Connection, sql: &str, limit: usize) -> Result<AnalysisQueryResult, String> {
         let bounded_sql = format!(
             "SELECT * FROM ({sql}) AS __omni_analysis_preview LIMIT {}",
-            request.limit + 1
+            limit + 1
         );
-        let mut statement = inner
-            .connection
+        let mut statement = connection
             .prepare(&bounded_sql)
             .map_err(|error| format!("invalid analytical SQL: {error}"))?;
         let mut cursor = statement
@@ -1021,7 +1395,7 @@ impl DataEngine {
                 nullable: true,
             })
             .collect::<Vec<_>>();
-        let mut rows = Vec::with_capacity(request.limit.min(1024));
+        let mut rows = Vec::with_capacity(limit.min(1024));
         let mut serialized_bytes = 0_usize;
         let mut byte_limit_reached = false;
         while let Some(row) = cursor
@@ -1045,8 +1419,8 @@ impl DataEngine {
             serialized_bytes += row_bytes;
             rows.push(values);
         }
-        let rows_more_available = byte_limit_reached || rows.len() > request.limit;
-        rows.truncate(request.limit);
+        let rows_more_available = byte_limit_reached || rows.len() > limit;
+        rows.truncate(limit);
         Ok(AnalysisQueryResult {
             columns,
             rows,
@@ -1070,6 +1444,9 @@ impl DataEngine {
             }
         }
         self.interrupt.interrupt();
+        if let Ok(slot) = self.remote_interrupt.lock() {
+            if let Some(remote) = slot.as_ref() { remote.interrupt(); }
+        }
         let source = self.source_cancellation.lock()
             .map_err(|_| "source cancellation lock is poisoned".to_string())?
             .as_ref()
@@ -1079,6 +1456,12 @@ impl DataEngine {
             let _ = cancel_backend_source(&source);
         }
         Ok(true)
+    }
+
+    fn arm_remote_interrupt(&self, connection: &Connection) -> Result<RemoteInterruptGuard<'_>, String> {
+        *self.remote_interrupt.lock()
+            .map_err(|_| "remote analytical interrupt lock is poisoned".to_string())? = Some(connection.interrupt_handle());
+        Ok(RemoteInterruptGuard { slot: &self.remote_interrupt })
     }
 
     pub fn operation_status(&self, operation_id: &str) -> Result<Option<OperationStatus>, String> {
@@ -1187,7 +1570,7 @@ fn validate_import_path(path: &Path, format: FileFormat) -> Result<(), String> {
     if !path.is_absolute() || !path.is_file() {
         return Err("analytical import path must be an existing absolute file".to_string());
     }
-    let expected = match format { FileFormat::Csv => "csv", FileFormat::Parquet => "parquet" };
+    let expected = match format { FileFormat::Csv => "csv", FileFormat::Parquet => "parquet", FileFormat::Json => "json" };
     if path.extension().and_then(|value| value.to_str()).is_none_or(|value| !value.eq_ignore_ascii_case(expected)) {
         return Err(format!("analytical import path must use the .{expected} extension"));
     }
@@ -1224,6 +1607,7 @@ fn open_file_batches(
                 .map_err(|error| format!("failed to create Parquet reader: {error}"))?;
             Ok((schema, Box::new(reader.map(|batch| batch.map_err(|error| format!("failed to read Parquet batch: {error}"))))))
         }
+        FileFormat::Json => Err("JSON is imported through DuckDB's JSON reader".to_string()),
     }
 }
 
@@ -1849,6 +2233,7 @@ fn ensure_workspace_relations(
     let lowercase = sql.to_ascii_lowercase();
     for dataset in inner.datasets.values() {
         if dataset.workspace_id != workspace_id
+            && !(workspace_id == "local-duckdb" && dataset.workspace_id == "federated")
             && lowercase.contains(&dataset.relation_name.to_ascii_lowercase())
         {
             return Err("analytical query references a dataset from another workspace".to_string());
@@ -1931,6 +2316,117 @@ fn now_ms() -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queries_s3_csv_parquet_delta_and_iceberg_without_snapshot() {
+        if std::env::var("OMNI_SQL_RUN_S3_INTEGRATION").as_deref() != Ok("1") { return; }
+        let engine = DataEngine::open_in_memory().unwrap();
+        let endpoint = std::env::var("OMNI_SQL_TEST_S3_ENDPOINT")
+            .unwrap_or_else(|_| "http://127.0.0.1:9000".to_string());
+        let access_key_id = std::env::var("AWS_ACCESS_KEY_ID").unwrap_or_else(|_| "omni_test".into());
+        let secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_else(|_| "omni_test_secret".into());
+        let objects = list_s3_objects(S3ListRequest {
+            uri: "s3://omni-test".into(), region: "us-east-1".into(),
+            endpoint: Some(endpoint.clone()), prefix: "csv/".into(),
+            access_key_id: Some(access_key_id.clone()), secret_access_key: Some(secret_access_key.clone()),
+        }).unwrap();
+        assert!(objects.iter().any(|uri| uri == "s3://omni-test/csv/orders.csv"));
+        let cases = [
+            (S3Format::Csv, "s3://omni-test/csv/orders.csv"),
+            (S3Format::Parquet, "s3://omni-test/parquet/orders.parquet"),
+            (S3Format::Delta, "s3://omni-test/delta/orders"),
+            (S3Format::Iceberg, "s3://omni-test/iceberg/orders/metadata/current.metadata.json"),
+        ];
+        for (index, (format, uri)) in cases.into_iter().enumerate() {
+            let result = engine.query_s3(S3QueryRequest {
+                operation_id: format!("s3-test-{index}"),
+                workspace_id: "s3-integration".into(),
+                uri: uri.into(),
+                format,
+                region: "us-east-1".into(),
+                endpoint: Some(endpoint.clone()),
+                access_key_id: Some(access_key_id.clone()), secret_access_key: Some(secret_access_key.clone()),
+                sql: "SELECT id, amount FROM s3_source WHERE id = 2".into(),
+                limit: 1000,
+            }).unwrap_or_else(|error| panic!("{uri}: {error}"));
+            assert_eq!(result.rows, vec![vec![JsonValue::from(2), JsonValue::from(20)]], "{uri}");
+            assert!(!result.rows_more_available);
+            assert!(engine.list_datasets("s3-integration").unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn joins_two_s3_buckets_with_a_local_duckdb_table() {
+        if std::env::var("OMNI_SQL_RUN_S3_INTEGRATION").as_deref() != Ok("1") { return; }
+        let engine = DataEngine::open_in_memory().unwrap();
+        engine.import_result(ImportResultRequest {
+            operation_id: "local-join-fixture".into(), workspace_id: "federated".into(), name: "thresholds".into(),
+            columns: vec![ImportColumn { name: "id".into(), data_type: "INTEGER".into(), nullable: false }],
+            rows: vec![vec![JsonValue::from(2)]], rows_more_available: false,
+            source_connection_id: None, source_sql: None, selection: ImportSelection::Full,
+        }).unwrap();
+        let result = engine.query_s3_catalog(S3CatalogQueryRequest {
+            operation_id: "s3-cross-bucket-join".into(), workspace_id: "s3-integration".into(),
+            sources: vec![
+                S3CatalogSource { schema: "omni-test".into(), name: "orders".into(), uri: "s3://omni-test/csv/orders.csv".into(), format: S3Format::Csv },
+                S3CatalogSource { schema: "omni-test".into(), name: "parquet_orders".into(), uri: "s3://omni-test/parquet/orders.parquet".into(), format: S3Format::Parquet },
+                S3CatalogSource { schema: "omni-test".into(), name: "delta_orders".into(), uri: "s3://omni-test/delta/orders".into(), format: S3Format::Delta },
+                S3CatalogSource { schema: "omni-test".into(), name: "iceberg_orders".into(), uri: "s3://omni-test/iceberg/orders/metadata/current.metadata.json".into(), format: S3Format::Iceberg },
+                S3CatalogSource { schema: "omni-extra".into(), name: "customers".into(), uri: "s3://omni-extra/csv/customers.csv".into(), format: S3Format::Csv },
+            ],
+            region: "us-east-1".into(),
+            endpoint: Some(std::env::var("OMNI_SQL_TEST_S3_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:9000".into())),
+            access_key_id: Some(std::env::var("AWS_ACCESS_KEY_ID").unwrap_or_else(|_| "omni_test".into())),
+            secret_access_key: Some(std::env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_else(|_| "omni_test_secret".into())),
+            sql: "SELECT c.name, o.amount FROM \"omni-test\".orders o JOIN \"omni-extra\".customers c ON c.id = o.id JOIN \"omni-test\".parquet_orders p ON p.id = o.id JOIN \"omni-test\".delta_orders d ON d.id = o.id JOIN \"omni-test\".iceberg_orders i ON i.id = o.id JOIN \"local\".\"thresholds\" t ON t.id = o.id".into(),
+            limit: 1000,
+        }).unwrap();
+        assert_eq!(result.rows, vec![vec![JsonValue::from("Lin"), JsonValue::from(20)]]);
+    }
+
+    #[test]
+    fn local_duckdb_import_survives_restart() {
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("local.duckdb");
+        {
+            let engine = DataEngine::open_persistent(&path).unwrap();
+            engine.import_result(ImportResultRequest {
+                operation_id: "persistent-import".into(), workspace_id: "local-duckdb".into(), name: "customers".into(),
+                columns: vec![ImportColumn { name: "id".into(), data_type: "INTEGER".into(), nullable: false }],
+                rows: vec![vec![JsonValue::from(7)]], rows_more_available: false,
+                source_connection_id: None, source_sql: None, selection: ImportSelection::Full,
+            }).unwrap();
+        }
+        let reopened = DataEngine::open_persistent(&path).unwrap();
+        assert_eq!(reopened.list_datasets("local-duckdb").unwrap().len(), 1);
+        let result = reopened.query(QueryRequest {
+            operation_id: "persistent-query".into(), workspace_id: "local-duckdb".into(),
+            sql: "SELECT id FROM customers".into(), limit: 10,
+        }).unwrap();
+        assert_eq!(result.rows, vec![vec![JsonValue::from(7)]]);
+        drop(reopened);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn imports_json_into_local_duckdb() {
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("customers.json");
+        std::fs::write(&path, "[{\"id\":1,\"name\":\"Ada\"},{\"id\":2,\"name\":\"Lin\"}]").unwrap();
+        let engine = DataEngine::open_in_memory().unwrap();
+        let dataset = engine.import_file(FileImportRequest {
+            operation_id: "json-import".into(), workspace_id: "local-duckdb".into(), name: "customers".into(),
+            path, format: FileFormat::Json, selection: ImportSelection::Full,
+        }).unwrap();
+        assert_eq!(dataset.row_count, 2);
+        let result = engine.query(QueryRequest {
+            operation_id: "json-query".into(), workspace_id: "local-duckdb".into(),
+            sql: "SELECT name FROM customers WHERE id = 2".into(), limit: 10,
+        }).unwrap();
+        assert_eq!(result.rows, vec![vec![JsonValue::from("Lin")]]);
+        drop(engine);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
     use std::{
         io::{Read, Write},
         net::TcpListener,

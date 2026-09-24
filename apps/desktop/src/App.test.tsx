@@ -499,6 +499,22 @@ describe("App update event listener", () => {
     expect(screen.getByRole("button", { name: "Close history" })).toBeTruthy();
   });
 
+  it("keeps an analytical source import error visible in the dialog", async () => {
+    seedSession("SELECT id FROM customers", 1000, "conn-1");
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "analysis_import_source") throw new Error("Source query failed");
+      return undefined;
+    });
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+    await screen.findByText("42");
+    fireEvent.click(screen.getAllByRole("button", { name: "Analyze locally" }).at(-1)!);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Analyze locally" }));
+    expect(await within(dialog).findByText("Source query failed")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it("reports an event-triggered update check as up to date", async () => {
     let checkForUpdates: (() => Promise<void>) | null = null;
     vi.mocked(listen).mockImplementation(async (event, listener) => {

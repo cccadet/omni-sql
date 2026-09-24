@@ -1,0 +1,7 @@
+# S3-compatible fallback for test environments where the MinIO image cannot be pulled.
+# Use together with docker-compose.yml; the same fixture buckets and credentials apply.
+services:
+  minio:
+    image: motoserver/moto@sha256:91fd602a21f49cf9eb82fdf474015a3c131d40104c8297ea6a2ca920708ae32c
+    entrypoint: ["moto_server", "-H", "0.0.0.0", "-p", "9000"]
+    command: []

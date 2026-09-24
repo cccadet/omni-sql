@@ -37,6 +37,8 @@ const TYPE_OPTIONS: Record<DialectId, readonly string[]> = {
   oracle: ["NUMBER(10)", "NUMBER(5)", "NUMBER(19)", "NUMBER(18,2)", "BINARY_FLOAT", "BINARY_DOUBLE", "VARCHAR2(255)", "NVARCHAR2(255)", "CLOB", "NUMBER(1)", "DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "RAW(16)", "BLOB"],
   "jdbc-generic": ["INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
   odbc: ["INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
+  s3: ["VARCHAR"],
+  duckdb: ["INTEGER", "BIGINT", "DOUBLE", "VARCHAR", "BOOLEAN", "DATE", "TIMESTAMP"],
 };
 
 const DEFAULT_OPTIONS: Record<DialectId, readonly string[]> = {
@@ -47,6 +49,8 @@ const DEFAULT_OPTIONS: Record<DialectId, readonly string[]> = {
   oracle: ["NULL", "0", "1", "''", "SYSDATE", "SYSTIMESTAMP", "SYS_GUID()", "sequence_name.NEXTVAL"],
   "jdbc-generic": ["NULL", "0", "1", "true", "false", "''", "CURRENT_DATE", "CURRENT_TIMESTAMP"],
   odbc: ["NULL", "0", "1", "true", "false", "''", "CURRENT_DATE", "CURRENT_TIMESTAMP"],
+  s3: [],
+  duckdb: [],
 };
 
 function splitIndexColumns(value: string): string[] {

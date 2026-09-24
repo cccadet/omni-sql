@@ -26,6 +26,7 @@ export interface ToolbarProps {
   onAdd?: () => void;
   onRun?: () => void;
   onExplain?: () => void;
+  explainAvailable?: boolean;
   onCancelRun?: () => void;
   onRunChoice?: (choice: "current" | "all") => void;
   onRunChoiceCancel?: () => void;
@@ -54,6 +55,7 @@ export function Toolbar({
   onAdd,
   onRun,
   onExplain,
+  explainAvailable = true,
   onCancelRun,
   onRunChoice,
   onRunChoiceCancel,
@@ -101,7 +103,7 @@ export function Toolbar({
                 {t("run")}
               </ToolbarButton>
             )}
-            <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running} aria-label={t("explainQuery")} title={t("explainQuery")}>
+            <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running || !explainAvailable} aria-label={t("explainQuery")} title={t("explainQuery")}>
               EXPLAIN
             </ToolbarButton>
       </div>}
@@ -139,7 +141,8 @@ export function Toolbar({
             </ToolbarButton>
       </div>}
 
-      {!globalOnly && <ToolbarButton onClick={onSendToAnalysis} disabled={!activeConnectionId} title={t("analysisSendToLocal")}>{t("analysisSendToLocal")}</ToolbarButton>}
+      {!globalOnly && <ToolbarButton icon={<DuckDbIcon size={15} />} onClick={onSendToAnalysis} disabled={!activeConnectionId || !onSendToAnalysis}
+        aria-label={t("analysisSendToLocal")} title={t("analysisSendToLocal")}>DuckDB</ToolbarButton>}
 
       <div style={{ flex: 1 }} />
 

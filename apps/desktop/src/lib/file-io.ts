@@ -53,7 +53,7 @@ export async function pickAnalysisExportPath(defaultName: string, format: "csv" 
 
 export async function pickAnalysisImportPath(): Promise<string | null> {
   const result = await openDialog({
-    filters: [{ name: "Analytical data", extensions: ["csv", "parquet"] }],
+    filters: [{ name: "Analytical data", extensions: ["csv", "parquet", "json"] }],
     multiple: false,
   });
   return typeof result === "string" ? result : null;

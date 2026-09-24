@@ -240,6 +240,7 @@ async function readStoredPassword(
 
 async function restoreConnections(): Promise<void> {
   for (const persistedConfig of cache.listConnections()) {
+    if (persistedConfig.dialect === "s3" || persistedConfig.dialect === "duckdb") continue;
     let cfg = persistedConfig;
     let password: string | undefined;
     try {
@@ -305,7 +306,8 @@ export async function* streamAnalysisQuery(
     throw new RpcValidationError("analytical batch size must be between 1 and 10000");
   }
   await connectionsRestored;
-  const session = requireSession(connectionId);
+  const session = sessions.get(connectionId);
+  if (!session) throw new RpcValidationError("source connection is unavailable; reconnect it and try again");
   assertSafeExplainSql(sql, session.config.dialect);
   const adapter = session.adapter;
   if (!adapter.streamQuery) throw new RpcValidationError("analytical streaming is unavailable for this adapter");
@@ -573,6 +575,42 @@ export const handlers: BackendRpcRouter = {
   async "connection.add"({ config, password }: AddConnectionParams): Promise<AddConnectionResult> {
     await connectionsRestored;
     assertEndpointHasNoEmbeddedCredentials(config);
+    if (config.dialect === "duckdb") {
+      if (config.id !== "local-duckdb" || config.endpoint !== "local.duckdb" || password) throw new Error("invalid local DuckDB connection");
+      cache.upsertConnection(config);
+      return { connectionId: config.id, ok: true };
+    }
+    if (config.dialect === "s3") {
+      const encodedBuckets = config.options?.buckets;
+      let buckets: unknown = [config.endpoint];
+      if (typeof encodedBuckets === "string") {
+        try { buckets = JSON.parse(encodedBuckets); } catch { throw new Error("invalid S3 bucket list"); }
+      }
+      if (!Array.isArray(buckets) || buckets.length === 0 || buckets.length > 50
+        || !buckets.every((bucket) => typeof bucket === "string" && /^s3:\/\/[^/@]+\/?$/.test(bucket))
+        || !buckets.includes(config.endpoint)) {
+        throw new Error("invalid S3 bucket or prefix URI");
+      }
+      const endpoint = config.options?.endpoint;
+      if (typeof endpoint === "string" && endpoint.includes("://")) {
+        const url = new URL(endpoint);
+        if (url.username || url.password) throw new Error("S3 endpoint cannot contain credentials");
+      }
+      const previous = sessions.get(config.id);
+      if (previous) await previous.adapter.close().catch(() => undefined);
+      sessions.delete(config.id);
+      if (!config.user.trim()) {
+        if (password) throw new Error("S3 Access Key ID is required with a secret key");
+        await deletePassword(config).catch(() => undefined);
+      } else {
+        if (password) await setPassword(config, password);
+        if (!await readStoredPassword(config, "saving S3 credentials")) {
+          throw new Error("S3 Secret Access Key is required with an access key");
+        }
+      }
+      cache.upsertConnection({ ...config, passwordSlot: passwordSlotFor(config) });
+      return { connectionId: config.id, ok: true };
+    }
     const configWithSlot: ConnectionConfig = {
       ...config,
       passwordSlot: passwordSlotFor(config),
@@ -614,6 +652,13 @@ export const handlers: BackendRpcRouter = {
       lastSyncedAt: cache.lastSyncedAt(c.id, "connection"),
     }));
     return { configs };
+  },
+
+  async "connection.s3Credentials"({ connectionId }): Promise<{ accessKeyId: string; secretAccessKey?: string }> {
+    await connectionsRestored;
+    const config = cache.listConnections().find((item) => item.id === connectionId && item.dialect === "s3");
+    if (!config) throw new Error("S3 connection not found");
+    return { accessKeyId: config.user, secretAccessKey: await readStoredPassword(config, "reading S3 credentials") };
   },
 
   async "connectionGroup.list"(): Promise<ListConnectionGroupsResult> {
@@ -663,6 +708,7 @@ export const handlers: BackendRpcRouter = {
 
   async "connection.test"({ config, password }: TestConnectionParams): Promise<TestConnectionResult> {
     await connectionsRestored;
+    if (config.dialect === "duckdb") return { ok: true, latencyMs: 0 };
     const effectivePassword =
       password !== undefined && password.length > 0
         ? password

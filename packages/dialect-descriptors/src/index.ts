@@ -132,6 +132,14 @@ export const odbcDescriptor: DialectDescriptor = ansiLike("odbc", new Set(ANSI_K
   identifierQuoteChars: ['"'],
 });
 
+export const s3Descriptor: DialectDescriptor = ansiLike("s3", new Set(ANSI_KEYWORDS), {
+  identifierQuoteChars: ['"'],
+});
+
+export const duckdbDescriptor: DialectDescriptor = ansiLike("duckdb", new Set(ANSI_KEYWORDS), {
+  identifierQuoteChars: ['"'],
+});
+
 const REGISTRY = {
   postgres: postgresDescriptor,
   mysql: mysqlDescriptor,
@@ -140,6 +148,8 @@ const REGISTRY = {
   oracle: oracleDescriptor,
   "jdbc-generic": jdbcGenericDescriptor,
   odbc: odbcDescriptor,
+  s3: s3Descriptor,
+  duckdb: duckdbDescriptor,
 } satisfies Record<DialectId, DialectDescriptor>;
 
 export function dialectDescriptor(dialect: DialectId): Readonly<DialectDescriptor> {

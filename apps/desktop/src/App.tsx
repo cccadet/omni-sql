@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, MessageBar, MessageBarBody, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
 import { PlugConnectedRegular, PlugDisconnectedRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,16 +25,19 @@ import { SqlCommandLibrary } from "./components/SqlCommandLibrary";
 import { ExecutionRiskDialog } from "./components/ExecutionRiskDialog";
 import { DialectIcon } from "./components/DialectIcon";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
-import { backend, type ConnectionEntry, type ConnectionGroup, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
+import { backend, type ConnectionEntry, type ConnectionGroup, type RelationColumn, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
-import { basenameNoExt, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
+import { basenameNoExt, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
 import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
-import { cancelAnalysis, clearAnalysis, getAnalysisOperationStatus, importQueryResult, importQuerySource, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
+import { cancelAnalysis, clearAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, listAnalysisDatasets, listAnalysisS3, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
+import { s3Buckets } from "./lib/s3-buckets";
+import { detectS3Tables } from "./lib/s3-sources";
+import { s3ReferencedRelations, s3Suggestions } from "./lib/s3-autocomplete";
 import type { McpStatusResult } from "@omni-sql/ts-types";
 
 const HISTORY_KEY = "omni-sql:history";
@@ -49,7 +52,7 @@ const historyTextEncoder = new TextEncoder();
 
 const DIALECT_LABELS: Record<string, string> = {
   postgres: "PostgreSQL", mysql: "MySQL", mariadb: "MariaDB", sqlserver: "SQL Server",
-  oracle: "Oracle", "jdbc-generic": "JDBC", odbc: "ODBC",
+  oracle: "Oracle", "jdbc-generic": "JDBC", odbc: "ODBC", s3: "S3", duckdb: "DuckDB",
 };
 
 function supportsInAppUpdate(): boolean {
@@ -91,6 +94,7 @@ function saveTrustedWarningConnections(connections: ReadonlySet<string>): void {
 interface ActiveQuery {
   sequence: number;
   connectionId: string;
+  engineOperationId: string | null;
   abortController: AbortController;
   cancelPromise: Promise<void> | null;
   cancelSettled: boolean;
@@ -216,20 +220,38 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [backgroundProcessesOpen, setBackgroundProcessesOpen] = useState(false);
   const [analysisDataset, setAnalysisDataset] = useState<DatasetRef | null>(null);
   const [analysisWorkspaceId, setAnalysisWorkspaceId] = useState<string | null>(null);
+  const [analysisS3ConnectionId, setAnalysisS3ConnectionId] = useState<string | null>(null);
+  const onAnalysisDatasetSelected = useCallback((item: DatasetRef | null) => {
+    setAnalysisDataset(item);
+    if (item) setAnalysisS3ConnectionId(null);
+  }, []);
   const [analysisImporting, setAnalysisImporting] = useState(false);
   const [analysisImportOperationId, setAnalysisImportOperationId] = useState<string | null>(null);
   const [analysisImportStatus, setAnalysisImportStatus] = useState<AnalysisOperationStatus | null>(null);
   const [analysisImportOpen, setAnalysisImportOpen] = useState(false);
+  const [analysisImportError, setAnalysisImportError] = useState<string | null>(null);
+  const [crossSourceOpen, setCrossSourceOpen] = useState(false);
+  const [crossSourceConnectionId, setCrossSourceConnectionId] = useState("");
+  const [crossSourceSearch, setCrossSourceSearch] = useState("");
+  const [crossSourceSql, setCrossSourceSql] = useState("");
+  const [crossSourceRelations, setCrossSourceRelations] = useState<RelationInfo[]>([]);
+  const [crossSourceError, setCrossSourceError] = useState<string | null>(null);
+  const [crossSourceBusy, setCrossSourceBusy] = useState(false);
+  const [crossSourceLimit, setCrossSourceLimit] = useState(10000);
+  const [crossSourceAllRows, setCrossSourceAllRows] = useState(false);
   const [analysisSelection, setAnalysisSelection] = useState<"full" | "first_n" | "reservoir">("full");
   const [analysisLoadOrigin, setAnalysisLoadOrigin] = useState<"displayed" | "source">("source");
   const [analysisSampleRows, setAnalysisSampleRows] = useState(1_000);
   const [analysisSourceSql, setAnalysisSourceSql] = useState<string | null>(null);
-  const [analysisInitialSource, setAnalysisInitialSource] = useState<{ connectionId: string; sql: string } | null>(null);
+  const analysisInitialSource = null;
   const [analysisSidebarHost, setAnalysisSidebarHost] = useState<HTMLDivElement | null>(null);
   const [editingConfig, setEditingConfig] = useState<ConnectionEntry | null>(null);
   const [duplicatingConnection, setDuplicatingConnection] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarCache, setSidebarCache] = useState<Record<string, { schemas: string[]; relations: RelationInfo[]; functions: FunctionDef[] }>>({});
+  const [s3Catalog, setS3Catalog] = useState<Record<string, { schema: string; name: string; uri: string; format: "csv" | "parquet" | "delta" | "iceberg" }[]>>({});
+  const s3ColumnRequests = useRef(new Map<string, Promise<RelationColumn[]>>());
+  const [s3Prefixes, setS3Prefixes] = useState<Record<string, string>>({});
   const [sidebarLoading, setSidebarLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
@@ -371,6 +393,35 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     void loadConnections();
   }, [loadConnections]);
 
+  useEffect(() => {
+    const key = "omni-sql-analysis-s3-sources";
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    void (async () => {
+      const sources: unknown = JSON.parse(raw);
+      if (!Array.isArray(sources)) return;
+      const { configs } = await backend.call<{ configs: ConnectionEntry[] }>("connection.list", {});
+      const registeredBuckets = new Set(configs.filter((config) => config.dialect === "s3").map((config) => config.endpoint));
+      for (const source of sources) {
+        if (!source || typeof source !== "object") continue;
+        const entry = source as Record<string, unknown>;
+        if (typeof entry.uri !== "string" || !/^s3:\/\/[^/@]+\/.+/.test(entry.uri)
+          || !["csv", "parquet", "delta", "iceberg"].includes(String(entry.format))) continue;
+        const bucket = entry.uri.match(/^s3:\/\/[^/]+/)?.[0] ?? entry.uri;
+        if (registeredBuckets.has(bucket)) continue;
+        await backend.call("connection.add", { config: {
+          id: `conn-${crypto.randomUUID()}`, label: String(entry.name || entry.uri), dialect: "s3",
+          endpoint: bucket, user: "", options: {
+            region: String(entry.region ?? ""), endpoint: String(entry.endpoint ?? ""),
+          },
+        } });
+        registeredBuckets.add(bucket);
+      }
+      localStorage.removeItem(key);
+      await loadConnections();
+    })().catch(() => undefined);
+  }, [loadConnections]);
+
   const loadConnectionGroups = useCallback(async () => {
     try {
       const result = await backend.call<{ groups: ConnectionGroup[] }>("connectionGroup.list", {});
@@ -416,25 +467,24 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     if (analysisWorkspaceId) await clearAnalysis(analysisWorkspaceId).catch(() => undefined);
     setAnalysisDataset(null);
     setAnalysisWorkspaceId(null);
+    setAnalysisS3ConnectionId(null);
   }, [analysisWorkspaceId]);
-
-  const openAnalysisWorkspace = useCallback(() => {
-    setAnalysisInitialSource(null);
-    setAnalysisWorkspaceId(activeTab.id);
-  }, [activeTab.id]);
 
   const sendCurrentSqlToAnalysis = useCallback(() => {
     if (!activeConnectionId) return;
     const sql = (editorRef.current?.getSelectionOrCurrent().sql ?? activeTab.sql).trim();
     if (!sql) return;
-    setAnalysisInitialSource({ connectionId: activeConnectionId, sql });
-    setAnalysisWorkspaceId(activeTab.id);
-  }, [activeConnectionId, activeTab.id, activeTab.sql]);
+    setAnalysisSourceSql(sql);
+    setAnalysisLoadOrigin("source");
+    setAnalysisImportError(null);
+    setAnalysisImportOpen(true);
+  }, [activeConnectionId, activeTab.sql]);
 
   const importCurrentResultForAnalysis = useCallback(async () => {
     if (!result || analysisImporting) return;
     if (analysisLoadOrigin === "source" && (!activeConnectionId || !analysisSourceSql)) return;
     setAnalysisImporting(true);
+    setAnalysisImportError(null);
     const operationId = `import-${crypto.randomUUID()}`;
     setAnalysisImportOperationId(operationId);
     try {
@@ -445,9 +495,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           : { mode: "reservoir" as const, rows: analysisSampleRows, seed: 42 };
       const sourceSql = analysisSourceSql ?? activeTab.sql;
       const datasetName = suggestAnalysisDatasetName(sourceSql, activeTab.title);
+      await backend.call("connection.add", { config: { id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "local.duckdb", user: "" } });
       const dataset = analysisLoadOrigin === "source"
         ? await importQuerySource({
-            workspaceId: activeTab.id,
+            workspaceId: "federated",
             name: datasetName,
             connectionId: activeConnectionId!,
             sql: analysisSourceSql!,
@@ -455,7 +506,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             selection,
           })
         : await importQueryResult({
-            workspaceId: activeTab.id,
+            workspaceId: "local-duckdb",
             name: datasetName,
             result,
             ...(activeConnectionId ? { sourceConnectionId: activeConnectionId } : {}),
@@ -463,16 +514,23 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             selection,
           });
       setAnalysisDataset(dataset);
-      setAnalysisWorkspaceId(activeTab.id);
+      await loadConnections();
+      setSidebarCache((previous) => {
+        const next = { ...previous };
+        delete next["local-duckdb"];
+        for (const connection of connections) if (connection.dialect === "s3") delete next[connection.id];
+        return next;
+      });
+      setAnalysisWorkspaceId(null);
+      updateTab(activeTab.id, { connectionId: "local-duckdb", sql: `SELECT * FROM "${dataset.relationName.replaceAll('"', '""')}" LIMIT 1000` });
       setAnalysisImportOpen(false);
     } catch (error) {
-      setBusyMsg(`${t("error")}: ${error instanceof Error ? error.message : String(error)}`);
-      window.setTimeout(() => setBusyMsg(null), 6_000);
+      setAnalysisImportError(error instanceof Error ? error.message : String(error));
     } finally {
       setAnalysisImporting(false);
       setAnalysisImportOperationId(null);
     }
-  }, [activeConnectionId, activeTab.id, activeTab.sql, activeTab.title, analysisImporting, analysisLoadOrigin, analysisSampleRows, analysisSelection, analysisSourceSql, result, t]);
+  }, [activeConnectionId, activeTab.id, activeTab.sql, activeTab.title, analysisImporting, analysisLoadOrigin, analysisSampleRows, analysisSelection, analysisSourceSql, connections, loadConnections, result, updateTab]);
 
   const activeDialect: DialectId = useMemo(
     () => connections.find((c) => c.id === activeConnectionId)?.dialect ?? "jdbc-generic",
@@ -482,6 +540,26 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     () => connections.find((c) => c.id === activeConnectionId) ?? null,
     [connections, activeConnectionId],
   );
+  const analysisS3Connection = connections.find((connection) => connection.id === analysisS3ConnectionId) ?? null;
+  const crossSourceConnection = connections.find((connection) => connection.id === crossSourceConnectionId);
+
+  useEffect(() => {
+    if (!crossSourceOpen || !crossSourceConnectionId) { setCrossSourceRelations([]); return; }
+    let current = true;
+    void backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId: crossSourceConnectionId, includeColumns: false })
+      .then(({ relations }) => { if (current) setCrossSourceRelations(relations); })
+      .catch((error: unknown) => { if (current) setCrossSourceError(error instanceof Error ? error.message : String(error)); });
+    return () => { current = false; };
+  }, [crossSourceOpen, crossSourceConnectionId]);
+
+  const selectCrossSourceRelation = useCallback((relation: RelationInfo) => {
+    const dialect = crossSourceConnection?.dialect;
+    const quote = (value: string) => dialect === "mysql" || dialect === "mariadb"
+      ? `\`${value.replaceAll("`", "``")}\``
+      : dialect === "sqlserver" ? `[${value.replaceAll("]", "]]")}]`
+        : `"${value.replaceAll('"', '""')}"`;
+    setCrossSourceSql(`SELECT * FROM ${quote(relation.schema)}.${quote(relation.name)}`);
+  }, [crossSourceConnection]);
 
   mcpStateRef.current = {
     activeTab: activeTab ? {
@@ -497,8 +575,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   useEffect(() => {
     let current = true;
     const checkId = ++connectionHealthCheckRef.current;
-    if (!activeConnectionId) {
+    if (!activeConnectionId || !activeConnection) {
       setConnectionHealth("unknown");
+      return () => { current = false; };
+    }
+    if (activeDialect === "s3" || activeDialect === "duckdb") {
+      setConnectionHealth("online");
       return () => { current = false; };
     }
     setConnectionHealth("verifying");
@@ -511,11 +593,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         if (current && checkId === connectionHealthCheckRef.current) setConnectionHealth("offline");
       });
     return () => { current = false; };
-  }, [activeConnectionId]);
+  }, [activeConnectionId, activeConnection, activeDialect]);
 
   useEffect(() => {
     setDiagnostics([]);
-    if (!activeConnectionId || !activeTab.sql.trim()) return;
+    if (!activeConnectionId || !activeConnection || activeDialect === "s3" || activeDialect === "duckdb" || !activeTab.sql.trim()) return;
     const timer = window.setTimeout(() => {
       const statement = editorRef.current?.getCurrentStatement();
       const base = statement?.start ?? 0;
@@ -533,30 +615,134 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         .catch(() => setDiagnostics([]));
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [activeConnectionId, activeTab.sql, cursorPosition]);
+  }, [activeConnectionId, activeConnection, activeDialect, activeTab.sql, cursorPosition]);
 
-  const loadSidebarData = useCallback(async (connectionId: string | null) => {
+  const loadSidebarData = useCallback(async (connectionId: string | null, prefixOverride?: string) => {
     if (!connectionId) return;
     setSidebarLoading(true);
     try {
+      const s3 = connections.find((item) => item.id === connectionId && item.dialect === "s3");
+      const local = connections.find((item) => item.id === connectionId && item.dialect === "duckdb");
+      if (local) {
+        const datasets = [...await listAnalysisDatasets("local-duckdb"), ...await listAnalysisDatasets("federated")];
+        setSidebarCache((previous) => ({ ...previous, [connectionId]: {
+          schemas: ["main"],
+          relations: datasets.map((dataset) => ({ schema: "main", name: dataset.relationName, kind: "table", columns: dataset.columns.map((column) => ({ name: column.name, dataType: column.dataType, nullable: column.nullable, isPrimaryKey: false })) })),
+          functions: [],
+        } }));
+        return;
+      }
+      if (s3) {
+        for (const key of s3ColumnRequests.current.keys()) {
+          if (key.startsWith(`${connectionId}:`)) s3ColumnRequests.current.delete(key);
+        }
+        const credentials = await backend.call<{ accessKeyId: string; secretAccessKey?: string }>("connection.s3Credentials", { connectionId });
+        const buckets = s3Buckets(s3);
+        const sources = (await Promise.all(buckets.map(async (bucketUri) => {
+          const objects = await listAnalysisS3({ uri: bucketUri, region: String(s3.options?.region ?? ""),
+            endpoint: String(s3.options?.endpoint ?? "") || undefined, accessKeyId: credentials.accessKeyId || undefined,
+            secretAccessKey: credentials.secretAccessKey, prefix: prefixOverride ?? s3Prefixes[connectionId] ?? "" });
+          const schema = bucketUri.slice(5);
+          const used = new Set<string>();
+          return detectS3Tables(objects).map((table) => {
+            const base = (table.format === "iceberg" ? table.uri.split("/metadata/")[0]! : table.uri)
+              .slice(bucketUri.length + 1).replace(/\.(?:csv|parquet)$/i, "").replaceAll("/", "__");
+            let name = base;
+            for (let suffix = 2; used.has(name.toLowerCase()); suffix += 1) name = `${base}_${suffix}`;
+            used.add(name.toLowerCase());
+            return { schema, name, uri: table.uri, format: table.format };
+          });
+        }))).flat();
+        const localDatasets = [...await listAnalysisDatasets("local-duckdb"), ...await listAnalysisDatasets("federated")];
+        setS3Catalog((previous) => ({ ...previous, [connectionId]: sources }));
+        setSidebarCache((previous) => ({ ...previous, [connectionId]: {
+          schemas: [...buckets.map((bucket) => bucket.slice(5)), ...(localDatasets.length ? ["local"] : [])],
+          relations: [...sources.map((source) => ({ schema: source.schema, name: source.name, kind: "table" as const })),
+            ...localDatasets.map((dataset) => ({ schema: "local", name: dataset.relationName, kind: "table" as const,
+              columns: dataset.columns.map((column) => ({ name: column.name, dataType: column.dataType, nullable: column.nullable, isPrimaryKey: false })) }))],
+          functions: [],
+        } }));
+        return;
+      }
       const [schemaRes, relRes, fnRes] = await Promise.all([
         backend.call<{ schemas: string[] }>("metadata.listSchemas", { connectionId }),
         backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", { connectionId, includeColumns: true }),
         backend.call<{ functions: FunctionDef[] }>("metadata.listFunctions", { connectionId }),
       ]);
       setSidebarCache((prev) => ({ ...prev, [connectionId]: { schemas: schemaRes.schemas, relations: relRes.relations, functions: fnRes.functions } }));
-    } catch {
-      // best-effort
+    } catch (error) {
+      setBusyMsg(`${t("error")}: ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => setBusyMsg(null), 6_000);
     } finally {
       setSidebarLoading(false);
     }
-  }, []);
+  }, [connections, s3Prefixes, t]);
+
+  const importCrossSource = useCallback(async () => {
+    if (!crossSourceConnectionId || !crossSourceSql.trim() || crossSourceBusy) return;
+    setCrossSourceBusy(true);
+    setCrossSourceError(null);
+    try {
+      const name = suggestAnalysisDatasetName(crossSourceSql, crossSourceConnection?.label ?? "Imported table");
+      const imported = await importQuerySource({ workspaceId: "federated", name,
+        connectionId: crossSourceConnectionId, sql: crossSourceSql.trim(),
+        selection: crossSourceAllRows ? { mode: "full" } : { mode: "first_n", rows: crossSourceLimit } });
+      if (activeConnectionId) {
+        setSidebarCache((previous) => { const next = { ...previous }; delete next[activeConnectionId]; return next; });
+        await loadSidebarData(activeConnectionId);
+      }
+      setCrossSourceOpen(false);
+      setBusyMsg(`${imported.relationName}: ${imported.rowCount.toLocaleString()} linhas disponíveis como local."${imported.relationName.replaceAll('"', '""')}"`);
+      window.setTimeout(() => setBusyMsg(null), 8000);
+    } catch (error) {
+      setCrossSourceError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCrossSourceBusy(false);
+    }
+  }, [activeConnectionId, crossSourceAllRows, crossSourceBusy, crossSourceConnection, crossSourceConnectionId, crossSourceLimit, crossSourceSql, loadSidebarData]);
+
+  const loadS3Columns = useCallback(async (connectionId: string, schema: string, table: string): Promise<RelationColumn[]> => {
+    const existing = sidebarCache[connectionId]?.relations.find((relation) => relation.schema === schema && relation.name === table);
+    if (existing?.columns !== undefined) return existing.columns;
+    const source = s3Catalog[connectionId]?.find((item) => item.schema === schema && item.name === table);
+    const connection = connections.find((item) => item.id === connectionId && item.dialect === "s3");
+    if (!source || !connection) return [];
+    const key = `${connectionId}:${source.uri}`;
+    let request = s3ColumnRequests.current.get(key);
+    if (!request) {
+      request = (async () => {
+        const credentials = await backend.call<{ accessKeyId: string; secretAccessKey?: string }>("connection.s3Credentials", { connectionId });
+        const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
+        const result = await runS3CatalogQuery({ workspaceId: "local-duckdb", sources: [source],
+          region: String(connection.options?.region ?? ""), endpoint: String(connection.options?.endpoint ?? "") || undefined,
+          accessKeyId: credentials.accessKeyId || undefined, secretAccessKey: credentials.secretAccessKey,
+          sql: `SELECT * FROM ${quote(schema)}.${quote(table)} LIMIT 0`, limit: 1 });
+        const columns = result.columns.map((column) => ({ ...column, isPrimaryKey: false }));
+        setSidebarCache((previous) => {
+          const data = previous[connectionId];
+          if (!data) return previous;
+          return { ...previous, [connectionId]: { ...data, relations: data.relations.map((relation) =>
+            relation.schema === schema && relation.name === table ? { ...relation, columns } : relation) } };
+        });
+        return columns;
+      })();
+      s3ColumnRequests.current.set(key, request);
+      void request.catch(() => s3ColumnRequests.current.delete(key));
+    }
+    return request;
+  }, [connections, s3Catalog, sidebarCache]);
+
+  const onS3PrefixChange = useCallback((prefix: string) => {
+    if (!activeConnectionId) return;
+    setS3Prefixes((previous) => ({ ...previous, [activeConnectionId]: prefix }));
+    void loadSidebarData(activeConnectionId, prefix);
+  }, [activeConnectionId, loadSidebarData]);
 
   useEffect(() => {
-    if (activeConnectionId && !sidebarCache[activeConnectionId]) {
+    if (activeConnectionId && activeConnection && !sidebarCache[activeConnectionId]) {
       void loadSidebarData(activeConnectionId);
     }
-  }, [activeConnectionId, loadSidebarData, sidebarCache]);
+  }, [activeConnectionId, activeConnection, loadSidebarData, sidebarCache]);
 
   const introspectConnection = useCallback(async (connectionId: string, tabId: string) => {
     setBusyMsg(t("refreshMetadata"));
@@ -587,15 +773,21 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const onRefreshMetadata = useCallback(() => {
     if (!activeConnectionId) return;
+    if (activeDialect === "s3" || activeDialect === "duckdb") {
+      void loadSidebarData(activeConnectionId);
+      return;
+    }
     setMetadataRefreshConfirmOpen(true);
-  }, [activeConnectionId]);
+  }, [activeConnectionId, activeDialect, loadSidebarData]);
 
   const onSelectConnection = useCallback(
     async (id: string) => {
+      if (analysisWorkspaceId) setAnalysisWorkspaceId(null);
+      setAnalysisS3ConnectionId(null);
       updateTab(activeTab.id, { connectionId: id });
       await loadSidebarData(id);
     },
-    [activeTab.id, updateTab, loadSidebarData],
+    [activeTab.id, analysisWorkspaceId, updateTab, loadSidebarData],
   );
 
   const onAddConnection = useCallback(() => {
@@ -603,6 +795,26 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     setDuplicatingConnection(false);
     setDialogOpen(true);
   }, []);
+
+  const onImportLocalFile = useCallback(async () => {
+    const path = await pickAnalysisImportPath();
+    if (!path) return;
+    const format = path.toLowerCase().endsWith(".parquet") ? "parquet" : path.toLowerCase().endsWith(".json") ? "json" : "csv";
+    const name = path.split(/[\\/]/).at(-1)?.replace(/\.(csv|parquet|json)$/i, "") || "Imported data";
+    setBusyMsg(`Importing ${name}…`);
+    try {
+      await backend.call("connection.add", { config: { id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "local.duckdb", user: "" } });
+      await importAnalysisFile({ workspaceId: "local-duckdb", name, path, format, selection: { mode: "full" } });
+      await loadConnections();
+      setSidebarCache((previous) => { const next = { ...previous }; delete next["local-duckdb"]; return next; });
+      setAnalysisWorkspaceId(null);
+      updateTab(activeTab.id, { connectionId: "local-duckdb" });
+    } catch (error) {
+      updateTab(activeTab.id, { error: `${t("error")}: ${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      setBusyMsg(null);
+    }
+  }, [activeTab.id, loadConnections, updateTab, t]);
 
   const onEditConnection = useCallback((id: string) => {
     const c = connections.find((x) => x.id === id);
@@ -626,11 +838,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       try {
         await backend.call("connection.remove", { connectionId: id });
         await loadConnections();
+        if (id === analysisS3ConnectionId) {
+          setAnalysisS3ConnectionId(null);
+          setAnalysisWorkspaceId(null);
+        }
       } catch (e) {
         updateTab(activeTab.id, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
       }
     },
-    [activeTab.id, loadConnections, updateTab, t],
+    [activeTab.id, analysisS3ConnectionId, loadConnections, updateTab, t],
   );
 
   const onCreateConnectionGroup = useCallback(async (name: string) => {
@@ -656,6 +872,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const onConnectionSaved = useCallback(async (connectionId: string) => {
     setDialogOpen(false);
+    const { configs } = await backend.call<{ configs: ConnectionEntry[] }>("connection.list", {});
+    if (configs.some((config) => config.id === connectionId && config.dialect === "s3")) {
+      await loadConnections();
+      setAnalysisWorkspaceId(null);
+      updateTab(activeTab.id, { connectionId });
+      setSidebarCache((previous) => { const next = { ...previous }; delete next[connectionId]; return next; });
+      return;
+    }
     if (!activeTab.connectionId) {
       updateTab(activeTab.id, { connectionId });
     }
@@ -665,7 +889,18 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const handleAutocomplete = useCallback(
     async (cursor: number, sql = "", signal?: AbortSignal): Promise<Suggestion[]> => {
-      if (!activeConnectionId) return [];
+      if (!activeConnectionId || !activeConnection) return [];
+      if (activeDialect === "s3") {
+        const data = sidebarCache[activeConnectionId];
+        if (!data) return [];
+        const referenced = s3ReferencedRelations(sql, data.relations);
+        const resolved = await Promise.all(referenced.map(async (relation) => ({ ...relation,
+          columns: relation.columns?.length ? relation.columns : await loadS3Columns(activeConnectionId, relation.schema, relation.name),
+        })));
+        const updated = data.relations.map((relation) => resolved.find((item) => item.schema === relation.schema && item.name === relation.name) ?? relation);
+        return localizeSuggestionLabels(s3Suggestions(sql, cursor, updated), t("autocompleteAllColumns"));
+      }
+      if (activeDialect === "duckdb") return [];
       const r = await backend.call<{ suggestions: Suggestion[] }>("completion.get", {
         connectionId: activeConnectionId,
         sql,
@@ -673,9 +908,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       }, signal);
       return localizeSuggestionLabels(r.suggestions, t("autocompleteAllColumns"));
     },
-    [activeConnectionId, t],
+    [activeConnectionId, activeConnection, activeDialect, loadS3Columns, sidebarCache, t],
   );
-  const analysisSourceStreaming = activeConnectionId !== null;
+  const analysisSourceStreaming = activeConnection !== null && activeDialect !== "s3" && activeDialect !== "duckdb";
 
   const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
     if (!diagnostic.transpiledSql) return;
@@ -712,7 +947,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const runSqlSequence = useCallback(
     async (sqls: string[], label: string, executionRiskAccepted = false) => {
-      if (!activeConnectionId || !activeTab) return;
+      if (!activeConnectionId || !activeConnection || !activeTab) return;
       const variables = extractVariablesUnion(sqls);
       if (variables.length > 0) {
         setRunAfterVariables({ sqls, label });
@@ -734,6 +969,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       const activeQuery: ActiveQuery = {
         sequence: executionSequence,
         connectionId: activeConnectionId,
+        engineOperationId: null,
         abortController: new AbortController(),
         cancelPromise: null,
         cancelSettled: false,
@@ -749,6 +985,27 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       try {
         let lastResult: QueryResult | null = null;
         for (const sql of sqls) {
+          if (activeDialect === "s3" && activeConnection) {
+            const credentials = await backend.call<{ accessKeyId: string; secretAccessKey?: string }>("connection.s3Credentials", { connectionId: activeConnectionId });
+            activeQuery.engineOperationId = `s3-catalog-${crypto.randomUUID()}`;
+            lastResult = await runS3CatalogQuery({
+              workspaceId: activeTab.id,
+              sources: s3Catalog[activeConnectionId] ?? [],
+              region: String(activeConnection.options?.region ?? ""),
+              endpoint: String(activeConnection.options?.endpoint ?? "") || undefined,
+              accessKeyId: credentials.accessKeyId || undefined,
+              secretAccessKey: credentials.secretAccessKey,
+              sql,
+              limit: activeTab.queryLimit,
+              operationId: activeQuery.engineOperationId,
+            });
+            continue;
+          }
+          if (activeDialect === "duckdb") {
+            activeQuery.engineOperationId = `local-query-${crypto.randomUUID()}`;
+            lastResult = await runAnalysis("local-duckdb", sql, activeTab.queryLimit, activeQuery.engineOperationId);
+            continue;
+          }
           lastResult = await backend.call<QueryResult>("query.run", {
             connectionId: activeConnectionId,
             sql,
@@ -763,7 +1020,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         ++connectionHealthCheckRef.current;
         setConnectionHealth("online");
         pushHistory(sqls.join(";\n"), true);
-        void backend
+        if (activeDialect !== "s3" && activeDialect !== "duckdb") void backend
           .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: joinedSql })
           .then((nextEditability) => {
             if (executionSequence === executionSequenceRef.current) setEditability(nextEditability);
@@ -789,7 +1046,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           latestSqlExecutionError: executionError,
         });
         const executedSql = sqls.join(";\n");
-        void backend
+        if (activeDialect !== "s3" && activeDialect !== "duckdb") void backend
           .call<{ diagnostics: SqlDiagnostic[] }>("query.diagnose", {
             connectionId: activeConnectionId,
             sql: executedSql,
@@ -808,14 +1065,17 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         finishQuery(activeQuery);
       }
     },
-    [activeConnectionId, activeDialect, activeTab, finishQuery, pushHistory, trustedWarningConnections, updateTab, t],
+    [activeConnectionId, activeConnection, activeDialect, activeTab, finishQuery, pushHistory, s3Catalog, trustedWarningConnections, updateTab, t],
   );
 
   const handleCancelRun = useCallback(() => {
     const activeQuery = activeQueryRef.current;
     if (!activeQuery || activeQuery.finished || activeQuery.cancelPromise) return;
-    activeQuery.cancelPromise = backend
+    activeQuery.cancelPromise = (activeQuery.engineOperationId
+      ? cancelAnalysis(activeQuery.engineOperationId)
+      : backend
       .call("query.cancel", { connectionId: activeQuery.connectionId })
+    )
       .then(() => undefined)
       .catch(() => undefined)
       .finally(() => {
@@ -1237,6 +1497,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onAdd={() => addTab(activeConnectionId)}
           onRun={handleRun}
           onExplain={handleExplain}
+          explainAvailable={activeDialect !== "s3" && activeDialect !== "duckdb"}
           onCancelRun={handleCancelRun}
           onRunChoice={handleRunChoice}
           onRunChoiceCancel={handleRunChoiceCancel}
@@ -1252,7 +1513,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           globalOnly={analysisWorkspaceId !== null}
           analysisMode={analysisWorkspaceId !== null}
           onExitAnalysis={() => void closeAnalysisWorkspace()}
-          onSendToAnalysis={sendCurrentSqlToAnalysis}
+          onSendToAnalysis={activeDialect === "s3" || activeDialect === "duckdb" ? undefined : sendCurrentSqlToAnalysis}
         />
       </div>
 
@@ -1270,10 +1531,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           metadataRefreshFailed={activeConnectionId !== null && metadataRefreshFailures[activeConnectionId] === true}
           onInsert={(text) => editorRef.current?.insertAtCursor(text)}
           onAddConnection={onAddConnection}
+          onImportLocalFile={onImportLocalFile}
+          onImportDatabaseTable={() => { setCrossSourceConnectionId(""); setCrossSourceSql(""); setCrossSourceSearch(""); setCrossSourceError(null); setCrossSourceOpen(true); }}
           onEditConnection={onEditConnection}
           onDuplicateConnection={onDuplicateConnection}
           onRemoveConnection={onRemoveConnection}
           onRefreshMetadata={onRefreshMetadata}
+          onLoadS3Columns={activeConnectionId ? (schema, table) => loadS3Columns(activeConnectionId, schema, table) : undefined}
+          s3Prefix={activeConnectionId ? s3Prefixes[activeConnectionId] ?? "" : ""}
+          onS3PrefixChange={onS3PrefixChange}
           onSelectConnection={onSelectConnection}
           onCreateConnectionGroup={onCreateConnectionGroup}
           onRenameConnectionGroup={onRenameConnectionGroup}
@@ -1282,7 +1548,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onOpenInNewTab={onOpenInNewTab}
           health={connectionHealth}
           analysisActive={analysisWorkspaceId !== null}
-          onOpenAnalysis={openAnalysisWorkspace}
+          analysisConnectionId={analysisWorkspaceId ? analysisS3ConnectionId : null}
           onAnalysisHostChange={setAnalysisSidebarHost}
         />
       </aside>
@@ -1327,12 +1593,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>}
 
       {!analysisWorkspaceId && <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} />
+        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportError(null); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} />
       </section>}
 
       {analysisWorkspaceId && (
         <section style={{ gridColumn: 2, gridRow: "3 / span 2", display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={setAnalysisDataset} sourceConnections={connections} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} />
+          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={onAnalysisDatasetSelected} sourceConnections={connections.filter((connection) => connection.dialect !== "s3")} s3Connections={connections.filter((connection) => connection.dialect === "s3")} onSelectS3Connection={(id) => void onSelectConnection(id)} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} initialS3Connection={analysisS3Connection} />
         </section>
       )}
 
@@ -1350,6 +1616,42 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       <BackgroundProcessesDialog open={backgroundProcessesOpen} onClose={() => setBackgroundProcessesOpen(false)} language={language} />
 
+      <Dialog open={crossSourceOpen} onOpenChange={(_, data) => { if (!crossSourceBusy) setCrossSourceOpen(data.open); }}>
+        <DialogSurface className="omni-standard-dialog">
+          <DialogBody className="omni-dialog-body">
+            <DialogTitle>Adicionar tabela de outro banco ao JOIN</DialogTitle>
+            <DialogContent style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>Selecione uma conexão e uma tabela, ou escreva uma consulta para importar somente os dados necessários.</div>
+              <select className="omni-cross-source-select" aria-label="Banco de origem" value={crossSourceConnectionId} onChange={(event) => { setCrossSourceConnectionId(event.target.value); setCrossSourceSql(""); setCrossSourceError(null); }}>
+                <option value="">Selecione uma conexão</option>
+                {connections.filter((connection) => connection.dialect !== "s3" && connection.dialect !== "duckdb")
+                  .map((connection) => <option key={connection.id} value={connection.id}>{connection.label} ({DIALECT_LABELS[connection.dialect] ?? connection.dialect})</option>)}
+              </select>
+              {crossSourceConnectionId && <>
+                <Input aria-label="Buscar tabela" placeholder="Buscar tabela ou schema" value={crossSourceSearch} onChange={(_, data) => setCrossSourceSearch(data.value)} />
+                <select className="omni-cross-source-select" aria-label="Tabelas disponíveis" size={Math.min(6, Math.max(2, crossSourceRelations.length))} value="" onChange={(event) => {
+                  const relation = crossSourceRelations.find((item) => `${item.schema}.${item.name}` === event.target.value);
+                  if (relation) selectCrossSourceRelation(relation);
+                }}>
+                  <option value="" disabled>Escolha uma tabela</option>
+                  {crossSourceRelations.filter((relation) => `${relation.schema}.${relation.name}`.toLowerCase().includes(crossSourceSearch.toLowerCase()))
+                    .map((relation) => <option key={`${relation.schema}.${relation.name}`} value={`${relation.schema}.${relation.name}`}>{relation.schema}.{relation.name}</option>)}
+                </select>
+                <textarea className="omni-cross-source-sql" aria-label="SQL de origem" value={crossSourceSql} onChange={(event) => setCrossSourceSql(event.target.value)} rows={4} placeholder="SELECT * FROM schema.tabela WHERE ..." />
+                <label><input type="checkbox" checked={crossSourceAllRows} onChange={(event) => setCrossSourceAllRows(event.target.checked)} /> Importar todas as linhas</label>
+                {!crossSourceAllRows && <Input type="number" min={1} max={1000000} aria-label="Limite de linhas" value={String(crossSourceLimit)} onChange={(_, data) => setCrossSourceLimit(Math.max(1, Math.min(1000000, Number(data.value) || 1)))} />}
+                <div>A tabela ficará disponível no S3 como <code>local."nome_da_tabela"</code>. Os dados são copiados para o DuckDB local.</div>
+              </>}
+              {crossSourceError && <MessageBar intent="error"><MessageBarBody>{crossSourceError}</MessageBarBody></MessageBar>}
+            </DialogContent>
+            <DialogActions className="omni-dialog-actions">
+              <Button appearance="secondary" disabled={crossSourceBusy} onClick={() => setCrossSourceOpen(false)}>{t("cancel")}</Button>
+              <Button appearance="primary" disabled={crossSourceBusy || !crossSourceConnectionId || !crossSourceSql.trim()} onClick={() => void importCrossSource()}>{crossSourceBusy ? "Importando..." : "Adicionar ao JOIN"}</Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
+
       <Dialog open={analysisImportOpen} onOpenChange={(_, data) => setAnalysisImportOpen(data.open)}>
         <DialogSurface className="omni-standard-dialog">
           <DialogBody className="omni-dialog-body">
@@ -1366,7 +1668,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
                 value={analysisSelection}
                 onChange={(_, data) => setAnalysisSelection(data.value as "full" | "first_n" | "reservoir")}
               >
-                <Radio value="full" label={t(analysisLoadOrigin === "source" ? "analysisFullSnapshot" : "analysisDisplayedFull")} />
+                <Radio value="full" label={analysisLoadOrigin === "source" ? "Todas as linhas (dados temporários)" : t("analysisDisplayedFull")} />
                 <Radio value="first_n" label={t(analysisLoadOrigin === "source" ? "analysisFirstN" : "analysisDisplayedFirstN")} />
                 <Radio value="reservoir" label={t(analysisLoadOrigin === "source" ? "analysisReservoir" : "analysisDisplayedReservoir")} />
               </RadioGroup>
@@ -1385,6 +1687,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
                   {analysisImportStatus.scannedRows.toLocaleString(language)} {t("analysisRowsScanned")} · {analysisImportStatus.retainedRows.toLocaleString(language)} {t("analysisRowsRetained")} · {(analysisImportStatus.processedBytes / 1_048_576).toFixed(1)} MiB
                 </div>
               )}
+              {analysisImportError && <MessageBar intent="error"><MessageBarBody>{analysisImportError}</MessageBarBody></MessageBar>}
             </DialogContent>
             <DialogActions className="omni-dialog-actions">
               <Button appearance="secondary" onClick={() => setAnalysisImportOpen(false)}>{t("cancel")}</Button>

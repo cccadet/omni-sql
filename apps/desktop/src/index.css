@@ -90,6 +90,31 @@ body {
 .omni-analysis-workspace.has-sidebar-portal .omni-analysis-body { display: flex; }
 .omni-analysis-workspace.has-sidebar-portal .omni-analysis-main { flex: 1; }
 
+.omni-sidebar-analysis-content .omni-analysis-datasets.is-s3 { gap: 0; padding: 0; }
+.omni-s3-browser { display: flex; flex-direction: column; min-height: 100%; padding: 14px 12px 12px; box-sizing: border-box; }
+.omni-s3-browser-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--colorNeutralForeground1); font-size: 13px; font-weight: 650; }
+.omni-s3-browser-heading svg { color: var(--colorBrandForeground1); }
+.omni-s3-field-label { margin-bottom: 5px; color: var(--colorNeutralForeground2); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.omni-s3-connection-select { box-sizing: border-box; width: 100%; min-height: 32px; padding: 4px 8px; border: 1px solid var(--colorNeutralStroke1); border-radius: 5px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; }
+.omni-cross-source-select, .omni-cross-source-sql { box-sizing: border-box; width: 100%; padding: 7px 9px; border: 1px solid var(--colorNeutralStroke1); border-radius: 5px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; }
+.omni-cross-source-sql { resize: vertical; min-height: 86px; font-family: Consolas, monospace; }
+.omni-s3-connection-select:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: 1px; }
+.omni-s3-bucket { margin: 7px 0 16px; overflow: hidden; color: var(--colorNeutralForeground3); font: 11px/1.3 Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.omni-s3-browser-search { display: flex; gap: 6px; align-items: stretch; }
+.omni-s3-browser-search .fui-Input { flex: 1; min-width: 0; }
+.omni-s3-browser-search .fui-Button { flex: 0 0 34px; min-width: 34px; }
+.omni-s3-browser-results { display: flex; flex: 1; flex-direction: column; gap: 3px; min-height: 0; margin-top: 14px; overflow-y: auto; }
+.omni-s3-results-count { padding: 0 4px 7px; color: var(--colorNeutralForeground3); font-size: 11px; }
+.omni-s3-table { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 36px; padding: 6px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--colorNeutralForeground1); cursor: pointer; text-align: left; }
+.omni-s3-table:hover { background: var(--colorNeutralBackground3); }
+.omni-s3-table.is-active { border-color: var(--colorBrandStroke1); background: var(--colorNeutralBackground3); }
+.omni-s3-table-name { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.omni-s3-format { padding: 2px 5px; border-radius: 3px; background: var(--colorNeutralBackground3); color: var(--colorNeutralForeground2); font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.omni-s3-format.is-delta { color: var(--colorPaletteBlueForeground2); }
+.omni-s3-format.is-iceberg { color: var(--colorPaletteTealForeground2); }
+.omni-s3-empty { display: flex; align-items: center; gap: 8px; padding: 12px 8px; color: var(--colorNeutralForeground3); font-size: 12px; line-height: 1.5; }
+.omni-s3-limit { padding: 8px; color: var(--colorNeutralForeground2); font-size: 11px; line-height: 1.4; }
+
 @media (max-width: 820px) {
   .omni-analysis-body { grid-template-columns: 190px minmax(0, 1fr); }
 }
@@ -1042,4 +1067,24 @@ select option {
   align-items: center;
   gap: 4px;
   padding: 1px 0;
+}
+.omni-s3-objects-prefix {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.omni-s3-objects-prefix > span { flex: 1; min-width: 0; }
+
+.omni-s3-buckets-input {
+  width: 100%;
+  min-height: 72px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  resize: vertical;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 4px;
+  color: var(--colorNeutralForeground1);
+  background: var(--colorNeutralBackground1);
+  font: inherit;
 }

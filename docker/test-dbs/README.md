@@ -57,6 +57,47 @@ docker compose down -v
 O comando deve mostrar quatro suites (`PostgreSQL`, `MySQL`, `SQL Server` e
 `Oracle XE`) e os testes individuais dentro de cada suite.
 
+## S3 no editor principal
+
+O Compose inclui MinIO e uma imagem de fixtures que grava CSV, Parquet,
+Delta Lake e Iceberg no bucket `omni-test`, além de CSV no bucket `omni-extra`.
+A suíte Rust consulta as fontes pelo DuckDB, junta os dois buckets com uma tabela
+local e verifica que a consulta S3 não cria um snapshot persistente.
+
+```bash
+docker compose up --build -d minio minio-fixtures
+docker compose logs minio-fixtures # aguardar "S3 fixtures ready"
+
+# Na raiz de apps/desktop/src-tauri, com o endpoint publicado em localhost:9000:
+OMNI_SQL_RUN_S3_INTEGRATION=1 \
+AWS_ACCESS_KEY_ID=omni_test AWS_SECRET_ACCESS_KEY=omni_test_secret \
+AWS_DEFAULT_REGION=us-east-1 \
+cargo test --lib data_engine::tests -- --nocapture
+```
+
+Se o registro do MinIO responder 401 ao baixar a imagem, use o servidor S3
+compatível Moto com os mesmos buckets, credenciais e porta:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.s3-moto.yml up --build -d minio minio-fixtures
+```
+
+No Windows PowerShell, defina as quatro variáveis com `$env:NOME='valor'`
+antes de executar `cargo test`. O primeiro teste pode baixar extensões assinadas
+do DuckDB. Na IDE, use **Nova conexão → S3**, informe `s3://omni-test` e
+`s3://omni-extra` (um por linha), a região `us-east-1` e o endpoint
+`http://127.0.0.1:9000`, Access Key ID `omni_test` e Secret Access Key
+`omni_test_secret`. Selecione a conexão em **Connections**; os buckets aparecem
+como schemas em **Objects**. Clique duas vezes numa tabela para abrir um SELECT.
+
+| Formato | URI de teste |
+|---|---|
+| CSV | `s3://omni-test/csv/orders.csv` |
+| Parquet | `s3://omni-test/parquet/orders.parquet` |
+| Delta | `s3://omni-test/delta/orders` |
+| Iceberg | `s3://omni-test/iceberg/orders/metadata/current.metadata.json` |
+| CSV (segundo bucket) | `s3://omni-extra/csv/customers.csv` |
+
 ## Testes por banco
 
 Os filtros abaixo executam apenas a suite do banco escolhido. Os containers

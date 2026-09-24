@@ -210,6 +210,17 @@ for (const [key, target] of targets) {
       assert.equal(count, 5, `expected 5 customers, got ${count}`);
     });
 
+    it("streamQuery: Analyze Locally source", async () => {
+      assert.ok(adapter.streamQuery, `${target.label} does not support analytical streaming`);
+      const batches = [];
+      for await (const batch of adapter.streamQuery(
+        key === "oracle" ? 'SELECT ID, NAME FROM CUSTOMERS ORDER BY ID' : 'SELECT id, name FROM customers ORDER BY id',
+        { batchSize: 2, signal: new AbortController().signal },
+      )) batches.push(batch);
+      assert.equal(batches.reduce((count, batch) => count + batch.rows.length, 0), 5);
+      assert.equal(batches[0]?.columns.length, 2);
+    });
+
     it("runQuery: JOIN orders + customers", async () => {
       const result = await adapter.runQuery(
         "SELECT o.id, c.name, o.total FROM orders o JOIN customers c ON c.id = o.customer_id ORDER BY o.id",

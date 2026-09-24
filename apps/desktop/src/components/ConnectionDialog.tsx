@@ -15,9 +15,11 @@ import {
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import { backend } from "../lib/backend";
 import { pickJarPath } from "../lib/file-io";
+import { listAnalysisS3 } from "../lib/analysis";
+import { s3Buckets } from "../lib/s3-buckets";
 import { useLanguage } from "../i18n";
 
-type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "demo";
+type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "s3" | "demo";
 
 const DEFAULT_PORTS: Record<Mode, string> = {
   postgres: "5432",
@@ -27,6 +29,7 @@ const DEFAULT_PORTS: Record<Mode, string> = {
   sqlserver: "1433",
   "jdbc-generic": "",
   odbc: "",
+  s3: "",
   demo: "5432",
 };
 
@@ -38,6 +41,7 @@ const DEFAULT_DATABASES: Record<Mode, string> = {
   sqlserver: "master",
   "jdbc-generic": "",
   odbc: "",
+  s3: "",
   demo: "postgres",
 };
 
@@ -49,6 +53,7 @@ const DEFAULT_USERS: Record<Mode, string> = {
   sqlserver: "sa",
   "jdbc-generic": "",
   odbc: "",
+  s3: "",
   demo: "postgres",
 };
 
@@ -89,6 +94,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [ssl, setSsl] = useState(false);
   const [jdbcUrl, setJdbcUrl] = useState("");
   const [odbcEndpoint, setOdbcEndpoint] = useState("");
+  const [s3Uri, setS3Uri] = useState("");
+  const [s3BucketList, setS3BucketList] = useState("");
+  const [s3Region, setS3Region] = useState("");
+  const [s3Endpoint, setS3Endpoint] = useState("");
   const [jarPath, setJarPath] = useState("");
   const [driverClassName, setDriverClassName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -104,7 +113,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     const isKnown = editingDialect !== undefined && isKnownDialect(editingDialect);
     const isJdbc = editingDialect === "jdbc-generic";
     const isOdbc = editingDialect === "odbc";
-    const nextMode = isKnown ? editingDialect : isJdbc ? "jdbc-generic" : isOdbc ? "odbc" : "demo";
+    const isS3 = editingDialect === "s3";
+    const nextMode = isKnown ? editingDialect : isJdbc ? "jdbc-generic" : isOdbc ? "odbc" : isS3 ? "s3" : "demo";
     setMode(nextMode);
     setLabel(editing?.label ?? "");
     setId(duplicating ? generateId() : editing?.id ?? "");
@@ -131,6 +141,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
       setDriverClassName("");
     }
     setOdbcEndpoint(isOdbc ? editing?.endpoint ?? "" : "");
+    setS3Uri(isS3 ? editing?.endpoint ?? "" : "");
+    setS3BucketList(isS3 && editing ? s3Buckets(editing).join("\n") : "");
+    setS3Region(isS3 ? String(editing?.options?.region ?? "") : "");
+    setS3Endpoint(isS3 ? String(editing?.options?.endpoint ?? "") : "");
     setTestResult(null);
     setError(null);
     setBusy(false);
@@ -142,28 +156,36 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const buildEndpoint = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl;
     if (mode === "odbc") return odbcEndpoint;
+    if (mode === "s3") return s3BucketList.split(/[\n,]+/).map((value) => value.trim()).find(Boolean) ?? s3Uri.trim();
     return `${host}:${port}/${database}`;
-  }, [mode, jdbcUrl, odbcEndpoint, host, port, database]);
+  }, [mode, jdbcUrl, odbcEndpoint, s3Uri, s3BucketList, host, port, database]);
 
   const buildOptions = useCallback((): ConnectionConfig["options"] => {
     if (mode === "jdbc-generic") return { jarPath, driverClassName };
     if (mode === "odbc") return { timeout: 30 };
+    if (mode === "s3") return { region: s3Region.trim(), endpoint: s3Endpoint.trim(),
+      buckets: JSON.stringify(s3BucketList.split(/[\n,]+/).map((value) => value.trim().replace(/\/$/, "")).filter(Boolean)) };
     return ssl ? { ssl: "require" } : undefined;
-  }, [mode, jarPath, driverClassName, ssl]);
+  }, [mode, jarPath, driverClassName, ssl, s3BucketList, s3Region, s3Endpoint]);
 
   const defaultLabel = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl || t("jdbcGeneric");
     if (mode === "odbc") return odbcEndpoint || "ODBC";
+    if (mode === "s3") return s3BucketList.split(/[\n,]+/).map((value) => value.trim()).find(Boolean) || "S3";
     return `${host}/${database}`;
-  }, [mode, jdbcUrl, odbcEndpoint, host, database, t]);
+  }, [mode, jdbcUrl, odbcEndpoint, s3BucketList, host, database, t]);
 
   const canConnect = useCallback(() => {
     if (mode === "jdbc-generic") {
       return jdbcUrl.length > 0 && jarPath.length > 0 && driverClassName.length > 0 && user.length > 0;
     }
     if (mode === "odbc") return odbcEndpoint.trim().length > 0;
+    if (mode === "s3") {
+      const buckets = s3BucketList.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean);
+      return buckets.length > 0 && buckets.every((value) => /^s3:\/\/[^/@]+\/?$/.test(value));
+    }
     return host.length > 0 && user.length > 0;
-  }, [mode, jdbcUrl, odbcEndpoint, jarPath, driverClassName, user, host]);
+  }, [mode, jdbcUrl, odbcEndpoint, s3BucketList, jarPath, driverClassName, user, host]);
 
   const buildConfig = useCallback((): ConnectionConfig => {
     if (mode === "demo") {
@@ -180,7 +202,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
       label: label || defaultLabel(),
       dialect: mode,
       endpoint: buildEndpoint(),
-      user,
+      user: mode === "s3" ? user.trim() : user,
       options: buildOptions(),
       schemas: selectedSchemas.size > 0 ? [...selectedSchemas] : undefined,
     };
@@ -192,6 +214,17 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setError(null);
     setTestResult(null);
     try {
+      if (mode === "s3") {
+        const startedAt = performance.now();
+        const stored = editing?.dialect === "s3" && !duplicating && !password
+          ? await backend.call<{ secretAccessKey?: string }>("connection.s3Credentials", { connectionId: editing.id })
+          : null;
+        await listAnalysisS3({ uri: buildEndpoint(), region: s3Region.trim(),
+          endpoint: s3Endpoint.trim() || undefined, accessKeyId: user.trim() || undefined,
+          secretAccessKey: password || stored?.secretAccessKey, prefix: "" });
+        setTestResult({ ok: true, latencyMs: Math.round(performance.now() - startedAt) });
+        return;
+      }
       const result = await backend.call("connection.test", { config: buildConfig(), password });
       setTestResult(result as { ok: boolean; latencyMs: number; message?: string });
     } catch (e) {
@@ -236,7 +269,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     const isDefaultDatabase = database === "" || ALL_MODES.some((m) => database === DEFAULT_DATABASES[m]);
     const isDefaultUser = user === "" || ALL_MODES.some((m) => user === DEFAULT_USERS[m]);
     setMode(next);
-    if (next === "demo" || next === "jdbc-generic" || next === "odbc") return;
+    if (next === "demo" || next === "jdbc-generic" || next === "odbc" || next === "s3") return;
     if (isDefaultPort) setPort(DEFAULT_PORTS[next]);
     if (isDefaultDatabase) setDatabase(DEFAULT_DATABASES[next]);
     if (isDefaultUser) setUser(DEFAULT_USERS[next]);
@@ -288,6 +321,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 <option value="oracle">Oracle</option>
                 <option value="jdbc-generic">{t("jdbcGeneric")}</option>
                 <option value="odbc">ODBC</option>
+                <option value="s3">S3</option>
                 <option value="demo">Demo (in-memory)</option>
               </select>
             </Label>
@@ -325,7 +359,28 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </Label>
             )}
 
-            {mode !== "demo" && mode !== "jdbc-generic" && mode !== "odbc" && (
+            {mode === "s3" && (
+              <>
+                <Label>Buckets S3 (um por linha)
+                  <textarea className="omni-s3-buckets-input" value={s3BucketList} onChange={(event) => setS3BucketList(event.target.value)} placeholder={"s3://bucket-a\ns3://bucket-b"} disabled={busy} required rows={3} />
+                </Label>
+                <Label>Região
+                  <Input value={s3Region} onChange={(_, data) => setS3Region(data.value)} placeholder="us-east-1 (opcional)" disabled={busy} style={{ marginTop: 4 }} />
+                </Label>
+                <Label>Endpoint S3 compatível
+                  <Input value={s3Endpoint} onChange={(_, data) => setS3Endpoint(data.value)} placeholder="https://host:9000 (opcional)" disabled={busy} style={{ marginTop: 4 }} />
+                </Label>
+                <Label>Access Key ID
+                  <Input value={user} onChange={(_, data) => setUser(data.value)} placeholder="Access Key ID (opcional)" disabled={busy} style={{ marginTop: 4 }} />
+                </Label>
+                <Label>Secret Access Key
+                  <Input type="password" value={password} onChange={(_, data) => setPassword(data.value)} placeholder={editing && !duplicating ? "Manter segredo salvo" : "Secret Access Key (opcional)"} disabled={busy} style={{ marginTop: 4 }} />
+                </Label>
+                <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>Sem chaves, usa as credenciais AWS configuradas nesta máquina. O segredo informado é salvo no keyring.</Text>
+              </>
+            )}
+
+            {mode !== "demo" && mode !== "jdbc-generic" && mode !== "odbc" && mode !== "s3" && (
               <>
                 <div className="omni-connection-host-row">
                   <Label style={{ flex: 1 }}>
@@ -344,7 +399,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </>
             )}
 
-            {mode !== "demo" && (
+            {mode !== "demo" && mode !== "s3" && (
               <>
                 <Label>
                   {t("user")}
@@ -358,7 +413,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </>
             )}
 
-            {mode !== "demo" && (
+            {mode !== "demo" && mode !== "s3" && (
               <>
                 {mode !== "jdbc-generic" && mode !== "odbc" && (
                   <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />

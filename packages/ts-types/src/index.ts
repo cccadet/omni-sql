@@ -14,7 +14,9 @@ export type DialectId =
   | "sqlserver"
   | "oracle"
   | "jdbc-generic"
-  | "odbc";
+  | "odbc"
+  | "duckdb"
+  | "s3";
 
 // ─────────────────────────── Entidades do modelo
 

@@ -3,7 +3,7 @@ import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "../i18n";
 import type { DatasetRef } from "../lib/analysis";
-import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, importQuerySource, listAnalysisDatasets, renameAnalysisDataset, runAnalysis } from "../lib/analysis";
+import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, importQuerySource, listAnalysisDatasets, listAnalysisS3, renameAnalysisDataset, runAnalysis, runAnalysisS3 } from "../lib/analysis";
 import { backend } from "../lib/backend";
 import { AnalysisWorkspace } from "./AnalysisWorkspace";
 
@@ -13,6 +13,8 @@ vi.mock("../lib/analysis", async (importOriginal) => ({
   dropAnalysisDataset: vi.fn(),
   exportAnalysis: vi.fn(),
   importAnalysisFile: vi.fn(),
+  runAnalysisS3: vi.fn(),
+  listAnalysisS3: vi.fn(),
   importQuerySource: vi.fn(),
   listAnalysisDatasets: vi.fn(),
   renameAnalysisDataset: vi.fn(),
@@ -35,10 +37,10 @@ const customer: DatasetRef = {
 };
 const order: DatasetRef = { ...customer, id: "dataset-2", name: "Orders", relationName: "orders" };
 
-function show(dataset: DatasetRef | null = customer, onDatasetSelected = vi.fn()) {
+function show(dataset: DatasetRef | null = customer, onDatasetSelected = vi.fn(), initialS3Connection?: { id: string; label: string; dialect: "s3"; endpoint: string; user: string; options: { region: string; endpoint: string } }) {
   return render(<FluentProvider theme={webDarkTheme}><LanguageProvider>
     <AnalysisWorkspace workspaceId="workspace-1" dataset={dataset} onDatasetSelected={onDatasetSelected}
-      sourceConnections={[{ id: "connection-1", label: "Postgres", dialect: "postgres" }]} />
+      sourceConnections={[{ id: "connection-1", label: "Postgres", dialect: "postgres" }]} initialS3Connection={initialS3Connection} />
   </LanguageProvider></FluentProvider>);
 }
 
@@ -51,6 +53,8 @@ describe("AnalysisWorkspace", () => {
     vi.mocked(renameAnalysisDataset).mockReset();
     vi.mocked(dropAnalysisDataset).mockReset();
     vi.mocked(importQuerySource).mockReset();
+    vi.mocked(runAnalysisS3).mockReset();
+    vi.mocked(listAnalysisS3).mockReset();
     vi.mocked(exportAnalysis).mockReset();
     vi.mocked(cancelAnalysis).mockReset();
   });
@@ -63,6 +67,25 @@ describe("AnalysisWorkspace", () => {
     expect(screen.getByText("Orders")).toBeTruthy();
     expect(screen.getByText("No results")).toBeTruthy();
     expect((screen.getByRole("button", { name: /^Run$/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("opens a registered S3 connection for direct query without showing connection fields", async () => {
+    vi.mocked(runAnalysisS3).mockResolvedValue({ columns: [], rows: [[1]], rowsMoreAvailable: false, elapsedMs: 0 });
+    vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.s3Credentials"
+      ? { accessKeyId: "omni_test", secretAccessKey: "omni_test_secret" } : { relations: [] });
+    const select = vi.fn();
+    vi.mocked(listAnalysisS3).mockResolvedValue(["s3://bucket/delta/sales/_delta_log/00000000000000000000.json"]);
+    show(customer, select, { id: "s3-1", label: "Sales", dialect: "s3", endpoint: "s3://bucket", user: "", options: { region: "us-east-1", endpoint: "" } });
+    expect(screen.queryByRole("textbox", { name: "S3 URI" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Listar fontes S3" }));
+    await screen.findByRole("button", { name: "Abrir sales" });
+    fireEvent.click(screen.getByRole("button", { name: "Abrir sales" }));
+    expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toBe("SELECT * FROM s3_source");
+    fireEvent.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(runAnalysisS3).toHaveBeenCalledWith(expect.objectContaining({
+      uri: "s3://bucket/delta/sales", format: "delta", region: "us-east-1", sql: "SELECT * FROM s3_source",
+      accessKeyId: "omni_test", secretAccessKey: "omni_test_secret",
+    })));
   });
 
   it("keeps the edited query when the dataset list changes and runs that query", async () => {

@@ -12,6 +12,8 @@ const DIALECT_MAP: Record<DialectId, SqlLanguage> = {
   oracle: "plsql",
   "jdbc-generic": "sql",
   odbc: "sql",
+  s3: "sql",
+  duckdb: "sql",
 };
 
 export interface FormatterSettings {

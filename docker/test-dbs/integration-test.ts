@@ -50,8 +50,9 @@ const RPC_AUTH_HEADERS = {
 const { startServer } = await import("@omni-sql/backend");
 const { closeBackendResources } = await import("../../packages/backend/src/handlers.ts");
 
-const SIDECAR_HEALTH_URL = "http://127.0.0.1:41921/health";
-const SIDECAR_SCOPE_URL = "http://127.0.0.1:41921/scope/resolve";
+const SIDECAR_BASE_URL = process.env.OMNI_SQL_SIDECAR_URL ?? "http://127.0.0.1:41921";
+const SIDECAR_HEALTH_URL = `${SIDECAR_BASE_URL}/health`;
+const SIDECAR_SCOPE_URL = `${SIDECAR_BASE_URL}/scope/resolve`;
 
 async function canResolveCte(): Promise<boolean> {
   try {
@@ -116,6 +117,14 @@ const TARGETS: Record<string, Target> = {
   mysql: {
     label: "MySQL",
     dialect: "mysql",
+    endpoint: "127.0.0.1:3306/omni_test",
+    user: "omni",
+    password: "omni",
+    schema: "omni_test",
+  },
+  mariadb: {
+    label: "MariaDB compatibility",
+    dialect: "mariadb",
     endpoint: "127.0.0.1:3306/omni_test",
     user: "omni",
     password: "omni",
@@ -317,6 +326,30 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
         assert.equal(count, 5, `expected 5, got ${count}`);
       });
 
+      it("analysis.stream: source query for Analyze Locally", async () => {
+        const response = await fetch(`http://127.0.0.1:${PORT}/analysis/stream`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...RPC_AUTH_HEADERS },
+          body: JSON.stringify({ connectionId: connId, sql: "SELECT id, name FROM customers ORDER BY id", batchSize: 2 }),
+        });
+        assert.equal(response.status, 200);
+        const frames = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; columns?: unknown[]; rows?: unknown[][]; error?: string });
+        assert.equal(frames.at(-1)?.type, "complete", frames.at(-1)?.error);
+        assert.equal(frames.reduce((count, frame) => count + (frame.rows?.length ?? 0), 0), 5);
+        assert.equal(frames[0]?.columns?.length, 2);
+      });
+
+      if (key === "pg" || key === "oracle") it("analysis.stream: database error is returned to Analyze Locally", async () => {
+        const response = await fetch(`http://127.0.0.1:${PORT}/analysis/stream`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...RPC_AUTH_HEADERS },
+          body: JSON.stringify({ connectionId: connId, sql: "SELECT nonexistent_column FROM customers", batchSize: 2 }),
+        });
+        const frames = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; error?: string });
+        assert.equal(frames.at(-1)?.type, "error");
+        assert.match(frames.at(-1)?.error ?? "", key === "pg" ? /^42703:/ : /^ORA-00904:/);
+      });
+
       it("query.run: JOIN", async () => {
         const res = await rpc("query.run", {
           connectionId: connId,
@@ -390,7 +423,7 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
             dropSql: `DROP TABLE "${target.schema}"."${table}" PURGE`,
           },
         };
-        const tableSql = tableSqlByDialect[target.dialect];
+        const tableSql = tableSqlByDialect[target.dialect === "mariadb" ? "mysql" : target.dialect];
         assert.ok(tableSql, `missing CREATE TABLE fixture for ${target.dialect}`);
 
         // Torna o teste repetível mesmo se uma execução anterior for interrompida.
