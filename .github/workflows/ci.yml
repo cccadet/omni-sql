@@ -136,8 +136,10 @@ jobs:
         run: |
           pnpm test:coverage
           ./services/jvm-sidecar/gradlew -p services/jvm-sidecar test jacocoTestReport
+          docker compose -f docker/test-dbs/docker-compose.yml -f docker/test-dbs/docker-compose.s3-moto.yml up -d minio
+          docker compose -f docker/test-dbs/docker-compose.yml -f docker/test-dbs/docker-compose.s3-moto.yml run --build --rm minio-fixtures
           mkdir -p apps/desktop/src-tauri/coverage
-          cargo llvm-cov --manifest-path apps/desktop/src-tauri/Cargo.toml --lcov --output-path apps/desktop/src-tauri/coverage/lcov.info
+          OMNI_SQL_RUN_S3_INTEGRATION=1 cargo llvm-cov --manifest-path apps/desktop/src-tauri/Cargo.toml --lcov --output-path apps/desktop/src-tauri/coverage/lcov.info
 
 
       - name: Cache SonarCloud packages
