@@ -13,4 +13,13 @@ const storage: Storage = {
 Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
 Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
 
+class TestResizeObserver implements ResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+Object.defineProperty(window, "ResizeObserver", { value: TestResizeObserver, configurable: true });
+Object.defineProperty(globalThis, "ResizeObserver", { value: TestResizeObserver, configurable: true });
+
 export {};
