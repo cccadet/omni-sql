@@ -508,7 +508,7 @@ describe("App update event listener", () => {
     renderApp();
     fireEvent.click(await screen.findByRole("button", { name: "Run" }));
     await screen.findByText("42");
-    fireEvent.click(screen.getAllByRole("button", { name: "Analyze locally" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: "Send to Analyze locally" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Analyze locally" }));
     expect(await within(dialog).findByText("Source query failed")).toBeTruthy();
