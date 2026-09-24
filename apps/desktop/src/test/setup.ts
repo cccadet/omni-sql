@@ -19,7 +19,7 @@ class TestResizeObserver implements ResizeObserver {
   disconnect(): void {}
 }
 
-Object.defineProperty(window, "ResizeObserver", { value: TestResizeObserver, configurable: true });
-Object.defineProperty(globalThis, "ResizeObserver", { value: TestResizeObserver, configurable: true });
+Object.defineProperty(window, "ResizeObserver", { value: TestResizeObserver, configurable: true, writable: true });
+Object.defineProperty(globalThis, "ResizeObserver", { value: TestResizeObserver, configurable: true, writable: true });
 
 export {};
