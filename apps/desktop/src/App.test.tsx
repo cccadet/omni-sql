@@ -511,8 +511,8 @@ describe("App update event listener", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send to Analyze locally" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Analyze locally" }));
-    expect(await within(dialog).findByText("Source query failed")).toBeTruthy();
-    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(await screen.findByText("Source query failed")).toBeTruthy();
+    expect(await screen.findByRole("dialog")).toBeTruthy();
   });
 
   it("reports an event-triggered update check as up to date", async () => {
