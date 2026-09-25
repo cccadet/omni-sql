@@ -591,6 +591,18 @@ export const handlers: BackendRpcRouter = {
         || !buckets.includes(config.endpoint)) {
         throw new Error("invalid S3 bucket or prefix URI");
       }
+      if (config.options?.ducklakeMappings !== undefined) {
+        let mappings: unknown;
+        try { mappings = JSON.parse(String(config.options.ducklakeMappings)); } catch { throw new Error("invalid DuckLake mappings"); }
+        if (!Array.isArray(mappings) || mappings.length > 50 || !mappings.every((value) => {
+          if (!value || typeof value !== "object") return false;
+          const mapping = value as Record<string, unknown>;
+          const prefix = mapping.prefix;
+          return typeof prefix === "string" && buckets.some((bucket) => prefix === bucket || prefix.startsWith(`${bucket}/`))
+            && (mapping.kind === "postgres" ? typeof mapping.connectionId === "string" && !!mapping.connectionId
+              : (mapping.kind === "sqlite" || mapping.kind === "duckdb") && typeof mapping.path === "string" && !!mapping.path.trim());
+        })) throw new Error("invalid DuckLake mappings");
+      }
       const endpoint = config.options?.endpoint;
       if (typeof endpoint === "string" && endpoint.includes("://")) {
         const url = new URL(endpoint);
@@ -654,11 +666,41 @@ export const handlers: BackendRpcRouter = {
     return { configs };
   },
 
-  async "connection.s3Credentials"({ connectionId }): Promise<{ accessKeyId: string; secretAccessKey?: string }> {
+  async "connection.s3Credentials"({ connectionId }) {
     await connectionsRestored;
-    const config = cache.listConnections().find((item) => item.id === connectionId && item.dialect === "s3");
+    const configs = cache.listConnections();
+    const config = configs.find((item) => item.id === connectionId && item.dialect === "s3");
     if (!config) throw new Error("S3 connection not found");
-    return { accessKeyId: config.user, secretAccessKey: await readStoredPassword(config, "reading S3 credentials") };
+    const raw = config.options?.ducklakeMappings;
+    if (typeof raw !== "string" || !raw) {
+      return { accessKeyId: config.user, secretAccessKey: await readStoredPassword(config, "reading S3 credentials") };
+    }
+    const saved: unknown = JSON.parse(raw);
+    if (!Array.isArray(saved) || saved.length > 50) throw new Error("invalid DuckLake mappings");
+    const ducklakeMappings = await Promise.all(saved.map(async (mapping: unknown) => {
+      if (!mapping || typeof mapping !== "object") throw new Error("invalid DuckLake mapping");
+      const entry = mapping as Record<string, unknown>;
+      const prefix = entry.prefix;
+      if (typeof prefix !== "string" || !/^s3:\/\/[^/@]+(?:\/[^\r\n]*)?$/.test(prefix)) throw new Error("invalid DuckLake prefix");
+      if (entry.kind === "postgres") {
+        const pg = configs.find((item) => item.id === entry.connectionId && item.dialect === "postgres");
+        if (!pg) throw new Error("PostgreSQL DuckLake catalog connection not found");
+        const slash = pg.endpoint.lastIndexOf("/");
+        const colon = pg.endpoint.lastIndexOf(":", slash);
+        if (slash < 1 || colon < 1) throw new Error("invalid PostgreSQL DuckLake endpoint");
+        const host = pg.endpoint.slice(0, colon);
+        const port = Number(pg.endpoint.slice(colon + 1, slash));
+        const database = pg.endpoint.slice(slash + 1);
+        if (!host || !database || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error("invalid PostgreSQL DuckLake endpoint");
+        return { prefix, catalog: { kind: "postgres" as const, host, port, database, user: pg.user,
+          password: await readStoredPassword(pg, "reading DuckLake catalog credentials") } };
+      }
+      if ((entry.kind === "sqlite" || entry.kind === "duckdb") && typeof entry.path === "string" && entry.path.trim()) {
+        return { prefix, catalog: { kind: entry.kind as "sqlite" | "duckdb", path: entry.path } };
+      }
+      throw new Error("invalid DuckLake catalog configuration");
+    }));
+    return { accessKeyId: config.user, secretAccessKey: await readStoredPassword(config, "reading S3 credentials"), ducklakeMappings };
   },
 
   async "connectionGroup.list"(): Promise<ListConnectionGroupsResult> {

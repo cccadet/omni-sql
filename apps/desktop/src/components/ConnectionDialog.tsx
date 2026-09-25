@@ -6,6 +6,7 @@ import {
   DialogTitle,
   DialogBody,
   DialogActions,
+  Field,
   Input,
   Label,
   Checkbox,
@@ -98,6 +99,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [s3BucketList, setS3BucketList] = useState("");
   const [s3Region, setS3Region] = useState("");
   const [s3Endpoint, setS3Endpoint] = useState("");
+  const [ducklakeMappings, setDucklakeMappings] = useState<{ prefix: string; kind: "postgres" | "sqlite" | "duckdb"; connectionId?: string; path?: string }[]>([]);
+  const [postgresConnections, setPostgresConnections] = useState<ConnectionConfig[]>([]);
   const [jarPath, setJarPath] = useState("");
   const [driverClassName, setDriverClassName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -145,6 +148,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setS3BucketList(isS3 && editing ? s3Buckets(editing).join("\n") : "");
     setS3Region(isS3 ? String(editing?.options?.region ?? "") : "");
     setS3Endpoint(isS3 ? String(editing?.options?.endpoint ?? "") : "");
+    try {
+      const parsed: unknown = isS3 ? JSON.parse(String(editing?.options?.ducklakeMappings ?? "[]")) : [];
+      setDucklakeMappings(Array.isArray(parsed) ? parsed as typeof ducklakeMappings : []);
+    } catch { setDucklakeMappings([]); }
     setTestResult(null);
     setError(null);
     setBusy(false);
@@ -152,6 +159,12 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setSelectedSchemas(new Set(editing?.schemas ?? []));
     setSchemaSearch("");
   }, [open, editing, duplicating]);
+
+  useEffect(() => {
+    if (!open) return;
+    void backend.call<{ configs: ConnectionConfig[] }>("connection.list", {}).then(({ configs }) =>
+      setPostgresConnections(configs.filter((config) => config.dialect === "postgres"))).catch(() => setPostgresConnections([]));
+  }, [open]);
 
   const buildEndpoint = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl;
@@ -164,9 +177,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     if (mode === "jdbc-generic") return { jarPath, driverClassName };
     if (mode === "odbc") return { timeout: 30 };
     if (mode === "s3") return { region: s3Region.trim(), endpoint: s3Endpoint.trim(),
-      buckets: JSON.stringify(s3BucketList.split(/[\n,]+/).map((value) => value.trim().replace(/\/$/, "")).filter(Boolean)) };
+      buckets: JSON.stringify(s3BucketList.split(/[\n,]+/).map((value) => value.trim().replace(/\/$/, "")).filter(Boolean)),
+      ducklakeMappings: JSON.stringify(ducklakeMappings.map((mapping) => ({ ...mapping, prefix: mapping.prefix.trim().replace(/\/$/, ""), path: mapping.path?.trim() }))) };
     return ssl ? { ssl: "require" } : undefined;
-  }, [mode, jarPath, driverClassName, ssl, s3BucketList, s3Region, s3Endpoint]);
+  }, [mode, jarPath, driverClassName, ssl, s3BucketList, s3Region, s3Endpoint, ducklakeMappings]);
 
   const defaultLabel = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl || t("jdbcGeneric");
@@ -182,10 +196,12 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     if (mode === "odbc") return odbcEndpoint.trim().length > 0;
     if (mode === "s3") {
       const buckets = s3BucketList.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean);
-      return buckets.length > 0 && buckets.every((value) => /^s3:\/\/[^/@]+\/?$/.test(value));
+      return buckets.length > 0 && buckets.every((value) => /^s3:\/\/[^/@]+\/?$/.test(value))
+        && ducklakeMappings.every((mapping) => /^s3:\/\/[^/@]+(?:\/[^\r\n]*)?$/.test(mapping.prefix.trim())
+          && (mapping.kind === "postgres" ? !!mapping.connectionId : !!mapping.path?.trim()));
     }
     return host.length > 0 && user.length > 0;
-  }, [mode, jdbcUrl, odbcEndpoint, s3BucketList, jarPath, driverClassName, user, host]);
+  }, [mode, jdbcUrl, odbcEndpoint, s3BucketList, jarPath, driverClassName, user, host, ducklakeMappings]);
 
   const buildConfig = useCallback((): ConnectionConfig => {
     if (mode === "demo") {
@@ -326,10 +342,9 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </select>
             </Label>
 
-            <Label>
-              Nome
+            <Field label="Nome">
               <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />
-            </Label>
+            </Field>
 
             {mode === "jdbc-generic" && (
               <>
@@ -377,39 +392,60 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                   <Input type="password" value={password} onChange={(_, data) => setPassword(data.value)} placeholder={editing && !duplicating ? "Manter segredo salvo" : "Secret Access Key (opcional)"} disabled={busy} style={{ marginTop: 4 }} />
                 </Label>
                 <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>Sem chaves, usa as credenciais AWS configuradas nesta máquina. O segredo informado é salvo no keyring.</Text>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <Text weight="semibold">Catálogos DuckLake (opcional)</Text>
+                  <Text size={200}>Associe o bucket inteiro ou um prefixo de tabela a um catálogo. O prefixo mais específico prevalece.</Text>
+                  {ducklakeMappings.map((mapping, index) => <div key={index} style={{ display: "grid", gap: 6, padding: 8, border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: 6 }}>
+                    <Label>Bucket ou prefixo da tabela
+                      <Input value={mapping.prefix} onChange={(_, data) => setDucklakeMappings((items) => items.map((item, i) => i === index ? { ...item, prefix: data.value } : item))} placeholder="s3://bucket/main/orders" disabled={busy} />
+                    </Label>
+                    <Label>Catálogo
+                      <select aria-label={`Tipo do catálogo DuckLake ${index + 1}`} value={mapping.kind} disabled={busy}
+                        onChange={(event) => setDucklakeMappings((items) => items.map((item, i) => i === index ? { prefix: item.prefix, kind: event.target.value as typeof mapping.kind } : item))}>
+                        <option value="postgres">PostgreSQL</option><option value="sqlite">SQLite</option><option value="duckdb">DuckDB</option>
+                      </select>
+                    </Label>
+                    {mapping.kind === "postgres" ? <Label>Conexão PostgreSQL do catálogo
+                      <select aria-label={`Conexão PostgreSQL DuckLake ${index + 1}`} value={mapping.connectionId ?? ""} disabled={busy}
+                        onChange={(event) => setDucklakeMappings((items) => items.map((item, i) => i === index ? { ...item, connectionId: event.target.value } : item))}>
+                        <option value="">Selecione uma conexão</option>
+                        {postgresConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.label}</option>)}
+                      </select>
+                    </Label> : <Label>Caminho do arquivo {mapping.kind === "sqlite" ? "SQLite" : "DuckDB"}
+                      <Input value={mapping.path ?? ""} onChange={(_, data) => setDucklakeMappings((items) => items.map((item, i) => i === index ? { ...item, path: data.value } : item))} placeholder={mapping.kind === "sqlite" ? "C:\\dados\\catalog.sqlite" : "C:\\dados\\catalog.ducklake"} disabled={busy} />
+                    </Label>}
+                    <Button size="small" appearance="subtle" onClick={() => setDucklakeMappings((items) => items.filter((_, i) => i !== index))} disabled={busy}>Remover catálogo</Button>
+                  </div>)}
+                  <Button size="small" appearance="secondary" disabled={busy} onClick={() => setDucklakeMappings((items) => [...items, { prefix: s3BucketList.split(/[\n,]+/).map((value) => value.trim()).find(Boolean) ?? "", kind: "postgres" }])}>Adicionar catálogo DuckLake</Button>
+                </div>
               </>
             )}
 
             {mode !== "demo" && mode !== "jdbc-generic" && mode !== "odbc" && mode !== "s3" && (
               <>
                 <div className="omni-connection-host-row">
-                  <Label style={{ flex: 1 }}>
-                    Host
+                  <Field label="Host" style={{ flex: 1 }}>
                     <Input value={host} onChange={(_, data) => setHost(data.value)} placeholder="127.0.0.1" disabled={busy} required style={{ marginTop: 4 }} />
-                  </Label>
-                  <Label>
-                    {t("port")}
+                  </Field>
+                  <Field label={t("port")}>
                     <Input value={port} onChange={(_, data) => setPort(data.value)} placeholder={DEFAULT_PORTS[mode]} disabled={busy} required style={{ width: 90, marginTop: 4 }} />
-                  </Label>
+                  </Field>
                 </div>
-                <Label>
-                  {mode === "oracle" ? "Service name / SID" : "Database"}
+                <Field label={mode === "oracle" ? "Service name / SID" : "Database"}>
                   <Input value={database} onChange={(_, data) => setDatabase(data.value)} placeholder={DEFAULT_DATABASES[mode]} disabled={busy} required style={{ marginTop: 4 }} />
-                </Label>
+                </Field>
               </>
             )}
 
             {mode !== "demo" && mode !== "s3" && (
               <>
-                <Label>
-                  {t("user")}
+                <Field label={t("user")}>
                   <Input value={user} onChange={(_, data) => setUser(data.value)} placeholder={DEFAULT_USERS[mode]} disabled={busy} required style={{ marginTop: 4 }} />
-                </Label>
-                <Label>
-                  {t("password")}
+                </Field>
+                <Field label={t("password")}>
                   <Input type="password" value={password} onChange={(_, data) => setPassword(data.value)} placeholder="••••••" disabled={busy} style={{ marginTop: 4 }} />
-                  {duplicating && <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("duplicatePasswordHint")}</Text>}
-                </Label>
+                </Field>
+                {duplicating && <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("duplicatePasswordHint")}</Text>}
               </>
             )}
 

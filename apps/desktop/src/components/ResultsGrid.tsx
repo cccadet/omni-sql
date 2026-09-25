@@ -62,6 +62,7 @@ export interface ResultsGridProps {
   onInsertRow?: (values: Readonly<Record<number, unknown>>) => void | Promise<void>;
   onAnalyzeLocally?: () => void | Promise<void>;
   analyzingLocally?: boolean;
+  onExportFullCsv?: () => void | Promise<void>;
 }
 
 export interface StagedCellEdit {
@@ -165,6 +166,7 @@ export function ResultsGrid({
   onInsertRow,
   onAnalyzeLocally,
   analyzingLocally = false,
+  onExportFullCsv,
 }: ResultsGridProps) {
   const { t } = useLanguage();
   const toasterId = useId();
@@ -718,6 +720,9 @@ export function ResultsGrid({
                 {t("export")}
               </Button>
             </Tooltip>
+            {onExportFullCsv && <Button appearance="outline" onClick={() => void onExportFullCsv()} disabled={!result || running}>
+              {t("analysisExportCsv")}
+            </Button>}
           </div>
         )}
       </div>

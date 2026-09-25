@@ -28,6 +28,14 @@ const renderGrid = () => render(
   </LanguageProvider>,
 );
 
+test("offers full analytical CSV export separately from the grid export", () => {
+  const onExportFullCsv = vi.fn();
+  render(<LanguageProvider><ResultsGrid result={result} onExportFullCsv={onExportFullCsv} /></LanguageProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Export full CSV" }));
+  expect(onExportFullCsv).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button", { name: "Export CSV" })).toBeTruthy();
+});
+
 test("shows query progress instead of the empty state while running", () => {
   render(
     <LanguageProvider>

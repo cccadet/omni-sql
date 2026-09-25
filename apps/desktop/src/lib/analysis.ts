@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { DuckLakeCatalog } from "./s3-sources";
 import type { QueryResult } from "@omni-sql/ts-types";
 
 export interface DatasetColumn {
@@ -25,6 +26,7 @@ export interface DatasetRef {
   readonly sourceTotal?: number;
   readonly sourceConnectionId?: string;
   readonly sourceSql?: string;
+  readonly sourceUri?: string;
 }
 
 export interface AnalysisOperationStatus {
@@ -244,7 +246,10 @@ export async function importAnalysisS3(input: {
   workspaceId: string;
   name: string;
   uri: string;
-  format: "csv" | "parquet" | "delta" | "iceberg";
+  format: "csv" | "parquet" | "delta" | "iceberg" | "ducklake";
+  tableSchema?: string;
+  tableName?: string;
+  catalog?: DuckLakeCatalog;
   region: string;
   endpoint?: string;
   accessKeyId?: string;
@@ -260,7 +265,10 @@ export async function importAnalysisS3(input: {
 export async function runAnalysisS3(input: {
   workspaceId: string;
   uri: string;
-  format: "csv" | "parquet" | "delta" | "iceberg";
+  format: "csv" | "parquet" | "delta" | "iceberg" | "ducklake";
+  tableSchema?: string;
+  tableName?: string;
+  catalog?: DuckLakeCatalog;
   region: string;
   endpoint?: string;
   accessKeyId?: string;
@@ -279,9 +287,13 @@ export async function listAnalysisS3(input: { uri: string; region: string; endpo
   return invoke<string[]>("analysis_list_s3", { request: input });
 }
 
+export async function listAnalysisDuckLake(input: { uri: string; region: string; endpoint?: string; accessKeyId?: string; secretAccessKey?: string; prefix: string; catalog: DuckLakeCatalog }): Promise<{ schema: string; name: string; uri: string }[]> {
+  return invoke("analysis_list_ducklake", { request: input });
+}
+
 export async function runS3CatalogQuery(input: {
   workspaceId: string;
-  sources: readonly { schema: string; name: string; uri: string; format: "csv" | "parquet" | "delta" | "iceberg" }[];
+  sources: readonly { schema: string; name: string; uri: string; format: "csv" | "parquet" | "delta" | "iceberg" | "ducklake"; tableSchema?: string; tableName?: string; catalog?: DuckLakeCatalog }[];
   region: string;
   endpoint?: string;
   accessKeyId?: string;

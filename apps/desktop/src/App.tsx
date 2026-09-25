@@ -30,13 +30,13 @@ import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
-import { basenameNoExt, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
+import { basenameNoExt, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
 import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
-import { cancelAnalysis, clearAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, listAnalysisDatasets, listAnalysisS3, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
+import { cancelAnalysis, clearAnalysis, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, listAnalysisDatasets, listAnalysisS3, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import { s3Buckets } from "./lib/s3-buckets";
-import { detectS3Tables } from "./lib/s3-sources";
+import { discoverConfiguredS3Tables, type S3DiscoveryCredentials, type S3TableSource } from "./lib/s3-sources";
 import { s3ReferencedRelations, s3Suggestions } from "./lib/s3-autocomplete";
 import type { McpStatusResult } from "@omni-sql/ts-types";
 
@@ -249,7 +249,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [duplicatingConnection, setDuplicatingConnection] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarCache, setSidebarCache] = useState<Record<string, { schemas: string[]; relations: RelationInfo[]; functions: FunctionDef[] }>>({});
-  const [s3Catalog, setS3Catalog] = useState<Record<string, { schema: string; name: string; uri: string; format: "csv" | "parquet" | "delta" | "iceberg" }[]>>({});
+  const [s3Catalog, setS3Catalog] = useState<Record<string, ({ schema: string; name: string } & S3TableSource)[]>>({});
   const s3ColumnRequests = useRef(new Map<string, Promise<RelationColumn[]>>());
   const [s3Prefixes, setS3Prefixes] = useState<Record<string, string>>({});
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -636,7 +636,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         for (const key of s3ColumnRequests.current.keys()) {
           if (key.startsWith(`${connectionId}:`)) s3ColumnRequests.current.delete(key);
         }
-        const credentials = await backend.call<{ accessKeyId: string; secretAccessKey?: string }>("connection.s3Credentials", { connectionId });
+        const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId });
         const buckets = s3Buckets(s3);
         const sources = (await Promise.all(buckets.map(async (bucketUri) => {
           const objects = await listAnalysisS3({ uri: bucketUri, region: String(s3.options?.region ?? ""),
@@ -644,13 +644,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             secretAccessKey: credentials.secretAccessKey, prefix: prefixOverride ?? s3Prefixes[connectionId] ?? "" });
           const schema = bucketUri.slice(5);
           const used = new Set<string>();
-          return detectS3Tables(objects).map((table) => {
-            const base = (table.format === "iceberg" ? table.uri.split("/metadata/")[0]! : table.uri)
+          const tables = await discoverConfiguredS3Tables(objects, bucketUri, String(s3.options?.region ?? ""),
+            String(s3.options?.endpoint ?? "") || undefined, credentials);
+          return tables.map((table) => {
+            const base = table.format === "ducklake" ? `${table.tableSchema}__${table.tableName}` : (table.format === "iceberg" ? table.uri.split("/metadata/")[0]! : table.uri)
               .slice(bucketUri.length + 1).replace(/\.(?:csv|parquet)$/i, "").replaceAll("/", "__");
             let name = base;
             for (let suffix = 2; used.has(name.toLowerCase()); suffix += 1) name = `${base}_${suffix}`;
             used.add(name.toLowerCase());
-            return { schema, name, uri: table.uri, format: table.format };
+            return { ...table, schema, name };
           });
         }))).flat();
         const localDatasets = [...await listAnalysisDatasets("local-duckdb"), ...await listAnalysisDatasets("federated")];
@@ -707,7 +709,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const source = s3Catalog[connectionId]?.find((item) => item.schema === schema && item.name === table);
     const connection = connections.find((item) => item.id === connectionId && item.dialect === "s3");
     if (!source || !connection) return [];
-    const key = `${connectionId}:${source.uri}`;
+    const key = `${connectionId}:${source.name}:${source.uri}`;
     let request = s3ColumnRequests.current.get(key);
     if (!request) {
       request = (async () => {
@@ -1084,6 +1086,34 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         finishQuery(activeQuery);
       });
   }, [finishQuery]);
+
+  const exportFullLocalCsv = useCallback(async () => {
+    if (activeDialect !== "duckdb" || !activeConnectionId || !analysisSourceSql || activeQueryRef.current) return;
+    const path = await pickAnalysisExportPath(activeTab.title.replaceAll(/[^a-zA-Z0-9_-]/g, "_"), "csv");
+    if (!path || activeQueryRef.current) return;
+    const operationId = `export-${crypto.randomUUID()}`;
+    const activeQuery: ActiveQuery = {
+      sequence: ++executionSequenceRef.current,
+      connectionId: activeConnectionId,
+      engineOperationId: operationId,
+      abortController: new AbortController(),
+      cancelPromise: null,
+      cancelSettled: false,
+      finished: false,
+    };
+    activeQueryRef.current = activeQuery;
+    setRunning(true);
+    setBusyMsg(t("analysisExportCsv"));
+    updateTab(activeTab.id, { error: null });
+    try {
+      await exportAnalysis({ workspaceId: "local-duckdb", sql: analysisSourceSql, path, format: "csv", operationId });
+    } catch (cause) {
+      if (activeQueryRef.current === activeQuery) updateTab(activeTab.id, { error: cause instanceof Error ? cause.message : String(cause) });
+    } finally {
+      activeQuery.finished = true;
+      finishQuery(activeQuery);
+    }
+  }, [activeConnectionId, activeDialect, activeTab.id, activeTab.title, analysisSourceSql, finishQuery, t, updateTab]);
 
   const handleRun = useCallback(() => {
     if (!activeConnectionId) return;
@@ -1593,12 +1623,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </section>}
 
       {!analysisWorkspaceId && <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportError(null); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} />
+        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportError(null); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} />
       </section>}
 
       {analysisWorkspaceId && (
         <section style={{ gridColumn: 2, gridRow: "3 / span 2", display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={onAnalysisDatasetSelected} sourceConnections={connections.filter((connection) => connection.dialect !== "s3")} s3Connections={connections.filter((connection) => connection.dialect === "s3")} onSelectS3Connection={(id) => void onSelectConnection(id)} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} initialS3Connection={analysisS3Connection} />
+          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={onAnalysisDatasetSelected} sourceConnections={connections.filter((connection) => connection.dialect !== "s3")} s3Connections={connections.filter((connection) => connection.dialect === "s3")} onSelectS3Connection={(id) => void onSelectConnection(id)} onConfigureS3Connection={onEditConnection} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} initialS3Connection={analysisS3Connection} />
         </section>
       )}
 
