@@ -2567,6 +2567,59 @@ mod tests {
     }
 
     #[test]
+    fn imports_only_the_requested_first_rows_from_a_source_stream() {
+        let (port, server) = serve_stream(100);
+        let engine = DataEngine::open_in_memory().unwrap();
+        let dataset = engine
+            .import_source(source_request(ImportSelection::FirstN { rows: 3 }), "test-token", port)
+            .unwrap();
+        server.join().unwrap();
+
+        assert_eq!(dataset.row_count, 3);
+        assert_eq!(dataset.scanned_rows, 3);
+        assert!(matches!(dataset.coverage, DatasetCoverage::Sampled));
+        assert_eq!(dataset.source_total, None);
+        let result = engine.query(QueryRequest {
+            operation_id: "first-rows".into(),
+            workspace_id: "workspace-stream".into(),
+            sql: format!("SELECT id FROM {} ORDER BY id", dataset.relation_name),
+            limit: 10,
+        }).unwrap();
+        assert_eq!(result.rows, vec![
+            vec![JsonValue::from(0)],
+            vec![JsonValue::from(1)],
+            vec![JsonValue::from(2)],
+        ]);
+    }
+
+    #[test]
+    fn imports_a_repeatable_reservoir_sample_from_a_source_stream() {
+        let (port, server) = serve_stream(100);
+        let engine = DataEngine::open_in_memory().unwrap();
+        let selection = ImportSelection::Reservoir { rows: 10, seed: 42 };
+        let dataset = engine
+            .import_source(source_request(selection.clone()), "test-token", port)
+            .unwrap();
+        server.join().unwrap();
+
+        assert_eq!(dataset.row_count, 10);
+        assert_eq!(dataset.scanned_rows, 100);
+        assert_eq!(dataset.source_total, Some(100));
+        assert!(matches!(dataset.coverage, DatasetCoverage::Sampled));
+        let result = engine.query(QueryRequest {
+            operation_id: "reservoir-rows".into(),
+            workspace_id: "workspace-stream".into(),
+            sql: format!("SELECT id FROM {}", dataset.relation_name),
+            limit: 20,
+        }).unwrap();
+        let expected = select_rows(
+            &(0..100).map(|id| vec![JsonValue::from(id)]).collect::<Vec<_>>(),
+            &selection,
+        ).unwrap();
+        assert_eq!(result.rows, expected);
+    }
+
+    #[test]
     #[ignore = "five-million-row throughput benchmark; run explicitly on release candidates"]
     fn benchmarks_five_million_streamed_rows_without_grid_materialization() {
         let rows = 5_000_000;
