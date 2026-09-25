@@ -37,10 +37,10 @@ const customer: DatasetRef = {
 };
 const order: DatasetRef = { ...customer, id: "dataset-2", name: "Orders", relationName: "orders" };
 
-function show(dataset: DatasetRef | null = customer, onDatasetSelected = vi.fn(), initialS3Connection?: { id: string; label: string; dialect: "s3"; endpoint: string; user: string; options: { region: string; endpoint: string } }) {
+function show(dataset: DatasetRef | null = customer, onDatasetSelected = vi.fn(), initialS3Connection?: { id: string; label: string; dialect: "s3"; endpoint: string; user: string; options: { region: string; endpoint: string } }, onConfigureS3Connection?: (id: string) => void) {
   return render(<FluentProvider theme={webDarkTheme}><LanguageProvider>
     <AnalysisWorkspace workspaceId="workspace-1" dataset={dataset} onDatasetSelected={onDatasetSelected}
-      sourceConnections={[{ id: "connection-1", label: "Postgres", dialect: "postgres" }]} initialS3Connection={initialS3Connection} />
+      sourceConnections={[{ id: "connection-1", label: "Postgres", dialect: "postgres" }]} initialS3Connection={initialS3Connection} onConfigureS3Connection={onConfigureS3Connection} />
   </LanguageProvider></FluentProvider>);
 }
 
@@ -86,6 +86,18 @@ describe("AnalysisWorkspace", () => {
       uri: "s3://bucket/delta/sales", format: "delta", region: "us-east-1", sql: "SELECT * FROM s3_source",
       accessKeyId: "omni_test", secretAccessKey: "omni_test_secret",
     })));
+  });
+
+  it("asks for a DuckLake catalog when S3 only shows DuckLake data files", async () => {
+    vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.s3Credentials"
+      ? { accessKeyId: "", secretAccessKey: undefined } : { relations: [] });
+    vi.mocked(listAnalysisS3).mockResolvedValue(["s3://bucket/main/orders/ducklake-abc.parquet"]);
+    const configure = vi.fn();
+    show(customer, vi.fn(), { id: "s3-1", label: "Lake", dialect: "s3", endpoint: "s3://bucket", user: "", options: { region: "us-east-1", endpoint: "" } }, configure);
+    fireEvent.click(screen.getByRole("button", { name: "Listar fontes S3" }));
+    const button = await screen.findByRole("button", { name: "Configurar catálogo" });
+    fireEvent.click(button);
+    expect(configure).toHaveBeenCalledWith("s3-1");
   });
 
   it("keeps the edited query when the dataset list changes and runs that query", async () => {

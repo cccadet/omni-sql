@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { detectS3Tables, discoverS3Tables, duckLakeCandidatePrefixes, type DuckLakeCatalog } from "./s3-sources";
+import { detectS3Tables, discoverS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type DuckLakeCatalog } from "./s3-sources";
 
 test("detects mixed tables in one S3 bucket", () => {
   expect(detectS3Tables([
@@ -39,4 +39,7 @@ test("DuckLake catalog mappings resolve mixed buckets and table overrides", asyn
     { uri: "s3://bucket/main/orders", name: "main.orders", format: "ducklake", tableSchema: "main", tableName: "orders", catalog: postgres },
     { uri: "s3://bucket/other/orders.parquet", name: "orders.parquet", format: "parquet" },
   ]);
+  expect(resolveDuckLakeSource({ ...sources[1]!, catalog: undefined }, { accessKeyId: "", ducklakeMappings: [
+    { prefix: "s3://bucket", catalog: postgres }, { prefix: "s3://bucket/main/customers", catalog: sqlite },
+  ] }).catalog).toEqual(sqlite);
 });

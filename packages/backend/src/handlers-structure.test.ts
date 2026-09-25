@@ -36,6 +36,27 @@ test("S3 access key and secret are recovered from the saved connection", async (
   }
 });
 
+test("DuckLake mappings resolve PostgreSQL credentials and retain table overrides", async () => {
+  const pgId = "ducklake-pg";
+  const s3Id = "ducklake-s3";
+  try {
+    await handlers["connection.add"]({ config: { id: pgId, label: "Lake catalog", dialect: "postgres",
+      endpoint: "127.0.0.1:5432/lake", user: "reader" }, password: "pg-secret" });
+    await handlers["connection.add"]({ config: { id: s3Id, label: "Lake data", dialect: "s3",
+      endpoint: "s3://bucket", user: "", options: { ducklakeMappings: JSON.stringify([
+        { prefix: "s3://bucket", kind: "postgres", connectionId: pgId },
+        { prefix: "s3://bucket/main/orders", kind: "sqlite", path: "C:/lake/catalog.sqlite" },
+      ]) } } });
+    assert.deepEqual((await handlers["connection.s3Credentials"]({ connectionId: s3Id })).ducklakeMappings, [
+      { prefix: "s3://bucket", catalog: { kind: "postgres", host: "127.0.0.1", port: 5432, database: "lake", user: "reader", password: "pg-secret" } },
+      { prefix: "s3://bucket/main/orders", catalog: { kind: "sqlite", path: "C:/lake/catalog.sqlite" } },
+    ]);
+  } finally {
+    await handlers["connection.remove"]({ connectionId: s3Id }).catch(() => undefined);
+    await handlers["connection.remove"]({ connectionId: pgId }).catch(() => undefined);
+  }
+});
+
 test("mutatesDatabaseStructure recognizes schema-changing statements", () => {
   assert.equal(mutatesDatabaseStructure("ALTER TABLE public.items ADD COLUMN note text"), true);
   assert.equal(mutatesDatabaseStructure("-- generated\nCREATE INDEX ix_items_note ON public.items(note)"), true);
