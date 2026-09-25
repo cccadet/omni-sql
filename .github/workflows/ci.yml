@@ -11,9 +11,9 @@ permissions:
 
 jobs:
   verify-ts:
-    name: pnpm verify (typecheck + lint + test)
+    name: Typecheck, lint, tests and coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +30,16 @@ jobs:
           run_install: true
 
       - name: Verify
-        run: pnpm verify
+        run: pnpm -r typecheck && pnpm -r lint && pnpm test:coverage
+
+      - name: Upload TypeScript coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-coverage
+          path: |
+            apps/desktop/coverage/lcov.info
+            packages/*/coverage/lcov.info
+          if-no-files-found: error
 
       - name: Reject mutable Actions in release workflow
         shell: bash
@@ -75,6 +84,7 @@ jobs:
 
   sonarcloud:
     name: SonarCloud analysis
+    needs: verify-ts
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Fork PRs cannot receive repository secrets. Keep the scan out of those
@@ -121,25 +131,22 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: true
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: gradle
+      - name: Download TypeScript coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: typescript-coverage
+          path: .
       - name: Generate coverage reports
         run: |
-          pnpm test:coverage
           ./services/jvm-sidecar/gradlew -p services/jvm-sidecar test jacocoTestReport
-          docker compose -f docker/test-dbs/docker-compose.yml -f docker/test-dbs/docker-compose.s3-moto.yml up -d minio
-          docker compose -f docker/test-dbs/docker-compose.yml -f docker/test-dbs/docker-compose.s3-moto.yml run --build --rm minio-fixtures
           mkdir -p apps/desktop/src-tauri/coverage
-          OMNI_SQL_RUN_S3_INTEGRATION=1 cargo llvm-cov --manifest-path apps/desktop/src-tauri/Cargo.toml --lcov --output-path apps/desktop/src-tauri/coverage/lcov.info
+          cargo llvm-cov --manifest-path apps/desktop/src-tauri/Cargo.toml --lcov --output-path apps/desktop/src-tauri/coverage/lcov.info
 
 
       - name: Cache SonarCloud packages

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { assert, test } from "vitest";
 import { extractVariables, substituteVariables } from "./sql-variables";
 

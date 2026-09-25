@@ -52,18 +52,18 @@ jobs:
         shell: bash
         run: |
           set +e
-          pnpm verify 2>&1 | tee "$RUNNER_TEMP/verify.log"
+          (pnpm -r typecheck && pnpm -r lint && pnpm test:coverage) 2>&1 | tee "$RUNNER_TEMP/verify.log"
           status="${PIPESTATUS[0]}"
           set -e
           if [[ "$status" -ne 0 ]]; then
             details="$(tail -n 80 "$RUNNER_TEMP/verify.log" | sed -z 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')"
-            echo "::error title=pnpm verify failed::$details"
+            echo "::error title=release verification failed::$details"
             exit "$status"
           fi
 
   build:
     name: Build ${{ matrix.target }}
-    needs: version
+    needs: [version, verify]
     strategy:
       fail-fast: false
       matrix:

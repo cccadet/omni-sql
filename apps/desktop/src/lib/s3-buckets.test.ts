@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { assert, test } from "vitest";
 import { s3Buckets } from "./s3-buckets";
 

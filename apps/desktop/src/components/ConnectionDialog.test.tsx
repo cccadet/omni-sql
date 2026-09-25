@@ -118,7 +118,7 @@ test("keeps S3 fields focused after loading buckets, saving, and reopening", asy
   fireEvent.click(await screen.findByRole("checkbox", { name: "bucket-b" }));
   fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
   await waitFor(() => assert.equal(screen.queryByRole("dialog"), null));
-  fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+  fireEvent.click(screen.getByText("Reopen"));
   const region = screen.getByRole("textbox", { name: "Region" });
   region.focus();
   fireEvent.change(region, { target: { value: "us-east-1" } });

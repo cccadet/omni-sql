@@ -13,6 +13,8 @@
     "lint": "pnpm -r --parallel lint",
     "test": "pnpm -r --parallel test",
     "test:coverage": "node ./scripts/test-coverage.mjs",
+    "test:fast": "pnpm -r --filter \"./packages/**\" test && pnpm --filter desktop exec vitest run src/lib --exclude src/lib/monaco-config.test.ts",
+    "precommit": "pnpm -r typecheck && pnpm -r lint && pnpm test:fast",
     "verify": "pnpm -r typecheck && pnpm -r lint && pnpm -r test",
     "build": "pnpm -r --filter './packages/**' build",
     "dev:frontend": "pnpm --filter desktop dev",

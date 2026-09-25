@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "node --test --import ./src/index.test.ts",
-    "coverage": "mkdir -p coverage && node --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-coverage-include='src/**/*.ts' --test-coverage-exclude='**/*.test.ts' --test --import ./src/index.test.ts"
+    "coverage": "node --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-coverage-include=\"src/**/*.ts\" --test-coverage-exclude=\"**/*.test.ts\" --test --import ./src/index.test.ts"
   },
   "dependencies": {
     "@omni-sql/ts-types": "workspace:*"
