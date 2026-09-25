@@ -839,8 +839,11 @@ select option {
 .omni-connection-dialog .omni-dialog-body.omni-dialog-body { gap: 10px; padding: 20px; }
 .omni-connection-dialog .omni-dialog-actions.omni-dialog-actions { padding: 12px 20px 16px; }
 .omni-connection-dialog .omni-dialog-body > .fui-Label,
-.omni-connection-host-row > .fui-Label { display: grid; gap: 4px; min-width: 0; }
-.omni-connection-dialog .fui-Label > .fui-Input { width: 100%; margin-top: 0 !important; }
+.omni-connection-host-row > .fui-Label,
+.omni-connection-dialog .omni-dialog-body > .fui-Field,
+.omni-connection-host-row > .fui-Field { display: grid; gap: 4px; min-width: 0; }
+.omni-connection-dialog .fui-Label > .fui-Input,
+.omni-connection-dialog .fui-Field > .fui-Input { width: 100%; margin-top: 0 !important; }
 .omni-connection-host-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 10px; }
 .connection-schema-picker { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--colorNeutralStroke1); border-radius: 6px; background: var(--colorNeutralBackground2); }
 .connection-schema-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

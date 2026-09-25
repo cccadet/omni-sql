@@ -1,7 +1,24 @@
+import { listAnalysisDuckLake } from "./analysis";
+
 export interface S3TableSource {
   uri: string;
   name: string;
-  format: "csv" | "parquet" | "delta" | "iceberg";
+  format: "csv" | "parquet" | "delta" | "iceberg" | "ducklake";
+  tableSchema?: string;
+  tableName?: string;
+  catalog?: DuckLakeCatalog;
+}
+
+export type DuckLakeCatalog =
+  | { kind: "postgres"; host: string; port: number; database: string; user: string; password?: string }
+  | { kind: "sqlite" | "duckdb"; path: string };
+
+export interface DuckLakeMapping { prefix: string; catalog: DuckLakeCatalog }
+export interface S3DiscoveryCredentials { accessKeyId: string; secretAccessKey?: string; ducklakeMappings?: DuckLakeMapping[] }
+
+export function duckLakeCandidatePrefixes(objects: readonly string[]): string[] {
+  return [...new Set(objects.filter((uri) => /\/ducklake-[^/]+\.parquet$/i.test(uri))
+    .map((uri) => uri.slice(0, uri.lastIndexOf("/"))))].sort();
 }
 
 export function detectS3Tables(objects: readonly string[]): S3TableSource[] {
@@ -22,7 +39,7 @@ export function detectS3Tables(objects: readonly string[]): S3TableSource[] {
       }
       continue;
     }
-    if (uri.includes("/_delta_log/") || uri.includes("/metadata/")) continue;
+    if (uri.includes("/_delta_log/") || uri.includes("/metadata/") || /\.ducklake\.files\//i.test(uri)) continue;
     const format = /\.parquet$/i.test(uri) ? "parquet" : /\.csv$/i.test(uri) ? "csv" : null;
     if (format) found.set(uri, { uri, name: uri.split("/").at(-1) || uri, format });
   }
@@ -34,4 +51,29 @@ export function detectS3Tables(objects: readonly string[]): S3TableSource[] {
     return false;
   }))
     .sort((a, b) => a.uri.localeCompare(b.uri));
+}
+
+export async function discoverS3Tables(objects: readonly string[], mappings: readonly DuckLakeMapping[],
+  listDuckLake: (mapping: DuckLakeMapping) => Promise<readonly { schema: string; name: string; uri: string }[]>): Promise<S3TableSource[]> {
+  const lakeTables = (await Promise.all(mappings.map(async (mapping) =>
+    (await listDuckLake(mapping)).map((table) => ({ ...table, mapping }))))).flat()
+    .filter(({ uri, mapping }) => uri === mapping.prefix || uri.startsWith(`${mapping.prefix}/`))
+    .filter(({ uri, mapping }) => !mappings.some((other) => other !== mapping && other.prefix.length > mapping.prefix.length
+      && (uri === other.prefix || uri.startsWith(`${other.prefix}/`))));
+  const sources: S3TableSource[] = lakeTables.map(({ schema, name, uri, mapping }) => ({
+    uri, name: `${schema}.${name}`, format: "ducklake", tableSchema: schema, tableName: name, catalog: mapping.catalog,
+  }));
+  const dataFiles = new Set(objects.filter((uri) => /\/ducklake-[^/]+\.parquet$/i.test(uri)
+    && sources.some((source) => uri.startsWith(`${source.uri}/`))));
+  return [...detectS3Tables(objects.filter((uri) => !dataFiles.has(uri))), ...sources]
+    .sort((a, b) => `${a.uri}/${a.name}`.localeCompare(`${b.uri}/${b.name}`));
+}
+
+export function discoverConfiguredS3Tables(objects: readonly string[], bucketUri: string, region: string, endpoint: string | undefined,
+  credentials: S3DiscoveryCredentials): Promise<S3TableSource[]> {
+  const mappings = (credentials.ducklakeMappings ?? []).filter(({ prefix }) => prefix === bucketUri || prefix.startsWith(`${bucketUri}/`));
+  return discoverS3Tables(objects, mappings, ({ prefix, catalog }) => listAnalysisDuckLake({
+    uri: bucketUri, region, endpoint, accessKeyId: credentials.accessKeyId || undefined,
+    secretAccessKey: credentials.secretAccessKey, prefix: prefix.slice(bucketUri.length).replace(/^\//, ""), catalog,
+  }));
 }

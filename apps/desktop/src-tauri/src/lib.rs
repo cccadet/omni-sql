@@ -1627,6 +1627,11 @@ fn analysis_list_s3(request: data_engine::S3ListRequest) -> Result<Vec<String>, 
 }
 
 #[tauri::command]
+fn analysis_list_ducklake(request: data_engine::S3ListRequest) -> Result<Vec<data_engine::DuckLakeTable>, String> {
+    data_engine::list_ducklake_tables(request)
+}
+
+#[tauri::command]
 fn analysis_query_s3_catalog(
     engine: tauri::State<'_, data_engine::DataEngine>,
     request: data_engine::S3CatalogQueryRequest,
@@ -1720,6 +1725,7 @@ pub fn run() {
             analysis_import_s3,
             analysis_query_s3,
             analysis_list_s3,
+            analysis_list_ducklake,
             analysis_query_s3_catalog
         ])
         .manage(AuthToken {

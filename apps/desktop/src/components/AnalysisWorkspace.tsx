@@ -15,7 +15,7 @@ import { ArrowClockwiseRegular, CheckmarkRegular, DeleteRegular, EditRegular, St
 import type { QueryResult } from "@omni-sql/ts-types";
 import type { DatasetRef } from "../lib/analysis";
 import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, listAnalysisS3, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, runAnalysisS3 } from "../lib/analysis";
-import { detectS3Tables, type S3TableSource } from "../lib/s3-sources";
+import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, type S3DiscoveryCredentials, type S3TableSource } from "../lib/s3-sources";
 import { backend, type ConnectionEntry, type RelationInfo } from "../lib/backend";
 import { localAnalysisIdentifier, localAnalysisSuggestions } from "../lib/analysis-autocomplete";
 import type { EditorProps } from "./Editor";
@@ -36,6 +36,7 @@ interface AnalysisWorkspaceProps {
   readonly initialS3Connection?: ConnectionEntry | null;
   readonly s3Connections?: readonly ConnectionEntry[];
   readonly onSelectS3Connection?: (connectionId: string) => void;
+  readonly onConfigureS3Connection?: (connectionId: string) => void;
 }
 
 interface S3Source {
@@ -44,9 +45,12 @@ interface S3Source {
   format: S3TableSource["format"];
   region: string;
   endpoint: string;
+  tableSchema?: string;
+  tableName?: string;
+  catalog?: S3TableSource["catalog"];
 }
 
-export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false, initialSource, initialS3Connection, s3Connections = [], onSelectS3Connection }: AnalysisWorkspaceProps) {
+export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false, initialSource, initialS3Connection, s3Connections = [], onSelectS3Connection, onConfigureS3Connection }: AnalysisWorkspaceProps) {
   const { t } = useLanguage();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -59,6 +63,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
   const [activeS3Source, setActiveS3Source] = useState<S3Source | null>(null);
   const [s3Prefix, setS3Prefix] = useState("");
   const [s3Tables, setS3Tables] = useState<S3TableSource[]>([]);
+  const [unconfiguredDuckLake, setUnconfiguredDuckLake] = useState<string[]>([]);
   const [s3Limited, setS3Limited] = useState(false);
   const [s3Listing, setS3Listing] = useState(false);
   const [sourceConnectionId, setSourceConnectionId] = useState("");
@@ -87,6 +92,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
     setActiveS3Source(null);
     setS3Prefix("");
     setS3Tables([]);
+    setUnconfiguredDuckLake([]);
     setS3Limited(false);
     setSql("");
     setResult(null);
@@ -99,17 +105,24 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
     setS3Listing(true);
     setError(null);
     try {
-      const credentials = await backend.call<{ accessKeyId: string; secretAccessKey?: string }>("connection.s3Credentials", { connectionId: initialS3Connection.id });
+      const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId: initialS3Connection.id });
       const objects = await listAnalysisS3({ uri: initialS3Connection.endpoint,
         region: String(initialS3Connection.options?.region ?? ""),
         endpoint: String(initialS3Connection.options?.endpoint ?? "") || undefined,
         accessKeyId: credentials.accessKeyId || undefined, secretAccessKey: credentials.secretAccessKey, prefix: s3Prefix });
       if (requestId !== s3RequestIdRef.current) return;
-      setS3Tables(detectS3Tables(objects));
+      const bucketUri = initialS3Connection.endpoint;
+      const tables = await discoverConfiguredS3Tables(objects, bucketUri, String(initialS3Connection.options?.region ?? ""),
+        String(initialS3Connection.options?.endpoint ?? "") || undefined, credentials);
+      if (requestId !== s3RequestIdRef.current) return;
+      setS3Tables(tables);
+      setUnconfiguredDuckLake(duckLakeCandidatePrefixes(objects).filter((prefix) =>
+        !(credentials.ducklakeMappings ?? []).some((mapping) => prefix === mapping.prefix || prefix.startsWith(`${mapping.prefix}/`))));
       setS3Limited(objects.length >= 500);
     } catch (cause) {
       if (requestId !== s3RequestIdRef.current) return;
       setS3Tables([]);
+      setUnconfiguredDuckLake([]);
       setS3Limited(false);
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -324,13 +337,17 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
       </div>
       <div className="omni-s3-browser-results">
         {s3Listing ? <div className="omni-s3-empty"><Spinner size="tiny" /><span>Buscando fontes…</span></div>
-          : s3Tables.length === 0 ? <div className="omni-s3-empty">Explore o bucket para ver CSV, Parquet, Delta e Iceberg.</div>
+          : s3Tables.length === 0 ? <div className="omni-s3-empty">Explore o bucket para ver CSV, Parquet, Delta, Iceberg e DuckLake.</div>
             : <><div className="omni-s3-results-count">{s3Tables.length} {s3Tables.length === 1 ? "fonte" : "fontes"}</div>
-              {s3Tables.map((table) => <button type="button" className={`omni-s3-table${activeS3Source?.uri === table.uri ? " is-active" : ""}`} key={table.uri}
+              {s3Tables.map((table) => <button type="button" className={`omni-s3-table${activeS3Source?.uri === table.uri && activeS3Source?.name === table.name ? " is-active" : ""}`} key={`${table.uri}:${table.name}`}
                 onClick={() => selectS3Table(table)} aria-label={`Abrir ${table.name}`} title={table.uri}>
                 <span className="omni-s3-table-name">{table.name}</span><span className={`omni-s3-format is-${table.format}`}>{table.format}</span>
               </button>)}
             </>}
+        {unconfiguredDuckLake.length > 0 && <div className="omni-s3-limit">
+          Possível DuckLake em {unconfiguredDuckLake.join(", ")}. Configure o catálogo de metadados para identificar as tabelas.
+          <Button size="small" appearance="subtle" onClick={() => initialS3Connection && onConfigureS3Connection?.(initialS3Connection.id)}>Configurar catálogo</Button>
+        </div>}
         {s3Limited && <div className="omni-s3-limit">Limite de 500 objetos. Use um prefixo mais específico.</div>}
       </div>
     </div> : <Text weight="semibold">{t("analysisDatasets")}</Text>}

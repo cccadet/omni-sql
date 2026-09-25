@@ -221,6 +221,30 @@ for (const [key, target] of targets) {
       assert.equal(batches[0]?.columns.length, 2);
     });
 
+    it("streamQuery: preserves exact decimal, large integer, and null", async () => {
+      assert.ok(adapter.streamQuery);
+      const sql = key === "oracle"
+        ? "SELECT CAST('12345678901234567890.12345678' AS NUMBER(30,8)) AS exact_decimal, CAST('9007199254740993' AS NUMBER(19)) AS large_integer, CAST(NULL AS VARCHAR2(1)) AS null_value FROM dual"
+        : key === "mysql"
+          ? "SELECT CAST('12345678901234567890.12345678' AS DECIMAL(30,8)) AS exact_decimal, CAST('9007199254740993' AS SIGNED) AS large_integer, NULL AS null_value"
+        : "SELECT CAST('12345678901234567890.12345678' AS DECIMAL(30,8)) AS exact_decimal, CAST('9007199254740993' AS BIGINT) AS large_integer, CAST(NULL AS VARCHAR(1)) AS null_value";
+      const batches = [];
+      if (key === "mssql") {
+        await assert.rejects(async () => {
+          for await (const batch of adapter.streamQuery!(sql, { batchSize: 2, signal: new AbortController().signal })) batches.push(batch);
+        }, /cannot preserve.*cast it to VARCHAR/);
+        const exactSql = "SELECT CAST(CAST('12345678901234567890.12345678' AS DECIMAL(30,8)) AS VARCHAR(40)) AS exact_decimal, CAST(CAST('9007199254740993' AS BIGINT) AS VARCHAR(40)) AS large_integer, NULL AS null_value";
+        for await (const batch of adapter.streamQuery(exactSql, { batchSize: 2, signal: new AbortController().signal })) batches.push(batch);
+      } else {
+        for await (const batch of adapter.streamQuery(sql, { batchSize: 2, signal: new AbortController().signal })) batches.push(batch);
+      }
+      const row = batches[0]?.rows[0];
+      assert.ok(row);
+      assert.equal(String(row[0]), "12345678901234567890.12345678");
+      assert.equal(String(row[1]), "9007199254740993");
+      assert.equal(row[2], null);
+    });
+
     it("runQuery: JOIN orders + customers", async () => {
       const result = await adapter.runQuery(
         "SELECT o.id, c.name, o.total FROM orders o JOIN customers c ON c.id = o.customer_id ORDER BY o.id",

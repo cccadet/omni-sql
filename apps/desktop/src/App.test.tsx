@@ -8,7 +8,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import App from "./App";
 import { LanguageProvider } from "./i18n";
 import { backend } from "./lib/backend";
-import { pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
+import { pickAnalysisExportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { MCP_MAX_ERROR_MESSAGE_BYTES } from "@omni-sql/ts-types";
 
 const editorMockState = vi.hoisted(() => ({
@@ -24,6 +24,7 @@ vi.mock("./theme", () => ({ useEditorMonacoTheme: () => "test-monaco-theme" }));
 vi.mock("./lib/file-io", () => ({
   basenameNoExt: (path: string) => path.split("/").at(-1)?.replace(/\.sql$/u, "") ?? path,
   pickOpenPath: vi.fn(),
+  pickAnalysisExportPath: vi.fn(),
   pickSavePath: vi.fn(),
   readSqlFile: vi.fn(),
   writeSqlFile: vi.fn(),
@@ -121,6 +122,7 @@ beforeEach(() => {
   vi.mocked(invoke).mockResolvedValue(undefined);
   call.mockReset();
   vi.mocked(pickOpenPath).mockResolvedValue(null);
+  vi.mocked(pickAnalysisExportPath).mockResolvedValue(null);
   vi.mocked(pickSavePath).mockResolvedValue(null);
   vi.mocked(readSqlFile).mockResolvedValue("");
   vi.mocked(writeSqlFile).mockResolvedValue();
@@ -204,6 +206,26 @@ describe("App history persistence", () => {
   });
 });
 describe("App execution flow", () => {
+  it("exports the executed local SQL beyond the grid preview", async () => {
+    seedSession("SELECT id FROM orders", 100, "local-duckdb");
+    const defaultCall = call.getMockImplementation()!;
+    call.mockImplementation((method, params, signal) => method === "connection.list"
+      ? Promise.resolve({ configs: [{ id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "memory://local", user: "" }] })
+      : defaultCall(method, params, signal));
+    vi.mocked(invoke).mockImplementation(async (command) => command === "analysis_query"
+      ? { columns: [{ name: "id", dataType: "integer", nullable: false }], rows: [[42]], rowsMoreAvailable: true }
+      : command === "analysis_export_query" ? { path: "C:/tmp/orders.csv", rows: 500, bytes: 1000 } : undefined);
+    vi.mocked(pickAnalysisExportPath).mockResolvedValue("C:/tmp/orders.csv");
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Export full CSV" }));
+
+    await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("analysis_export_query", {
+      request: expect.objectContaining({ workspaceId: "local-duckdb", sql: "SELECT id FROM orders", path: "C:/tmp/orders.csv", format: "csv" }),
+    }));
+  });
+
   it("explains the selected statement instead of the whole editor", async () => {
     seedSession("SELECT 1;\nSELECT 2", 1000, "conn-1");
     editorMockState.selection = { sql: "SELECT 2", start: 10 };

@@ -65,6 +65,25 @@ test("does not expose an existing connection internal ID", () => {
   assert.ok(screen.getByRole("button", { name: "Save connection" }));
 });
 
+test("keeps focus in a connection field while editing", () => {
+  vi.mocked(backend.call).mockResolvedValue({ configs: [] });
+  renderWithLanguage(
+    <ConnectionDialog
+      open
+      editing={{ id: "conn-saved", label: "Saved", dialect: "postgres", endpoint: "db:5432/app", user: "user" }}
+      onClose={close}
+      onSaved={saved}
+    />,
+  );
+
+  const name = screen.getByRole("textbox", { name: "Nome" });
+  assert.equal(name, screen.getByDisplayValue("Saved"));
+  name.focus();
+  fireEvent.change(name, { target: { value: "Saved updated" } });
+  assert.equal(document.activeElement, name);
+  assert.equal(screen.getByDisplayValue("Saved updated"), name);
+});
+
 test("shows saved schemas first and filters the loaded schema list", async () => {
   const call = vi.mocked(backend.call);
   call.mockImplementation(async (method) => method === "connection.listSchemas"

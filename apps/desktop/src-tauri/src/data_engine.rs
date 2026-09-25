@@ -81,6 +81,8 @@ pub struct DatasetRef {
     pub source_total: Option<usize>,
     pub source_connection_id: Option<String>,
     pub source_sql: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_uri: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -214,6 +216,9 @@ pub struct S3ImportRequest {
     pub name: String,
     pub uri: String,
     pub format: S3Format,
+    pub table_schema: Option<String>,
+    pub table_name: Option<String>,
+    pub catalog: Option<DuckLakeCatalog>,
     pub region: String,
     pub endpoint: Option<String>,
     pub access_key_id: Option<String>,
@@ -224,7 +229,7 @@ pub struct S3ImportRequest {
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum S3Format { Csv, Parquet, Delta, Iceberg }
+pub enum S3Format { Csv, Parquet, Delta, Iceberg, Ducklake }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -233,6 +238,9 @@ pub struct S3QueryRequest {
     pub workspace_id: String,
     pub uri: String,
     pub format: S3Format,
+    pub table_schema: Option<String>,
+    pub table_name: Option<String>,
+    pub catalog: Option<DuckLakeCatalog>,
     pub region: String,
     pub endpoint: Option<String>,
     pub access_key_id: Option<String>,
@@ -248,6 +256,9 @@ pub struct S3CatalogSource {
     pub name: String,
     pub uri: String,
     pub format: S3Format,
+    pub table_schema: Option<String>,
+    pub table_name: Option<String>,
+    pub catalog: Option<DuckLakeCatalog>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -270,15 +281,99 @@ fn s3_scan_function(format: S3Format) -> &'static str {
         S3Format::Parquet => "read_parquet",
         S3Format::Delta => "delta_scan",
         S3Format::Iceberg => "iceberg_scan",
+        S3Format::Ducklake => "",
     }
+}
+
+fn validate_s3_uri(uri: &str) -> Result<(), String> {
+    if !uri.starts_with("s3://") || uri.len() > 2048
+        || uri[5..].split('/').next().is_none_or(|bucket| bucket.is_empty() || bucket.contains('@'))
+        || uri.chars().any(char::is_control) {
+        return Err("S3 source must be an s3://bucket/path URI".to_string());
+    }
+    Ok(())
+}
+
+fn ducklake_relation(schema: Option<&str>, table: Option<&str>) -> Result<String, String> {
+    let (Some(schema), Some(table)) = (schema, table) else { return Err("DuckLake table is required".into()); };
+    if schema.is_empty() || table.is_empty() || schema.len() > 128 || table.len() > 256 || schema.chars().any(char::is_control) || table.chars().any(char::is_control) {
+        return Err("invalid DuckLake table".into());
+    }
+    Ok(format!("{}.{}", quote_identifier(schema), quote_identifier(table)))
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum DuckLakeCatalog {
+    Postgres { host: String, port: u16, database: String, user: String, password: Option<String> },
+    Sqlite { path: String },
+    Duckdb { path: String },
+}
+
+fn attach_ducklake(remote: &Connection, catalog: &DuckLakeCatalog, alias: &str) -> Result<(), String> {
+    let quote = |value: &str| format!("'{}'", value.replace('\'', "''"));
+    let attach = match catalog {
+        DuckLakeCatalog::Postgres { host, port, database, user, password } => {
+            if [host, database, user].iter().any(|value| value.is_empty() || value.len() > 256 || value.chars().any(char::is_control)) {
+                return Err("invalid PostgreSQL DuckLake catalog".into());
+            }
+            remote.execute_batch("INSTALL postgres; LOAD postgres;")
+                .map_err(|error| format!("failed to load PostgreSQL support: {error}"))?;
+            let secret_name = format!("omni_pg_{alias}");
+            let secret = format!("CREATE SECRET {} (TYPE postgres, HOST {}, PORT {}, DATABASE {}, USER {}{})",
+                quote_identifier(&secret_name), quote(host), port, quote(database), quote(user), password.as_ref().map_or(String::new(), |value| format!(", PASSWORD {}", quote(value))));
+            remote.execute_batch(&secret).map_err(|_| "failed to configure PostgreSQL DuckLake credentials".to_string())?;
+            format!("ATTACH 'ducklake:postgres:' AS {} (META_SECRET {}, READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote_identifier(alias), quote_identifier(&secret_name))
+        }
+        DuckLakeCatalog::Sqlite { path } | DuckLakeCatalog::Duckdb { path } => {
+            if path.is_empty() || path.len() > 2048 || path.chars().any(char::is_control) { return Err("invalid DuckLake catalog path".into()); }
+            if matches!(catalog, DuckLakeCatalog::Sqlite { .. }) {
+                remote.execute_batch("INSTALL sqlite; LOAD sqlite;")
+                    .map_err(|error| format!("failed to load SQLite support: {error}"))?;
+            }
+            let location = if matches!(catalog, DuckLakeCatalog::Sqlite { .. }) { format!("ducklake:sqlite:{path}") } else { format!("ducklake:{path}") };
+            format!("ATTACH {} AS {} (READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote(&location), quote_identifier(alias))
+        }
+    };
+    remote.execute_batch(&attach).map_err(|error| format!("failed to attach DuckLake catalog: {error}"))
+}
+
+#[derive(Debug, Serialize)]
+pub struct DuckLakeTable { pub schema: String, pub name: String, pub uri: String }
+
+pub fn list_ducklake_tables(request: S3ListRequest) -> Result<Vec<DuckLakeTable>, String> {
+    let catalog = request.catalog.as_ref().ok_or("DuckLake catalog is required")?;
+    let remote = open_s3_reader(&request.uri, S3Format::Ducklake, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
+    attach_ducklake(&remote, catalog, "omni_lake")?;
+    let mut statement = remote.prepare("SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'omni_lake' AND table_type = 'BASE TABLE' ORDER BY table_schema, table_name LIMIT 500")
+        .map_err(|error| format!("failed to inspect DuckLake catalog: {error}"))?;
+    let tables = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| format!("failed to list DuckLake tables: {error}"))?
+        .collect::<Result<Vec<_>, _>>().map_err(|error| format!("failed to read DuckLake tables: {error}"))?;
+    let root = request.uri.trim_end_matches('/');
+    let relative = request.prefix.trim_matches('/');
+    let prefix = if relative.is_empty() { format!("{root}/") } else { format!("{root}/{relative}/") };
+    let mut found = Vec::new();
+    for (schema, name) in tables {
+        let sql = format!("SELECT data_file FROM ducklake_list_files('omni_lake', '{}', schema => '{}') LIMIT 1000", name.replace('\'', "''"), schema.replace('\'', "''"));
+        let mut files = remote.prepare(&sql).map_err(|error| format!("failed to inspect DuckLake files: {error}"))?;
+        let paths = files.query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| format!("failed to list DuckLake files: {error}"))?;
+        for path in paths {
+            let path = path.map_err(|error| format!("failed to read DuckLake file: {error}"))?;
+            if path.starts_with(&prefix) {
+                let uri = path.rsplit_once('/').map_or(path.clone(), |(parent, _)| parent.to_string());
+                found.push(DuckLakeTable { schema: schema.clone(), name: name.clone(), uri });
+                break;
+            }
+        }
+    }
+    Ok(found)
 }
 
 fn open_s3_reader(uri: &str, format: S3Format, region: &str, endpoint: Option<&str>, access_key_id: Option<&str>, secret_access_key: Option<&str>) -> Result<Connection, String> {
     let uri = uri.trim();
-    if !uri.starts_with("s3://") || uri.len() > 2048 || uri[5..].split('/').next().is_none_or(|bucket| bucket.is_empty() || bucket.contains('@'))
-        || uri.chars().any(char::is_control) {
-        return Err("S3 source must be an s3://bucket/path URI".to_string());
-    }
+    validate_s3_uri(uri)?;
     if region.len() > 128 || !region.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err("invalid S3 region".to_string());
     }
@@ -293,8 +388,8 @@ fn open_s3_reader(uri: &str, format: S3Format, region: &str, endpoint: Option<&s
         .map_err(|error| format!("failed to limit S3 reader resources: {error}"))?;
     remote.execute_batch("SET allow_unsigned_extensions = false; INSTALL httpfs; LOAD httpfs; INSTALL aws; LOAD aws;")
         .map_err(|error| format!("failed to load S3 support: {error}"))?;
-    if matches!(format, S3Format::Delta | S3Format::Iceberg) {
-        let extension = if matches!(format, S3Format::Delta) { "delta" } else { "iceberg" };
+    if matches!(format, S3Format::Delta | S3Format::Iceberg | S3Format::Ducklake) {
+        let extension = match format { S3Format::Delta => "delta", S3Format::Iceberg => "iceberg", _ => "ducklake" };
         remote.execute_batch(&format!("INSTALL {extension}; LOAD {extension};"))
             .map_err(|error| format!("failed to load {extension} support: {error}"))?;
     }
@@ -334,6 +429,7 @@ pub struct S3ListRequest {
     pub access_key_id: Option<String>,
     pub secret_access_key: Option<String>,
     pub prefix: String,
+    pub catalog: Option<DuckLakeCatalog>,
 }
 
 pub fn list_s3_objects(request: S3ListRequest) -> Result<Vec<String>, String> {
@@ -564,10 +660,6 @@ impl DataEngine {
                 .flush()
                 .map_err(|error| format!("snapshot flush failed: {error}"))?;
         }
-        transaction
-            .commit()
-            .map_err(|error| format!("snapshot commit failed: {error}"))?;
-
         let dataset = DatasetRef {
             id: id.clone(),
             workspace_id: request.workspace_id,
@@ -590,9 +682,11 @@ impl DataEngine {
             source_total: (!request.rows_more_available).then_some(request.rows.len()),
             source_connection_id: request.source_connection_id,
             source_sql: request.source_sql,
+            source_uri: None,
         };
+        if dataset.workspace_id != "federated" { persist_dataset(&transaction, &dataset)?; }
+        transaction.commit().map_err(|error| format!("snapshot commit failed: {error}"))?;
         inner.datasets.insert(id, dataset.clone());
-        if dataset.workspace_id != "federated" { persist_dataset(&inner.connection, &dataset)?; }
         Ok(dataset)
     }
 
@@ -794,9 +888,6 @@ impl DataEngine {
             appender.flush()
                 .map_err(|error| format!("source dataset flush failed: {error}"))?;
         }
-        transaction.commit()
-            .map_err(|error| format!("source dataset commit failed: {error}"))?;
-
         let dataset = DatasetRef {
             id: id.clone(),
             workspace_id: request.workspace_id,
@@ -816,9 +907,11 @@ impl DataEngine {
             source_total: matches!(&request.selection, ImportSelection::Full | ImportSelection::Reservoir { .. }).then_some(scanned_rows),
             source_connection_id: Some(request.connection_id),
             source_sql: Some(request.sql),
+            source_uri: None,
         };
+        if dataset.workspace_id != "federated" { persist_dataset(&transaction, &dataset)?; }
+        transaction.commit().map_err(|error| format!("source dataset commit failed: {error}"))?;
         inner.datasets.insert(id, dataset.clone());
-        if dataset.workspace_id != "federated" { persist_dataset(&inner.connection, &dataset)?; }
         Ok(dataset)
     }
 
@@ -846,17 +939,19 @@ impl DataEngine {
         if dataset.workspace_id != workspace_id { return Err("dataset does not belong to this workspace".to_string()); }
         let old_relation_name = dataset.relation_name.clone();
         let relation_name = available_relation_name(&inner, name, Some(dataset_id));
+        let mut updated = dataset.clone();
+        updated.name = name.to_string();
+        updated.relation_name = relation_name.clone();
+        let transaction = inner.connection.transaction()
+            .map_err(|error| format!("failed to start dataset rename: {error}"))?;
         if relation_name != old_relation_name {
-            inner.connection.execute_batch(&format!(
+            transaction.execute_batch(&format!(
                 "ALTER TABLE {} RENAME TO {}", quote_identifier(&old_relation_name), quote_identifier(&relation_name)
             )).map_err(|error| format!("failed to rename analytical dataset: {error}"))?;
         }
-        let dataset = inner.datasets.get_mut(dataset_id)
-            .ok_or_else(|| "analytical dataset was not found".to_string())?;
-        dataset.name = name.to_string();
-        dataset.relation_name = relation_name;
-        let updated = dataset.clone();
-        persist_dataset(&inner.connection, &updated)?;
+        if workspace_id != "federated" { persist_dataset(&transaction, &updated)?; }
+        transaction.commit().map_err(|error| format!("failed to commit dataset rename: {error}"))?;
+        inner.datasets.insert(dataset_id.to_string(), updated.clone());
         Ok(updated)
     }
 
@@ -870,37 +965,44 @@ impl DataEngine {
             return Err("dataset does not belong to this workspace".to_string());
         }
         let relation_name = dataset.relation_name.clone();
-        inner
-            .connection
-            .execute_batch(&format!("DROP TABLE {}", quote_identifier(&relation_name)))
+        let transaction = inner.connection.transaction()
+            .map_err(|error| format!("failed to start dataset deletion: {error}"))?;
+        transaction.execute_batch(&format!("DROP TABLE {}", quote_identifier(&relation_name)))
             .map_err(|error| format!("failed to drop analytical dataset: {error}"))?;
-        inner.datasets.remove(dataset_id);
-        inner.connection.execute("DELETE FROM omni_local_dataset_registry WHERE id = ?", [dataset_id])
+        transaction.execute("DELETE FROM omni_local_dataset_registry WHERE id = ?", [dataset_id])
             .map_err(|error| format!("failed to update DuckDB dataset registry: {error}"))?;
+        transaction.commit().map_err(|error| format!("failed to commit dataset deletion: {error}"))?;
+        inner.datasets.remove(dataset_id);
         Ok(true)
     }
 
     pub fn clear(&self, workspace_id: &str) -> Result<usize, String> {
-        let ids = self
-            .list_datasets(workspace_id)?
-            .into_iter()
-            .map(|dataset| dataset.id)
+        validate_workspace_id(workspace_id)?;
+        let mut inner = self.lock()?;
+        let datasets = inner.datasets.values()
+            .filter(|dataset| dataset.workspace_id == workspace_id)
+            .map(|dataset| (dataset.id.clone(), dataset.relation_name.clone()))
             .collect::<Vec<_>>();
-        let mut dropped = 0;
-        for id in ids {
-            dropped += usize::from(self.drop_dataset(workspace_id, &id)?);
+        let handles = inner.result_handles.values()
+            .filter(|(handle, _)| handle.workspace_id == workspace_id)
+            .map(|(_, relation_name)| relation_name.clone())
+            .collect::<Vec<_>>();
+        let transaction = inner.connection.transaction()
+            .map_err(|error| format!("failed to start analytical workspace clear: {error}"))?;
+        for (id, relation_name) in &datasets {
+            transaction.execute_batch(&format!("DROP TABLE {}", quote_identifier(relation_name)))
+                .map_err(|error| format!("failed to clear analytical dataset: {error}"))?;
+            transaction.execute("DELETE FROM omni_local_dataset_registry WHERE id = ?", [id])
+                .map_err(|error| format!("failed to clear DuckDB dataset registry: {error}"))?;
         }
-        let handle_ids = {
-            let inner = self.lock()?;
-            inner.result_handles.values()
-                .filter(|(handle, _)| handle.workspace_id == workspace_id)
-                .map(|(handle, _)| handle.id.clone())
-                .collect::<Vec<_>>()
-        };
-        for id in handle_ids {
-            dropped += usize::from(self.drop_result_handle(workspace_id, &id)?);
+        for relation_name in &handles {
+            transaction.execute_batch(&format!("DROP TABLE {}", quote_identifier(relation_name)))
+                .map_err(|error| format!("failed to clear analytical result: {error}"))?;
         }
-        Ok(dropped)
+        transaction.commit().map_err(|error| format!("failed to commit analytical workspace clear: {error}"))?;
+        inner.datasets.retain(|_, dataset| dataset.workspace_id != workspace_id);
+        inner.result_handles.retain(|_, (handle, _)| handle.workspace_id != workspace_id);
+        Ok(datasets.len() + handles.len())
     }
 
     pub fn query(&self, request: QueryRequest) -> Result<AnalysisQueryResult, String> {
@@ -999,14 +1101,17 @@ impl DataEngine {
             if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
                 return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
             }
-            let sql = validate_read_only_sql(&request.sql)?;
+            let sql = validate_s3_sql(&request.sql)?;
             let remote = open_s3_reader(&request.uri, request.format, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
             let _remote_guard = self.arm_remote_interrupt(&remote)?;
-            let source = s3_scan_function(request.format);
-            remote.execute_batch(&format!(
-                "CREATE VIEW s3_source AS SELECT * FROM {source}('{}')",
-                request.uri.trim().replace('\'', "''")
-            )).map_err(|error| format!("failed to open S3 source: {error}"))?;
+            let relation = if matches!(request.format, S3Format::Ducklake) {
+                attach_ducklake(&remote, request.catalog.as_ref().ok_or("DuckLake catalog is required")?, "omni_lake")?;
+                format!("omni_lake.{}", ducklake_relation(request.table_schema.as_deref(), request.table_name.as_deref())?)
+            } else {
+                format!("{}('{}')", s3_scan_function(request.format), request.uri.trim().replace('\'', "''"))
+            };
+            remote.execute_batch(&format!("CREATE VIEW s3_source AS SELECT * FROM {relation}"))
+                .map_err(|error| format!("failed to open S3 source: {error}"))?;
             remote.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
                 .map_err(|error| format!("failed to restrict S3 reader: {error}"))?;
             // The editor can refer to the registered view, but cannot invoke file readers.
@@ -1024,7 +1129,7 @@ impl DataEngine {
             if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
                 return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
             }
-            let sql = validate_read_only_sql(&request.sql)?;
+            let sql = validate_s3_sql(&request.sql)?;
             let first = &request.sources[0];
             let remote = open_s3_reader(&first.uri, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
             let _remote_guard = self.arm_remote_interrupt(&remote)?;
@@ -1034,19 +1139,34 @@ impl DataEngine {
             if request.sources.iter().any(|source| matches!(source.format, S3Format::Iceberg)) {
                 remote.execute_batch("INSTALL iceberg; LOAD iceberg;").map_err(|error| format!("failed to load Iceberg support: {error}"))?;
             }
+            if request.sources.iter().any(|source| matches!(source.format, S3Format::Ducklake)) {
+                remote.execute_batch("INSTALL ducklake; LOAD ducklake;").map_err(|error| format!("failed to load DuckLake support: {error}"))?;
+            }
             let mut schemas = HashSet::new();
+            let mut attached_catalogs = HashMap::<String, String>::new();
             for source in &request.sources {
-                if source.schema.is_empty() || source.name.is_empty() || source.schema.len() > 128 || source.name.len() > 256
-                    || !source.uri.starts_with("s3://") || source.uri.len() > 2048 {
+                if source.schema.is_empty() || source.name.is_empty() || source.schema.len() > 128 || source.name.len() > 256 {
                     return Err("invalid S3 catalog source".to_string());
                 }
+                validate_s3_uri(&source.uri)?;
                 if schemas.insert(source.schema.clone()) {
                     remote.execute_batch(&format!("CREATE SCHEMA {}", quote_identifier(&source.schema)))
                         .map_err(|error| format!("failed to create S3 schema: {error}"))?;
                 }
-                let scan = s3_scan_function(source.format);
-                let statement = format!("CREATE VIEW {}.{} AS SELECT * FROM {scan}('{}')",
-                    quote_identifier(&source.schema), quote_identifier(&source.name), source.uri.replace('\'', "''"));
+                let relation = if matches!(source.format, S3Format::Ducklake) {
+                    let catalog = source.catalog.as_ref().ok_or("DuckLake catalog is required")?;
+                    let key = serde_json::to_string(catalog).map_err(|_| "invalid DuckLake catalog")?;
+                    let alias = if let Some(alias) = attached_catalogs.get(&key) { alias.clone() } else {
+                        let alias = format!("omni_lake_{}", attached_catalogs.len());
+                        attach_ducklake(&remote, catalog, &alias)?;
+                        attached_catalogs.insert(key, alias.clone());
+                        alias
+                    };
+                    format!("{}.{}", quote_identifier(&alias), ducklake_relation(source.table_schema.as_deref(), source.table_name.as_deref())?)
+                } else {
+                    format!("{}('{}')", s3_scan_function(source.format), source.uri.replace('\'', "''"))
+                };
+                let statement = format!("CREATE VIEW {}.{} AS SELECT * FROM {relation}", quote_identifier(&source.schema), quote_identifier(&source.name));
                 remote.execute_batch(&statement)
                     .map_err(|error| format!("failed to register S3 source: {error}"))?;
             }
@@ -1064,7 +1184,7 @@ impl DataEngine {
                             format!("\"local\".{}", quote_identifier(&name)),
                         ].iter().any(|reference| normalized_sql.contains(reference))
                     })
-                    .map(|dataset| dataset.relation_name.clone())
+                    .map(|dataset| (dataset.relation_name.clone(), dataset.workspace_id.clone()))
                     .collect::<Vec<_>>()
             };
             if !local_datasets.is_empty() {
@@ -1073,12 +1193,12 @@ impl DataEngine {
                 remote.execute_batch("CREATE SCHEMA local")
                     .map_err(|error| format!("failed to create local schema: {error}"))?;
             }
-            for relation_name in local_datasets {
+            for (relation_name, workspace_id) in local_datasets {
                 let temporary_path = self._temp_directory.0.join(format!("{}.parquet", random_id()?));
                 let escaped_path = temporary_path.to_string_lossy().replace('\'', "''");
                 let export_result = self.export_query_inner(ExportRequest {
                     operation_id: request.operation_id.clone(),
-                    workspace_id: "local-duckdb".to_string(),
+                    workspace_id,
                     sql: format!("SELECT * FROM {}", quote_identifier(&relation_name)),
                     path: temporary_path.clone(),
                     format: ExportFormat::Parquet,
@@ -1086,6 +1206,17 @@ impl DataEngine {
                 if let Err(error) = export_result {
                     let _ = std::fs::remove_file(&temporary_path);
                     return Err(format!("failed to stage local dataset for S3 join: {error}"));
+                }
+                let staged_bytes = match std::fs::metadata(&temporary_path) {
+                    Ok(metadata) => metadata.len(),
+                    Err(error) => {
+                        let _ = std::fs::remove_file(&temporary_path);
+                        return Err(format!("failed to inspect local join staging: {error}"));
+                    }
+                };
+                if staged_bytes > MAX_DATASET_BYTES as u64 {
+                    let _ = std::fs::remove_file(&temporary_path);
+                    return Err(format!("local join staging exceeds the {MAX_DATASET_BYTES} byte dataset budget"));
                 }
                 let stage_result = remote.execute_batch(&format!(
                     "CREATE TABLE local.{} AS SELECT * FROM read_parquet('{}')",
@@ -1104,35 +1235,56 @@ impl DataEngine {
         validate_workspace_id(&request.workspace_id)?;
         validate_selection(&request.selection)?;
         let uri = request.uri.trim();
-        let source = s3_scan_function(request.format);
         let escaped_uri = uri.replace('\'', "''");
         let remote = open_s3_reader(uri, request.format, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
         let _remote_guard = self.arm_remote_interrupt(&remote)?;
+        let relation = if matches!(request.format, S3Format::Ducklake) {
+            attach_ducklake(&remote, request.catalog.as_ref().ok_or("DuckLake catalog is required")?, "omni_lake")?;
+            format!("omni_lake.{}", ducklake_relation(request.table_schema.as_deref(), request.table_name.as_deref())?)
+        } else {
+            format!("{}('{escaped_uri}')", s3_scan_function(request.format))
+        };
         let temporary_path = self._temp_directory.0.join(format!("{}.parquet", random_id()?));
         let escaped_path = temporary_path.to_string_lossy().replace('\'', "''");
         let limit = match &request.selection {
             ImportSelection::FirstN { rows } => format!(" LIMIT {rows}"),
             _ => String::new(),
         };
-        let copy = format!("COPY (SELECT * FROM {source}('{escaped_uri}'){limit}) TO '{escaped_path}' (FORMAT PARQUET)");
+        let copy = format!("COPY (SELECT * FROM {relation}{limit}) TO '{escaped_path}' (FORMAT PARQUET)");
         let result = remote.execute_batch(&copy)
             .map_err(|error| format!("failed to read S3 source: {error}"));
         if let Err(error) = result { let _ = std::fs::remove_file(&temporary_path); return Err(error); }
+        let staged_bytes = match std::fs::metadata(&temporary_path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                let _ = std::fs::remove_file(&temporary_path);
+                return Err(format!("failed to inspect staged S3 source: {error}"));
+            }
+        };
+        if staged_bytes > MAX_DATASET_BYTES as u64 {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(format!("staged S3 source exceeds the {MAX_DATASET_BYTES} byte dataset budget"));
+        }
         drop(_remote_guard);
         drop(remote);
-        let imported = self.import_file_inner(FileImportRequest {
+        let imported = self.import_file_with_origin(FileImportRequest {
             operation_id: request.operation_id,
             workspace_id: request.workspace_id,
             name: request.name,
             path: temporary_path.clone(),
             format: FileFormat::Parquet,
             selection: request.selection,
-        });
+        }, Some(uri.to_string()));
         let _ = std::fs::remove_file(&temporary_path);
         imported
     }
 
     fn import_file_inner(&self, request: FileImportRequest) -> Result<DatasetRef, String> {
+        let source_uri = Some(request.path.to_string_lossy().into_owned());
+        self.import_file_with_origin(request, source_uri)
+    }
+
+    fn import_file_with_origin(&self, request: FileImportRequest, source_uri: Option<String>) -> Result<DatasetRef, String> {
         validate_workspace_id(&request.workspace_id)?;
         if request.name.trim().is_empty() || request.name.len() > 128 {
             return Err("dataset name must contain between 1 and 128 characters".to_string());
@@ -1152,7 +1304,8 @@ impl DataEngine {
         ensure_dataset_capacity(&inner)?;
         let relation_name = available_relation_name(&inner, &request.name, None);
         let create_sql = format!(
-            "CREATE TABLE {} ({})",
+            "CREATE {}TABLE {} ({})",
+            if request.workspace_id == "federated" { "TEMP " } else { "" },
             quote_identifier(&relation_name),
             columns.iter().map(|column| format!("{} {}", quote_identifier(&column.name), column.data_type)).collect::<Vec<_>>().join(", ")
         );
@@ -1233,7 +1386,6 @@ impl DataEngine {
             }
             appender.flush().map_err(|error| format!("file dataset flush failed: {error}"))?;
         }
-        transaction.commit().map_err(|error| format!("file dataset commit failed: {error}"))?;
         let dataset = DatasetRef {
             id: id.clone(),
             workspace_id: request.workspace_id,
@@ -1253,14 +1405,17 @@ impl DataEngine {
             source_total: matches!(&request.selection, ImportSelection::Full | ImportSelection::Reservoir { .. }).then_some(scanned_rows),
             source_connection_id: None,
             source_sql: None,
+            source_uri,
         };
+        if dataset.workspace_id != "federated" { persist_dataset(&transaction, &dataset)?; }
+        transaction.commit().map_err(|error| format!("file dataset commit failed: {error}"))?;
         inner.datasets.insert(id, dataset.clone());
-        persist_dataset(&inner.connection, &dataset)?;
         Ok(dataset)
     }
 
     fn import_json_file_inner(&self, request: FileImportRequest) -> Result<DatasetRef, String> {
         let temporary_path = self._temp_directory.0.join(format!("{}.parquet", random_id()?));
+        let source_uri = request.path.to_string_lossy().into_owned();
         let escaped_source = request.path.to_string_lossy().replace('\'', "''");
         let escaped_target = temporary_path.to_string_lossy().replace('\'', "''");
         let convert = (|| {
@@ -1270,11 +1425,11 @@ impl DataEngine {
                 .map_err(|error| format!("failed to load JSON support: {error}"))?;
             reader.execute_batch(&format!("COPY (SELECT * FROM read_json_auto('{escaped_source}')) TO '{escaped_target}' (FORMAT PARQUET)"))
                 .map_err(|error| format!("failed to read JSON file: {error}"))?;
-            self.import_file_inner(FileImportRequest {
+            self.import_file_with_origin(FileImportRequest {
                 operation_id: request.operation_id, workspace_id: request.workspace_id,
                 name: request.name, path: temporary_path.clone(), format: FileFormat::Parquet,
                 selection: request.selection,
-            })
+            }, Some(source_uri))
         })();
         let _ = std::fs::remove_file(&temporary_path);
         convert
@@ -2151,6 +2306,13 @@ fn validate_read_only_sql(sql: &str) -> Result<&str, String> {
         "read_ndjson",
         "read_parquet",
         "parquet_scan",
+        "delta_scan",
+        "iceberg_scan",
+        "glob",
+        "read_text",
+        "read_blob",
+        "read_xlsx",
+        "read_csv_strict",
         "sqlite_scan",
         "postgres_scan",
     ];
@@ -2158,6 +2320,16 @@ fn validate_read_only_sql(sql: &str) -> Result<&str, String> {
         return Err(format!("analytical SQL operation is not allowed: {token}"));
     }
     Ok(trimmed)
+}
+
+fn validate_s3_sql(sql: &str) -> Result<&str, String> {
+    let sql = validate_read_only_sql(sql)?;
+    // ponytail: direct URI literals are blocked; use a SQL parser if indirect readers become reachable.
+    let lower = sql.to_ascii_lowercase();
+    if ["s3://", "http://", "https://"].iter().any(|scheme| lower.contains(scheme)) {
+        return Err("S3 analytical SQL must use registered sources".to_string());
+    }
+    Ok(sql)
 }
 
 fn sql_tokens(sql: &str) -> Result<Vec<String>, String> {
@@ -2328,6 +2500,7 @@ mod tests {
         let objects = list_s3_objects(S3ListRequest {
             uri: "s3://omni-test".into(), region: "us-east-1".into(),
             endpoint: Some(endpoint.clone()), prefix: "csv/".into(),
+            catalog: None,
             access_key_id: Some(access_key_id.clone()), secret_access_key: Some(secret_access_key.clone()),
         }).unwrap();
         assert!(objects.iter().any(|uri| uri == "s3://omni-test/csv/orders.csv"));
@@ -2343,6 +2516,7 @@ mod tests {
                 workspace_id: "s3-integration".into(),
                 uri: uri.into(),
                 format,
+                table_schema: None, table_name: None, catalog: None,
                 region: "us-east-1".into(),
                 endpoint: Some(endpoint.clone()),
                 access_key_id: Some(access_key_id.clone()), secret_access_key: Some(secret_access_key.clone()),
@@ -2353,6 +2527,32 @@ mod tests {
             assert!(!result.rows_more_available);
             assert!(engine.list_datasets("s3-integration").unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn s3_reader_rejects_local_files_and_redacts_bad_credentials() {
+        if std::env::var("OMNI_SQL_RUN_S3_INTEGRATION").as_deref() != Ok("1") { return; }
+        let engine = DataEngine::open_in_memory().unwrap();
+        let endpoint = std::env::var("OMNI_SQL_TEST_S3_ENDPOINT")
+            .unwrap_or_else(|_| "http://127.0.0.1:9000".into());
+        let directory = create_temp_directory().unwrap();
+        let local = directory.join("private.csv");
+        std::fs::write(&local, "id\n1\n").unwrap();
+        let request = |operation_id: &str, sql: String, secret: &str| S3QueryRequest {
+            operation_id: operation_id.into(), workspace_id: "s3-boundary".into(),
+            uri: "s3://omni-test/csv/orders.csv".into(), format: S3Format::Csv,
+            table_schema: None, table_name: None, catalog: None,
+            region: "us-east-1".into(), endpoint: Some(endpoint.clone()),
+            access_key_id: Some("omni_test".into()), secret_access_key: Some(secret.into()),
+            sql, limit: 10,
+        };
+        let local_sql = format!("SELECT * FROM '{}'", local.to_string_lossy().replace('\\', "/"));
+        assert!(engine.query_s3(request("s3-local-blocked", local_sql, "omni_test_secret")).is_err());
+        let secret = "invalid_secret_marker";
+        let error = engine.query_s3(request("s3-bad-credentials", "SELECT * FROM s3_source".into(), secret)).unwrap_err();
+        assert!(!error.contains(secret));
+        assert!(engine.query_s3(request("s3-after-error", "SELECT count(*) FROM s3_source".into(), "omni_test_secret")).is_ok());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2368,11 +2568,11 @@ mod tests {
         let result = engine.query_s3_catalog(S3CatalogQueryRequest {
             operation_id: "s3-cross-bucket-join".into(), workspace_id: "s3-integration".into(),
             sources: vec![
-                S3CatalogSource { schema: "omni-test".into(), name: "orders".into(), uri: "s3://omni-test/csv/orders.csv".into(), format: S3Format::Csv },
-                S3CatalogSource { schema: "omni-test".into(), name: "parquet_orders".into(), uri: "s3://omni-test/parquet/orders.parquet".into(), format: S3Format::Parquet },
-                S3CatalogSource { schema: "omni-test".into(), name: "delta_orders".into(), uri: "s3://omni-test/delta/orders".into(), format: S3Format::Delta },
-                S3CatalogSource { schema: "omni-test".into(), name: "iceberg_orders".into(), uri: "s3://omni-test/iceberg/orders/metadata/current.metadata.json".into(), format: S3Format::Iceberg },
-                S3CatalogSource { schema: "omni-extra".into(), name: "customers".into(), uri: "s3://omni-extra/csv/customers.csv".into(), format: S3Format::Csv },
+                S3CatalogSource { schema: "omni-test".into(), name: "orders".into(), uri: "s3://omni-test/csv/orders.csv".into(), format: S3Format::Csv, table_schema: None, table_name: None, catalog: None },
+                S3CatalogSource { schema: "omni-test".into(), name: "parquet_orders".into(), uri: "s3://omni-test/parquet/orders.parquet".into(), format: S3Format::Parquet, table_schema: None, table_name: None, catalog: None },
+                S3CatalogSource { schema: "omni-test".into(), name: "delta_orders".into(), uri: "s3://omni-test/delta/orders".into(), format: S3Format::Delta, table_schema: None, table_name: None, catalog: None },
+                S3CatalogSource { schema: "omni-test".into(), name: "iceberg_orders".into(), uri: "s3://omni-test/iceberg/orders/metadata/current.metadata.json".into(), format: S3Format::Iceberg, table_schema: None, table_name: None, catalog: None },
+                S3CatalogSource { schema: "omni-extra".into(), name: "customers".into(), uri: "s3://omni-extra/csv/customers.csv".into(), format: S3Format::Csv, table_schema: None, table_name: None, catalog: None },
             ],
             region: "us-east-1".into(),
             endpoint: Some(std::env::var("OMNI_SQL_TEST_S3_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:9000".into())),
@@ -2399,17 +2599,20 @@ mod tests {
             let dataset = engine.import_s3(S3ImportRequest {
                 operation_id: format!("s3-import-{index}"), workspace_id: "s3-imports".into(),
                 name: format!("orders_{index}"), uri: uri.into(), format, region: "us-east-1".into(),
+                table_schema: None, table_name: None, catalog: None,
                 endpoint: Some(endpoint.clone()), access_key_id: Some("omni_test".into()),
                 secret_access_key: Some("omni_test_secret".into()),
                 selection: ImportSelection::FirstN { rows: 2 },
             }).unwrap_or_else(|error| panic!("{uri}: {error}"));
             assert_eq!(dataset.row_count, 2, "{uri}");
             assert!(matches!(dataset.coverage, DatasetCoverage::Sampled));
+            assert_eq!(dataset.source_uri.as_deref(), Some(uri));
         }
         let sampled = engine.import_s3(S3ImportRequest {
             operation_id: "s3-reservoir".into(), workspace_id: "s3-imports".into(),
             name: "reservoir_orders".into(), uri: "s3://omni-test/parquet/orders.parquet".into(),
             format: S3Format::Parquet, region: "us-east-1".into(), endpoint: Some(endpoint),
+            table_schema: None, table_name: None, catalog: None,
             access_key_id: Some("omni_test".into()), secret_access_key: Some("omni_test_secret".into()),
             selection: ImportSelection::Reservoir { rows: 2, seed: 42 },
         }).unwrap();
@@ -2442,6 +2645,124 @@ mod tests {
     }
 
     #[test]
+    fn persistent_registry_tracks_rename_drop_and_temporary_datasets() {
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("local.duckdb");
+        {
+            let engine = DataEngine::open_persistent(&path).unwrap();
+            let mut durable = request("local-duckdb");
+            durable.name = "original".into();
+            let durable = engine.import_result(durable).unwrap();
+            engine.rename_dataset("local-duckdb", &durable.id, "renamed").unwrap();
+            let mut temporary = request("federated");
+            temporary.name = "temporary".into();
+            let temporary = engine.import_result(temporary).unwrap();
+            engine.rename_dataset("federated", &temporary.id, "changed_temp").unwrap();
+            let csv_path = directory.join("temporary.csv");
+            std::fs::write(&csv_path, "id\n1\n").unwrap();
+            engine.import_file(FileImportRequest {
+                operation_id: "temporary-file-import".into(), workspace_id: "federated".into(),
+                name: "csv_temp".into(), path: csv_path, format: FileFormat::Csv,
+                selection: ImportSelection::Full,
+            }).unwrap();
+            assert_eq!(engine.list_datasets("federated").unwrap().len(), 2);
+        }
+        {
+            let engine = DataEngine::open_persistent(&path).unwrap();
+            let durable = engine.list_datasets("local-duckdb").unwrap();
+            assert_eq!(durable.len(), 1);
+            assert_eq!(durable[0].relation_name, "renamed");
+            assert!(engine.list_datasets("federated").unwrap().is_empty());
+            assert!(engine.drop_dataset("local-duckdb", &durable[0].id).unwrap());
+        }
+        let engine = DataEngine::open_persistent(&path).unwrap();
+        assert!(engine.list_datasets("local-duckdb").unwrap().is_empty());
+        drop(engine);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn clear_removes_only_the_requested_workspace_after_restart() {
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("local.duckdb");
+        {
+            let engine = DataEngine::open_persistent(&path).unwrap();
+            engine.import_result(request("workspace-a")).unwrap();
+            engine.import_result(request("workspace-b")).unwrap();
+            let handle = engine.start_query(QueryStartRequest {
+                operation_id: "clear-result".into(), workspace_id: "workspace-a".into(),
+                sql: "SELECT * FROM orders".into(),
+            }).unwrap();
+            assert_eq!(engine.clear("workspace-a").unwrap(), 2);
+            assert!(engine.list_datasets("workspace-a").unwrap().is_empty());
+            assert!(!engine.drop_result_handle("workspace-a", &handle.id).unwrap());
+            assert_eq!(engine.list_datasets("workspace-b").unwrap().len(), 1);
+        }
+        let engine = DataEngine::open_persistent(&path).unwrap();
+        assert!(engine.list_datasets("workspace-a").unwrap().is_empty());
+        assert_eq!(engine.list_datasets("workspace-b").unwrap().len(), 1);
+        drop(engine);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn preserves_exact_values_across_snapshot_import_and_query() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let columns = [
+            ("amount", "DECIMAL(30,8)"),
+            ("identifier", "BIGINT"),
+            ("payload", "BLOB"),
+            ("occurred_at", "TIMESTAMP WITH TIME ZONE"),
+            ("optional", "VARCHAR"),
+        ].into_iter().map(|(name, data_type)| ImportColumn {
+            name: name.into(), data_type: data_type.into(), nullable: true,
+        }).collect();
+        engine.import_result(ImportResultRequest {
+            operation_id: "exact-values-import".into(), workspace_id: "local-duckdb".into(),
+            name: "exact_values".into(), columns,
+            rows: vec![vec![
+                JsonValue::from("12345678901234567890.12345678"),
+                JsonValue::from("9007199254740993"),
+                serde_json::json!([0, 127, 255]),
+                JsonValue::from("2026-09-25T12:34:56.123456+03:00"),
+                JsonValue::Null,
+            ]],
+            rows_more_available: false, source_connection_id: None, source_sql: None,
+            selection: ImportSelection::Full,
+        }).unwrap();
+        let result = engine.query(QueryRequest {
+            operation_id: "exact-values-query".into(), workspace_id: "local-duckdb".into(),
+            sql: "SELECT * FROM exact_values".into(), limit: 10,
+        }).unwrap();
+        assert_eq!(result.rows[0], vec![
+            JsonValue::from("12345678901234567890.12345678"),
+            JsonValue::from("9007199254740993"),
+            serde_json::json!([0, 127, 255]),
+            JsonValue::from("2026-09-25T12:34:56.123456+03:00"),
+            JsonValue::Null,
+        ]);
+    }
+
+    #[test]
+    fn duckdb_can_sample_each_local_input_with_a_repeatable_seed() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let mut import = request("local-duckdb");
+        import.rows = (0..20).map(|id| vec![JsonValue::from(id), JsonValue::from("1.00")]).collect();
+        engine.import_result(import).unwrap();
+        let sql = "SELECT id FROM orders USING SAMPLE reservoir(3 ROWS) REPEATABLE (42) ORDER BY id";
+        let first = engine.query(QueryRequest {
+            operation_id: "sample-query-1".into(), workspace_id: "local-duckdb".into(),
+            sql: sql.into(), limit: 10,
+        }).unwrap();
+        let second = engine.query(QueryRequest {
+            operation_id: "sample-query-2".into(), workspace_id: "local-duckdb".into(),
+            sql: sql.into(), limit: 10,
+        }).unwrap();
+        assert_eq!(first.rows.len(), 3);
+        assert_eq!(first.rows, second.rows);
+    }
+
+    #[test]
     fn imports_json_into_local_duckdb() {
         let directory = create_temp_directory().unwrap();
         let path = directory.join("customers.json");
@@ -2449,9 +2770,10 @@ mod tests {
         let engine = DataEngine::open_in_memory().unwrap();
         let dataset = engine.import_file(FileImportRequest {
             operation_id: "json-import".into(), workspace_id: "local-duckdb".into(), name: "customers".into(),
-            path, format: FileFormat::Json, selection: ImportSelection::Full,
+            path: path.clone(), format: FileFormat::Json, selection: ImportSelection::Full,
         }).unwrap();
         assert_eq!(dataset.row_count, 2);
+        assert_eq!(dataset.source_uri.as_deref(), Some(path.to_string_lossy().as_ref()));
         let result = engine.query(QueryRequest {
             operation_id: "json-query".into(), workspace_id: "local-duckdb".into(),
             sql: "SELECT name FROM customers WHERE id = 2".into(), limit: 10,
@@ -2793,11 +3115,19 @@ mod tests {
             "SELECT 1; DROP TABLE anything",
             "COPY (SELECT 1) TO 'result.csv'",
             "SELECT * FROM read_csv_auto('secret.csv')",
+            "SELECT * FROM delta_scan('s3://other-bucket/data')",
+            "SELECT * FROM glob('s3://other-bucket/*')",
             "PRAGMA enable_external_access=true",
         ] {
             assert!(validate_read_only_sql(sql).is_err(), "accepted {sql}");
         }
         assert!(validate_read_only_sql("WITH x AS (SELECT 1) SELECT * FROM x").is_ok());
+        assert!(validate_s3_sql("SELECT * FROM 's3://unregistered/private.parquet'").is_err());
+        assert!(validate_s3_sql("SELECT * FROM 'https://unregistered/private.parquet'").is_err());
+        assert!(validate_s3_sql("SELECT * FROM registered_orders").is_ok());
+        assert!(validate_s3_uri("s3://bucket/path.parquet").is_ok());
+        assert!(validate_s3_uri("s3://bucket@host/path.parquet").is_err());
+        assert!(validate_s3_uri("s3://bucket/path\n.parquet").is_err());
     }
 
     #[test]
@@ -2840,6 +3170,10 @@ mod tests {
         assert!(engine.cancel("long-query").unwrap());
         assert!(query.join().unwrap().is_err());
         assert!(engine.current_operation.lock().unwrap().is_none());
+        assert_eq!(engine.query(QueryRequest {
+            operation_id: "after-cancel".into(), workspace_id: "workspace-a".into(),
+            sql: "SELECT 1".into(), limit: 10,
+        }).unwrap().rows, vec![vec![JsonValue::from(1)]]);
     }
 
     #[test]

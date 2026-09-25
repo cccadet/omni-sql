@@ -88,6 +88,26 @@ identifier quotes when they are unnecessary. See the [Rust data engine plan](doc
 and [remaining-work checklist](docs/RUST_DATA_ENGINE_TODO.md) for implementation
 status and validation still needed.
 
+Local DuckDB datasets are saved in the application's `local.duckdb` database and
+are available after restart. Federated datasets used for a session's joins and
+temporary result pages are cleared when the process exits. S3 object queries use
+separate DuckDB readers; CSV and Parquet support and optional Delta/Iceberg
+support depend on DuckDB extensions, which may need network access on first use.
+S3 query results in the editor are bounded previews. To export every selected
+S3 row, import the object into a local DuckDB dataset, then use the analytical
+full-result export; exporting the visible grid only writes displayed rows.
+The main DuckDB editor offers **Export full CSV** for the last executed query.
+For SQL Server analytical imports, the current driver cannot preserve very large
+`DECIMAL`/`NUMERIC` values as JavaScript numbers. The stream rejects detected
+unsafe values; cast those columns to `VARCHAR` in the source SQL to retain their
+exact digits. MySQL and Oracle analytical streams return large numeric values as
+text for the same reason.
+
+To compare repeatable local input samples before a join, use DuckDB's native
+`USING SAMPLE reservoir(1000 ROWS) REPEATABLE (42)` on each input subquery.
+Sampling each side of a join can exclude matching rows. Aggregates over these
+sampled inputs describe the sample, not the full source.
+
 Need help connecting? Read [Database support](docs/DATABASE-SUPPORT.md) or [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Features in action

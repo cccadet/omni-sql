@@ -126,12 +126,17 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
     const request = pool.request();
     this.activeRequest = request;
     let columns: QueryBatch["columns"] = [];
-    request.once("recordset", (metadata: Record<string, { type?: { declaration?: string } }>) => {
+    const unsafeNumericColumns = new Set<string>();
+    request.once("recordset", (metadata: Record<string, { type?: { declaration?: string }; precision?: number }>) => {
       columns = Object.entries(metadata).map(([name, value]) => ({
         name,
         dataType: value.type?.declaration ?? "unknown",
         nullable: true,
       }));
+      for (const [name, value] of Object.entries(metadata)) {
+        if (/^(decimal|numeric|money|smallmoney)/i.test(value.type?.declaration ?? "") &&
+            (value.precision ?? 38) > 15) unsafeNumericColumns.add(name);
+      }
     });
     const abort = () => request.cancel();
     options.signal.addEventListener("abort", abort, { once: true });
@@ -142,7 +147,19 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
       let emittedRows = false;
       for await (const row of readable) {
         if (options.signal.aborted) break;
-        rows.push(columns.map((column) => (row as Record<string, unknown>)[column.name] ?? null));
+        rows.push(columns.map((column) => {
+          const value = (row as Record<string, unknown>)[column.name] ?? null;
+          // Tedious has already decoded DECIMAL/NUMERIC to a JS number here.
+          // Large values cannot be reconstructed, so fail instead of importing
+          // rounded values into the analytical dataset.
+          if (typeof value === "number" &&
+              (unsafeNumericColumns.has(column.name) ||
+               /^bigint$/i.test(column.dataType) && !Number.isSafeInteger(value))) {
+            request.cancel();
+            throw new Error(`SQL Server analytical stream cannot preserve ${column.dataType} in column ${column.name}; cast it to VARCHAR in the source query`);
+          }
+          return value;
+        }));
         if (rows.length >= options.batchSize) {
           yield { columns, rows };
           emittedRows = true;
