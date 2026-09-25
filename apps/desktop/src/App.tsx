@@ -664,7 +664,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         setS3Catalog((previous) => ({ ...previous, [connectionId]: sources }));
         setSidebarCache((previous) => ({ ...previous, [connectionId]: {
           schemas: [...buckets.map((bucket) => bucket.slice(5)), ...(localDatasets.length ? ["local"] : [])],
-          relations: [...sources.map((source) => ({ schema: source.schema, name: source.name, kind: "table" as const })),
+          relations: [...sources.map((source) => ({ schema: source.schema, name: source.name, kind: "table" as const, format: source.format })),
             ...localDatasets.map((dataset) => ({ schema: "local", name: dataset.relationName, kind: "table" as const,
               columns: dataset.columns.map((column) => ({ name: column.name, dataType: column.dataType, nullable: column.nullable, isPrimaryKey: false })) }))],
           functions: [],

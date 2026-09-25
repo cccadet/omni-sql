@@ -23,6 +23,7 @@ import {
   ChevronRightRegular,
   ChevronDownRegular,
   SearchRegular,
+  FilterRegular,
   DismissRegular,
   ArrowEnterRegular,
   LinkRegular,
@@ -301,6 +302,7 @@ export function Sidebar({
 }: SidebarProps) {
   const { t: tr } = useLanguage();
   const [search, setSearch] = useState("");
+  const [formatFilter, setFormatFilter] = useState("");
   const [searchMatches, setSearchMatches] = useState<Set<string> | null>(null);
   const [width, setWidth] = useState(loadWidth);
   const [connectionsHeight, setConnectionsHeight] = useState(loadConnectionsHeight);
@@ -342,6 +344,7 @@ export function Sidebar({
     setIndexCache({});
     setColumnCache({});
     setSearchMatches(null);
+    setFormatFilter("");
   }, [connectionId]);
 
   useEffect(() => {
@@ -404,9 +407,10 @@ export function Sidebar({
       ensure(f.schema).functions.push(f);
     }
     const list = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-    if (!search.trim()) return list;
+    const byFormat = list.map((g) => ({ ...g, tables: g.tables.filter((t) => connection?.dialect !== "s3" || !formatFilter || t.format === formatFilter) }));
+    if (!search.trim()) return byFormat.filter((g) => g.tables.length || g.views.length || g.functions.length);
     const q = search.toLowerCase();
-    return list
+    return byFormat
       .map((g) => ({
         ...g,
         tables: g.tables.filter((t) =>
@@ -420,7 +424,7 @@ export function Sidebar({
         functions: g.functions.filter((f) => f.name.toLowerCase().includes(q)),
       }))
       .filter((g) => g.tables.length > 0 || g.views.length > 0 || g.functions.length > 0);
-  }, [relations, functions, schemas, search, searchMatches, columnCache]);
+  }, [relations, functions, schemas, search, searchMatches, columnCache, formatFilter, connection?.dialect]);
 
   const ensureColumns = useCallback(async (schema: string, table: string) => {
     const key = relationKey(schema, table);
@@ -935,6 +939,7 @@ export function Sidebar({
           <Button size="small" appearance="subtle" onClick={() => connectionId && onEditConnection?.(connectionId)}>Configurar catálogo</Button>
         </div>}
         {connection?.dialect === "s3" && <Button size="small" appearance="subtle" style={{ width: "100%", marginBottom: 8 }} onClick={onImportDatabaseTable}>Adicionar tabela de outro banco ao JOIN</Button>}
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <Input
           placeholder={tr("searchObjects")}
           value={search}
@@ -950,13 +955,21 @@ export function Sidebar({
               />
             ) : undefined
           }
-          style={{ width: "100%" }}
+          style={{ flex: 1, minWidth: 0 }}
         />
+        {connection?.dialect === "s3" && <label style={{ display: "flex", alignItems: "center" }}>
+          <FilterRegular fontSize={16} aria-hidden="true" />
+          <select aria-label={tr("format")} value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)}>
+            <option value="">{tr("format")}</option>
+            {(["delta", "parquet", "csv", "ducklake", "iceberg"] as const).map((format) => <option key={format} value={format}>{format.toUpperCase()}</option>)}
+          </select>
+        </label>}
+        </div>
       </div>
       <div className="omni-sidebar-tree" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", padding: "0 8px 8px" }}>
         {groups.length === 0 ? (
           <Text className="omni-empty-state" size={200}>
-            {loading ? tr("loading") : search ? tr("noResults") : tr("noObjects")}
+            {loading ? tr("loading") : search || formatFilter ? tr("noResults") : tr("noObjects")}
           </Text>
         ) : (
           groups.map((g) => (
@@ -1008,6 +1021,7 @@ export function Sidebar({
                                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                   <span title={t.description}>{t.name}</span>
                                 </span>
+                                {connection?.dialect === "s3" && t.format && <span className={`omni-s3-format is-${t.format}`}>{t.format}</span>}
                               </span>
                             }
                             defaultExpanded={false}

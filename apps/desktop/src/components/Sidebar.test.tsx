@@ -57,6 +57,17 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
 }
 
 describe("Sidebar", () => {
+  it("shows S3 formats and filters tables by format", () => {
+    const s3 = { ...connection, dialect: "s3" as const };
+    renderSidebar({ connection: s3, connections: [s3], relations: [
+      { schema: "bucket", name: "sales", kind: "table", format: "delta" },
+      { schema: "bucket", name: "customers", kind: "table", format: "parquet" },
+    ], schemas: ["bucket"], functions: [] });
+    expect(screen.getByText("delta")).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "Format" }), { target: { value: "parquet" } });
+    expect(screen.queryByText("sales")).toBeNull();
+    expect(screen.getByText("customers")).toBeTruthy();
+  });
   beforeEach(() => {
     localStorage.clear();
     call.mockReset();

@@ -41,6 +41,7 @@ export interface RelationConstraint {
 export interface RelationInfo {
   schema: string;
   name: string;
+  format?: "csv" | "parquet" | "delta" | "iceberg" | "ducklake";
   description?: string;
   kind: "table" | "view";
   columns?: RelationColumn[];
