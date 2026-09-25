@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { s3ReferencedRelations, s3Suggestions } from "./s3-autocomplete";
 

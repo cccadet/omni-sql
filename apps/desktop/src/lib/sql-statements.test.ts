@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { test, assert } from "vitest";
 import { splitStatements, statementAt } from "./sql-statements";
 

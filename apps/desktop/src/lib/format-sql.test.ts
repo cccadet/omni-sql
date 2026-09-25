@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { assert, describe, expect, test } from "vitest";
 import { DEFAULT_FORMATTER_SETTINGS, formatSql } from "./format-sql";
 

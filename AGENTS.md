@@ -42,11 +42,29 @@ services/jvm-sidecar         Kotlin/Gradle + Calcite: `/health`, `/scope/resolve
 - **Lint:** `pnpm -r lint` (ESLint 9 flat config in `eslint.config.js`)
 - **Test:** `pnpm -r test` (Node `--test` for backend/packages; Vitest for `apps/desktop`)
 - **Full verify:** `pnpm verify` (typecheck, lint, test)
+- **Before commit:** `pnpm precommit` (typecheck, lint, package and frontend logic tests).
+- **Before push:** `pnpm test:coverage` (all TypeScript tests, line coverage >=80%).
+  Enable both local hooks once with `git config core.hooksPath .githooks`.
+- **Coverage only:** `pnpm test:coverage` (fails below 80% or on an empty report).
 - **Install:** `pnpm install`
 - **Frontend dev:** `pnpm dev:frontend` (port 1420)
 - **Backend dev:** `pnpm dev:backend` (port 41920)
 - **Tauri dev:** `pnpm dev:tauri`
 - **Rust check:** `cd apps/desktop/src-tauri && cargo check`
+
+## Test cadence
+- While editing, run focused tests for the affected package as needed; do not run
+  the whole suite after every file change.
+- Before each commit, run `pnpm precommit` once. The Git hook runs it automatically
+  when enabled. Before each push, the hook runs full TypeScript coverage and
+  rejects results below 80% or with empty reports. Rust and Kotlin coverage
+  remain in the SonarCloud CI job.
+- Before pushing a release tag, run `scripts/pre-release.sh` locally. It checks
+  Rust/JVM and runs Docker database smoke and full JSON-RPC integration tests.
+  The pre-push hook enforces this for `v*` tags when enabled. Docker tests do
+  not run on GitHub Actions.
+- CI runs the TypeScript coverage suite once per commit/PR and reuses its reports
+  for SonarCloud. The release workflow repeats verification for the tagged commit.
 
 Native build approvals in `pnpm-workspace.yaml#allowBuilds`: `esbuild`,
 `@sveltejs/vite-plugin-svelte`, and `oracledb`. Svelte plugin approval is

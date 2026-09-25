@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import type { SqlExecutionError } from "@omni-sql/ts-types";
 import { McpUiBridge, McpUiError, makeListenerId, type McpUiState } from "./mcp-ui-bridge";

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import { localizeSuggestionLabels } from "./localize-suggestions";

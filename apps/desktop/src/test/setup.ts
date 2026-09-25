@@ -10,8 +10,10 @@ const storage: Storage = {
   setItem: (key, value) => values.set(key, String(value)),
 };
 
-Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
-Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
+  Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
+}
 
 class TestResizeObserver implements ResizeObserver {
   observe(): void {}
@@ -19,7 +21,9 @@ class TestResizeObserver implements ResizeObserver {
   disconnect(): void {}
 }
 
-Object.defineProperty(window, "ResizeObserver", { value: TestResizeObserver, configurable: true, writable: true });
-Object.defineProperty(globalThis, "ResizeObserver", { value: TestResizeObserver, configurable: true, writable: true });
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "ResizeObserver", { value: TestResizeObserver, configurable: true, writable: true });
+  Object.defineProperty(globalThis, "ResizeObserver", { value: TestResizeObserver, configurable: true, writable: true });
+}
 
 export {};

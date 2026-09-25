@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, test } from "vitest";
 import { detectS3Tables, discoverS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type DuckLakeCatalog } from "./s3-sources";
 
