@@ -194,6 +194,8 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["connection.list"]();
     case "connection.s3Credentials":
       return handlers["connection.s3Credentials"](params as never);
+    case "connection.listBuckets":
+      return handlers["connection.listBuckets"](params as never);
     case "connection.remove":
       return handlers["connection.remove"](params as never);
     case "connectionGroup.list":

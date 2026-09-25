@@ -1642,13 +1642,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
       </div>
 
-      <ConnectionDialog
+      {dialogOpen && <ConnectionDialog
         open={dialogOpen}
         editing={editingConfig}
         duplicating={duplicatingConnection}
         onClose={() => setDialogOpen(false)}
         onSaved={onConnectionSaved}
-      />
+      />}
 
       <BackgroundProcessesDialog open={backgroundProcessesOpen} onClose={() => setBackgroundProcessesOpen(false)} language={language} />
 

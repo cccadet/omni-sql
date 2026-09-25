@@ -288,6 +288,7 @@ export interface RpcRouter {
   "connection.add": (p: AddConnectionParams) => Promise<AddConnectionResult>;
   "connection.list": () => Promise<ListConnectionsResult>;
   "connection.s3Credentials": (p: { connectionId: string }) => Promise<{ accessKeyId: string; secretAccessKey?: string; ducklakeMappings?: { prefix: string; catalog: { kind: "postgres"; host: string; port: number; database: string; user: string; password?: string } | { kind: "sqlite" | "duckdb"; path: string } }[] }>;
+  "connection.listBuckets": (p: { config: ConnectionConfig; password?: string }) => Promise<{ buckets: string[] }>;
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
   "connectionGroup.list": () => Promise<ListConnectionGroupsResult>;
   "connectionGroup.create": (p: CreateConnectionGroupParams) => Promise<CreateConnectionGroupResult>;

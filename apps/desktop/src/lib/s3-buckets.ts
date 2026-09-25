@@ -7,9 +7,9 @@ export function s3Buckets(connection: Pick<ConnectionEntry, "endpoint" | "option
       const parsed: unknown = JSON.parse(encoded);
       if (Array.isArray(parsed)) {
         const buckets = parsed.filter((value): value is string => typeof value === "string" && /^s3:\/\/[^/]+\/?$/.test(value));
-        if (buckets.length > 0) return [...new Set(buckets.map((value) => value.replace(/\/$/, "")))];
+        return [...new Set(buckets.map((value) => value.replace(/\/$/, "")))];
       }
     } catch { /* Legacy single-bucket config. */ }
   }
-  return [connection.endpoint.replace(/\/$/, "")];
+  return connection.endpoint === "s3://" ? [] : [connection.endpoint.replace(/\/$/, "")];
 }
