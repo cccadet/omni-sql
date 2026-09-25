@@ -2385,6 +2385,39 @@ mod tests {
     }
 
     #[test]
+    fn imports_s3_formats_with_bounded_local_selections() {
+        if std::env::var("OMNI_SQL_RUN_S3_INTEGRATION").as_deref() != Ok("1") { return; }
+        let engine = DataEngine::open_in_memory().unwrap();
+        let endpoint = std::env::var("OMNI_SQL_TEST_S3_ENDPOINT")
+            .unwrap_or_else(|_| "http://127.0.0.1:9000".into());
+        for (index, (format, uri)) in [
+            (S3Format::Csv, "s3://omni-test/csv/orders.csv"),
+            (S3Format::Parquet, "s3://omni-test/parquet/orders.parquet"),
+            (S3Format::Delta, "s3://omni-test/delta/orders"),
+            (S3Format::Iceberg, "s3://omni-test/iceberg/orders/metadata/current.metadata.json"),
+        ].into_iter().enumerate() {
+            let dataset = engine.import_s3(S3ImportRequest {
+                operation_id: format!("s3-import-{index}"), workspace_id: "s3-imports".into(),
+                name: format!("orders_{index}"), uri: uri.into(), format, region: "us-east-1".into(),
+                endpoint: Some(endpoint.clone()), access_key_id: Some("omni_test".into()),
+                secret_access_key: Some("omni_test_secret".into()),
+                selection: ImportSelection::FirstN { rows: 2 },
+            }).unwrap_or_else(|error| panic!("{uri}: {error}"));
+            assert_eq!(dataset.row_count, 2, "{uri}");
+            assert!(matches!(dataset.coverage, DatasetCoverage::Sampled));
+        }
+        let sampled = engine.import_s3(S3ImportRequest {
+            operation_id: "s3-reservoir".into(), workspace_id: "s3-imports".into(),
+            name: "reservoir_orders".into(), uri: "s3://omni-test/parquet/orders.parquet".into(),
+            format: S3Format::Parquet, region: "us-east-1".into(), endpoint: Some(endpoint),
+            access_key_id: Some("omni_test".into()), secret_access_key: Some("omni_test_secret".into()),
+            selection: ImportSelection::Reservoir { rows: 2, seed: 42 },
+        }).unwrap();
+        assert_eq!(sampled.row_count, 2);
+        assert!(matches!(sampled.coverage, DatasetCoverage::Sampled));
+    }
+
+    #[test]
     fn local_duckdb_import_survives_restart() {
         let directory = create_temp_directory().unwrap();
         let path = directory.join("local.duckdb");
