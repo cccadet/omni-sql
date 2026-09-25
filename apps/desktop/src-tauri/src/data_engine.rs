@@ -320,10 +320,10 @@ fn attach_ducklake(remote: &Connection, catalog: &DuckLakeCatalog, alias: &str) 
             remote.execute_batch("INSTALL postgres; LOAD postgres;")
                 .map_err(|error| format!("failed to load PostgreSQL support: {error}"))?;
             let secret_name = format!("omni_pg_{alias}");
-            let secret = format!("CREATE SECRET {} (TYPE postgres, HOST {}, PORT {}, DATABASE {}, USER {}{})",
-                quote_identifier(&secret_name), quote(host), port, quote(database), quote(user), password.as_ref().map_or(String::new(), |value| format!(", PASSWORD {}", quote(value))));
+            let secret = format!("CREATE SECRET {secret_name} (TYPE postgres, HOST {}, PORT {}, DATABASE {}, USER {}{})",
+                quote(host), port, quote(database), quote(user), password.as_ref().map_or(String::new(), |value| format!(", PASSWORD {}", quote(value))));
             remote.execute_batch(&secret).map_err(|_| "failed to configure PostgreSQL DuckLake credentials".to_string())?;
-            format!("ATTACH 'ducklake:postgres:' AS {} (META_SECRET {}, READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote_identifier(alias), quote_identifier(&secret_name))
+            format!("ATTACH 'ducklake:postgres:' AS {} (META_SECRET {secret_name}, READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote_identifier(alias))
         }
         DuckLakeCatalog::Sqlite { path } | DuckLakeCatalog::Duckdb { path } => {
             if path.is_empty() || path.len() > 2048 || path.chars().any(char::is_control) { return Err("invalid DuckLake catalog path".into()); }
@@ -331,8 +331,9 @@ fn attach_ducklake(remote: &Connection, catalog: &DuckLakeCatalog, alias: &str) 
                 remote.execute_batch("INSTALL sqlite; LOAD sqlite;")
                     .map_err(|error| format!("failed to load SQLite support: {error}"))?;
             }
-            let location = if matches!(catalog, DuckLakeCatalog::Sqlite { .. }) { format!("ducklake:sqlite:{path}") } else { format!("ducklake:{path}") };
-            format!("ATTACH {} AS {} (READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote(&location), quote_identifier(alias))
+            let location = if matches!(catalog, DuckLakeCatalog::Sqlite { .. }) { format!("ducklake:sqlite:{path}") } else if path.starts_with("s3://") || path.starts_with("https://") { path.clone() } else { format!("ducklake:{path}") };
+            let kind = if matches!(catalog, DuckLakeCatalog::Duckdb { .. }) && (path.starts_with("s3://") || path.starts_with("https://")) { "TYPE ducklake, " } else { "" };
+            format!("ATTACH {} AS {} ({kind}READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote(&location), quote_identifier(alias))
         }
     };
     remote.execute_batch(&attach).map_err(|error| format!("failed to attach DuckLake catalog: {error}"))
@@ -342,6 +343,9 @@ fn attach_ducklake(remote: &Connection, catalog: &DuckLakeCatalog, alias: &str) 
 pub struct DuckLakeTable { pub schema: String, pub name: String, pub uri: String }
 
 pub fn list_ducklake_tables(request: S3ListRequest) -> Result<Vec<DuckLakeTable>, String> {
+    if request.prefix.len() > 512 || request.prefix.chars().any(char::is_control) {
+        return Err("invalid DuckLake prefix".into());
+    }
     let catalog = request.catalog.as_ref().ok_or("DuckLake catalog is required")?;
     let remote = open_s3_reader(&request.uri, S3Format::Ducklake, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
     attach_ducklake(&remote, catalog, "omni_lake")?;
@@ -355,17 +359,14 @@ pub fn list_ducklake_tables(request: S3ListRequest) -> Result<Vec<DuckLakeTable>
     let prefix = if relative.is_empty() { format!("{root}/") } else { format!("{root}/{relative}/") };
     let mut found = Vec::new();
     for (schema, name) in tables {
-        let sql = format!("SELECT data_file FROM ducklake_list_files('omni_lake', '{}', schema => '{}') LIMIT 1000", name.replace('\'', "''"), schema.replace('\'', "''"));
+        let sql = format!("SELECT data_file FROM ducklake_list_files('omni_lake', '{}', schema => '{}') WHERE starts_with(data_file, ?) LIMIT 1", name.replace('\'', "''"), schema.replace('\'', "''"));
         let mut files = remote.prepare(&sql).map_err(|error| format!("failed to inspect DuckLake files: {error}"))?;
-        let paths = files.query_map([], |row| row.get::<_, String>(0))
+        let paths = files.query_map([&prefix], |row| row.get::<_, String>(0))
             .map_err(|error| format!("failed to list DuckLake files: {error}"))?;
         for path in paths {
             let path = path.map_err(|error| format!("failed to read DuckLake file: {error}"))?;
-            if path.starts_with(&prefix) {
-                let uri = path.rsplit_once('/').map_or(path.clone(), |(parent, _)| parent.to_string());
-                found.push(DuckLakeTable { schema: schema.clone(), name: name.clone(), uri });
-                break;
-            }
+            let uri = path.rsplit_once('/').map_or(path.clone(), |(parent, _)| parent.to_string());
+            found.push(DuckLakeTable { schema: schema.clone(), name: name.clone(), uri });
         }
     }
     Ok(found)

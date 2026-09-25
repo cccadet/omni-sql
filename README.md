@@ -93,6 +93,9 @@ are available after restart. Federated datasets used for a session's joins and
 temporary result pages are cleared when the process exits. S3 object queries use
 separate DuckDB readers; CSV and Parquet support and optional Delta/Iceberg
 support depend on DuckDB extensions, which may need network access on first use.
+For DuckLake, configure a catalog on the S3 connection for a bucket or table
+prefix. The catalog can use a saved PostgreSQL connection or a SQLite/DuckDB
+file; the longest matching prefix wins when a bucket contains mixed data.
 S3 query results in the editor are bounded previews. To export every selected
 S3 row, import the object into a local DuckDB dataset, then use the analytical
 full-result export; exporting the visible grid only writes displayed rows.

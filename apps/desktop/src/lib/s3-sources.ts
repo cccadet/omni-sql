@@ -16,6 +16,14 @@ export type DuckLakeCatalog =
 export interface DuckLakeMapping { prefix: string; catalog: DuckLakeCatalog }
 export interface S3DiscoveryCredentials { accessKeyId: string; secretAccessKey?: string; ducklakeMappings?: DuckLakeMapping[] }
 
+export function resolveDuckLakeSource<T extends S3TableSource>(source: T, credentials: S3DiscoveryCredentials): T {
+  if (source.format !== "ducklake") return source;
+  const mapping = (credentials.ducklakeMappings ?? []).filter(({ prefix }) => source.uri === prefix || source.uri.startsWith(`${prefix}/`))
+    .sort((a, b) => b.prefix.length - a.prefix.length)[0];
+  if (!mapping) throw new Error(`Catálogo DuckLake não configurado para ${source.uri}`);
+  return { ...source, catalog: mapping.catalog };
+}
+
 export function duckLakeCandidatePrefixes(objects: readonly string[]): string[] {
   return [...new Set(objects.filter((uri) => /\/ducklake-[^/]+\.parquet$/i.test(uri))
     .map((uri) => uri.slice(0, uri.lastIndexOf("/"))))].sort();

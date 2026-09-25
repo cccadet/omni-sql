@@ -69,6 +69,9 @@ Local analysis uses Tauri commands in the main IDE. A grid preview and a full
 analytical import have separate limits: sampling during import changes the data
 available to subsequent joins and aggregates. S3 CSV, Parquet, Delta, and Iceberg
 scans require their DuckDB extensions; first use may need network access for
-installation. See the [current engine plan](RUST_DATA_ENGINE_PLAN.md) for the
+installation. DuckLake tables are discovered from a configured PostgreSQL,
+SQLite, or DuckDB metadata catalog and matched to S3 prefixes by their catalog
+file paths. Bucket mappings can be overridden for individual table prefixes.
+See the [current engine plan](RUST_DATA_ENGINE_PLAN.md) for the
 resource and security model and the [acceptance checklist](RUST_DATA_ENGINE_TODO.md)
 for remaining validation.

@@ -69,6 +69,7 @@ export interface SidebarProps {
   onRefreshMetadata?: () => void;
   onLoadS3Columns?: (schema: string, table: string) => Promise<RelationColumn[]>;
   s3Prefix?: string;
+  duckLakeCandidates?: readonly string[];
   onS3PrefixChange?: (prefix: string) => void;
   onSelectConnection?: (id: string) => void;
   onCreateConnectionGroup?: (name: string) => Promise<void>;
@@ -283,6 +284,7 @@ export function Sidebar({
   onRefreshMetadata,
   onLoadS3Columns,
   s3Prefix = "",
+  duckLakeCandidates = [],
   onS3PrefixChange,
   onSelectConnection,
   onCreateConnectionGroup,
@@ -927,6 +929,10 @@ export function Sidebar({
             onKeyDown={(event) => { if (event.key === "Enter") onS3PrefixChange?.(s3PrefixDraft); }}
             placeholder="Prefixo em cada bucket" aria-label="Prefixo S3" />
           <Button size="small" onClick={() => onS3PrefixChange?.(s3PrefixDraft)}>Listar</Button>
+        </div>}
+        {connection?.dialect === "s3" && duckLakeCandidates.length > 0 && <div className="omni-s3-limit">
+          Possível DuckLake em {duckLakeCandidates.join(", ")}. Configure o catálogo para identificar as tabelas.
+          <Button size="small" appearance="subtle" onClick={() => connectionId && onEditConnection?.(connectionId)}>Configurar catálogo</Button>
         </div>}
         {connection?.dialect === "s3" && <Button size="small" appearance="subtle" style={{ width: "100%", marginBottom: 8 }} onClick={onImportDatabaseTable}>Adicionar tabela de outro banco ao JOIN</Button>}
         <Input

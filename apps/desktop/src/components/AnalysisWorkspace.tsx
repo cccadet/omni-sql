@@ -15,7 +15,7 @@ import { ArrowClockwiseRegular, CheckmarkRegular, DeleteRegular, EditRegular, St
 import type { QueryResult } from "@omni-sql/ts-types";
 import type { DatasetRef } from "../lib/analysis";
 import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, listAnalysisS3, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, runAnalysisS3 } from "../lib/analysis";
-import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, type S3DiscoveryCredentials, type S3TableSource } from "../lib/s3-sources";
+import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type S3DiscoveryCredentials, type S3TableSource } from "../lib/s3-sources";
 import { backend, type ConnectionEntry, type RelationInfo } from "../lib/backend";
 import { localAnalysisIdentifier, localAnalysisSuggestions } from "../lib/analysis-autocomplete";
 import type { EditorProps } from "./Editor";
@@ -115,7 +115,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
       const tables = await discoverConfiguredS3Tables(objects, bucketUri, String(initialS3Connection.options?.region ?? ""),
         String(initialS3Connection.options?.endpoint ?? "") || undefined, credentials);
       if (requestId !== s3RequestIdRef.current) return;
-      setS3Tables(tables);
+      setS3Tables(tables.map((table) => ({ ...table, catalog: undefined })));
       setUnconfiguredDuckLake(duckLakeCandidatePrefixes(objects).filter((prefix) =>
         !(credentials.ducklakeMappings ?? []).some((mapping) => prefix === mapping.prefix || prefix.startsWith(`${mapping.prefix}/`))));
       setS3Limited(objects.length >= 500);
@@ -174,8 +174,8 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
     try {
       if (activeS3Source) {
         if (!initialS3Connection) throw new Error("S3 connection not found");
-        const credentials = await backend.call<{ accessKeyId: string; secretAccessKey?: string }>("connection.s3Credentials", { connectionId: initialS3Connection.id });
-        setResult(await runAnalysisS3({ workspaceId, ...activeS3Source, sql, limit: 1_000, operationId: nextOperationId,
+        const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId: initialS3Connection.id });
+        setResult(await runAnalysisS3({ workspaceId, ...resolveDuckLakeSource(activeS3Source, credentials), sql, limit: 1_000, operationId: nextOperationId,
           accessKeyId: credentials.accessKeyId || undefined, secretAccessKey: credentials.secretAccessKey }));
       } else {
         setResult(await runAnalysis(workspaceId, sql, 1_000, nextOperationId));

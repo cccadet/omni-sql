@@ -36,7 +36,7 @@ import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
 import { cancelAnalysis, clearAnalysis, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, listAnalysisDatasets, listAnalysisS3, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import { s3Buckets } from "./lib/s3-buckets";
-import { discoverConfiguredS3Tables, type S3DiscoveryCredentials, type S3TableSource } from "./lib/s3-sources";
+import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type S3DiscoveryCredentials, type S3TableSource } from "./lib/s3-sources";
 import { s3ReferencedRelations, s3Suggestions } from "./lib/s3-autocomplete";
 import type { McpStatusResult } from "@omni-sql/ts-types";
 
@@ -250,6 +250,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarCache, setSidebarCache] = useState<Record<string, { schemas: string[]; relations: RelationInfo[]; functions: FunctionDef[] }>>({});
   const [s3Catalog, setS3Catalog] = useState<Record<string, ({ schema: string; name: string } & S3TableSource)[]>>({});
+  const [s3DuckLakeCandidates, setS3DuckLakeCandidates] = useState<Record<string, string[]>>({});
   const s3ColumnRequests = useRef(new Map<string, Promise<RelationColumn[]>>());
   const [s3Prefixes, setS3Prefixes] = useState<Record<string, string>>({});
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -638,11 +639,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         }
         const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId });
         const buckets = s3Buckets(s3);
+        const candidates: string[] = [];
         const sources = (await Promise.all(buckets.map(async (bucketUri) => {
           const objects = await listAnalysisS3({ uri: bucketUri, region: String(s3.options?.region ?? ""),
             endpoint: String(s3.options?.endpoint ?? "") || undefined, accessKeyId: credentials.accessKeyId || undefined,
             secretAccessKey: credentials.secretAccessKey, prefix: prefixOverride ?? s3Prefixes[connectionId] ?? "" });
           const schema = bucketUri.slice(5);
+          candidates.push(...duckLakeCandidatePrefixes(objects).filter((prefix) =>
+            !(credentials.ducklakeMappings ?? []).some((mapping) => prefix === mapping.prefix || prefix.startsWith(`${mapping.prefix}/`))));
           const used = new Set<string>();
           const tables = await discoverConfiguredS3Tables(objects, bucketUri, String(s3.options?.region ?? ""),
             String(s3.options?.endpoint ?? "") || undefined, credentials);
@@ -652,9 +656,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             let name = base;
             for (let suffix = 2; used.has(name.toLowerCase()); suffix += 1) name = `${base}_${suffix}`;
             used.add(name.toLowerCase());
-            return { ...table, schema, name };
+            return { ...table, catalog: undefined, schema, name };
           });
         }))).flat();
+        setS3DuckLakeCandidates((previous) => ({ ...previous, [connectionId]: candidates }));
         const localDatasets = [...await listAnalysisDatasets("local-duckdb"), ...await listAnalysisDatasets("federated")];
         setS3Catalog((previous) => ({ ...previous, [connectionId]: sources }));
         setSidebarCache((previous) => ({ ...previous, [connectionId]: {
@@ -713,9 +718,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     let request = s3ColumnRequests.current.get(key);
     if (!request) {
       request = (async () => {
-        const credentials = await backend.call<{ accessKeyId: string; secretAccessKey?: string }>("connection.s3Credentials", { connectionId });
+        const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId });
         const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
-        const result = await runS3CatalogQuery({ workspaceId: "local-duckdb", sources: [source],
+        const result = await runS3CatalogQuery({ workspaceId: "local-duckdb", sources: [resolveDuckLakeSource(source, credentials)],
           region: String(connection.options?.region ?? ""), endpoint: String(connection.options?.endpoint ?? "") || undefined,
           accessKeyId: credentials.accessKeyId || undefined, secretAccessKey: credentials.secretAccessKey,
           sql: `SELECT * FROM ${quote(schema)}.${quote(table)} LIMIT 0`, limit: 1 });
@@ -988,11 +993,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         let lastResult: QueryResult | null = null;
         for (const sql of sqls) {
           if (activeDialect === "s3" && activeConnection) {
-            const credentials = await backend.call<{ accessKeyId: string; secretAccessKey?: string }>("connection.s3Credentials", { connectionId: activeConnectionId });
+            const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId: activeConnectionId });
             activeQuery.engineOperationId = `s3-catalog-${crypto.randomUUID()}`;
             lastResult = await runS3CatalogQuery({
               workspaceId: activeTab.id,
-              sources: s3Catalog[activeConnectionId] ?? [],
+              sources: (s3Catalog[activeConnectionId] ?? []).map((source) => resolveDuckLakeSource(source, credentials)),
               region: String(activeConnection.options?.region ?? ""),
               endpoint: String(activeConnection.options?.endpoint ?? "") || undefined,
               accessKeyId: credentials.accessKeyId || undefined,
@@ -1569,6 +1574,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onRefreshMetadata={onRefreshMetadata}
           onLoadS3Columns={activeConnectionId ? (schema, table) => loadS3Columns(activeConnectionId, schema, table) : undefined}
           s3Prefix={activeConnectionId ? s3Prefixes[activeConnectionId] ?? "" : ""}
+          duckLakeCandidates={activeConnectionId ? s3DuckLakeCandidates[activeConnectionId] ?? [] : []}
           onS3PrefixChange={onS3PrefixChange}
           onSelectConnection={onSelectConnection}
           onCreateConnectionGroup={onCreateConnectionGroup}
