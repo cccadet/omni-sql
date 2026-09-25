@@ -1078,16 +1078,3 @@ select option {
 }
 
 .omni-s3-objects-prefix > span { flex: 1; min-width: 0; }
-
-.omni-s3-buckets-input {
-  width: 100%;
-  min-height: 72px;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  resize: vertical;
-  border: 1px solid var(--colorNeutralStroke1);
-  border-radius: 4px;
-  color: var(--colorNeutralForeground1);
-  background: var(--colorNeutralBackground1);
-  font: inherit;
-}

@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import { ListBucketsCommand, S3Client } from "@aws-sdk/client-s3";
 import type { ConnectionConfig, Relation, Database } from "@omni-sql/ts-types";
 import type { Adapter, QueryBatch } from "@omni-sql/adapters-core";
 import { registerAdapter, resolveAdapter } from "@omni-sql/adapters-core";
@@ -586,9 +587,9 @@ export const handlers: BackendRpcRouter = {
       if (typeof encodedBuckets === "string") {
         try { buckets = JSON.parse(encodedBuckets); } catch { throw new Error("invalid S3 bucket list"); }
       }
-      if (!Array.isArray(buckets) || buckets.length === 0 || buckets.length > 50
+      if (!Array.isArray(buckets) || buckets.length > 50
         || !buckets.every((bucket) => typeof bucket === "string" && /^s3:\/\/[^/@]+\/?$/.test(bucket))
-        || !buckets.includes(config.endpoint)) {
+        || (buckets.length === 0 ? config.endpoint !== "s3://" : !buckets.includes(config.endpoint))) {
         throw new Error("invalid S3 bucket or prefix URI");
       }
       if (config.options?.ducklakeMappings !== undefined) {
@@ -701,6 +702,31 @@ export const handlers: BackendRpcRouter = {
       throw new Error("invalid DuckLake catalog configuration");
     }));
     return { accessKeyId: config.user, secretAccessKey: await readStoredPassword(config, "reading S3 credentials"), ducklakeMappings };
+  },
+
+  async "connection.listBuckets"({ config, password }) {
+    await connectionsRestored;
+    if (config.dialect !== "s3") throw new Error("S3 connection required");
+    const saved = cache.listConnections().find((item) => item.id === config.id && item.dialect === "s3");
+    const accessKeyId = config.user.trim();
+    const secret = password || (saved?.user === accessKeyId && accessKeyId ? await readStoredPassword(saved, "listing S3 buckets") : undefined);
+    if (Boolean(accessKeyId) !== Boolean(secret)) throw new Error("S3 access key and secret key must be provided together");
+    const endpoint = String(config.options?.endpoint ?? "").trim();
+    if (endpoint.includes("://")) {
+      const url = new URL(endpoint);
+      if (url.username || url.password) throw new Error("S3 endpoint cannot contain credentials");
+    }
+    const client = new S3Client({
+      region: String(config.options?.region || "us-east-1"),
+      ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
+      ...(accessKeyId ? { credentials: { accessKeyId, secretAccessKey: secret! } } : {}),
+    });
+    try {
+      const result = await client.send(new ListBucketsCommand({}));
+      return { buckets: result.Buckets?.flatMap((bucket) => bucket.Name ? [bucket.Name] : []) ?? [] };
+    } finally {
+      client.destroy();
+    }
   },
 
   async "connectionGroup.list"(): Promise<ListConnectionGroupsResult> {

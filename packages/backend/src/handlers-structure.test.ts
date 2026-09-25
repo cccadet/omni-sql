@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 
 process.env.OMNI_SQL_METADATA_DB ??= ":memory:";
 const { handlers, mutatesDatabaseStructure } = await import("./handlers.ts");
@@ -19,6 +20,38 @@ test("S3 sources are stored in the connection list without a database adapter", 
     accessKeyId: "", secretAccessKey: undefined,
   });
   await handlers["connection.remove"]({ connectionId: "s3-test" });
+});
+
+test("S3 connection can be saved before selecting buckets", async () => {
+  const config = { id: "s3-empty", label: "S3 account", dialect: "s3" as const,
+    endpoint: "s3://", user: "", options: { buckets: "[]" } };
+  try {
+    await handlers["connection.add"]({ config });
+    const { configs } = await handlers["connection.list"]();
+    assert.deepEqual(configs.find((item) => item.id === config.id)?.options?.buckets, "[]");
+  } finally {
+    await handlers["connection.remove"]({ connectionId: config.id });
+  }
+});
+
+test("lists S3 buckets using connection credentials", async () => {
+  const server = createServer((request, response) => {
+    assert.match(String(request.headers.authorization), /^AWS4-HMAC-SHA256 /);
+    response.setHeader("Content-Type", "application/xml");
+    response.end('<?xml version="1.0" encoding="UTF-8"?><ListAllMyBucketsResult><Buckets><Bucket><Name>first</Name></Bucket><Bucket><Name>second</Name></Bucket></Buckets></ListAllMyBucketsResult>');
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const result = await handlers["connection.listBuckets"]({ config: {
+      id: "s3-discovery", label: "S3 account", dialect: "s3", endpoint: "s3://", user: "key-id",
+      options: { region: "us-east-1", endpoint: `http://127.0.0.1:${address.port}` },
+    }, password: "secret" });
+    assert.deepEqual(result.buckets, ["first", "second"]);
+  } finally {
+    server.close();
+  }
 });
 
 test("S3 access key and secret are recovered from the saved connection", async () => {

@@ -18,6 +18,8 @@ function LanguageProbe() {
       <span data-testid="language">{language}</span>
       <span data-testid="label">{t("newTab")}</span>
       <span data-testid="last-label">{t("resizeConnectionsPanel")}</span>
+      <span data-testid="bucket-label">{t("s3LoadBuckets")}</span>
+      <span data-testid="catalog-label">{t("ducklakeAddCatalog")}</span>
       <button onClick={() => setLanguage("pt-BR")}>pt</button>
     </div>
   );
@@ -30,6 +32,7 @@ describe("language provider", () => {
     render(<LanguageProvider><LanguageProbe /></LanguageProvider>);
     expect(screen.getByTestId("language").textContent).toBe("en");
     expect(screen.getByTestId("label").textContent).toBe("New tab");
+    expect(screen.getByTestId("bucket-label").textContent).toBe("Load buckets");
   });
 
   it("switches language and persists it", () => {
@@ -38,6 +41,8 @@ describe("language provider", () => {
     expect(screen.getByTestId("language").textContent).toBe("pt-BR");
     expect(screen.getByTestId("label").textContent).toBe("Nova aba");
     expect(screen.getByTestId("last-label").textContent).toBe("Redimensionar painel de conexões");
+    expect(screen.getByTestId("bucket-label").textContent).toBe("Carregar buckets");
+    expect(screen.getByTestId("catalog-label").textContent).toBe("Adicionar catálogo DuckLake");
     expect(localStorage.getItem("omni-sql:language")).toBe("pt-BR");
   });
 

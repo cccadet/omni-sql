@@ -1,5 +1,7 @@
 import { assert, beforeEach, test, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import type { ConnectionConfig } from "@omni-sql/ts-types";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { LanguageProvider } from "../i18n";
 import { backend } from "../lib/backend";
@@ -16,24 +18,29 @@ const saved = vi.fn();
 
 beforeEach(() => {
   vi.mocked(backend.call).mockReset();
+  vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list" ? { configs: [] } : undefined);
   close.mockReset();
   saved.mockReset();
   vi.mocked(listAnalysisS3).mockReset();
 });
 
 test("registers multiple S3 buckets without choosing a format", async () => {
-  vi.mocked(backend.call).mockResolvedValue({ connectionId: "s3-1", ok: true });
+  vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
+    ? { configs: [] } : method === "connection.listBuckets"
+      ? { buckets: ["bucket", "bucket-two"] } : { connectionId: "s3-1", ok: true });
   vi.mocked(listAnalysisS3).mockResolvedValue([]);
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
   const dialog = screen.getByRole("dialog");
   fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "s3" } });
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Sales lake" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "Buckets S3 (um por linha)" }), { target: { value: "s3://bucket\ns3://bucket-two" } });
+  fireEvent.click(screen.getByRole("button", { name: "Load buckets" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "bucket" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "bucket-two" }));
   assert.equal(screen.queryByRole("combobox", { name: "Formato S3" }), null);
-  fireEvent.change(screen.getByPlaceholderText("us-east-1 (opcional)"), { target: { value: "us-east-1" } });
-  fireEvent.change(screen.getByPlaceholderText("https://host:9000 (opcional)"), { target: { value: "http://127.0.0.1:9000" } });
-  fireEvent.change(screen.getByPlaceholderText("Access Key ID (opcional)"), { target: { value: "omni_test" } });
-  fireEvent.change(screen.getByPlaceholderText("Secret Access Key (opcional)"), { target: { value: "omni_test_secret" } });
+  fireEvent.change(screen.getByPlaceholderText("us-east-1 (optional)"), { target: { value: "us-east-1" } });
+  fireEvent.change(screen.getByPlaceholderText("https://host:9000 (optional)"), { target: { value: "http://127.0.0.1:9000" } });
+  fireEvent.change(screen.getByPlaceholderText("Access Key ID (optional)"), { target: { value: "omni_test" } });
+  fireEvent.change(screen.getByPlaceholderText("Secret Access Key (optional)"), { target: { value: "omni_test_secret" } });
   fireEvent.click(screen.getByRole("button", { name: "Connect" }));
   await waitFor(() => assert.equal(vi.mocked(listAnalysisS3).mock.calls.length, 1));
   fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
@@ -47,7 +54,76 @@ test("registers multiple S3 buckets without choosing a format", async () => {
   assert.equal(config.endpoint, "s3://bucket");
   assert.equal(config.user, "omni_test");
   assert.equal(params.password, "omni_test_secret");
-  assert.deepEqual(config.options, { region: "us-east-1", endpoint: "http://127.0.0.1:9000", buckets: '["s3://bucket","s3://bucket-two"]' });
+  assert.deepEqual(config.options, { region: "us-east-1", endpoint: "http://127.0.0.1:9000", buckets: '["s3://bucket","s3://bucket-two"]', ducklakeMappings: "[]" });
+});
+
+test("loads S3 buckets and saves the selected ones", async () => {
+  vi.mocked(backend.call).mockImplementation(async (method) => {
+    if (method === "connection.list") return { configs: [] };
+    if (method === "connection.listBuckets") return { buckets: ["bucket-a", "bucket-b"] };
+    return { connectionId: "s3-1", ok: true };
+  });
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+  fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "s3" } });
+  fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "S3 account" } });
+  fireEvent.click(screen.getByRole("button", { name: "Load buckets" }));
+  const first = await screen.findByRole("checkbox", { name: "bucket-a" });
+  assert.equal((first as HTMLInputElement).checked, false);
+  fireEvent.click(first);
+  assert.equal((first as HTMLInputElement).checked, true);
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  assert.ok(add);
+  const { config } = add[1] as { config: { endpoint: string; options: { buckets: string } } };
+  assert.equal(config.endpoint, "s3://bucket-a");
+  assert.equal(config.options.buckets, '["s3://bucket-a"]');
+});
+
+test("saves an S3 account without buckets", async () => {
+  vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
+    ? { configs: [] } : { connectionId: "s3-empty", ok: true });
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+  fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "s3" } });
+  fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "S3 account" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  assert.ok(add);
+  const { config } = add[1] as { config: { endpoint: string; options: { buckets: string } } };
+  assert.equal(config.endpoint, "s3://");
+  assert.equal(config.options.buckets, "[]");
+});
+
+test("keeps S3 fields focused after loading buckets, saving, and reopening", async () => {
+  let stored: ConnectionConfig = { id: "s3-1", label: "S3", dialect: "s3", endpoint: "s3://bucket-a", user: "key", options: { buckets: '["s3://bucket-a"]' } };
+  vi.mocked(backend.call).mockImplementation(async (method, params) => {
+    if (method === "connection.list") return { configs: [] };
+    if (method === "connection.listBuckets") return { buckets: ["bucket-a", "bucket-b"] };
+    if (method === "connection.add") {
+      stored = (params as { config: ConnectionConfig }).config;
+      return { connectionId: "s3-1" };
+    }
+    return undefined;
+  });
+  function Harness() {
+    const [open, setOpen] = useState(true);
+    return <>
+      <button onClick={() => setOpen(true)}>Reopen</button>
+      {open && <ConnectionDialog open editing={stored} onClose={() => setOpen(false)} onSaved={() => setOpen(false)} />}
+    </>;
+  }
+  renderWithLanguage(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "Load buckets" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "bucket-b" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(screen.queryByRole("dialog"), null));
+  fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+  const region = screen.getByRole("textbox", { name: "Region" });
+  region.focus();
+  fireEvent.change(region, { target: { value: "us-east-1" } });
+  assert.equal(document.activeElement, region);
+  assert.equal((screen.getByRole("checkbox", { name: "bucket-b" }) as HTMLInputElement).checked, true);
 });
 
 test("does not expose an existing connection internal ID", () => {
@@ -76,7 +152,7 @@ test("keeps focus in a connection field while editing", () => {
     />,
   );
 
-  const name = screen.getByRole("textbox", { name: "Nome" });
+  const name = screen.getByRole("textbox", { name: "Name" });
   assert.equal(name, screen.getByDisplayValue("Saved"));
   name.focus();
   fireEvent.change(name, { target: { value: "Saved updated" } });
@@ -175,8 +251,12 @@ test("tests and saves a new connection", async () => {
 
 test("shows failed connection test and recovers on retry", async () => {
   const call = vi.mocked(backend.call);
-  call.mockRejectedValueOnce(new Error("database offline"));
-  call.mockResolvedValueOnce({ ok: true, latencyMs: 7 });
+  let attempts = 0;
+  call.mockImplementation(async (method) => {
+    if (method === "connection.list") return { configs: [] };
+    if (method === "connection.test" && attempts++ === 0) throw new Error("database offline");
+    return { ok: true, latencyMs: 7 };
+  });
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
 
   const dialog = screen.getByRole("dialog");
