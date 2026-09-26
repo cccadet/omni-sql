@@ -339,6 +339,23 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
         assert.equal(frames[0]?.columns?.length, 2);
       });
 
+      if (key === "h2") it("analysis.stream: JDBC preserves decimal and timestamp precision", async () => {
+        const response = await fetch(`http://127.0.0.1:${PORT}/analysis/stream`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...RPC_AUTH_HEADERS },
+          body: JSON.stringify({ connectionId: connId,
+            sql: "SELECT CAST('12345678901234567890.12345678' AS DECIMAL(30,8)) AS exact_decimal, CAST('9007199254740993' AS BIGINT) AS large_integer, TIMESTAMP '2026-09-25 14:03:12.123456' AS high_precision FROM customers FETCH FIRST 1 ROW ONLY",
+            batchSize: 2 }),
+        });
+        const frames = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; rows?: unknown[][]; error?: string });
+        assert.equal(frames.at(-1)?.type, "complete", frames.at(-1)?.error);
+        const row = frames.find((frame) => frame.rows?.length)?.rows?.[0];
+        assert.ok(row);
+        assert.equal(String(row[0]), "12345678901234567890.12345678");
+        assert.equal(String(row[1]), "9007199254740993");
+        assert.match(String(row[2]), /123456/);
+      });
+
       if (key === "pg" || key === "oracle") it("analysis.stream: database error is returned to Analyze Locally", async () => {
         const response = await fetch(`http://127.0.0.1:${PORT}/analysis/stream`, {
           method: "POST",

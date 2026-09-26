@@ -127,7 +127,8 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
     this.activeRequest = request;
     let columns: QueryBatch["columns"] = [];
     const unsafeNumericColumns = new Set<string>();
-    request.once("recordset", (metadata: Record<string, { type?: { declaration?: string }; precision?: number }>) => {
+    const unsafeTemporalColumns = new Set<string>();
+    request.once("recordset", (metadata: Record<string, { type?: { declaration?: string }; precision?: number; scale?: number }>) => {
       columns = Object.entries(metadata).map(([name, value]) => ({
         name,
         dataType: value.type?.declaration ?? "unknown",
@@ -136,6 +137,10 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
       for (const [name, value] of Object.entries(metadata)) {
         if (/^(decimal|numeric|money|smallmoney)/i.test(value.type?.declaration ?? "") &&
             (value.precision ?? 38) > 15) unsafeNumericColumns.add(name);
+        if (/^datetimeoffset/i.test(value.type?.declaration ?? "") ||
+            /^(datetime2|time)/i.test(value.type?.declaration ?? "") && (value.scale ?? 7) > 3) {
+          unsafeTemporalColumns.add(name);
+        }
       }
     });
     const abort = () => request.cancel();
@@ -155,6 +160,10 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
           if (typeof value === "number" &&
               (unsafeNumericColumns.has(column.name) ||
                /^bigint$/i.test(column.dataType) && !Number.isSafeInteger(value))) {
+            request.cancel();
+            throw new Error(`SQL Server analytical stream cannot preserve ${column.dataType} in column ${column.name}; cast it to VARCHAR in the source query`);
+          }
+          if (value instanceof Date && unsafeTemporalColumns.has(column.name)) {
             request.cancel();
             throw new Error(`SQL Server analytical stream cannot preserve ${column.dataType} in column ${column.name}; cast it to VARCHAR in the source query`);
           }

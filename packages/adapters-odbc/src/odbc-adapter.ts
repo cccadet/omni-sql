@@ -102,6 +102,15 @@ export class OdbcAdapter extends CachedAdapter implements Adapter {
           dataType: column.dataTypeName || String(column.dataType),
           nullable: column.nullable,
         }));
+        for (const row of result) for (const column of columns) {
+          const value = row[column.name];
+          if (value instanceof Date && /time|date/i.test(column.dataType)) {
+            throw new Error(`ODBC analytical streaming cannot preserve ${column.dataType} precision; cast ${column.name} to text in the source SQL`);
+          }
+          if (typeof value === "number" && (/decimal|numeric/i.test(column.dataType) || !Number.isSafeInteger(value) && /bigint/i.test(column.dataType))) {
+            throw new Error(`ODBC analytical streaming cannot preserve ${column.dataType} precision; cast ${column.name} to text in the source SQL`);
+          }
+        }
         if (result.length > 0 || !emitted) {
           emitted = true;
           yield { columns, rows: result.map((row) => columns.map((column) => jsonSafe(row[column.name]))) };

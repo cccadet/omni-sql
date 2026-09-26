@@ -350,6 +350,8 @@ object JdbcConnectionManager {
 
     private fun toJsonValue(value: Any?): Any? =
         when (value) {
+            is java.math.BigDecimal, is java.math.BigInteger -> value.toString()
+            is Long -> if (value > 9007199254740991L || value < -9007199254740991L) value.toString() else value
             null, is Number, is Boolean, is String -> value
             is ByteArray -> java.util.Base64.getEncoder().encodeToString(value)
             else -> value.toString()

@@ -3,7 +3,7 @@ import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "../i18n";
 import type { DatasetRef } from "../lib/analysis";
-import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, importQuerySource, listAnalysisDatasets, listAnalysisS3, renameAnalysisDataset, runAnalysis, runAnalysisS3 } from "../lib/analysis";
+import { cancelAnalysis, dropAnalysisDataset, dropStableAnalysis, exportAnalysis, importQuerySource, listAnalysisDatasets, listAnalysisS3, readStableAnalysisPage, renameAnalysisDataset, runAnalysis, runAnalysisS3, startStableAnalysis } from "../lib/analysis";
 import { backend } from "../lib/backend";
 import { AnalysisWorkspace } from "./AnalysisWorkspace";
 
@@ -19,6 +19,9 @@ vi.mock("../lib/analysis", async (importOriginal) => ({
   listAnalysisDatasets: vi.fn(),
   renameAnalysisDataset: vi.fn(),
   runAnalysis: vi.fn(),
+  startStableAnalysis: vi.fn(),
+  readStableAnalysisPage: vi.fn(),
+  dropStableAnalysis: vi.fn(),
 }));
 vi.mock("../lib/backend", () => ({ backend: { call: vi.fn() } }));
 vi.mock("../lib/file-io", () => ({ pickAnalysisExportPath: vi.fn(), pickAnalysisImportPath: vi.fn() }));
@@ -50,6 +53,9 @@ describe("AnalysisWorkspace", () => {
     vi.mocked(listAnalysisDatasets).mockReset().mockResolvedValue([customer, order]);
     vi.mocked(backend.call).mockReset().mockResolvedValue({ relations: [] });
     vi.mocked(runAnalysis).mockReset();
+    vi.mocked(startStableAnalysis).mockReset();
+    vi.mocked(readStableAnalysisPage).mockReset();
+    vi.mocked(dropStableAnalysis).mockReset();
     vi.mocked(renameAnalysisDataset).mockReset();
     vi.mocked(dropAnalysisDataset).mockReset();
     vi.mocked(importQuerySource).mockReset();
@@ -67,6 +73,12 @@ describe("AnalysisWorkspace", () => {
     expect(screen.getByText("Orders")).toBeTruthy();
     expect(screen.getByText("No results")).toBeTruthy();
     expect((screen.getByRole("button", { name: /^Run$/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("warns when another dataset in the workspace is sampled", async () => {
+    vi.mocked(listAnalysisDatasets).mockResolvedValue([customer, { ...order, coverage: "sampled" }]);
+    show();
+    expect(await screen.findByText(/Sampled or truncated datasets: Orders/)).toBeTruthy();
   });
 
   it("opens a registered S3 connection for direct query without showing connection fields", async () => {
@@ -118,6 +130,18 @@ describe("AnalysisWorkspace", () => {
     expect(await screen.findByText("1 result rows")).toBeTruthy();
   });
 
+  it("pages a stable result and releases its handle when SQL changes", async () => {
+    vi.mocked(runAnalysis).mockResolvedValue({ columns: [], rows: [[1]], rowsMoreAvailable: true, elapsedMs: 1 });
+    vi.mocked(startStableAnalysis).mockResolvedValue({ id: "handle-1", workspaceId: "workspace-1", columns: [], rowCount: 2_000, createdAtMs: 1 });
+    vi.mocked(readStableAnalysisPage).mockResolvedValue({ columns: [], rows: [[2]], rowsMoreAvailable: true, elapsedMs: 1 });
+    show();
+    fireEvent.click(screen.getByRole("button", { name: /^Run$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Browse all rows" }));
+    await waitFor(() => expect(readStableAnalysisPage).toHaveBeenCalledWith("workspace-1", "handle-1", 1_000));
+    fireEvent.change(screen.getByRole("textbox", { name: "SQL editor" }), { target: { value: "SELECT count(*) FROM customers" } });
+    await waitFor(() => expect(dropStableAnalysis).toHaveBeenCalledWith("workspace-1", "handle-1"));
+  });
+
   it("renames a dataset and updates references in the current SQL", async () => {
     const select = vi.fn();
     vi.mocked(renameAnalysisDataset).mockResolvedValue({ ...customer, name: "Clients", relationName: "clients" });
@@ -146,6 +170,7 @@ describe("AnalysisWorkspace", () => {
     const select = vi.fn();
     vi.mocked(importQuerySource).mockResolvedValue(order);
     show(customer, select);
+    fireEvent.change(screen.getByRole("textbox", { name: "SQL editor" }), { target: { value: "SELECT * FROM customers JOIN orders USING (id)" } });
     fireEvent.click(screen.getByText("Add another database source for joins"));
     fireEvent.change(screen.getByRole("combobox", { name: "Active connection" }), { target: { value: "connection-1" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Table or SELECT/WITH query" }), { target: { value: "public.orders" } });
@@ -153,6 +178,7 @@ describe("AnalysisWorkspace", () => {
     await waitFor(() => expect(importQuerySource).toHaveBeenCalledWith(expect.objectContaining({
       name: "orders", connectionId: "connection-1", sql: 'SELECT * FROM "public"."orders"', selection: { mode: "full" },
     })));
-    expect(select).toHaveBeenCalledWith(order);
+    expect(select).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toBe("SELECT * FROM customers JOIN orders USING (id)");
   });
 });

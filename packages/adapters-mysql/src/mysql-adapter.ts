@@ -162,7 +162,7 @@ export class MysqlAdapter extends CachedAdapter implements Adapter {
     options.signal.addEventListener("abort", abort, { once: true });
     try {
       const query = (connection.connection as unknown as CallbackConnection).query({
-        sql, rowsAsArray: true, supportBigNumbers: true, bigNumberStrings: true,
+        sql, rowsAsArray: true, supportBigNumbers: true, bigNumberStrings: true, dateStrings: true,
       });
       let columns: QueryBatch["columns"] = [];
       query.once("fields", (fields: FieldPacket[]) => {

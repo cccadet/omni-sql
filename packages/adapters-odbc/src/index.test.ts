@@ -97,6 +97,27 @@ test("ODBC streams bounded batches into Analyze Locally and closes the cursor", 
   await adapter.close();
 });
 
+test("ODBC rejects driver-decoded analytical values that can lose precision", async () => {
+  let closed = false;
+  const connection = {
+    close: async () => undefined,
+    query: async () => ({
+      fetch: async () => Object.assign([{ amount: 12345678901234567000 }], {
+        columns: [{ name: "amount", dataTypeName: "DECIMAL", dataType: 3, nullable: false }], count: -1,
+      }),
+      noData: true,
+      close: async () => { closed = true; },
+    }),
+  };
+  const driver = { connect: async () => connection } as unknown as ConstructorParameters<typeof OdbcAdapter>[2];
+  const adapter = new OdbcAdapter(config, undefined, driver);
+  await assert.rejects(async () => {
+    for await (const _batch of adapter.streamQuery("SELECT amount FROM orders", { batchSize: 1, signal: new AbortController().signal })) { /* drain */ }
+  }, /cannot preserve DECIMAL precision/);
+  assert.equal(closed, true);
+  await adapter.close();
+});
+
 test("ODBC classifies driver errors without exposing passwords", async () => {
   const driver = { connect: async () => { throw new Error("IM002 driver not found;PWD=secret"); } } as unknown as ConstructorParameters<typeof OdbcAdapter>[2];
   const adapter = new OdbcAdapter(config, "secret", driver);

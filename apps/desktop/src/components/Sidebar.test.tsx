@@ -63,6 +63,8 @@ describe("Sidebar", () => {
       { schema: "bucket", name: "sales", kind: "table", format: "delta" },
       { schema: "bucket", name: "customers", kind: "table", format: "parquet" },
     ], schemas: ["bucket"], functions: [] });
+    fireEvent.click(screen.getByRole("button", { name: "bucket" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (2)" }));
     expect(screen.getByText("delta")).toBeTruthy();
     fireEvent.change(screen.getByRole("combobox", { name: "Format" }), { target: { value: "parquet" } });
     expect(screen.queryByText("sales")).toBeNull();

@@ -27,6 +27,8 @@ export interface DatasetRef {
   readonly sourceConnectionId?: string;
   readonly sourceSql?: string;
   readonly sourceUri?: string;
+  readonly sourceStartedAtMs?: number;
+  readonly sourceFinishedAtMs?: number;
 }
 
 export interface AnalysisOperationStatus {
@@ -207,7 +209,7 @@ export async function exportAnalysis(input: {
   path: string;
   format: "csv" | "parquet" | "arrow_ipc";
   operationId?: string;
-}): Promise<{ path: string; rows: number; bytes: number }> {
+}): Promise<{ path: string; provenancePath: string; rows: number; bytes: number }> {
   return invoke("analysis_export_query", {
     request: {
       operationId: input.operationId ?? `export-${crypto.randomUUID()}`,
