@@ -623,6 +623,9 @@ export async function* streamQueryViaConnection(
         if (!emittedRows) yield { columns, rows: [] };
         break;
       }
+      if (rows.some((row) => row.some((value, index) => value instanceof Date && /timestamp/i.test(columns[index]?.dataType ?? "")))) {
+        throw new Error("Oracle analytical streaming cannot preserve TIMESTAMP microseconds; cast it to VARCHAR with TO_CHAR in the source SQL");
+      }
       emittedRows = true;
       yield { columns, rows };
     }

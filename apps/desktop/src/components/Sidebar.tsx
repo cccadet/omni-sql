@@ -408,7 +408,7 @@ export function Sidebar({
     }
     const list = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
     const byFormat = list.map((g) => ({ ...g, tables: g.tables.filter((t) => connection?.dialect !== "s3" || !formatFilter || t.format === formatFilter) }));
-    if (!search.trim()) return byFormat.filter((g) => g.tables.length || g.views.length || g.functions.length);
+    if (!search.trim()) return formatFilter ? byFormat.filter((g) => g.tables.length || g.views.length || g.functions.length) : byFormat;
     const q = search.toLowerCase();
     return byFormat
       .map((g) => ({

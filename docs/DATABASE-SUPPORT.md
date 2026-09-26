@@ -8,7 +8,7 @@
 | SQL Server | Supported | Native `mssql`/Tedious adapter; metadata queries and `SET SHOWPLAN_XML ON` in an isolated transaction for plans. |
 | Oracle | Supported | Native `oracledb` thin-mode adapter; Oracle metadata and `EXPLAIN PLAN`. No Oracle Instant Client is required for thin mode. |
 | Generic JDBC | Experimental | JVM sidecar loads a user-provided driver JAR and `java.sql.Driver` class, then connects through the supplied JDBC URL. |
-| ODBC | Planned | No ODBC adapter is currently provided. |
+| ODBC | Experimental | Generic ODBC adapter with bounded query and stream support. Requires a separately installed 64-bit driver compatible with the target database. |
 | MongoDB | Deferred to v2 | No document-database adapter in the current product. |
 
 ## Generic JDBC
@@ -25,7 +25,9 @@ uses standard `DatabaseMetaData` for schemas, tables, views, columns, and
 best-effort primary-key flags. Drivers without schemas use a `default` bucket.
 Queries are capped at 10,000 rows and use driver-dependent fetch/max-row
 settings. Values outside JSON primitives are stringified; byte arrays are
-Base64 encoded.
+Base64 encoded. `BigDecimal`, `BigInteger`, and integers beyond JavaScript's
+safe range are transported as decimal strings. H2/JDBC streaming has
+integration coverage; other vendor drivers need separate validation.
 
 Limitations are intentional because JDBC drivers differ:
 

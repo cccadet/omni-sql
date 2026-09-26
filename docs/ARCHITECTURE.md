@@ -13,7 +13,7 @@ flowchart LR
   DuckDB -->|registered remote scans| S3[(S3 objects)]
   API --> Cache[(SQLite metadata cache\nnode:sqlite)]
   API --> Keyring[OS keyring]
-  API --> Native[Native adapters\npg / mysql2 / mssql / oracledb]
+  API --> Native[Native adapters\npg / mysql2 / mssql / oracledb / ODBC]
   API --> JDBC[Generic JDBC adapter]
   JDBC -->|HTTP loopback| JVM[Kotlin JVM sidecar\n127.0.0.1:41921]
   JVM --> DB[(Database)]
@@ -33,7 +33,8 @@ flowchart LR
   metadata timestamps. Passwords use the OS keyring; development fallback is
   explicitly opt-in.
 - **Native adapters:** PostgreSQL (`pg`), MySQL/MariaDB (`mysql2/promise`),
-  SQL Server (`mssql`/Tedious), and Oracle (`oracledb` thin mode).
+  SQL Server (`mssql`/Tedious), Oracle (`oracledb` thin mode), and experimental
+  ODBC (`odbc`, requiring a compatible system driver).
 - **JVM sidecar:** Kotlin/JDK HTTP service on `127.0.0.1:41921`. Apache
   Calcite resolves CTE output column names for tier-2 autocomplete. It also
   loads user-supplied JDBC drivers.
@@ -72,6 +73,11 @@ scans require their DuckDB extensions; first use may need network access for
 installation. DuckLake tables are discovered from a configured PostgreSQL,
 SQLite, or DuckDB metadata catalog and matched to S3 prefixes by their catalog
 file paths. Bucket mappings can be overridden for individual table prefixes.
+Stable local result pages are temporary DuckDB tables created on demand; changing
+the SQL or leaving Analyze Locally releases the handle. Streamed relational
+dataset metadata records the source query's start and finish times independently
+for each import. Snapshot imports from an already displayed grid cannot recover
+the database execution interval.
 See the [current engine plan](RUST_DATA_ENGINE_PLAN.md) for the
 resource and security model and the [acceptance checklist](RUST_DATA_ENGINE_TODO.md)
 for remaining validation.

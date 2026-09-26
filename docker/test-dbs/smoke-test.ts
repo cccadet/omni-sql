@@ -245,6 +245,48 @@ for (const [key, target] of targets) {
       assert.equal(row[2], null);
     });
 
+    it("streamQuery: preserves temporal microseconds or rejects an unsafe driver conversion", async () => {
+      assert.ok(adapter.streamQuery);
+      const sql = key === "pg"
+        ? "SELECT TIMESTAMP '2026-09-25 14:03:12.123456' AS high_precision"
+        : key === "mysql"
+          ? "SELECT CAST('2026-09-25 14:03:12.123456' AS DATETIME(6)) AS high_precision"
+          : key === "oracle"
+            ? "SELECT TO_TIMESTAMP('2026-09-25 14:03:12.123456', 'YYYY-MM-DD HH24:MI:SS.FF6') AS high_precision FROM dual"
+            : "SELECT CAST('2026-09-25T14:03:12.1234560' AS DATETIME2(7)) AS high_precision";
+      const read = async () => {
+        for await (const batch of adapter.streamQuery!(sql, { batchSize: 2, signal: new AbortController().signal })) {
+          if (batch.rows[0]) return batch.rows[0][0];
+        }
+        throw new Error("temporal query returned no row");
+      };
+      if (key === "mssql" || key === "oracle") {
+        await assert.rejects(read, /cannot preserve.*cast it to VARCHAR/);
+      } else {
+        assert.match(String(await read()), /123456/);
+      }
+    });
+
+    it("streamQuery: preserves binary, JSON, null, and long text", async () => {
+      assert.ok(adapter.streamQuery);
+      const sql = key === "pg"
+        ? "SELECT decode('007fff','hex') AS payload, '{\"estado\":\"SP\"}'::jsonb AS details, repeat('x',4096) AS long_text, NULL::text AS missing"
+        : key === "mysql"
+          ? "SELECT UNHEX('007FFF') AS payload, '{\"estado\":\"SP\"}' AS details, REPEAT('x',4096) AS long_text, NULL AS missing"
+          : key === "oracle"
+            ? "SELECT HEXTORAW('007FFF') AS payload, '{\"estado\":\"SP\"}' AS details, RPAD('x',4000,'x') AS long_text, CAST(NULL AS VARCHAR2(1)) AS missing FROM dual"
+            : "SELECT 0x007FFF AS payload, N'{\"estado\":\"SP\"}' AS details, REPLICATE(CAST('x' AS varchar(max)), 4096) AS long_text, CAST(NULL AS varchar(1)) AS missing";
+      let row: readonly unknown[] | undefined;
+      for await (const batch of adapter.streamQuery(sql, { batchSize: 2, signal: new AbortController().signal })) {
+        row = batch.rows[0];
+      }
+      assert.ok(row);
+      assert.deepEqual([...Buffer.from(row[0] as Buffer)], [0, 127, 255]);
+      assert.deepEqual(typeof row[1] === "string" ? JSON.parse(row[1]) : row[1], { estado: "SP" });
+      assert.equal(String(row[2]).length, key === "oracle" ? 4000 : 4096);
+      assert.equal(row[3], null);
+    });
+
     it("runQuery: JOIN orders + customers", async () => {
       const result = await adapter.runQuery(
         "SELECT o.id, c.name, o.total FROM orders o JOIN customers c ON c.id = o.customer_id ORDER BY o.id",

@@ -179,7 +179,14 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
       await client.query(`DECLARE ${cursorName} NO SCROLL CURSOR FOR ${sql}`);
       let emittedSchema = false;
       while (!options.signal.aborted) {
-        const query = new pg.Query(`FETCH ${options.batchSize} FROM ${cursorName}`);
+        const query = new pg.Query({
+          text: `FETCH ${options.batchSize} FROM ${cursorName}`,
+          types: { getTypeParser: (oid, format) =>
+            [1082, 1083, 1114, 1184, 1266].includes(oid)
+              ? (value: string) => value
+              : pg.types.getTypeParser(oid, format),
+          },
+        });
         const activeQuery = { client, query, token: Symbol() };
         this.activeQuery = activeQuery;
         const result = await new Promise<PgQueryResult>((resolve, reject) => {

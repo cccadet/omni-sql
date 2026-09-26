@@ -87,6 +87,8 @@ retains only the selected rows. The local SQL editor uses DuckDB syntax and omit
 identifier quotes when they are unnecessary. See the [Rust data engine plan](docs/RUST_DATA_ENGINE_PLAN.md)
 and [remaining-work checklist](docs/RUST_DATA_ENGINE_TODO.md) for implementation
 status and validation still needed.
+The [analytical provenance guide](docs/ANALYTICAL-PROVENANCE.md) explains which
+imports are complete, sampled, or truncated and what an export can contain.
 
 Local DuckDB datasets are saved in the application's `local.duckdb` database and
 are available after restart. Federated datasets used for a session's joins and
@@ -104,7 +106,23 @@ For SQL Server analytical imports, the current driver cannot preserve very large
 `DECIMAL`/`NUMERIC` values as JavaScript numbers. The stream rejects detected
 unsafe values; cast those columns to `VARCHAR` in the source SQL to retain their
 exact digits. MySQL and Oracle analytical streams return large numeric values as
-text for the same reason.
+text for the same reason. SQL Server and Oracle drivers can also discard
+sub-millisecond timestamp precision; analytical streaming rejects those values
+when detected. Cast the column to text in the source SQL (`VARCHAR` on SQL
+Server, `TO_CHAR(..., 'YYYY-MM-DD HH24:MI:SS.FF6')` on Oracle) to preserve it.
+Generic ODBC streams also reject driver-decoded decimal and date/time values
+when their precision cannot be established; cast them to text in the source SQL.
+The ODBC adapter requires a separately installed 64-bit driver. The legacy
+Windows SQL Server ODBC driver on the test host connected but failed even to
+fetch `SELECT 1`, so that combination has no fidelity claim.
+
+In Analyze Locally, **Browse all rows** materializes a stable temporary result
+and pages it in groups of 1,000. Editing SQL or leaving the workspace releases
+the result. Imported dataset metadata records coverage and selection; streamed
+sources also record the source-query start and finish times. A full export
+contains all rows of the current local query, but cannot restore rows omitted
+by an earlier sample or truncated import. Local full exports write a companion
+`.omni.json` file with workspace dataset provenance. It omits raw SQL literals.
 
 To compare repeatable local input samples before a join, use DuckDB's native
 `USING SAMPLE reservoir(1000 ROWS) REPEATABLE (42)` on each input subquery.

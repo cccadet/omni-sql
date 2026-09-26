@@ -13,8 +13,8 @@ import {
 } from "@fluentui/react-components";
 import { ArrowClockwiseRegular, CheckmarkRegular, DeleteRegular, EditRegular, StorageRegular } from "@fluentui/react-icons";
 import type { QueryResult } from "@omni-sql/ts-types";
-import type { DatasetRef } from "../lib/analysis";
-import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, listAnalysisS3, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, runAnalysisS3 } from "../lib/analysis";
+import type { AnalysisResultHandle, DatasetRef } from "../lib/analysis";
+import { cancelAnalysis, dropAnalysisDataset, dropStableAnalysis, exportAnalysis, importAnalysisFile, importQuerySource, listAnalysisDatasets, listAnalysisS3, normalizeAnalysisSource, readStableAnalysisPage, renameAnalysisDataset, runAnalysis, runAnalysisS3, startStableAnalysis } from "../lib/analysis";
 import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type S3DiscoveryCredentials, type S3TableSource } from "../lib/s3-sources";
 import { backend, type ConnectionEntry, type RelationInfo } from "../lib/backend";
 import { localAnalysisIdentifier, localAnalysisSuggestions } from "../lib/analysis-autocomplete";
@@ -54,6 +54,10 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
   const { t } = useLanguage();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [stableHandle, setStableHandle] = useState<AnalysisResultHandle | null>(null);
+  const [stableOffset, setStableOffset] = useState(0);
+  const stableHandleRef = useRef<string | null>(null);
+  const stableRevisionRef = useRef(0);
   const [running, setRunning] = useState(false);
   const [operationId, setOperationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +78,20 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
   const [datasetName, setDatasetName] = useState("");
   const selectedDatasetIdRef = useRef<string | null>(null);
   const s3RequestIdRef = useRef(0);
+
+  const releaseStableResult = useCallback(() => {
+    stableRevisionRef.current += 1;
+    const handleId = stableHandleRef.current;
+    stableHandleRef.current = null;
+    setStableHandle(null);
+    setStableOffset(0);
+    if (handleId) void dropStableAnalysis(workspaceId, handleId);
+  }, [workspaceId]);
+
+  useEffect(() => () => {
+    stableRevisionRef.current += 1;
+    if (stableHandleRef.current) void dropStableAnalysis(workspaceId, stableHandleRef.current);
+  }, [workspaceId]);
 
   useEffect(() => {
     if (!initialSource) return;
@@ -132,6 +150,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
 
   const selectS3Table = (table: S3TableSource) => {
     if (!initialS3Connection) return;
+    releaseStableResult();
     setActiveS3Source({ ...table, region: String(initialS3Connection.options?.region ?? ""),
       endpoint: String(initialS3Connection.options?.endpoint ?? "") });
     setSql("SELECT * FROM s3_source");
@@ -141,6 +160,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
 
   useEffect(() => {
     if (dataset && !initialS3Connection && selectedDatasetIdRef.current !== dataset.id) {
+      releaseStableResult();
       selectedDatasetIdRef.current = dataset.id;
       setSql(`SELECT * FROM ${localAnalysisIdentifier(dataset.relationName)}`);
       setResult(null);
@@ -152,7 +172,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
         if (!dataset && !initialS3Connection && items[0]) onDatasetSelected?.(items[0]);
       })
       .catch(() => setDatasets(dataset ? [dataset] : []));
-  }, [dataset, initialS3Connection, onDatasetSelected, workspaceId]);
+  }, [dataset, initialS3Connection, onDatasetSelected, releaseStableResult, workspaceId]);
 
   useEffect(() => {
     const connectionIds = [...new Set([sourceConnectionId, ...datasets.map((item) => item.sourceConnectionId ?? "")].filter(Boolean))];
@@ -167,6 +187,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
 
   const run = async () => {
     if ((!dataset && !activeS3Source) || running) return;
+    releaseStableResult();
     setRunning(true);
     const nextOperationId = `query-${crypto.randomUUID()}`;
     setOperationId(nextOperationId);
@@ -230,7 +251,37 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
       });
       setDatasets(await listAnalysisDatasets(workspaceId));
       setActiveS3Source(null);
-      onDatasetSelected?.(imported);
+      if (!dataset) onDatasetSelected?.(imported);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRunning(false);
+      setOperationId(null);
+    }
+  };
+
+  const showStablePage = async (offset: number) => {
+    if (running || activeS3Source || !dataset) return;
+    const revision = stableRevisionRef.current;
+    setRunning(true);
+    setError(null);
+    const nextOperationId = `page-${crypto.randomUUID()}`;
+    setOperationId(nextOperationId);
+    try {
+      let handle = stableHandle;
+      if (!handle) {
+        handle = await startStableAnalysis(workspaceId, sql, nextOperationId);
+        if (revision !== stableRevisionRef.current) {
+          void dropStableAnalysis(workspaceId, handle.id);
+          return;
+        }
+        stableHandleRef.current = handle.id;
+        setStableHandle(handle);
+      }
+      const page = await readStableAnalysisPage(workspaceId, handle.id, offset);
+      if (revision !== stableRevisionRef.current) return;
+      setResult(page);
+      setStableOffset(offset);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -263,7 +314,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
       });
       setDatasets(await listAnalysisDatasets(workspaceId));
       setActiveS3Source(null);
-      onDatasetSelected?.(imported);
+      if (!dataset) onDatasetSelected?.(imported);
       setSourceSql("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -416,8 +467,8 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
       <div className="omni-analysis-body">
         {!sidebarIntegrated && datasetPanel}
         <main className="omni-analysis-main">
-            {dataset && !activeS3Source && dataset.coverage !== "complete" && (
-              <MessageBar intent="warning"><MessageBarBody>{dataset.coverage === "sampled" ? t("analysisSampledSnapshot") : t("analysisPartialSnapshot")}</MessageBarBody></MessageBar>
+            {!activeS3Source && datasets.some((item) => item.coverage !== "complete") && (
+              <MessageBar intent="warning"><MessageBarBody>{t("analysisPartialWorkspace").replace("{datasets}", datasets.filter((item) => item.coverage !== "complete").map((item) => item.name).join(", "))}</MessageBarBody></MessageBar>
             )}
             {activeS3Source && <Text size={200}>Consulta S3 direta: {activeS3Source.uri} · SQL: s3_source</Text>}
             {dataset && !activeS3Source && (
@@ -426,12 +477,19 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
               </Text>
             )}
             <div className="omni-analysis-editor" aria-label={t("analysisSql")}>
-              <Editor value={sql} onChange={setSql} onRun={() => void run()} onRunAll={() => void run()} onAutocomplete={autocomplete} dialect="postgres" theme={editorTheme} />
+              <Editor value={sql} onChange={(value) => { releaseStableResult(); setSql(value); }} onRun={() => void run()} onRunAll={() => void run()} onAutocomplete={autocomplete} dialect="postgres" theme={editorTheme} />
             </div>
             {running && <Spinner size="small" label={t("running")} />}
             <div className="omni-analysis-results">
               <ResultsGrid result={result} error={error} running={running} />
             </div>
+            {!activeS3Source && result && (result.rowsMoreAvailable || stableHandle) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                {stableHandle && <Button disabled={running || stableOffset === 0} onClick={() => void showStablePage(Math.max(0, stableOffset - 1_000))}>Previous 1,000 rows</Button>}
+                {stableHandle && <Text size={200}>{stableOffset + 1}–{Math.min(stableOffset + result.rows.length, stableHandle.rowCount)} / {stableHandle.rowCount}</Text>}
+                <Button disabled={running || !!stableHandle && stableOffset + result.rows.length >= stableHandle.rowCount} onClick={() => void showStablePage(stableHandle ? stableOffset + 1_000 : 1_000)}>{stableHandle ? "Next 1,000 rows" : "Browse all rows"}</Button>
+              </div>
+            )}
           <footer className="omni-analysis-actions">
             {running && operationId && (
               <Button appearance="secondary" onClick={() => void cancelAnalysis(operationId)}>{t("stop")}</Button>

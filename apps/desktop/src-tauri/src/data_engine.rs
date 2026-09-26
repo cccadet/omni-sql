@@ -4,7 +4,7 @@ use serde_json::Value as JsonValue;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    io::{BufRead, BufReader, Seek},
+    io::{BufRead, BufReader, Read, Seek},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -83,6 +83,10 @@ pub struct DatasetRef {
     pub source_sql: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_started_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_finished_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -463,6 +467,7 @@ pub struct ExportRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ExportResult {
     pub path: PathBuf,
+    pub provenance_path: PathBuf,
     pub rows: usize,
     pub bytes: u64,
 }
@@ -684,6 +689,8 @@ impl DataEngine {
             source_connection_id: request.source_connection_id,
             source_sql: request.source_sql,
             source_uri: None,
+            source_started_at_ms: None,
+            source_finished_at_ms: None,
         };
         if dataset.workspace_id != "federated" { persist_dataset(&transaction, &dataset)?; }
         transaction.commit().map_err(|error| format!("snapshot commit failed: {error}"))?;
@@ -734,6 +741,7 @@ impl DataEngine {
         }
         validate_selection(&request.selection)?;
 
+        let source_started_at_ms = now_ms()?;
         let response = reqwest::blocking::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(5))
             .timeout(std::time::Duration::from_secs(60 * 60))
@@ -909,6 +917,8 @@ impl DataEngine {
             source_connection_id: Some(request.connection_id),
             source_sql: Some(request.sql),
             source_uri: None,
+            source_started_at_ms: Some(source_started_at_ms),
+            source_finished_at_ms: Some(now_ms()?),
         };
         if dataset.workspace_id != "federated" { persist_dataset(&transaction, &dataset)?; }
         transaction.commit().map_err(|error| format!("source dataset commit failed: {error}"))?;
@@ -1407,6 +1417,8 @@ impl DataEngine {
             source_connection_id: None,
             source_sql: None,
             source_uri,
+            source_started_at_ms: None,
+            source_finished_at_ms: None,
         };
         if dataset.workspace_id != "federated" { persist_dataset(&transaction, &dataset)?; }
         transaction.commit().map_err(|error| format!("file dataset commit failed: {error}"))?;
@@ -1500,17 +1512,45 @@ impl DataEngine {
                 return Err(error);
             }
         };
-        if request.path.exists() {
-            std::fs::remove_file(&request.path)
-                .map_err(|error| format!("failed to replace analytical export: {error}"))?;
+        let provenance_path = request.path.with_file_name(format!("{}.omni.json",
+            request.path.file_name().and_then(|name| name.to_str()).ok_or("invalid export filename")?));
+        if provenance_path.exists() && !provenance_path.is_file() {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err("analytical provenance destination is not a file".to_string());
         }
-        std::fs::rename(&temporary_path, &request.path)
-            .map_err(|error| format!("failed to publish analytical export: {error}"))?;
+        let provenance = {
+            let inner = self.lock()?;
+            let datasets = inner.datasets.values()
+                .filter(|dataset| dataset.workspace_id == request.workspace_id
+                    || request.workspace_id == "local-duckdb" && dataset.workspace_id == "federated")
+                .map(|dataset| serde_json::json!({
+                    "name": dataset.name,
+                    "relationName": dataset.relation_name,
+                    "coverage": dataset.coverage,
+                    "selection": dataset.selection,
+                    "retainedRows": dataset.row_count,
+                    "scannedRows": dataset.scanned_rows,
+                    "sourceTotal": dataset.source_total,
+                    "sourceConnectionId": dataset.source_connection_id,
+                    "sourceUri": dataset.source_uri,
+                    "sourceStartedAtMs": dataset.source_started_at_ms,
+                    "sourceFinishedAtMs": dataset.source_finished_at_ms,
+                }))
+                .collect::<Vec<_>>();
+            serde_json::json!({"workspaceDatasets": datasets,
+                "note": "Workspace datasets are listed for context; not all necessarily contributed to this export. Full export cannot restore rows omitted by sampled or truncated inputs. SQL text is omitted to avoid exposing query literals."})
+        };
+        let temporary_provenance_path = temporary_export_path(&provenance_path)?;
+        if let Err(error) = std::fs::write(&temporary_provenance_path, provenance.to_string()) {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(format!("failed to write analytical provenance: {error}"));
+        }
+        publish_export_bundle(&temporary_path, &request.path, &temporary_provenance_path, &provenance_path)?;
         let bytes = std::fs::metadata(&request.path)
             .map_err(|error| format!("failed to inspect analytical export: {error}"))?
             .len();
         self.update_progress(rows, rows, bytes as usize);
-        Ok(ExportResult { path: request.path, rows, bytes })
+        Ok(ExportResult { path: request.path, provenance_path, rows, bytes })
     }
 
     fn query_inner(&self, request: QueryRequest) -> Result<AnalysisQueryResult, String> {
@@ -1592,7 +1632,6 @@ impl DataEngine {
         if current.as_deref() != Some(operation_id) {
             return Ok(false);
         }
-        drop(current);
         self.cancel_requested.store(true, Ordering::Release);
         if let Ok(mut status) = self.operation_status.lock() {
             if let Some(status) = status.as_mut().filter(|status| status.operation_id == operation_id) {
@@ -1608,6 +1647,7 @@ impl DataEngine {
             .as_ref()
             .filter(|value| value.operation_id == operation_id)
             .cloned();
+        drop(current);
         if let Some(source) = source {
             let _ = cancel_backend_source(&source);
         }
@@ -1641,9 +1681,9 @@ impl DataEngine {
             if current.is_some() {
                 return Err("another analytical operation is already running".to_string());
             }
+            self.cancel_requested.store(false, Ordering::Release);
             *current = Some(operation_id.clone());
         }
-        self.cancel_requested.store(false, Ordering::Release);
         *self.operation_status.lock()
             .map_err(|_| "analytical operation status lock is poisoned".to_string())? = Some(OperationStatus {
                 operation_id: operation_id.clone(),
@@ -1654,7 +1694,25 @@ impl DataEngine {
                 started_at_ms: now_ms()?,
                 finished_at_ms: None,
             });
-        let result = operation();
+        let result = std::thread::scope(|scope| {
+            let (finished, completion) = std::sync::mpsc::channel::<()>();
+            scope.spawn(move || {
+                // DuckDB can reset an interrupt between preparation and execution.
+                // Keep cancellation active until this operation actually finishes.
+                while matches!(completion.recv_timeout(std::time::Duration::from_millis(10)),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
+                    if self.cancel_requested.load(Ordering::Acquire) {
+                        self.interrupt.interrupt();
+                        if let Ok(slot) = self.remote_interrupt.lock() {
+                            if let Some(remote) = slot.as_ref() { remote.interrupt(); }
+                        }
+                    }
+                }
+            });
+            let result = operation();
+            drop(finished);
+            result
+        });
         if let Ok(mut status) = self.operation_status.lock() {
             if let Some(status) = status.as_mut().filter(|status| status.operation_id == operation_id) {
                 status.state = if result.is_ok() {
@@ -1847,9 +1905,9 @@ fn temporary_export_path(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn read_stream_message(reader: &mut impl BufRead) -> Result<Option<StreamMessage>, String> {
-    let mut line = String::new();
-    let bytes = reader
-        .read_line(&mut line)
+    let mut line = Vec::new();
+    let bytes = reader.take(16 * 1024 * 1024 + 1)
+        .read_until(b'\n', &mut line)
         .map_err(|error| format!("failed to read analytical source batch: {error}"))?;
     if bytes == 0 {
         return Ok(None);
@@ -1857,7 +1915,7 @@ fn read_stream_message(reader: &mut impl BufRead) -> Result<Option<StreamMessage
     if bytes > 16 * 1024 * 1024 {
         return Err("analytical source batch exceeds 16 MiB".to_string());
     }
-    serde_json::from_str(line.trim_end())
+    serde_json::from_slice(&line)
         .map(Some)
         .map_err(|error| format!("invalid analytical source batch: {error}"))
 }
@@ -2222,52 +2280,133 @@ fn parse_scaled_decimal(text: &str, scale: u8) -> Result<i128, String> {
 }
 
 fn value_ref_to_json(value: duckdb::types::ValueRef<'_>) -> Result<JsonValue, String> {
-    use duckdb::types::ValueRef;
-    match value {
-        ValueRef::Null => Ok(JsonValue::Null),
-        ValueRef::Boolean(value) => Ok(JsonValue::Bool(value)),
-        ValueRef::TinyInt(value) => Ok(value.into()),
-        ValueRef::SmallInt(value) => Ok(value.into()),
-        ValueRef::Int(value) => Ok(value.into()),
-        ValueRef::BigInt(value) if value.unsigned_abs() <= 9_007_199_254_740_991 => {
-            Ok(value.into())
+    value_to_json(&value.to_owned())
+}
+
+fn publish_export_file(temporary: &Path, destination: &Path) -> Result<(), String> {
+    if destination.exists() && !destination.is_file() {
+        let _ = std::fs::remove_file(temporary);
+        return Err("analytical export destination is not a file".to_string());
+    }
+    if !destination.exists() {
+        return std::fs::rename(temporary, destination).map_err(|error| {
+            let _ = std::fs::remove_file(temporary);
+            format!("failed to publish analytical export: {error}")
+        });
+    }
+    let backup = temporary_export_path(destination)?.with_extension("backup");
+    std::fs::rename(destination, &backup).map_err(|error| {
+        let _ = std::fs::remove_file(temporary);
+        format!("failed to preserve previous analytical export: {error}")
+    })?;
+    if let Err(error) = std::fs::rename(temporary, destination) {
+        let restored = std::fs::rename(&backup, destination);
+        let _ = std::fs::remove_file(temporary);
+        return Err(match restored {
+            Ok(()) => format!("failed to publish analytical export: {error}; previous export restored"),
+            Err(restore_error) => format!("failed to publish analytical export: {error}; previous export remains at {}: {restore_error}", backup.display()),
+        });
+    }
+    let _ = std::fs::remove_file(backup);
+    Ok(())
+}
+
+fn publish_export_bundle(data_temp: &Path, data: &Path, provenance_temp: &Path, provenance: &Path) -> Result<(), String> {
+    let data_backup = temporary_export_path(data)?.with_extension("backup");
+    let provenance_backup = temporary_export_path(provenance)?.with_extension("backup");
+    let backup = |path: &Path, saved: &Path| -> Result<bool, String> {
+        if !path.exists() { return Ok(false); }
+        std::fs::rename(path, saved).map_err(|error| format!("failed to preserve previous export {}: {error}", path.display()))?;
+        Ok(true)
+    };
+    let had_data = match backup(data, &data_backup) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = std::fs::remove_file(data_temp);
+            let _ = std::fs::remove_file(provenance_temp);
+            return Err(error);
         }
-        ValueRef::BigInt(value) => Ok(JsonValue::String(value.to_string())),
-        ValueRef::HugeInt(value) => Ok(JsonValue::String(value.to_string())),
-        ValueRef::UHugeInt(value) => Ok(JsonValue::String(value.to_string())),
-        ValueRef::UTinyInt(value) => Ok(value.into()),
-        ValueRef::USmallInt(value) => Ok(value.into()),
-        ValueRef::UInt(value) => Ok(value.into()),
-        ValueRef::UBigInt(value) if value <= 9_007_199_254_740_991 => Ok(value.into()),
-        ValueRef::UBigInt(value) => Ok(JsonValue::String(value.to_string())),
-        ValueRef::Float(value) => serde_json::Number::from_f64(value.into())
+    };
+    let had_provenance = match backup(provenance, &provenance_backup) {
+        Ok(value) => value,
+        Err(error) => {
+            let restored = !had_data || std::fs::rename(&data_backup, data).is_ok();
+            let _ = std::fs::remove_file(data_temp);
+            let _ = std::fs::remove_file(provenance_temp);
+            return Err(if restored { error } else {
+                format!("{error}; previous export remains at {}", data_backup.display())
+            });
+        }
+    };
+    let published = publish_export_file(data_temp, data)
+        .and_then(|()| publish_export_file(provenance_temp, provenance));
+    if let Err(error) = published {
+        let _ = std::fs::remove_file(data);
+        let _ = std::fs::remove_file(provenance);
+        let _ = std::fs::remove_file(data_temp);
+        let _ = std::fs::remove_file(provenance_temp);
+        let restored_data = !had_data || std::fs::rename(&data_backup, data).is_ok();
+        let restored_provenance = !had_provenance || std::fs::rename(&provenance_backup, provenance).is_ok();
+        return Err(if restored_data && restored_provenance { error } else {
+            format!("{error}; previous export backup remains at {} or {}", data_backup.display(), provenance_backup.display())
+        });
+    }
+    if had_data { let _ = std::fs::remove_file(data_backup); }
+    if had_provenance { let _ = std::fs::remove_file(provenance_backup); }
+    Ok(())
+}
+
+fn value_to_json(value: &Value) -> Result<JsonValue, String> {
+    match value {
+        Value::Null => Ok(JsonValue::Null),
+        Value::Boolean(value) => Ok(JsonValue::Bool(*value)),
+        Value::TinyInt(value) => Ok((*value).into()),
+        Value::SmallInt(value) => Ok((*value).into()),
+        Value::Int(value) => Ok((*value).into()),
+        Value::BigInt(value) if value.unsigned_abs() <= 9_007_199_254_740_991 => {
+            Ok((*value).into())
+        }
+        Value::BigInt(value) => Ok(JsonValue::String(value.to_string())),
+        Value::HugeInt(value) => Ok(JsonValue::String(value.to_string())),
+        Value::UHugeInt(value) => Ok(JsonValue::String(value.to_string())),
+        Value::UTinyInt(value) => Ok((*value).into()),
+        Value::USmallInt(value) => Ok((*value).into()),
+        Value::UInt(value) => Ok((*value).into()),
+        Value::UBigInt(value) if *value <= 9_007_199_254_740_991 => Ok((*value).into()),
+        Value::UBigInt(value) => Ok(JsonValue::String(value.to_string())),
+        Value::Float(value) => serde_json::Number::from_f64((*value).into())
             .map(JsonValue::Number)
             .ok_or_else(|| "non-finite FLOAT result is not JSON-compatible".to_string()),
-        ValueRef::Double(value) => serde_json::Number::from_f64(value)
+        Value::Double(value) => serde_json::Number::from_f64(*value)
             .map(JsonValue::Number)
             .ok_or_else(|| "non-finite DOUBLE result is not JSON-compatible".to_string()),
-        ValueRef::Decimal(value) => Ok(JsonValue::String(value.to_string())),
-        ValueRef::Text(value) => String::from_utf8(value.to_vec())
-            .map(JsonValue::String)
-            .map_err(|_| "analytical text result is not valid UTF-8".to_string()),
-        ValueRef::Blob(value) | ValueRef::Geometry(value) => Ok(JsonValue::Array(
+        Value::Decimal(value) => Ok(JsonValue::String(value.to_string())),
+        Value::Text(value) | Value::Enum(value) => Ok(JsonValue::String(value.clone())),
+        Value::Blob(value) | Value::Geometry(value) => Ok(JsonValue::Array(
             value.iter().map(|byte| JsonValue::from(*byte)).collect(),
         )),
-        ValueRef::Date32(value) => Ok(JsonValue::String(value.to_string())),
-        ValueRef::Timestamp(unit, value) | ValueRef::Time64(unit, value) => {
+        Value::Date32(value) => Ok(JsonValue::String(value.to_string())),
+        Value::Timestamp(unit, value) | Value::Time64(unit, value) => {
             Ok(JsonValue::String(format!("{unit:?}:{value}")))
         }
-        ValueRef::Interval {
-            months,
-            days,
-            nanos,
-        } => Ok(JsonValue::String(format!(
+        Value::Interval { months, days, nanos } => Ok(JsonValue::String(format!(
             "{months} months {days} days {nanos} nanoseconds"
         ))),
-        other => Err(format!(
-            "unsupported analytical result type: {:?}",
-            other.data_type()
-        )),
+        Value::List(values) | Value::Array(values) => values.iter()
+            .map(value_to_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map(JsonValue::Array),
+        Value::Struct(fields) => fields.iter()
+            .map(|(name, value)| value_to_json(value).map(|converted| (name.clone(), converted)))
+            .collect::<Result<serde_json::Map<_, _>, _>>()
+            .map(JsonValue::Object),
+        // JSON object keys must be strings; pairs preserve non-string DuckDB map keys.
+        Value::Map(entries) => entries.iter()
+            .map(|(key, value)| Ok(JsonValue::Array(vec![value_to_json(key)?, value_to_json(value)?])))
+            .collect::<Result<Vec<_>, String>>()
+            .map(JsonValue::Array),
+        Value::Union(value) => value_to_json(value),
+        other => Err(format!("unsupported analytical result type: {other:?}")),
     }
 }
 
@@ -2528,6 +2667,16 @@ mod tests {
             assert!(!result.rows_more_available);
             assert!(engine.list_datasets("s3-integration").unwrap().is_empty());
         }
+        let nested = engine.query_s3(S3QueryRequest {
+            operation_id: "s3-struct-preview".into(), workspace_id: "s3-integration".into(),
+            uri: "s3://omni-test/csv/orders.csv".into(), format: S3Format::Csv,
+            table_schema: None, table_name: None, catalog: None,
+            region: "us-east-1".into(), endpoint: Some(endpoint),
+            access_key_id: Some(access_key_id), secret_access_key: Some(secret_access_key),
+            sql: "SELECT {'estado': 'SP', 'quantidade': 12.34::DECIMAL(10,2)} AS dados FROM s3_source LIMIT 1".into(),
+            limit: 10,
+        }).unwrap();
+        assert_eq!(nested.rows[0][0], serde_json::json!({"estado": "SP", "quantidade": "12.34"}));
     }
 
     #[test]
@@ -2764,6 +2913,19 @@ mod tests {
     }
 
     #[test]
+    fn previews_nested_struct_and_list_without_losing_decimal_precision() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let result = engine.query(QueryRequest {
+            operation_id: "nested-preview".into(), workspace_id: "local-duckdb".into(),
+            sql: "SELECT {'estado': 'SP', 'quantidade': 12.34::DECIMAL(10,2), 'detalhes': {'codigo': 'ABC'}, 'itens': [1, 2]} AS dados".into(),
+            limit: 10,
+        }).unwrap();
+        assert_eq!(result.rows[0][0], serde_json::json!({
+            "estado": "SP", "quantidade": "12.34", "detalhes": {"codigo": "ABC"}, "itens": [1, 2]
+        }));
+    }
+
+    #[test]
     fn imports_json_into_local_duckdb() {
         let directory = create_temp_directory().unwrap();
         let path = directory.join("customers.json");
@@ -2864,6 +3026,52 @@ mod tests {
         (port, handle)
     }
 
+    fn serve_custom_stream(lines: Vec<String>) -> (u16, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).unwrap();
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nConnection: close\r\n\r\n").unwrap();
+            for line in lines { writeln!(socket, "{line}").unwrap(); }
+        });
+        (port, handle)
+    }
+
+    fn serve_wide_stream(row_count: usize, cell_bytes: usize) -> (u16, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).unwrap();
+            let mut writer = std::io::BufWriter::new(socket);
+            write!(writer, "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nConnection: close\r\n\r\n").unwrap();
+            let mut state = 42_u64;
+            for start in (0..row_count).step_by(100) {
+                let rows = (start..row_count.min(start + 100)).map(|index| {
+                    let text = (0..cell_bytes).map(|_| {
+                        state ^= state << 13;
+                        state ^= state >> 7;
+                        state ^= state << 17;
+                        char::from(b'a' + (state % 26) as u8)
+                    }).collect::<String>();
+                    serde_json::json!([index, text])
+                }).collect::<Vec<_>>();
+                writeln!(writer, "{}", serde_json::json!({
+                    "type": "batch", "columns": [
+                        {"name": "id", "dataType": "bigint", "nullable": false},
+                        {"name": "payload", "dataType": "text", "nullable": false}
+                    ], "rows": rows
+                })).unwrap();
+            }
+            writeln!(writer, "{{\"type\":\"complete\"}}").unwrap();
+            writer.flush().unwrap();
+        });
+        (port, handle)
+    }
+
     #[test]
     fn opens_an_in_memory_database_and_runs_a_query() {
         let engine = DataEngine::open_in_memory().unwrap();
@@ -2880,6 +3088,7 @@ mod tests {
         server.join().unwrap();
         assert_eq!(dataset.row_count, MAX_SNAPSHOT_ROWS + 25);
         assert!(matches!(dataset.coverage, DatasetCoverage::Complete));
+        assert!(dataset.source_started_at_ms.unwrap() <= dataset.source_finished_at_ms.unwrap());
         let result = engine.query(QueryRequest {
             operation_id: "source-count".into(),
             workspace_id: "workspace-stream".into(),
@@ -2887,6 +3096,130 @@ mod tests {
             limit: 1,
         }).unwrap();
         assert_eq!(result.rows, vec![vec![JsonValue::from((MAX_SNAPSHOT_ROWS + 25) as i64)]]);
+    }
+
+    #[test]
+    fn streamed_source_provenance_survives_restart() {
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("source.duckdb");
+        let (port, server) = serve_stream(2);
+        let engine = DataEngine::open_persistent(&path).unwrap();
+        let imported = engine.import_source(source_request(ImportSelection::Full), "test-token", port).unwrap();
+        server.join().unwrap();
+        drop(engine);
+        let reopened = DataEngine::open_persistent(&path).unwrap();
+        let saved = reopened.list_datasets("workspace-stream").unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].source_connection_id, imported.source_connection_id);
+        assert_eq!(saved[0].source_sql, imported.source_sql);
+        assert_eq!(saved[0].source_started_at_ms, imported.source_started_at_ms);
+        assert_eq!(saved[0].source_finished_at_ms, imported.source_finished_at_ms);
+        drop(reopened);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn malformed_source_stream_rolls_back_and_allows_another_import() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let (port, server) = serve_custom_stream(vec![
+            serde_json::json!({
+                "type": "batch", "columns": [{"name": "id", "dataType": "bigint", "nullable": false}], "rows": [[1]]
+            }).to_string(),
+            "not-json".into(),
+        ]);
+        assert!(engine.import_source(source_request(ImportSelection::Full), "test-token", port).is_err());
+        server.join().unwrap();
+        assert!(engine.list_datasets("workspace-stream").unwrap().is_empty());
+
+        let (port, server) = serve_stream(2);
+        let dataset = engine.import_source(source_request(ImportSelection::Full), "test-token", port).unwrap();
+        server.join().unwrap();
+        assert_eq!(dataset.row_count, 2);
+        assert_eq!(engine.list_datasets("workspace-stream").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn disconnected_source_stream_does_not_publish_a_partial_dataset() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let (port, server) = serve_custom_stream(vec![serde_json::json!({
+            "type": "batch", "columns": [{"name": "id", "dataType": "bigint", "nullable": false}], "rows": [[1]]
+        }).to_string()]);
+        assert!(engine.import_source(source_request(ImportSelection::Full), "test-token", port).is_err());
+        server.join().unwrap();
+        assert!(engine.list_datasets("workspace-stream").unwrap().is_empty());
+        assert_eq!(engine.query(QueryRequest {
+            operation_id: "after-disconnect".into(), workspace_id: "workspace-stream".into(),
+            sql: "SELECT 1".into(), limit: 1,
+        }).unwrap().rows, vec![vec![JsonValue::from(1)]]);
+    }
+
+    #[test]
+    fn rejects_an_oversized_stream_frame_before_reading_the_rest() {
+        let source = std::io::repeat(b'x').take(16 * 1024 * 1024 + 2);
+        let mut reader = BufReader::new(source);
+        assert!(read_stream_message(&mut reader).unwrap_err().contains("exceeds 16 MiB"));
+    }
+
+    #[test]
+    fn imports_typed_source_stream_without_losing_exact_or_structured_values() {
+        let expected_time = "2026-09-25T14:03:12.123456-03:00";
+        let (port, server) = serve_custom_stream(vec![
+            serde_json::json!({
+                "type": "batch",
+                "columns": [
+                    {"name": "exact", "dataType": "decimal(30,8)", "nullable": false},
+                    {"name": "large", "dataType": "bigint", "nullable": false},
+                    {"name": "event_time", "dataType": "timestamp with time zone", "nullable": false},
+                    {"name": "payload", "dataType": "bytea", "nullable": false},
+                    {"name": "details", "dataType": "jsonb", "nullable": false},
+                    {"name": "missing", "dataType": "text", "nullable": true}
+                ],
+                "rows": [["12345678901234567890.12345678", "9007199254740993", expected_time,
+                    [0, 127, 255], {"estado": "SP", "ativo": true}, null]]
+            }).to_string(),
+            serde_json::json!({"type": "complete"}).to_string(),
+        ]);
+        let engine = DataEngine::open_in_memory().unwrap();
+        let dataset = engine.import_source(source_request(ImportSelection::Full), "test-token", port).unwrap();
+        server.join().unwrap();
+        assert!(matches!(dataset.coverage, DatasetCoverage::Complete));
+        let result = engine.query(QueryRequest {
+            operation_id: "typed-source-read".into(), workspace_id: "workspace-stream".into(),
+            sql: format!("SELECT * FROM {}", dataset.relation_name), limit: 10,
+        }).unwrap();
+        assert_eq!(result.rows[0][0], JsonValue::String("12345678901234567890.12345678".into()));
+        assert_eq!(result.rows[0][1], JsonValue::String("9007199254740993".into()));
+        assert_eq!(result.rows[0][2], JsonValue::String(expected_time.into()));
+        assert_eq!(result.rows[0][3], serde_json::json!([0, 127, 255]));
+        assert_eq!(serde_json::from_str::<JsonValue>(result.rows[0][4].as_str().unwrap()).unwrap(),
+            serde_json::json!({"estado": "SP", "ativo": true}));
+        assert_eq!(result.rows[0][5], JsonValue::Null);
+    }
+
+    #[test]
+    fn failed_export_publish_restores_the_previous_file() {
+        let directory = create_temp_directory().unwrap();
+        let destination = directory.join("result.csv");
+        std::fs::write(&destination, "original\n").unwrap();
+        assert!(publish_export_file(&directory.join("missing.part"), &destination).is_err());
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), "original\n");
+        let old_provenance = directory.join("result.csv.omni.json");
+        std::fs::write(&old_provenance, "old metadata").unwrap();
+        let new_data = directory.join("new.part");
+        std::fs::write(&new_data, "new data").unwrap();
+        assert!(publish_export_bundle(&new_data, &destination, &directory.join("missing-metadata.part"), &old_provenance).is_err());
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), "original\n");
+        assert_eq!(std::fs::read_to_string(&old_provenance).unwrap(), "old metadata");
+        std::fs::remove_file(&old_provenance).unwrap();
+        let engine = DataEngine::open_in_memory().unwrap();
+        engine.import_result(request("workspace-files")).unwrap();
+        std::fs::create_dir(&old_provenance).unwrap();
+        assert!(engine.export_query(ExportRequest {
+            operation_id: "export-blocked-provenance".into(), workspace_id: "workspace-files".into(),
+            sql: "SELECT 1".into(), path: destination.clone(), format: ExportFormat::Csv,
+        }).is_err());
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), "original\n");
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2956,6 +3289,23 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "wide-row resource benchmark; run explicitly on release candidates"]
+    fn benchmarks_wide_rows_in_a_persistent_database() {
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("wide.duckdb");
+        let (port, server) = serve_wide_stream(20_000, 8 * 1024);
+        let engine = DataEngine::open_persistent(&path).unwrap();
+        let started = std::time::Instant::now();
+        let dataset = engine.import_source(source_request(ImportSelection::Full), "test-token", port).unwrap();
+        server.join().unwrap();
+        assert_eq!(dataset.row_count, 20_000);
+        drop(engine);
+        let disk_bytes = std::fs::metadata(&path).unwrap().len();
+        eprintln!("wide-row import: {:?}, {} encoded bytes, {} DuckDB bytes", started.elapsed(), dataset.approximate_bytes, disk_bytes);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn exports_and_reimports_complete_csv_and_parquet_files() {
         let engine = DataEngine::open_in_memory().unwrap();
         let dataset = engine.import_result(request("workspace-files")).unwrap();
@@ -2976,6 +3326,9 @@ mod tests {
             }).unwrap();
             assert_eq!(exported.rows, 1);
             assert!(exported.bytes > 0);
+            let provenance: JsonValue = serde_json::from_slice(&std::fs::read(&exported.provenance_path).unwrap()).unwrap();
+            assert_eq!(provenance["workspaceDatasets"][0]["coverage"], "truncated");
+            assert!(provenance.get("sql").is_none());
         }
 
         let imported_csv = engine.import_file(FileImportRequest {
@@ -2998,6 +3351,8 @@ mod tests {
         assert_eq!(imported_parquet.row_count, 1);
         let _ = std::fs::remove_file(csv_path);
         let _ = std::fs::remove_file(parquet_path);
+        let _ = std::fs::remove_file(base.with_extension("csv.omni.json"));
+        let _ = std::fs::remove_file(base.with_extension("parquet.omni.json"));
     }
 
     #[test]
@@ -3151,6 +3506,8 @@ mod tests {
     #[test]
     fn interrupts_only_the_matching_active_operation() {
         let engine = Arc::new(DataEngine::open_in_memory().unwrap());
+        // Hold execution until cancellation has arrived, reproducing the startup race.
+        let paused_connection = engine.inner.lock().unwrap();
         let worker = Arc::clone(&engine);
         let query = thread::spawn(move || {
             worker.query(QueryRequest {
@@ -3169,6 +3526,7 @@ mod tests {
         }
         assert!(!engine.cancel("different-query").unwrap());
         assert!(engine.cancel("long-query").unwrap());
+        drop(paused_connection);
         assert!(query.join().unwrap().is_err());
         assert!(engine.current_operation.lock().unwrap().is_none());
         assert_eq!(engine.query(QueryRequest {
