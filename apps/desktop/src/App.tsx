@@ -215,6 +215,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const { connections, error: connectionsError, loadConnections } = useConnections();
   const [connectionGroups, setConnectionGroups] = useState<ConnectionGroup[]>([]);
   const editorRef = useRef<EditorHandle | null>(null);
+  const [resultsPercent, setResultsPercent] = useState(50);
+  const resultsDrag = useRef<{ y: number; height: number; total: number } | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [backgroundProcessesOpen, setBackgroundProcessesOpen] = useState(false);
@@ -1510,7 +1512,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       style={{
         display: "grid",
         gridTemplateColumns: "auto 1fr",
-        gridTemplateRows: "auto auto 1fr 1fr auto",
+        gridTemplateRows: `auto auto minmax(0, ${100 - resultsPercent}fr) 6px minmax(0, ${resultsPercent}fr) auto`,
         height: "100vh",
         background: tokens.colorNeutralBackground1,
         color: tokens.colorNeutralForeground1,
@@ -1584,7 +1586,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         />
       </div>
 
-      <aside style={{ gridColumn: 1, gridRow: "3 / span 2" }}>
+      <aside style={{ gridColumn: 1, gridRow: "3 / span 3" }}>
         <Sidebar
           open={sidebarOpen}
           connections={connections}
@@ -1660,17 +1662,49 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         </div>
       </section>}
 
-      {!analysisWorkspaceId && <section style={{ gridColumn: 2, gridRow: 4, minHeight: 0, overflow: "hidden" }}>
+      {!analysisWorkspaceId && <div
+        className="omni-results-resize-handle"
+        style={{ gridColumn: 2, gridRow: 4 }}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label={t("resizeResultsPanel")}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(resultsPercent)}
+        tabIndex={0}
+        onPointerDown={(event) => {
+          const editor = event.currentTarget.previousElementSibling;
+          const results = event.currentTarget.nextElementSibling;
+          if (!editor || !results) return;
+          resultsDrag.current = { y: event.clientY, height: results.getBoundingClientRect().height, total: editor.getBoundingClientRect().height + results.getBoundingClientRect().height };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const drag = resultsDrag.current;
+          if (!drag) return;
+          const height = Math.max(100, Math.min(drag.total - 100, drag.height + drag.y - event.clientY));
+          setResultsPercent(100 * height / drag.total);
+        }}
+        onPointerUp={() => { resultsDrag.current = null; }}
+        onPointerCancel={() => { resultsDrag.current = null; }}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          setResultsPercent((value) => Math.max(10, Math.min(90, value + (event.key === "ArrowUp" ? 5 : -5))));
+        }}
+      />}
+
+      {!analysisWorkspaceId && <section style={{ gridColumn: 2, gridRow: 5, minHeight: 0, overflow: "hidden" }}>
         <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportError(null); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} />
       </section>}
 
       {analysisWorkspaceId && (
-        <section style={{ gridColumn: 2, gridRow: "3 / span 2", display: "flex", minHeight: 0, overflow: "hidden" }}>
+        <section style={{ gridColumn: 2, gridRow: "3 / span 3", display: "flex", minHeight: 0, overflow: "hidden" }}>
           <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={onAnalysisDatasetSelected} sourceConnections={connections.filter((connection) => connection.dialect !== "s3")} s3Connections={connections.filter((connection) => connection.dialect === "s3")} onSelectS3Connection={(id) => void onSelectConnection(id)} onConfigureS3Connection={onEditConnection} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} initialS3Connection={analysisS3Connection} />
         </section>
       )}
 
-      <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
+      <div style={{ gridColumn: "1 / -1", gridRow: 6 }}>
         <StatusBar connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
       </div>
 

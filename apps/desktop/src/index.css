@@ -688,6 +688,9 @@ select option {
 }
 
 /* Results grid */
+.omni-results-resize-handle { cursor: row-resize; touch-action: none; position: relative; background: var(--colorNeutralBackground1); }
+.omni-results-resize-handle::after { content: ""; position: absolute; top: 2px; left: 0; right: 0; height: 2px; background: var(--colorNeutralStroke2); }
+.omni-results-resize-handle:hover::after, .omni-results-resize-handle:focus-visible::after { background: var(--colorBrandStroke1); }
 .omni-results-grid table {
   font-size: 12px;
 }

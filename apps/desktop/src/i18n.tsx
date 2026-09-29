@@ -435,6 +435,7 @@ const english = {
   analysisDisplayedCount: "Displayed preview: {count} rows{more}",
   analysisMoreRows: " (more available at the source)",
   allFormats: "All formats",
+  resizeResultsPanel: "Resize editor and results panels",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -493,7 +494,7 @@ const portugueseBrazil = [
   "Buckets para usar", "{count} selecionado(s)", "Carregar buckets", "Carregue os buckets disponíveis para escolher quais usar.", "Nenhum bucket encontrado.",
   "Catálogos DuckLake (opcional)", "Associe o bucket inteiro ou um prefixo de tabela a um catálogo. O prefixo mais específico prevalece.", "Bucket ou prefixo da tabela", "Catálogo", "Tipo do catálogo DuckLake {index}", "Conexão PostgreSQL do catálogo", "Conexão PostgreSQL DuckLake {index}", "Selecione uma conexão", "Caminho do arquivo {kind}", "Remover catálogo", "Adicionar catálogo DuckLake",
   "jdbc:exemplo://host:porta/db", "/caminho/para/driver.jar", "com.exemplo.Driver", "MeuDSN ou DRIVER={Driver};SERVER=host;DATABASE=db", "C:\\dados\\catalog.sqlite", "C:\\dados\\catalog.ducklake",
-  "Origem dos dados", "Linhas para importar", "Prévia exibida: {count} linhas{more}", " (há mais linhas na origem)", "Todos os formatos",
+  "Origem dos dados", "Linhas para importar", "Prévia exibida: {count} linhas{more}", " (há mais linhas na origem)", "Todos os formatos", "Redimensionar painéis do editor e resultados",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
