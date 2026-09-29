@@ -25,6 +25,7 @@ getrandom = "0.3"
 hmac = "0.12"
 sha2 = "0.10"
 duckdb = { version = "~1.10505.0", features = ["bundled", "appender-arrow"] }
+chrono = "0.4"
 arrow = { version = "58", default-features = false, features = ["csv", "ipc"] }
 parquet = { version = "58", default-features = false, features = ["arrow", "snap"] }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }

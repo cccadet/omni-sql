@@ -553,6 +553,7 @@ fn persist_dataset(connection: &Connection, dataset: &DatasetRef) -> Result<(), 
 }
 
 impl DataEngine {
+    #[cfg(test)]
     pub fn open_in_memory() -> Result<Self, String> {
         Self::open_at(None)
     }
@@ -1643,7 +1644,7 @@ impl DataEngine {
                     .column_name(index)
                     .cloned()
                     .unwrap_or_else(|_| format!("column_{}", index + 1)),
-                data_type: format!("{:?}", executed.column_type(index)),
+                data_type: format!("{:?}", executed.column_logical_type(index).id()),
                 nullable: true,
             })
             .collect::<Vec<_>>();
@@ -1948,6 +1949,9 @@ fn arrow_type_to_sql(data_type: &arrow::datatypes::DataType) -> Result<String, S
         DataType::Time64(TimeUnit::Microsecond) => "TIME".to_string(),
         DataType::Time64(TimeUnit::Nanosecond) => "TIME_NS".to_string(),
         DataType::Decimal128(precision, scale) if *precision <= 38 => format!("DECIMAL({precision},{scale})"),
+        DataType::Struct(fields) => format!("STRUCT({})", fields.iter().map(|field| {
+            Ok(format!("{} {}", quote_identifier(field.name()), arrow_type_to_sql(field.data_type())?))
+        }).collect::<Result<Vec<_>, String>>()?.join(", ")),
         other => return Err(format!("analytical file contains unsupported Arrow type: {other}")),
     };
     Ok(value)
@@ -2441,9 +2445,39 @@ fn value_to_json(value: &Value) -> Result<JsonValue, String> {
         Value::Blob(value) | Value::Geometry(value) => Ok(JsonValue::Array(
             value.iter().map(|byte| JsonValue::from(*byte)).collect(),
         )),
-        Value::Date32(value) => Ok(JsonValue::String(value.to_string())),
-        Value::Timestamp(unit, value) | Value::Time64(unit, value) => {
-            Ok(JsonValue::String(format!("{unit:?}:{value}")))
+        Value::Date32(value) => {
+            let seconds = i64::from(*value) * 86_400;
+            let date = chrono::DateTime::from_timestamp(seconds, 0)
+                .ok_or_else(|| "date is outside the supported range".to_string())?;
+            Ok(JsonValue::String(date.date_naive().to_string()))
+        }
+        Value::Timestamp(unit, value) => {
+            let nanos_per_unit = match unit {
+                duckdb::types::TimeUnit::Second => 1_000_000_000,
+                duckdb::types::TimeUnit::Millisecond => 1_000_000,
+                duckdb::types::TimeUnit::Microsecond => 1_000,
+                duckdb::types::TimeUnit::Nanosecond => 1,
+            };
+            let units_per_second = 1_000_000_000 / nanos_per_unit;
+            let seconds = value.div_euclid(units_per_second);
+            let nanos = (value.rem_euclid(units_per_second) * nanos_per_unit) as u32;
+            let timestamp = chrono::DateTime::from_timestamp(seconds, nanos)
+                .ok_or_else(|| "timestamp is outside the supported range".to_string())?;
+            Ok(JsonValue::String(timestamp.naive_utc().to_string()))
+        }
+        Value::Time64(unit, value) => {
+            let nanos_per_unit = match unit {
+                duckdb::types::TimeUnit::Second => 1_000_000_000,
+                duckdb::types::TimeUnit::Millisecond => 1_000_000,
+                duckdb::types::TimeUnit::Microsecond => 1_000,
+                duckdb::types::TimeUnit::Nanosecond => 1,
+            };
+            let nanos = value.checked_mul(nanos_per_unit)
+                .ok_or_else(|| "time is outside the supported range".to_string())?;
+            let seconds = nanos.div_euclid(1_000_000_000);
+            let time = chrono::NaiveTime::from_num_seconds_from_midnight_opt(seconds as u32, nanos.rem_euclid(1_000_000_000) as u32)
+                .ok_or_else(|| "time is outside the supported range".to_string())?;
+            Ok(JsonValue::String(time.to_string()))
         }
         Value::Interval { months, days, nanos } => Ok(JsonValue::String(format!(
             "{months} months {days} days {nanos} nanoseconds"
@@ -2624,7 +2658,7 @@ fn relation_query_columns(connection: &Connection, relation_name: &str) -> Resul
     let executed = cursor.as_ref().ok_or_else(|| "stable analytical result has no metadata".to_string())?;
     Ok((0..executed.column_count()).map(|index| QueryColumn {
         name: executed.column_name(index).cloned().unwrap_or_else(|_| format!("column_{}", index + 1)),
-        data_type: format!("{:?}", executed.column_type(index)),
+        data_type: format!("{:?}", executed.column_logical_type(index).id()),
         nullable: true,
     }).collect())
 }
@@ -2981,6 +3015,36 @@ mod tests {
         assert_eq!(result.rows[0][0], serde_json::json!({
             "estado": "SP", "quantidade": "12.34", "detalhes": {"codigo": "ABC"}, "itens": [1, 2]
         }));
+        assert_eq!(result.columns[0].data_type, "Struct");
+    }
+
+    #[test]
+    fn previews_timestamp_and_logical_column_types() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let result = engine.query(QueryRequest {
+            operation_id: "typed-preview".into(), workspace_id: "local-duckdb".into(),
+            sql: "SELECT TIMESTAMP '2024-12-23 12:00:00.123456' AS data_evento, '550e8400-e29b-41d4-a716-446655440000'::UUID AS id, DATE '2024-12-23' AS dia, TIME '12:00:00.123456' AS hora".into(),
+            limit: 10,
+        }).unwrap();
+        assert_eq!(result.columns[0].data_type, "Timestamp");
+        assert_eq!(result.columns[1].data_type, "Uuid");
+        assert_eq!(result.rows[0][0], "2024-12-23 12:00:00.123456");
+        assert_eq!(result.rows[0][2], "2024-12-23");
+        assert_eq!(result.rows[0][3], "12:00:00.123456");
+    }
+
+    #[test]
+    fn maps_arrow_struct_with_decimal_to_duckdb() {
+        use arrow::datatypes::{DataType, Field};
+        let data_type = DataType::Struct(vec![
+            Arc::new(Field::new("estado", DataType::Utf8, true)),
+            Arc::new(Field::new("quantidade", DataType::Decimal128(10, 4), true)),
+            Arc::new(Field::new("id_origem", DataType::Int32, true)),
+        ].into());
+        let sql_type = arrow_type_to_sql(&data_type).unwrap();
+        assert_eq!(sql_type, "STRUCT(\"estado\" VARCHAR, \"quantidade\" DECIMAL(10,4), \"id_origem\" INTEGER)");
+        let engine = DataEngine::open_in_memory().unwrap();
+        engine.lock().unwrap().connection.execute_batch(&format!("CREATE TABLE nested (dados {sql_type})")).unwrap();
     }
 
     #[test]
