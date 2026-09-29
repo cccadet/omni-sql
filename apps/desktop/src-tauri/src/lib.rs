@@ -8,15 +8,20 @@ use std::os::windows::io::AsRawHandle;
 use std::fs;
 #[cfg(windows)]
 use std::mem::{size_of, zeroed};
+#[cfg(any(not(debug_assertions), test))]
 use std::io::Read;
-use std::path::{Path, PathBuf};
+#[cfg(any(not(debug_assertions), test))]
+use std::path::Path;
+use std::path::PathBuf;
 #[cfg(windows)]
 use std::ptr::null_mut;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 use hmac::{Hmac, Mac};
-use sha2::{Digest, Sha256};
+#[cfg(any(not(debug_assertions), test))]
+use sha2::Digest;
+use sha2::Sha256;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use serde::Serialize;
@@ -564,7 +569,7 @@ fn secure_windows_runtime_dir(path: &std::path::Path) -> Result<(), String> {
     }
 
     let mut security = WindowsMcpSecurity::new()?;
-    let mut attributes = security.security_attributes();
+    let attributes = security.security_attributes();
     let mut wide_path = windows_path(path)?;
     unsafe {
         if CreateDirectoryW(wide_path.as_ptr(), &attributes) != 0 {
@@ -1085,6 +1090,7 @@ fn get_mcp_launcher_config<R: tauri::Runtime>(
     })
 }
 
+#[cfg(any(not(debug_assertions), test))]
 fn file_sha256(path: &Path) -> Result<String, String> {
     let mut file = fs::File::open(path)
         .map_err(|err| format!("failed to open MCP launcher resource {}: {err}", path.display()))?;
@@ -1099,6 +1105,7 @@ fn file_sha256(path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", digest.finalize()))
 }
 
+#[cfg(any(not(debug_assertions), test))]
 fn stage_mcp_launcher_file(
     source: &Path,
     cache_dir: &Path,
@@ -1617,45 +1624,51 @@ fn analysis_import_file(
 }
 
 #[tauri::command]
-fn analysis_import_s3(
-    engine: tauri::State<'_, data_engine::DataEngine>,
+async fn analysis_import_s3(
+    app: AppHandle,
     request: data_engine::S3ImportRequest,
 ) -> Result<data_engine::DatasetRef, String> {
-    engine.import_s3(request)
+    tauri::async_runtime::spawn_blocking(move || app.state::<data_engine::DataEngine>().import_s3(request))
+        .await.map_err(|error| format!("S3 import task failed: {error}"))?
 }
 
 #[tauri::command]
-fn analysis_query_s3(
-    engine: tauri::State<'_, data_engine::DataEngine>,
+async fn analysis_query_s3(
+    app: AppHandle,
     request: data_engine::S3QueryRequest,
 ) -> Result<data_engine::AnalysisQueryResult, String> {
-    engine.query_s3(request)
+    tauri::async_runtime::spawn_blocking(move || app.state::<data_engine::DataEngine>().query_s3(request))
+        .await.map_err(|error| format!("S3 query task failed: {error}"))?
 }
 
 #[tauri::command]
-fn analysis_list_s3(request: data_engine::S3ListRequest) -> Result<Vec<String>, String> {
-    data_engine::list_s3_objects(request)
+async fn analysis_list_s3(request: data_engine::S3ListRequest) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || data_engine::list_s3_objects(request))
+        .await.map_err(|error| format!("S3 listing task failed: {error}"))?
 }
 
 #[tauri::command]
-fn analysis_list_ducklake(request: data_engine::S3ListRequest) -> Result<Vec<data_engine::DuckLakeTable>, String> {
-    data_engine::list_ducklake_tables(request)
+async fn analysis_list_ducklake(request: data_engine::S3ListRequest) -> Result<Vec<data_engine::DuckLakeTable>, String> {
+    tauri::async_runtime::spawn_blocking(move || data_engine::list_ducklake_tables(request))
+        .await.map_err(|error| format!("DuckLake listing task failed: {error}"))?
 }
 
 #[tauri::command]
-fn analysis_query_s3_catalog(
-    engine: tauri::State<'_, data_engine::DataEngine>,
+async fn analysis_query_s3_catalog(
+    app: AppHandle,
     request: data_engine::S3CatalogQueryRequest,
 ) -> Result<data_engine::AnalysisQueryResult, String> {
-    engine.query_s3_catalog(request)
+    tauri::async_runtime::spawn_blocking(move || app.state::<data_engine::DataEngine>().query_s3_catalog(request))
+        .await.map_err(|error| format!("S3 catalog query task failed: {error}"))?
 }
 
 #[tauri::command]
-fn analysis_import_s3_catalog(
-    engine: tauri::State<'_, data_engine::DataEngine>,
+async fn analysis_import_s3_catalog(
+    app: AppHandle,
     request: data_engine::S3CatalogImportRequest,
 ) -> Result<data_engine::DatasetRef, String> {
-    engine.import_s3_catalog(request)
+    tauri::async_runtime::spawn_blocking(move || app.state::<data_engine::DataEngine>().import_s3_catalog(request))
+        .await.map_err(|error| format!("S3 catalog import task failed: {error}"))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

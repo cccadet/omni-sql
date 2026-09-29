@@ -137,10 +137,11 @@ function columnTypeLabel(dataType: string): string {
   }
   if (type.includes("date") || type.includes("time") || type.includes("timestamp")) return "data";
   if (type.includes("bool") || type.includes("bit")) return "T/F";
-  if (type.includes("json") || type.includes("xml") || type.includes("array") || type.includes("struct")) {
+  if (type.includes("json") || type.includes("xml") || type.includes("array") || type.includes("struct") || type.includes("list") || type.includes("map")) {
     return "{}";
   }
   if (type.includes("uuid")) return "id";
+  if (type.includes("enum")) return "abc";
   if (type.includes("binary") || type.includes("blob") || type.includes("bytea")) return "bin";
   if (type.includes("char") || type.includes("text") || type.includes("varchar") || type.includes("clob") || type.includes("string")) {
     return "abc";
