@@ -547,6 +547,12 @@ export async function runQueryViaConnection(
   const result = await conn.execute(prepared.sql, prepared.serverSideLimitApplied ? prepared.binds : [], {
     resultSet: true,
     outFormat: oracledb.OUT_FORMAT_ARRAY,
+    fetchTypeHandler: (metadata) => {
+      if (metadata.dbType === oracledb.DB_TYPE_CLOB) return { type: oracledb.DB_TYPE_LONG };
+      if (metadata.dbType === oracledb.DB_TYPE_NCLOB) return { type: oracledb.DB_TYPE_LONG_NVARCHAR };
+      if (metadata.dbType === oracledb.DB_TYPE_BLOB) return { type: oracledb.DB_TYPE_LONG_RAW };
+      return undefined;
+    },
   });
 
   if (!result.resultSet) {
@@ -603,9 +609,13 @@ export async function* streamQueryViaConnection(
     resultSet: true,
     outFormat: oracledb.OUT_FORMAT_ARRAY,
     fetchArraySize: options.batchSize,
-    fetchTypeHandler: (metadata) => metadata.dbType === oracledb.DB_TYPE_NUMBER
-      ? { type: oracledb.DB_TYPE_VARCHAR }
-      : undefined,
+    fetchTypeHandler: (metadata) => {
+      if (metadata.dbType === oracledb.DB_TYPE_NUMBER) return { type: oracledb.DB_TYPE_VARCHAR };
+      if (metadata.dbType === oracledb.DB_TYPE_CLOB) return { type: oracledb.DB_TYPE_LONG };
+      if (metadata.dbType === oracledb.DB_TYPE_NCLOB) return { type: oracledb.DB_TYPE_LONG_NVARCHAR };
+      if (metadata.dbType === oracledb.DB_TYPE_BLOB) return { type: oracledb.DB_TYPE_LONG_RAW };
+      return undefined;
+    },
   });
   if (!result.resultSet) throw new Error("analytical source query did not return rows");
 
