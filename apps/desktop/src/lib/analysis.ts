@@ -310,6 +310,15 @@ export async function runS3CatalogQuery(input: {
   return { ...result, elapsedMs: 0 };
 }
 
+export async function importS3CatalogQuery(input: Parameters<typeof runS3CatalogQuery>[0] & {
+  name: string;
+  selection: DatasetRef["selection"];
+}): Promise<DatasetRef> {
+  return invoke<DatasetRef>("analysis_import_s3_catalog", {
+    request: { ...input, operationId: input.operationId ?? `s3-import-${crypto.randomUUID()}` },
+  });
+}
+
 export async function listAnalysisDatasets(workspaceId: string): Promise<readonly DatasetRef[]> {
   return invoke<DatasetRef[]>("analysis_list_datasets", { workspaceId });
 }

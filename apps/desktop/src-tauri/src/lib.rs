@@ -1639,6 +1639,14 @@ fn analysis_query_s3_catalog(
     engine.query_s3_catalog(request)
 }
 
+#[tauri::command]
+fn analysis_import_s3_catalog(
+    engine: tauri::State<'_, data_engine::DataEngine>,
+    request: data_engine::S3CatalogImportRequest,
+) -> Result<data_engine::DatasetRef, String> {
+    engine.import_s3_catalog(request)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // WebKitGTK on some Wayland setups crashes during surface setup when the
@@ -1726,7 +1734,8 @@ pub fn run() {
             analysis_query_s3,
             analysis_list_s3,
             analysis_list_ducklake,
-            analysis_query_s3_catalog
+            analysis_query_s3_catalog,
+            analysis_import_s3_catalog
         ])
         .manage(AuthToken {
             token: Mutex::new(None),

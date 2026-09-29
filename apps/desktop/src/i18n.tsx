@@ -371,13 +371,13 @@ const english = {
   analysisSampleRows: "Sample rows",
   analysisSampledSnapshot: "This analytical dataset is an explicit sample of the source query.",
   analysisPartialWorkspace: "Sampled or truncated datasets: {datasets}. Joins and full exports contain only retained rows.",
-  analysisSourceQuery: "Run the source query again (stream full result)",
+  analysisSourceQuery: "Read the full query from the source",
   analysisDisplayedResult: "Use the rows already displayed",
   analysisRowsScanned: "rows scanned",
   analysisRowsRetained: "rows retained",
   analysisExportCsv: "Export full CSV",
   analysisExportParquet: "Export full Parquet",
-  analysisImportFile: "Import CSV/Parquet",
+  analysisImportFile: "Import file",
   analysisFileSelection: "File load selection",
   analysisAddSource: "Add another database source for joins",
   analysisSourceSql: "Table or SELECT/WITH query",
@@ -430,6 +430,11 @@ const english = {
   odbcPlaceholder: "MyDSN or DRIVER={Driver};SERVER=host;DATABASE=db",
   ducklakeSqlitePathPlaceholder: "C:\\data\\catalog.sqlite",
   ducklakeDuckdbPathPlaceholder: "C:\\data\\catalog.ducklake",
+  analysisLoadFrom: "Data source",
+  analysisRowsToImport: "Rows to import",
+  analysisDisplayedCount: "Displayed preview: {count} rows{more}",
+  analysisMoreRows: " (more available at the source)",
+  allFormats: "All formats",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -473,10 +478,10 @@ const portugueseBrazil = [
   "Todas as linhas exibidas", "Primeiras N linhas exibidas", "Amostra aleatória das linhas exibidas (semente fixa)", "Linhas da amostra",
   "Este dataset analítico é uma amostra explícita da consulta de origem.",
   "Datasets com amostra ou truncados: {datasets}. Joins e exportações completas contêm apenas as linhas retidas.",
-  "Executar novamente a consulta de origem (streaming do resultado completo)", "Usar as linhas já exibidas",
+  "Ler a consulta completa na origem", "Usar as linhas já exibidas",
   "linhas lidas", "linhas retidas",
   "Exportar CSV completo", "Exportar Parquet completo",
-  "Importar CSV/Parquet", "Seleção da carga do arquivo",
+  "Importar arquivo", "Seleção da carga do arquivo",
   "Adicionar outra origem de banco para joins", "Tabela ou consulta SELECT/WITH", "Importar origem",
   "Voltar ao editor SQL", "Datasets", "Nome do dataset", "Renomear dataset", "Salvar nome do dataset",
   "public.orders ou SELECT …", "Informe uma tabela ou uma consulta SELECT/WITH.",
@@ -488,6 +493,7 @@ const portugueseBrazil = [
   "Buckets para usar", "{count} selecionado(s)", "Carregar buckets", "Carregue os buckets disponíveis para escolher quais usar.", "Nenhum bucket encontrado.",
   "Catálogos DuckLake (opcional)", "Associe o bucket inteiro ou um prefixo de tabela a um catálogo. O prefixo mais específico prevalece.", "Bucket ou prefixo da tabela", "Catálogo", "Tipo do catálogo DuckLake {index}", "Conexão PostgreSQL do catálogo", "Conexão PostgreSQL DuckLake {index}", "Selecione uma conexão", "Caminho do arquivo {kind}", "Remover catálogo", "Adicionar catálogo DuckLake",
   "jdbc:exemplo://host:porta/db", "/caminho/para/driver.jar", "com.exemplo.Driver", "MeuDSN ou DRIVER={Driver};SERVER=host;DATABASE=db", "C:\\dados\\catalog.sqlite", "C:\\dados\\catalog.ducklake",
+  "Origem dos dados", "Linhas para importar", "Prévia exibida: {count} linhas{more}", " (há mais linhas na origem)", "Todos os formatos",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

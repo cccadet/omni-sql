@@ -42,6 +42,7 @@ export interface ToolbarProps {
   analysisMode?: boolean;
   onExitAnalysis?: () => void;
   onSendToAnalysis?: () => void;
+  onImportLocalFile?: () => void;
 }
 
 const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
@@ -71,6 +72,7 @@ export function Toolbar({
   analysisMode = false,
   onExitAnalysis,
   onSendToAnalysis,
+  onImportLocalFile,
 }: ToolbarProps) {
   const { t } = useLanguage();
   return (
@@ -141,8 +143,12 @@ export function Toolbar({
             </ToolbarButton>
       </div>}
 
-      {!globalOnly && <ToolbarButton icon={<DuckDbIcon size={15} />} onClick={onSendToAnalysis} disabled={!activeConnectionId || !onSendToAnalysis}
-        aria-label={t("analysisSendToLocal")} title={t("analysisSendToLocal")}>DuckDB</ToolbarButton>}
+      {!globalOnly && <div className="omni-toolbar-group" role="group" aria-label="DuckDB">
+        <ToolbarButton icon={<DuckDbIcon size={15} />} onClick={onSendToAnalysis} disabled={!activeConnectionId || !onSendToAnalysis}
+          aria-label={t("analysisSendToLocal")} title={t("analysisSendToLocal")}>DuckDB</ToolbarButton>
+        <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onImportLocalFile}
+          aria-label={t("analysisImportFile")} title={t("analysisImportFile")}>{t("analysisImportFile")}</ToolbarButton>
+      </div>}
 
       <div style={{ flex: 1 }} />
 

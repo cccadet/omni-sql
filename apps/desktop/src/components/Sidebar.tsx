@@ -14,6 +14,11 @@ import {
   Button,
   Card,
   Input,
+  Menu,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   Text,
   tokens,
   Spinner,
@@ -32,6 +37,7 @@ import {
   EyeRegular,
   NumberSymbolRegular,
   CheckmarkCircleRegular,
+  CheckmarkRegular,
   ErrorCircleRegular,
   WarningRegular,
   CircleRegular,
@@ -62,7 +68,7 @@ export interface SidebarProps {
   loading?: boolean;
   onInsert?: (text: string) => void;
   onAddConnection?: () => void;
-  onImportLocalFile?: () => void;
+  onDeleteLocalDataset?: (relationName: string) => void;
   onImportDatabaseTable?: () => void;
   onEditConnection?: (id: string) => void;
   onDuplicateConnection?: (id: string) => void;
@@ -277,7 +283,7 @@ export function Sidebar({
   loading = false,
   onInsert,
   onAddConnection,
-  onImportLocalFile,
+  onDeleteLocalDataset,
   onImportDatabaseTable,
   onEditConnection,
   onDuplicateConnection,
@@ -446,7 +452,7 @@ export function Sidebar({
 
   const ensureIndexes = useCallback(async (schema: string, table: string) => {
     const key = relationKey(schema, table);
-    if (indexCache[key] || !connectionId || connection?.dialect === "s3") return;
+    if (indexCache[key] || !connectionId || connection?.dialect === "s3" || connection?.dialect === "duckdb") return;
     setIndexCache((prev) => ({ ...prev, [key]: { loading: true, error: null, indexes: [] } }));
     try {
       const { indexes } = await backend.call<{ indexes: IndexInfo[] }>("metadata.listIndexes", {
@@ -909,9 +915,6 @@ export function Sidebar({
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
           {loading && <Spinner size="tiny" />}
-          <Tooltip content="Import CSV, JSON or Parquet into local DuckDB" relationship="label">
-            <Button icon={<AddRegular fontSize={14} />} appearance="transparent" size="small" onClick={onImportLocalFile} aria-label="Import CSV, JSON or Parquet" />
-          </Tooltip>
           {connection && (
             <Tooltip content={connection.dialect === "s3" ? tr("refreshMetadata") : metadataTooltip} relationship="description">
               <Button
@@ -938,7 +941,7 @@ export function Sidebar({
           Possível DuckLake em {duckLakeCandidates.join(", ")}. Configure o catálogo para identificar as tabelas.
           <Button size="small" appearance="subtle" onClick={() => connectionId && onEditConnection?.(connectionId)}>Configurar catálogo</Button>
         </div>}
-        {connection?.dialect === "s3" && <Button size="small" appearance="subtle" style={{ width: "100%", marginBottom: 8 }} onClick={onImportDatabaseTable}>Adicionar tabela de outro banco ao JOIN</Button>}
+        {connection?.dialect === "s3" && <Button size="small" appearance="outline" icon={<LinkRegular fontSize={14} />} style={{ width: "100%", marginBottom: 10 }} onClick={onImportDatabaseTable}>Adicionar tabela de outro banco ao JOIN</Button>}
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <Input
           placeholder={tr("searchObjects")}
@@ -957,13 +960,18 @@ export function Sidebar({
           }
           style={{ flex: 1, minWidth: 0 }}
         />
-        {connection?.dialect === "s3" && <label style={{ display: "flex", alignItems: "center" }}>
-          <FilterRegular fontSize={16} aria-hidden="true" />
-          <select aria-label={tr("format")} value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)}>
-            <option value="">{tr("format")}</option>
-            {(["delta", "parquet", "csv", "ducklake", "iceberg"] as const).map((format) => <option key={format} value={format}>{format.toUpperCase()}</option>)}
-          </select>
-        </label>}
+        {connection?.dialect === "s3" && <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <Button size="small" appearance="subtle" className={formatFilter ? "omni-format-filter is-active" : "omni-format-filter"}
+              icon={<FilterRegular fontSize={16} />} aria-label={`${tr("format")}: ${formatFilter ? formatFilter.toUpperCase() : tr("allFormats")}`}
+              title={`${tr("format")}: ${formatFilter ? formatFilter.toUpperCase() : tr("allFormats")}`} />
+          </MenuTrigger>
+          <MenuPopover><MenuList>
+            <MenuItem icon={formatFilter === "" ? <CheckmarkRegular /> : null} onClick={() => setFormatFilter("")}>{tr("allFormats")}</MenuItem>
+            {(["delta", "parquet", "csv", "ducklake", "iceberg"] as const).map((format) =>
+              <MenuItem key={format} icon={formatFilter === format ? <CheckmarkRegular /> : null} onClick={() => setFormatFilter(format)}>{format.toUpperCase()}</MenuItem>)}
+          </MenuList></MenuPopover>
+        </Menu>}
         </div>
       </div>
       <div className="omni-sidebar-tree" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", padding: "0 8px 8px" }}>
@@ -1001,12 +1009,15 @@ export function Sidebar({
                     return (
                       <div key={key} style={{ marginLeft: 10 }}>
                         <div
-                          className="obj-row"
+                          className={`obj-row${connection?.dialect === "s3" ? " omni-s3-object-row" : ""}`}
                           role="presentation"
                           onContextMenu={(e) =>
                             openMenu(e, connection?.dialect === "s3" ? [
                               { label: "Abrir SELECT em nova aba", action: () => openTable(g.name, t.name) },
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
+                            ] : connection?.dialect === "duckdb" ? [
+                              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
+                              { label: tr("analysisDeleteDataset"), action: () => onDeleteLocalDataset?.(t.name) },
                             ] : [
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
                               { label: tr("viewStructure"), action: () => setStructureTable({ schema: g.name, table: t.name }) },
@@ -1018,8 +1029,8 @@ export function Sidebar({
                             label={
                               <span style={{ display: "flex", alignItems: "center", gap: 4 }} onDoubleClick={() => openTable(g.name, t.name)}>
                                 <TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
-                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  <span title={t.description}>{t.name}</span>
+                                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  <span title={connection?.dialect === "s3" ? `${g.name}.${t.name}${t.description ? ` — ${t.description}` : ""}` : t.description}>{t.name}</span>
                                 </span>
                                 {connection?.dialect === "s3" && t.format && <span className={`omni-s3-format is-${t.format}`}>{t.format}</span>}
                               </span>
@@ -1029,10 +1040,12 @@ export function Sidebar({
                             onExpandedChange={(nextExpanded) => {
                               if (nextExpanded) {
                                 void ensureColumns(g.name, t.name);
-                                if (connection?.dialect !== "s3") void ensureIndexes(g.name, t.name);
+                                if (connection?.dialect !== "s3" && connection?.dialect !== "duckdb") void ensureIndexes(g.name, t.name);
                               }
                             }}
-                            actions={
+                            actions={connection?.dialect === "duckdb" ? <Tooltip content={tr("analysisDeleteDataset")} relationship="label">
+                              <Button appearance="transparent" size="small" icon={<DeleteRegular fontSize={13} />} onClick={(e) => { e.stopPropagation(); onDeleteLocalDataset?.(t.name); }} aria-label={`${tr("analysisDeleteDataset")}: ${t.name}`} />
+                            </Tooltip> :
                               <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)} relationship="label">
                                 <Button
                                   appearance="transparent"
@@ -1079,7 +1092,7 @@ export function Sidebar({
                                 );
                               })}
                             </div>
-                            <div className="indexes">
+                            {connection?.dialect !== "s3" && connection?.dialect !== "duckdb" && <div className="indexes">
                               <div className="sub-header">
                                 <span>
                                   {tr("indexes")}
@@ -1117,14 +1130,14 @@ export function Sidebar({
                                   ))}
                                 </div>
                               )}
-                            </div>
+                            </div>}
                           </TreeNode>
                           <button
                             className="obj-expand-trigger"
                             type="button"
                             aria-label={tr("expandCollapse")}
                             title={tr("expandCollapse")}
-                            onClick={() => toggleExpand(g.name, t.name, true)}
+                            onClick={() => toggleExpand(g.name, t.name, connection?.dialect !== "s3" && connection?.dialect !== "duckdb")}
                             tabIndex={-1}
                           />
                         </div>

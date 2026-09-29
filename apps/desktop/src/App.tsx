@@ -34,7 +34,7 @@ import { basenameNoExt, pickAnalysisExportPath, pickAnalysisImportPath, pickOpen
 import { useLanguage } from "./i18n";
 import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
-import { cancelAnalysis, clearAnalysis, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, listAnalysisDatasets, listAnalysisS3, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
+import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import { s3Buckets } from "./lib/s3-buckets";
 import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type S3DiscoveryCredentials, type S3TableSource } from "./lib/s3-sources";
 import { s3ReferencedRelations, s3Suggestions } from "./lib/s3-autocomplete";
@@ -497,23 +497,42 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       const sourceSql = analysisSourceSql ?? activeTab.sql;
       const datasetName = suggestAnalysisDatasetName(sourceSql, activeTab.title);
       await backend.call("connection.add", { config: { id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "local.duckdb", user: "" } });
-      const dataset = analysisLoadOrigin === "source"
-        ? await importQuerySource({
+      const sourceConnection = connections.find((connection) => connection.id === activeConnectionId);
+      let dataset: DatasetRef;
+      if (analysisLoadOrigin === "source" && sourceConnection?.dialect === "s3") {
+        const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId: activeConnectionId });
+        dataset = await importS3CatalogQuery({
+          workspaceId: activeTab.id,
+          name: datasetName,
+          sources: (s3Catalog[activeConnectionId!] ?? []).map((source) => resolveDuckLakeSource(source, credentials)),
+          region: String(sourceConnection.options?.region ?? ""),
+          endpoint: String(sourceConnection.options?.endpoint ?? "") || undefined,
+          accessKeyId: credentials.accessKeyId || undefined,
+          secretAccessKey: credentials.secretAccessKey,
+          sql: analysisSourceSql!,
+          limit: activeTab.queryLimit,
+          operationId,
+          selection,
+        });
+      } else if (analysisLoadOrigin === "source") {
+        dataset = await importQuerySource({
             workspaceId: "federated",
             name: datasetName,
             connectionId: activeConnectionId!,
             sql: analysisSourceSql!,
             operationId,
             selection,
-          })
-        : await importQueryResult({
+        });
+      } else {
+        dataset = await importQueryResult({
             workspaceId: "local-duckdb",
             name: datasetName,
             result,
             ...(activeConnectionId ? { sourceConnectionId: activeConnectionId } : {}),
             sourceSql,
             selection,
-          });
+        });
+      }
       setAnalysisDataset(dataset);
       await loadConnections();
       setSidebarCache((previous) => {
@@ -531,7 +550,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       setAnalysisImporting(false);
       setAnalysisImportOperationId(null);
     }
-  }, [activeConnectionId, activeTab.id, activeTab.sql, activeTab.title, analysisImporting, analysisLoadOrigin, analysisSampleRows, analysisSelection, analysisSourceSql, connections, loadConnections, result, updateTab]);
+  }, [activeConnectionId, activeTab.id, activeTab.queryLimit, activeTab.sql, activeTab.title, analysisImporting, analysisLoadOrigin, analysisSampleRows, analysisSelection, analysisSourceSql, connections, loadConnections, result, s3Catalog, updateTab]);
 
   const activeDialect: DialectId = useMemo(
     () => connections.find((c) => c.id === activeConnectionId)?.dialect ?? "jdbc-generic",
@@ -823,6 +842,18 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     }
   }, [activeTab.id, loadConnections, updateTab, t]);
 
+  const onDeleteLocalDataset = useCallback(async (relationName: string) => {
+    try {
+      const datasets = [...await listAnalysisDatasets("local-duckdb"), ...await listAnalysisDatasets("federated")];
+      const dataset = datasets.find((item) => item.relationName === relationName);
+      if (!dataset || !window.confirm(t("analysisDeleteDatasetConfirm").replace("{name}", dataset.name))) return;
+      await dropAnalysisDataset(dataset.workspaceId, dataset.id);
+      await loadSidebarData("local-duckdb");
+    } catch (error) {
+      updateTab(activeTab.id, { error: `${t("error")}: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }, [activeTab.id, loadSidebarData, t, updateTab]);
+
   const onEditConnection = useCallback((id: string) => {
     const c = connections.find((x) => x.id === id);
     if (!c) return;
@@ -917,7 +948,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     },
     [activeConnectionId, activeConnection, activeDialect, loadS3Columns, sidebarCache, t],
   );
-  const analysisSourceStreaming = activeConnection !== null && activeDialect !== "s3" && activeDialect !== "duckdb";
+  const analysisSourceStreaming = activeConnection !== null && activeDialect !== "duckdb";
 
   const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
     if (!diagnostic.transpiledSql) return;
@@ -1549,6 +1580,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           analysisMode={analysisWorkspaceId !== null}
           onExitAnalysis={() => void closeAnalysisWorkspace()}
           onSendToAnalysis={activeDialect === "s3" || activeDialect === "duckdb" ? undefined : sendCurrentSqlToAnalysis}
+          onImportLocalFile={onImportLocalFile}
         />
       </div>
 
@@ -1566,7 +1598,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           metadataRefreshFailed={activeConnectionId !== null && metadataRefreshFailures[activeConnectionId] === true}
           onInsert={(text) => editorRef.current?.insertAtCursor(text)}
           onAddConnection={onAddConnection}
-          onImportLocalFile={onImportLocalFile}
+          onDeleteLocalDataset={(relationName) => void onDeleteLocalDataset(relationName)}
           onImportDatabaseTable={() => { setCrossSourceConnectionId(""); setCrossSourceSql(""); setCrossSourceSearch(""); setCrossSourceError(null); setCrossSourceOpen(true); }}
           onEditConnection={onEditConnection}
           onDuplicateConnection={onDuplicateConnection}
@@ -1639,7 +1671,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       )}
 
       <div style={{ gridColumn: "1 / -1", gridRow: 5 }}>
-        <StatusBar connection={activeConnection} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
+        <StatusBar connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
       </div>
 
       {dialogOpen && <ConnectionDialog
@@ -1689,10 +1721,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </Dialog>
 
       <Dialog open={analysisImportOpen}>
-        <DialogSurface className="omni-standard-dialog">
+        <DialogSurface className="omni-standard-dialog omni-analysis-import-dialog">
           <DialogBody className="omni-dialog-body">
             <DialogTitle>{t("analysisImportTitle")}</DialogTitle>
             <DialogContent style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="omni-analysis-import-hint">{t("analysisDisplayedCount").replace("{count}", result?.rows.length.toLocaleString(language) ?? "0").replace("{more}", result?.rowsMoreAvailable ? t("analysisMoreRows") : "")}</div>
+              <div className="omni-analysis-import-heading">{t("analysisLoadFrom")}</div>
               <RadioGroup
                 value={analysisLoadOrigin}
                 onChange={(_, data) => setAnalysisLoadOrigin(data.value as "displayed" | "source")}
@@ -1700,11 +1734,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
                 <Radio value="source" disabled={!analysisSourceStreaming || !analysisSourceSql} label={t("analysisSourceQuery")} />
                 <Radio value="displayed" label={t("analysisDisplayedResult")} />
               </RadioGroup>
+              <div className="omni-analysis-import-heading">{t("analysisRowsToImport")}</div>
               <RadioGroup
                 value={analysisSelection}
                 onChange={(_, data) => setAnalysisSelection(data.value as "full" | "first_n" | "reservoir")}
               >
-                <Radio value="full" label={analysisLoadOrigin === "source" ? "Todas as linhas (dados temporários)" : t("analysisDisplayedFull")} />
+                <Radio value="full" label={analysisLoadOrigin === "source" ? t("analysisFullSnapshot") : t("analysisDisplayedFull")} />
                 <Radio value="first_n" label={t(analysisLoadOrigin === "source" ? "analysisFirstN" : "analysisDisplayedFirstN")} />
                 <Radio value="reservoir" label={t(analysisLoadOrigin === "source" ? "analysisReservoir" : "analysisDisplayedReservoir")} />
               </RadioGroup>
