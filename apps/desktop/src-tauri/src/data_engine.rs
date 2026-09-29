@@ -279,6 +279,15 @@ pub struct S3CatalogQueryRequest {
     pub limit: usize,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct S3CatalogImportRequest {
+    #[serde(flatten)]
+    pub query: S3CatalogQueryRequest,
+    pub name: String,
+    pub selection: ImportSelection,
+}
+
 fn s3_scan_function(format: S3Format) -> &'static str {
     match format {
         S3Format::Csv => "read_csv_auto",
@@ -1133,12 +1142,60 @@ impl DataEngine {
     pub fn query_s3_catalog(&self, request: S3CatalogQueryRequest) -> Result<AnalysisQueryResult, String> {
         let operation_id = request.operation_id.clone();
         self.run_operation(operation_id, || {
+            if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
+                return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
+            }
+            self.with_s3_catalog(&request, |remote, sql| Self::query_preview(remote, sql, request.limit))
+        })
+    }
+
+    pub fn import_s3_catalog(&self, request: S3CatalogImportRequest) -> Result<DatasetRef, String> {
+        let operation_id = request.query.operation_id.clone();
+        self.run_operation(operation_id, || {
+            validate_selection(&request.selection)?;
+            let temporary_path = self._temp_directory.0.join(format!("{}.parquet", random_id()?));
+            let staged = self.with_s3_catalog(&request.query, |remote, sql| {
+                let mut statement = remote.prepare(sql).map_err(|error| format!("invalid S3 query: {error}"))?;
+                let mut batches = statement.stream_arrow([]).map_err(|error| format!("S3 query failed: {error}"))?;
+                let file = File::create_new(&temporary_path).map_err(|error| format!("failed to stage S3 query: {error}"))?;
+                let mut writer = parquet::arrow::ArrowWriter::try_new(file, batches.get_schema(), None)
+                    .map_err(|error| format!("failed to stage S3 query: {error}"))?;
+                let mut rows = 0_usize;
+                for batch in batches.by_ref() {
+                    if self.cancel_requested.load(Ordering::Acquire) { return Err("S3 import cancelled".to_string()); }
+                    let remaining = match &request.selection { ImportSelection::FirstN { rows: limit } => limit.saturating_sub(rows), _ => usize::MAX };
+                    if remaining == 0 { break; }
+                    let retained = batch.slice(0, remaining.min(batch.num_rows()));
+                    rows += retained.num_rows();
+                    writer.write(&retained).map_err(|error| format!("failed to stage S3 query: {error}"))?;
+                    self.update_progress(rows, rows, 0);
+                    if std::fs::metadata(&temporary_path).map_err(|error| error.to_string())?.len() > MAX_DATASET_BYTES as u64 {
+                        return Err(format!("staged S3 query exceeds the {MAX_DATASET_BYTES} byte dataset budget"));
+                    }
+                }
+                writer.close().map_err(|error| format!("failed to finish S3 query staging: {error}"))?;
+                if std::fs::metadata(&temporary_path).map_err(|error| error.to_string())?.len() > MAX_DATASET_BYTES as u64 {
+                    return Err(format!("staged S3 query exceeds the {MAX_DATASET_BYTES} byte dataset budget"));
+                }
+                Ok(())
+            });
+            let imported = staged.and_then(|()| self.import_file_with_origin(FileImportRequest {
+                operation_id: request.query.operation_id,
+                workspace_id: "local-duckdb".to_string(),
+                name: request.name,
+                path: temporary_path.clone(),
+                format: FileFormat::Parquet,
+                selection: request.selection,
+            }, None));
+            let _ = std::fs::remove_file(&temporary_path);
+            imported
+        })
+    }
+
+    fn with_s3_catalog<T>(&self, request: &S3CatalogQueryRequest, query: impl FnOnce(&Connection, &str) -> Result<T, String>) -> Result<T, String> {
             validate_workspace_id(&request.workspace_id)?;
             if request.sources.is_empty() || request.sources.len() > 500 {
                 return Err("S3 catalog must contain between 1 and 500 sources".to_string());
-            }
-            if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
-                return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
             }
             let sql = validate_s3_sql(&request.sql)?;
             let first = &request.sources[0];
@@ -1238,8 +1295,7 @@ impl DataEngine {
             }
             remote.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
                 .map_err(|error| format!("failed to restrict S3 reader: {error}"))?;
-            Self::query_preview(&remote, sql, request.limit)
-        })
+            query(&remote, sql)
     }
 
     fn import_s3_inner(&self, request: S3ImportRequest) -> Result<DatasetRef, String> {

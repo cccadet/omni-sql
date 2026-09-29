@@ -1,11 +1,22 @@
 // @vitest-environment node
 import { beforeEach, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, suggestAnalysisDatasetName } from "./analysis";
+import { clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, suggestAnalysisDatasetName } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 beforeEach(() => vi.mocked(invoke).mockReset());
+
+test("imports a full S3 catalog query instead of its preview", async () => {
+  vi.mocked(invoke).mockResolvedValueOnce({ id: "dataset-1" });
+  await importS3CatalogQuery({
+    workspaceId: "tab-1", name: "Orders", sources: [{ schema: "bucket", name: "orders", uri: "s3://bucket/orders.parquet", format: "parquet" }],
+    region: "us-east-1", sql: 'SELECT * FROM "bucket"."orders"', limit: 10, selection: { mode: "full" },
+  });
+  expect(invoke).toHaveBeenCalledWith("analysis_import_s3_catalog", { request: expect.objectContaining({
+    sql: 'SELECT * FROM "bucket"."orders"', selection: { mode: "full" }, operationId: expect.any(String),
+  }) });
+});
 
 test("turns a relation name into a safe source query", () => {
   expect(normalizeAnalysisSource("orders")).toEqual({ sql: 'SELECT * FROM "orders"', suggestedName: "orders" });

@@ -54,12 +54,20 @@ test("StatusBar: shows no connection when empty", () => {
 
 test("StatusBar: makes offline database health explicit", () => {
   renderWithLanguage(<StatusBar connection={{ id: "c1", label: "Warehouse", dialect: "postgres", endpoint: "db", user: "u" }} health="offline" />);
-  assert.ok(screen.getByText("Failure"));
+  assert.ok(screen.getByText("Offline"));
 });
 
 test("StatusBar: makes online database health explicit", () => {
   renderWithLanguage(<StatusBar connection={{ id: "c1", label: "Warehouse", dialect: "postgres", endpoint: "db", user: "u" }} health="online" />);
-  assert.ok(screen.getByText("Success"));
+  assert.ok(screen.getByText("Connected"));
+});
+
+test("StatusBar: matches the header connection details", () => {
+  renderWithLanguage(<StatusBar connection={{ id: "s3", label: "Ceph Bsau - HOMO", dialect: "s3", endpoint: "s3://base-saude", user: "u" }} database="base-saude" health="online" />);
+  const footer = screen.getByText("Ceph Bsau - HOMO").closest("footer");
+  assert.ok(footer);
+  const positions = ["Ceph Bsau - HOMO", "S3", "Database", "base-saude", "Connected"].map((label) => footer.textContent?.indexOf(label) ?? -1);
+  assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1]!)));
 });
 
 test("StatusBar: shows and opens available update", () => {

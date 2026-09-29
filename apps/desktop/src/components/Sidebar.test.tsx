@@ -57,7 +57,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
 }
 
 describe("Sidebar", () => {
-  it("shows S3 formats and filters tables by format", () => {
+  it("shows S3 formats and filters tables from the icon menu", async () => {
     const s3 = { ...connection, dialect: "s3" as const };
     renderSidebar({ connection: s3, connections: [s3], relations: [
       { schema: "bucket", name: "sales", kind: "table", format: "delta" },
@@ -66,9 +66,25 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "bucket" }));
     fireEvent.click(screen.getByRole("button", { name: "Tables (2)" }));
     expect(screen.getByText("delta")).toBeTruthy();
-    fireEvent.change(screen.getByRole("combobox", { name: "Format" }), { target: { value: "parquet" } });
+    fireEvent.click(screen.getByRole("button", { name: "Format: All formats" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "PARQUET" }));
     expect(screen.queryByText("sales")).toBeNull();
     expect(screen.getByText("customers")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Format: PARQUET" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "All formats" }));
+    expect(screen.getByText("sales")).toBeTruthy();
+  });
+  it("offers deletion for local DuckDB datasets", () => {
+    const onDeleteLocalDataset = vi.fn();
+    const local = { ...connection, dialect: "duckdb" as const };
+    renderSidebar({ connection: local, connections: [local], relations: [relations[0]!], onDeleteLocalDataset });
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "orders" }));
+    expect(screen.queryByText("Indexes")).toBeNull();
+    expect(call).not.toHaveBeenCalledWith("metadata.listIndexes", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Delete dataset: orders" }));
+    expect(onDeleteLocalDataset).toHaveBeenCalledWith("orders");
   });
   beforeEach(() => {
     localStorage.clear();

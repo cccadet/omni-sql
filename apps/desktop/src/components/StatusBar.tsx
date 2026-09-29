@@ -45,6 +45,7 @@ export interface StatusBarProps {
   result?: QueryResult | null;
   cursorPosition?: { line: number; column: number } | null;
   busyMsg?: string | null;
+  database?: string | null;
   health?: ConnectionHealth;
   update?: UpdateInfo | null;
   updateStatus?: UpdateCheckStatus | null;
@@ -54,7 +55,7 @@ export interface StatusBarProps {
   mcpError?: string | null;
 }
 
-export function StatusBar({ connection, result, cursorPosition, busyMsg, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError }: StatusBarProps) {
+export function StatusBar({ connection, result, cursorPosition, busyMsg, database, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError }: StatusBarProps) {
   const { t } = useLanguage();
   const [mcpOpen, setMcpOpen] = useState(false);
   const dialectLabels: Record<string, string> = {
@@ -65,34 +66,39 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, health 
     oracle: "Oracle",
     "jdbc-generic": "JDBC",
     odbc: "ODBC",
+    s3: "S3",
+    duckdb: "DuckDB",
   };
-  const healthLabel = !connection ? t("noResults") : health === "verifying" ? t("loading") : health === "online" ? t("success") : health === "offline" ? t("failure") : t("error");
-  const healthColor = health === "offline" ? tokens.colorPaletteRedForeground1 : health === "online" ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteYellowForeground1;
+  const healthLabel = health === "online" ? t("headerConnected") : health === "verifying" ? t("headerVerifying") : health === "offline" ? t("headerOffline") : t("statusUnknown");
   const mcpLabel = mcpState === "connected" ? t("mcpConnected") : mcpState === "error" ? t("mcpError") : mcpState === "listening" ? t("mcpListening") : t("mcpInactive");
   const mcpColor = mcpState === "connected" ? tokens.colorPaletteGreenForeground1 : mcpState === "error" ? tokens.colorPaletteRedForeground1 : mcpState === "listening" ? tokens.colorPaletteYellowForeground1 : tokens.colorNeutralForeground2;
 
   return (
     <footer className="omni-status-bar">
-      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span className="omni-status-connection omni-header-health" title={connection?.label}>
         {connection && health === "online" ? (
           <PlugConnectedRegular fontSize={12} />
         ) : (
           <PlugDisconnectedRegular fontSize={12} />
         )}
-        <Text size={200}>{connection?.label ?? t("noResults")}</Text>
+        <span>{connection?.label ?? t("noResults")}</span>
       </span>
-      {connection && <Text size={200} style={{ color: healthColor }}>{healthLabel}</Text>}
       {connection && (
-        <Text size={200} style={{ opacity: 0.85, display: "flex", alignItems: "center", gap: 4 }}>
+        <span className="omni-status-detail">
           <DialectIcon dialect={connection.dialect} size={12} />
           {dialectLabels[connection.dialect] ?? connection.dialect}
-        </Text>
+        </span>
       )}
+      {connection && database && <span className="omni-status-detail"><span>{t("headerDatabase")}</span><strong>{database}</strong></span>}
+      {connection && <span className={`omni-status-detail omni-header-state-${health}`}>
+        <span aria-hidden className="omni-header-state-dot" />{healthLabel}
+      </span>}
       <button
         type="button"
+        className="omni-status-mcp"
         aria-label={`${t("mcp")}: ${mcpLabel}`}
         onClick={() => setMcpOpen(true)}
-        style={{ display: "flex", alignItems: "center", gap: 5, border: 0, padding: "2px 5px", borderRadius: 4, background: "transparent", color: mcpColor, cursor: "pointer", font: "inherit" }}
+        style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", color: mcpColor, cursor: "pointer", font: "inherit" }}
         title={mcpLabel}
       >
         <McpIcon fontSize={13} />

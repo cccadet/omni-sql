@@ -720,6 +720,10 @@ select option {
 .omni-status-bar > * { flex-shrink: 0; }
 
 .omni-status-bar button { color: inherit; }
+.omni-status-bar .omni-status-connection { flex: 0 1 auto; min-width: 0; }
+.omni-status-detail { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding-left: 10px; border-left: 1px solid var(--colorNeutralStroke2); white-space: nowrap; }
+.omni-status-detail strong { color: var(--colorNeutralForeground1); font-weight: 600; }
+.omni-status-mcp { border: 0; border-left: 1px solid var(--colorNeutralStroke2); border-radius: 0; padding: 2px 5px 2px 10px; }
 
 /* Logo */
 .omni-logo {
@@ -834,6 +838,8 @@ select option {
 .omni-dialog-body > .fui-DialogContent, .omni-dialog-form > .omni-dialog-body:not(:has(.fui-DialogContent)) { min-height: 0; overflow-y: auto; }
 .omni-dialog-actions.omni-dialog-actions { flex: 0 0 auto; gap: 8px; padding: 12px 24px 20px; }
 .omni-dialog-actions .fui-Button { min-width: 88px; }
+.omni-analysis-import-heading { font-size: 12px; font-weight: 600; color: var(--colorNeutralForeground1); }
+.omni-analysis-import-hint { padding: 8px 10px; border-radius: 5px; background: var(--colorNeutralBackground3); color: var(--colorNeutralForeground2); font-size: 12px; }
 .omni-connection-dialog.omni-connection-dialog { width: min(560px, calc(100vw - 24px)); }
 .omni-connection-dialog .omni-dialog-form > .fui-DialogTitle { padding: 16px 20px 0; }
 .omni-connection-dialog .omni-dialog-body.omni-dialog-body { gap: 10px; padding: 20px; }
@@ -1078,3 +1084,8 @@ select option {
 }
 
 .omni-s3-objects-prefix > span { flex: 1; min-width: 0; }
+.omni-s3-object-row .omni-s3-format { flex-shrink: 0; }
+.omni-format-filter.omni-format-filter { flex: 0 0 32px; min-width: 32px; padding: 0; }
+.omni-format-filter.is-active { color: var(--colorBrandForeground1); background: var(--colorNeutralBackground3); }
+.omni-standard-dialog.omni-analysis-import-dialog { width: min(500px, calc(100vw - 24px)); }
+.omni-analysis-import-dialog .omni-dialog-actions { width: 100%; box-sizing: border-box; justify-content: flex-end; }
