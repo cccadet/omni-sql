@@ -433,6 +433,44 @@ export function resolveContext(
   const { text, start } = findStatement(input, cursor, dialect);
   const all = tokenize(text, dialect);
   const significant = all.filter(isSignificant);
+  // A subquery has its own clauses and relations. Resolve the innermost one
+  // containing the cursor, then expose outer aliases for correlated predicates.
+  const stack: number[] = [];
+  let activeEnd = text.length;
+  for (let i = 0; i < significant.length; i++) {
+    const token = significant[i]!;
+    if (token.start >= cursor - start) break;
+    if (token.type !== "punct") continue;
+    if (token.value === "(") stack.push(i);
+    else if (token.value === ")") stack.pop();
+  }
+  let activeOpen = -1;
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const next = significant[stack[i]! + 1];
+    if (next?.type === "keyword" && (next.upper === "SELECT" || next.upper === "WITH")) {
+      activeOpen = stack[i]!;
+      break;
+    }
+  }
+  if (activeOpen >= 0) {
+    let depth = 0;
+    for (let i = activeOpen; i < significant.length; i++) {
+      const token = significant[i]!;
+      if (token.type === "punct" && token.value === "(") depth++;
+      else if (token.type === "punct" && token.value === ")" && --depth === 0) {
+        activeEnd = token.start;
+        break;
+      }
+    }
+    const innerStart = significant[activeOpen]!.end;
+    const inner = resolveContext(text.slice(innerStart, activeEnd), cursor - start - innerStart, dialect);
+    const outerScope = extractScope(significant, text, dialect);
+    return {
+      ...inner,
+      statementStart: start + innerStart + inner.statementStart,
+      scope: [...inner.scope, ...outerScope.filter((ref) => !inner.scope.some((local) => local.alias.toLowerCase() === ref.alias.toLowerCase()))],
+    };
+  }
   // Tokens à esquerda do cursor inclusive o parcial.
   const prelude = significant.filter((t) => t.start < cursor - start);
   const cursorToken = detectCursorToken(all, cursor - start);

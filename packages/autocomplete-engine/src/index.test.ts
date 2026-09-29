@@ -729,7 +729,20 @@ test("CTE injetada pelo tier2 sugere colunas no SELECT externo e não usa insert
   assert.equal(cteItem!.insertText, undefined, "CTE não deve ter insertText qualificado (schema vazio)");
 });
 
-test.todo("caso 8: subqueries correlacionadas herdam escopo externo");
+test("caso 8: EXISTS sugere a tabela interna e aliases da consulta externa", () => {
+  const meta = metaOf(oracleDescriptor);
+  const fromSql = "SELECT g.id FROM users g WHERE EXISTS (SELECT 1 FROM ";
+  assert.ok(autocompleteTier1(fromSql, fromSql.length, meta).some((item) => item.label === "orders"));
+
+  const sql = "SELECT g.id FROM users g WHERE EXISTS (SELECT 1 FROM orders gah WHERE g.id = gah.) ORDER BY g.id";
+  const cursor = sql.indexOf("gah.") + "gah.".length;
+  const ctx = resolveContext(sql, cursor, oracleDescriptor);
+  assert.equal(ctx.clause, "where");
+  assert.deepEqual(ctx.scope.map((ref) => ref.alias), ["gah", "g"]);
+  assert.ok(autocompleteTier1(sql, cursor, meta).some((item) => item.label === "user_id"));
+  const outerCursor = sql.indexOf("g.id =") + "g.".length;
+  assert.ok(autocompleteTier1(sql, outerCursor, meta).some((item) => item.label === "email"));
+});
 
 test("execution risk detects destructive statements without matching comments or strings", () => {
   assert.equal(analyzeExecutionRisk("DELETE FROM users", "postgres").findings[0]?.kind, "delete-without-where");
