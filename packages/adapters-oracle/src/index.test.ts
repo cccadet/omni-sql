@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import oracledb from "oracledb";
 import { OracleAdapter } from "./index.ts";
 import { oracleExplainBinds } from "./oracle-adapter.ts";
 import {
@@ -191,11 +192,13 @@ test("introspectSchemas preserva casing exato do catálogo Oracle", async () => 
 test("runQuery aplica cap Oracle server-side com bind e mantém cap client-side", async () => {
   let executedSql = "";
   let executedBinds: unknown;
+  let executeOptions: Record<string, unknown> | undefined;
   const getRowsCalls: number[] = [];
   const conn = {
-    execute: async (sql: string, binds: unknown) => {
+    execute: async (sql: string, binds: unknown, options: Record<string, unknown>) => {
       executedSql = sql;
       executedBinds = binds;
+      executeOptions = options;
       return {
         metaData: [{ name: "V", dbTypeName: "NUMBER" }],
         resultSet: {
@@ -217,6 +220,10 @@ test("runQuery aplica cap Oracle server-side com bind e mantém cap client-side"
   assert.equal(result.rows.length, 100);
   assert.equal(result.rows[99]?.[0], 99);
   assert.equal(result.rowsMoreAvailable, true);
+  const fetchTypeHandler = executeOptions?.fetchTypeHandler as (metadata: { dbType: unknown }) => { type: unknown } | undefined;
+  assert.equal(fetchTypeHandler({ dbType: oracledb.DB_TYPE_CLOB })?.type, oracledb.DB_TYPE_LONG);
+  assert.equal(fetchTypeHandler({ dbType: oracledb.DB_TYPE_NCLOB })?.type, oracledb.DB_TYPE_LONG_NVARCHAR);
+  assert.equal(fetchTypeHandler({ dbType: oracledb.DB_TYPE_BLOB })?.type, oracledb.DB_TYPE_LONG_RAW);
 });
 
 test("prepareOracleQuery não envolve DML, DCL, CTE mutante ou SELECT FOR UPDATE", () => {
@@ -289,6 +296,9 @@ test("streamQuery lê o resultado Oracle completo em lotes e fecha o cursor", as
 
   assert.equal(executedSql, "SELECT id FROM orders");
   assert.equal(executeOptions?.resultSet, true);
+  const fetchTypeHandler = executeOptions?.fetchTypeHandler as (metadata: { dbType: unknown }) => { type: unknown } | undefined;
+  assert.equal(fetchTypeHandler({ dbType: oracledb.DB_TYPE_CLOB })?.type, oracledb.DB_TYPE_LONG);
+  assert.equal(fetchTypeHandler({ dbType: oracledb.DB_TYPE_BLOB })?.type, oracledb.DB_TYPE_LONG_RAW);
   assert.equal(executeOptions?.fetchArraySize, 2);
   assert.deepEqual(getRowsCalls, [2, 2, 2]);
   assert.deepEqual(batches.map((batch) => batch.rows), [[[1], [2]], [[3]]]);
