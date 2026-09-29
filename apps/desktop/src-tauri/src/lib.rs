@@ -1323,12 +1323,23 @@ fn backend_process_paths<R: tauri::Runtime>(
     } else {
         "resources/runtime/node/node"
     };
+    let bundled_node = strip_verbatim_prefix(
+        app.path()
+            .resolve(node, tauri::path::BaseDirectory::Resource)
+            .map_err(|err| format!("failed to resolve bundled Node runtime: {err}"))?,
+    );
+    let cache_dir = app.path()
+        .app_data_dir()
+        .map_err(|err| format!("failed to resolve Node runtime cache: {err}"))?
+        .join("mcp-launcher-cache");
+    let node_executable = stage_mcp_launcher_file(
+        &bundled_node,
+        &cache_dir,
+        "node",
+        if cfg!(windows) { "exe" } else { "bin" },
+    )?;
     Ok((
-        strip_verbatim_prefix(
-            app.path()
-                .resolve(node, tauri::path::BaseDirectory::Resource)
-                .map_err(|err| format!("failed to resolve bundled Node runtime: {err}"))?,
-        ),
+        strip_verbatim_prefix(node_executable),
         strip_verbatim_prefix(
             app.path()
                 .resolve(
