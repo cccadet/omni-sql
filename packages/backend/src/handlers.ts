@@ -782,13 +782,23 @@ export const handlers: BackendRpcRouter = {
         ? password
         : await readStoredPassword(config, "testing connection");
     const adapter = resolveAdapter(config, effectivePassword);
+    const startedAt = Date.now();
     try {
+      if (config.dialect === "postgres") {
+        await adapter.connect();
+        await adapter.close().catch(() => undefined);
+        return { ok: true, latencyMs: Date.now() - startedAt };
+      }
       const result = await adapter.test();
       await adapter.close().catch(() => undefined);
       return result.ok ? result : { ...result, message: "Connection test failed" };
     } catch (e) {
       await adapter.close().catch(() => undefined);
-      return { ok: false, latencyMs: 0, message: "Connection test failed" };
+      return {
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        message: (config.dialect === "postgres" ? safePostgresDatabaseError(e)?.message : undefined) ?? "Connection test failed",
+      };
     }
   },
 

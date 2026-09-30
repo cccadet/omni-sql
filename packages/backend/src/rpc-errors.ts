@@ -38,12 +38,25 @@ export function safeOracleDatabaseError(error: unknown): RpcDatabaseError | unde
 
 /**
  * PostgreSQL's `pg` driver exposes SQLSTATE separately from its human-readable
- * message. Only errors with that structured code are safe to return; arbitrary
- * adapter errors must remain hidden behind the generic RPC error.
+ * message. Known network/TLS codes use fixed messages; SQLSTATE errors use a
+ * bounded single line. Arbitrary adapter errors remain hidden.
  */
 export function safePostgresDatabaseError(error: unknown): RpcDatabaseError | undefined {
   if (!(error instanceof Error)) return undefined;
   const code = Reflect.get(error, "code");
+  const connectionMessages: Record<string, string> = {
+    ECONNREFUSED: "Connection refused. Check the host, port and whether PostgreSQL is running.",
+    ENOTFOUND: "Host not found. Check the PostgreSQL hostname.",
+    ETIMEDOUT: "Connection timed out. Check network access and firewall rules.",
+    ECONNRESET: "Connection closed by the server. Check network access and SSL settings.",
+    DEPTH_ZERO_SELF_SIGNED_CERT: "SSL certificate is self-signed. Check the connection SSL settings.",
+    SELF_SIGNED_CERT_IN_CHAIN: "SSL certificate chain is not trusted. Check the connection SSL settings.",
+    UNABLE_TO_VERIFY_LEAF_SIGNATURE: "SSL certificate could not be verified. Check the connection SSL settings.",
+    CERT_HAS_EXPIRED: "SSL certificate has expired.",
+  };
+  if (typeof code === "string" && Object.hasOwn(connectionMessages, code)) {
+    return new RpcDatabaseError(`${code}: ${connectionMessages[code]}`);
+  }
   if (typeof code !== "string" || !/^[0-9][0-9A-Z]{4}$/.test(code)) return undefined;
   const firstLine = error.message.split(/\r?\n/, 1)[0]?.trim();
   if (!firstLine) return undefined;
