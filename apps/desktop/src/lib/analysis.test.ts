@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, suggestAnalysisDatasetName } from "./analysis";
+import { importAnalysisS3, runS3CatalogQuery, startStableAnalysis, readStableAnalysisPage, dropStableAnalysis, cancelAnalysis, getAnalysisOperationStatus, runAnalysisS3, clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, suggestAnalysisDatasetName } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -27,6 +27,37 @@ test("preserves source queries and rejects unsupported input", () => {
   expect(normalizeAnalysisSource("  WITH recent AS (SELECT 1) SELECT * FROM recent  ")).toEqual({ sql: "WITH recent AS (SELECT 1) SELECT * FROM recent" });
   expect(normalizeAnalysisSource("DELETE FROM orders")).toBeNull();
   expect(normalizeAnalysisSource("orders; SELECT 1")).toBeNull();
+});
+
+test("quotes catalog paths without splitting dots or escaped quotes inside identifiers", () => {
+  expect(normalizeAnalysisSource(' warehouse . "sales.eu" . "Order ""Items""" ')).toEqual({
+    sql: 'SELECT * FROM "warehouse"."sales.eu"."Order ""Items"""', suggestedName: 'Order "Items"',
+  });
+  for (const source of ['', 'a..b', '.orders', 'orders.', 'a.b.c.d', '"unfinished', '""', 'order items', 'orders --comment']) {
+    expect(normalizeAnalysisSource(source)).toBeNull();
+  }
+});
+
+test("serializes nested database values without losing bigint, binary or timestamp data", async () => {
+  await importQueryResult({
+    workspaceId: "tab-1", name: "Values",
+    result: {
+      columns: [{ name: "payload", dataType: "json", nullable: true }],
+      rows: [[{ id: 9_007_199_254_740_993n, created: new Date("2026-01-02T03:04:05Z"), bytes: new Uint8Array([0, 128, 255]), values: [null, true, 1.5, "text", { count: 2n }] }]],
+      rowsMoreAvailable: false, elapsedMs: 0,
+    },
+  });
+  expect(invoke).toHaveBeenCalledWith("analysis_import_result", { request: expect.objectContaining({
+    rows: [[{ id: "9007199254740993", created: "2026-01-02T03:04:05.000Z", bytes: [0, 128, 255], values: [null, true, 1.5, "text", { count: "2" }] }]],
+  }) });
+});
+
+test("rejects unsupported values before invoking the native import", async () => {
+  await expect(importQueryResult({
+    workspaceId: "tab-1", name: "Invalid",
+    result: { columns: [], rows: [[{ nested: Symbol("invalid") }]], rowsMoreAvailable: false, elapsedMs: 0 },
+  })).rejects.toThrow("Unsupported analytical value: symbol");
+  expect(invoke).not.toHaveBeenCalled();
 });
 
 test("suggests a readable dataset name from the source relation", () => {
@@ -119,4 +150,68 @@ test("drops an analytical dataset through the Tauri bridge", async () => {
     workspaceId: "tab-1",
     datasetId: "dataset-1",
   });
+});
+
+
+test("keeps stable result pages and cancellation tied to their workspace and operation", async () => {
+  const handle = { id: "result-1", workspaceId: "tab-1", columns: [], rowCount: 2500, createdAtMs: 1 };
+  const page = { columns: [], rows: [[2001]], rowsMoreAvailable: true };
+  vi.mocked(invoke).mockResolvedValueOnce(handle).mockResolvedValueOnce(page)
+    .mockResolvedValueOnce({ operationId: "page-1", state: "running" })
+    .mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+  await expect(startStableAnalysis("tab-1", "SELECT * FROM orders", "start-1")).resolves.toEqual(handle);
+  await expect(readStableAnalysisPage("tab-1", handle.id, 2000, 500, "page-1")).resolves.toEqual({ ...page, elapsedMs: 0 });
+  await expect(getAnalysisOperationStatus("page-1")).resolves.toEqual({ operationId: "page-1", state: "running" });
+  await expect(cancelAnalysis("page-1")).resolves.toBe(true);
+  await expect(dropStableAnalysis("tab-1", handle.id)).resolves.toBe(true);
+  expect(vi.mocked(invoke).mock.calls).toEqual([
+    ["analysis_query_start", { request: { operationId: "start-1", workspaceId: "tab-1", sql: "SELECT * FROM orders" } }],
+    ["analysis_query_page", { request: { operationId: "page-1", workspaceId: "tab-1", handleId: "result-1", offset: 2000, limit: 500 } }],
+    ["analysis_operation_status", { operationId: "page-1" }],
+    ["analysis_cancel", { operationId: "page-1" }],
+    ["analysis_query_drop", { workspaceId: "tab-1", handleId: "result-1" }],
+  ]);
+});
+
+test("propagates page failures without returning a fabricated empty result", async () => {
+  vi.mocked(invoke).mockRejectedValueOnce(new Error("result handle expired"));
+  await expect(readStableAnalysisPage("tab-1", "expired", 0)).rejects.toThrow("result handle expired");
+  expect(invoke).toHaveBeenCalledWith("analysis_query_page", { request: expect.objectContaining({ handleId: "expired", offset: 0, limit: 1000 }) });
+});
+
+test("S3 preview preserves query options and applies a bounded default limit", async () => {
+  const source = { workspaceId: "tab-1", uri: "s3://orders/data.parquet", format: "parquet" as const, region: "us-east-1", sql: "SELECT * FROM source", endpoint: "http://127.0.0.1:5000" };
+  const result = { columns: [], rows: [[1]], rowsMoreAvailable: true };
+  vi.mocked(invoke).mockResolvedValue(result);
+  await expect(runAnalysisS3(source)).resolves.toEqual({ ...result, elapsedMs: 0 });
+  await runAnalysisS3({ ...source, limit: 25, operationId: "preview-1" });
+  expect(invoke).toHaveBeenNthCalledWith(1, "analysis_query_s3", { request: { ...source, limit: 1000, operationId: expect.any(String) } });
+  expect(invoke).toHaveBeenNthCalledWith(2, "analysis_query_s3", { request: { ...source, limit: 25, operationId: "preview-1" } });
+});
+
+
+test("DuckLake imports retain the selected catalog, table and reservoir provenance", async () => {
+  const input = {
+    workspaceId: "tab-1", name: "Orders", uri: "s3://bucket/lake", format: "ducklake" as const,
+    tableSchema: "sales", tableName: "orders", catalog: { kind: "sqlite" as const, path: "/tmp/catalog.ducklake" },
+    region: "us-east-1", selection: { mode: "reservoir" as const, rows: 25, seed: 42 },
+  };
+  vi.mocked(invoke).mockResolvedValue({ id: "imported" });
+  await expect(importAnalysisS3(input)).resolves.toEqual({ id: "imported" });
+  await importAnalysisS3({ ...input, operationId: "import-lake-1" });
+  expect(invoke).toHaveBeenNthCalledWith(1, "analysis_import_s3", { request: { ...input, operationId: expect.any(String) } });
+  expect(invoke).toHaveBeenNthCalledWith(2, "analysis_import_s3", { request: { ...input, operationId: "import-lake-1" } });
+});
+
+test("catalog preview retains multiple sources and propagates native query errors", async () => {
+  const input = {
+    workspaceId: "tab-1", region: "us-east-1", sql: 'SELECT * FROM "bucket"."orders"', limit: 25,
+    sources: [{ schema: "bucket", name: "orders", uri: "s3://bucket/orders.parquet", format: "parquet" as const }],
+  };
+  const result = { columns: [], rows: [[1]], rowsMoreAvailable: false };
+  vi.mocked(invoke).mockResolvedValueOnce(result).mockRejectedValueOnce(new Error("catalog unavailable"));
+  await expect(runS3CatalogQuery(input)).resolves.toEqual({ ...result, elapsedMs: 0 });
+  await expect(runS3CatalogQuery({ ...input, operationId: "catalog-1" })).rejects.toThrow("catalog unavailable");
+  expect(invoke).toHaveBeenNthCalledWith(1, "analysis_query_s3_catalog", { request: { ...input, operationId: expect.any(String) } });
+  expect(invoke).toHaveBeenNthCalledWith(2, "analysis_query_s3_catalog", { request: { ...input, operationId: "catalog-1" } });
 });

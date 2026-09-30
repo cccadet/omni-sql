@@ -2,10 +2,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+pnpm verify:push
+if cmp -s .cache/coverage-checkpoint.json .cache/release-checkpoint.json; then
+  echo "Release integration checkpoint already passed for these files; not repeated."
+  exit 0
+fi
 docker compose version > /dev/null
-./services/jvm-sidecar/gradlew -p services/jvm-sidecar test jar
+./services/jvm-sidecar/gradlew -p services/jvm-sidecar jar
 
-compose=(docker compose -p "omni-sql-prerelease-$$" -f docker/test-dbs/docker-compose.yml -f docker/test-dbs/docker-compose.s3-moto.yml)
+compose=(docker compose -p "omni-sql-prerelease-$$" -f docker/test-dbs/docker-compose.yml)
 cleanup() {
   local status=$?
   if [[ "$status" -ne 0 ]]; then "${compose[@]}" logs --tail 80 || true; fi
@@ -15,11 +20,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build --wait postgres mysql mssql oracle h2 minio
+"${compose[@]}" up -d --build --wait postgres mysql mssql oracle h2
 "${compose[@]}" run --rm mssql-init
 "${compose[@]}" run --rm h2-init
-"${compose[@]}" run --build --rm minio-fixtures
-OMNI_SQL_RUN_S3_INTEGRATION=1 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
 export OMNI_SIDE_CAR_PORT="${OMNI_SIDE_CAR_PORT:-41922}"
 export OMNI_SQL_SIDECAR_URL="http://127.0.0.1:${OMNI_SIDE_CAR_PORT}"
@@ -35,3 +38,5 @@ curl --silent --fail --header 'Authorization: Bearer integration-auth-token' "$O
   OMNI_SQL_RUN_INTEGRATION=1 node --test ./smoke-test.ts
   OMNI_SQL_RUN_INTEGRATION=1 node --test ./integration-test.ts
 )
+
+cp .cache/coverage-checkpoint.json .cache/release-checkpoint.json

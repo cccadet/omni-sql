@@ -42,29 +42,58 @@ services/jvm-sidecar         Kotlin/Gradle + Calcite: `/health`, `/scope/resolve
 - **Lint:** `pnpm -r lint` (ESLint 9 flat config in `eslint.config.js`)
 - **Test:** `pnpm -r test` (Node `--test` for backend/packages; Vitest for `apps/desktop`)
 - **Full verify:** `pnpm verify` (typecheck, lint, test)
-- **Before commit:** `pnpm precommit` (typecheck, lint, package and frontend logic tests).
-- **Before push:** `pnpm test:coverage` (all TypeScript tests, line coverage >=80%).
-  Enable both local hooks once with `git config core.hooksPath .githooks`.
-- **Coverage only:** `pnpm test:coverage` (fails below 80% or on an empty report).
+- **Before commit:** `pnpm precommit` (staged diff check and lint of staged TypeScript/JavaScript files).
+- **Before pushing completed code:** `pnpm verify:push` (TypeScript + Rust + JVM coverage and new-code coverage preflight).
+- **Release validation:** `pnpm verify:release` (coverage checkpoint + real database/JDBC integration).
+- **TypeScript coverage only:** `pnpm test:coverage` (overall line coverage >=80%; this alone does not predict the Sonar gate).
+- **Native coverage only:** `pnpm coverage:native` (JaCoCo for Java/Kotlin, cargo-llvm-cov for Rust, including isolated S3 fixtures).
+- **Optional hooks:** enable with `git config core.hooksPath .githooks`.
 - **Install:** `pnpm install`
 - **Frontend dev:** `pnpm dev:frontend` (port 1420)
 - **Backend dev:** `pnpm dev:backend` (port 41920)
-- **Tauri dev:** `pnpm dev:tauri`
-- **Rust check:** `cd apps/desktop/src-tauri && cargo check`
+- **Tauri dev:** `CARGO_BUILD_JOBS=2 pnpm dev:tauri`
+- **Rust check:** `CARGO_BUILD_JOBS=2 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`
 
-## Test cadence
-- While editing, run focused tests for the affected package as needed; do not run
-  the whole suite after every file change.
-- Before each commit, run `pnpm precommit` once. The Git hook runs it automatically
-  when enabled. Before each push, the hook runs full TypeScript coverage and
-  rejects results below 80% or with empty reports. Rust and Kotlin coverage
-  remain in the SonarCloud CI job.
-- Before pushing a release tag, run `scripts/pre-release.sh` locally. It checks
-  Rust/JVM and runs Docker database smoke and full JSON-RPC integration tests.
-  The pre-push hook enforces this for `v*` tags when enabled. Docker tests do
-  not run on GitHub Actions.
-- CI runs the TypeScript coverage suite once per commit/PR and reuses its reports
-  for SonarCloud. The release workflow repeats verification for the tagged commit.
+## Development and validation cadence
+- Implement a coherent change before checking it. Do not run checks after every
+  file edit or create tests that merely repeat implementation details.
+- At completion, run typecheck, lint and local tests for the affected package or
+  product path once. For a bug, prefer one regression that reproduces the bug.
+  Repeat only after relevant changes, a failure, or a specific unresolved concern.
+- Changes to shared contracts require checking affected consumers. Changes to
+  Rust/JVM require the corresponding native checks. Driver, persistence and
+  protocol fixes require integration of the affected path; reserve all-database
+  integration for release or changes that affect all adapters.
+- Limit local Rust builds to `CARGO_BUILD_JOBS=2`. Use
+  `CARGO_BUILD_JOBS=2 pnpm dev:tauri` when starting the desktop for local validation.
+- Precommit is intentionally lightweight: staged whitespace checks and lint.
+  It does not run tests, global typecheck, Docker, or coverage. If hooks are
+  enabled, let the hook run it instead of running it manually too.
+- Before pushing completed code, run `pnpm verify:push` once. It resolves the
+  current SonarCloud main-branch new-code baseline, generates TypeScript LCOV,
+  Rust LCOV and JVM JaCoCo XML, and checks combined new-code line/condition
+  coverage against Sonar's configured threshold. Do not substitute overall
+  TypeScript coverage for new-code coverage.
+- The checkpoint reuses a successful result while tracked/nonignored code and
+  configuration plus the Sonar baseline remain unchanged. `--force` regenerates
+  coverage. Missing reports or changed production files absent from reports fail.
+  It is a local estimate; only SonarCloud confirms the exact metrics and full gate.
+- Prerequisites for native coverage: Java 21, Python 3, Docker, cargo-llvm-cov
+  (`cargo install cargo-llvm-cov --locked`) and llvm-tools-preview
+  (`rustup component add llvm-tools-preview`). No Sonar token is stored locally.
+- If Sonar's baseline API is unavailable, use `pnpm verify:push --base <commit>`
+  only with an explicitly established reference. Never silently use HEAD or the
+  latest tag. `--reports-only` inspects existing reports and does not record a
+  successful checkpoint; it is for diagnosis, not final validation.
+- The pre-push hook uses the same cached checkpoint. Before a `v*` release tag,
+  it also runs `scripts/pre-release.sh`. Manual release validation and the hook
+  share the same successful checkpoint; do not rerun approved checks needlessly.
+- Release validation tests PostgreSQL/MySQL/SQL Server/Oracle and JDBC through
+  adapters and HTTP JSON-RPC. S3 coverage runs in an isolated container using a
+  random loopback port. CI uses the same JVM/Rust coverage generator.
+- CI runs full TypeScript coverage once and reuses its reports for SonarCloud.
+  Release publication requires successful CI (including SonarCloud) for the exact
+  tagged commit on the default branch, followed by tagged verification and builds.
 
 Native build approvals in `pnpm-workspace.yaml#allowBuilds`: `esbuild`,
 `@sveltejs/vite-plugin-svelte`, and `oracledb`. Svelte plugin approval is
@@ -102,7 +131,7 @@ stale/legacy; current frontend uses React, not Svelte.
   with Calcite, avoiding tolerant parsing of incomplete outer statements. Sidecar
   failure, timeout, or invalid JSON falls back to tier1 autocomplete.
 - TODO: `CalciteSchemaAdapter` with real schema/catalog types, `SELECT *` expansion,
-  and complete validation. Correlated subquery scope remains outside current scope.
+  and complete validation. Correlated subquery completion is supported.
 
 ## Memory persistida
 - Plano + decisões arquiteturais salvos no `mymem0ry` (project scope). Buscar

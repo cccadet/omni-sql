@@ -63,3 +63,6 @@ skills-lock.json
 .claude/
 .playwright/
 security-scan-results/
+
+# Python validation scripts
+__pycache__/
