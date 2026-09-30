@@ -2,6 +2,8 @@
 
 Package identifier: `cccadet.omni-sql`. Initial submission targets the published
 `v0.5.2` Windows x64 NSIS installer, installed for the current user.
+WebView2 is declared as a WinGet dependency so the package manager provisions the
+runtime before the NSIS installer starts, instead of relying on its bootstrapper.
 
 Keeping these manifests in this repository does not publish the package to
 WinGet. Submission and approval happen separately in `microsoft/winget-pkgs`.
