@@ -2863,6 +2863,41 @@ mod tests {
     }
 
     #[test]
+    fn imports_s3_catalog_query_with_bounded_selection_and_cleans_staging() {
+        if std::env::var("OMNI_SQL_RUN_S3_INTEGRATION").as_deref() != Ok("1") { return; }
+        let engine = DataEngine::open_in_memory().unwrap();
+        for (index, selection) in [ImportSelection::Full, ImportSelection::FirstN { rows: 1 },
+            ImportSelection::Reservoir { rows: 1, seed: 42 }].into_iter().enumerate() {
+            let dataset = engine.import_s3_catalog(S3CatalogImportRequest {
+                query: S3CatalogQueryRequest {
+                    operation_id: format!("catalog-import-{index}"), workspace_id: "s3-integration".into(),
+                    sources: vec![S3CatalogSource {
+                        schema: "orders".into(), name: "sales".into(), uri: "s3://omni-test/csv/orders.csv".into(),
+                        format: S3Format::Csv, table_schema: None, table_name: None, catalog: None,
+                    }],
+                    region: "us-east-1".into(),
+                    endpoint: Some(std::env::var("OMNI_SQL_TEST_S3_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:9000".into())),
+                    access_key_id: Some("omni_test".into()), secret_access_key: Some("omni_test_secret".into()),
+                    sql: "SELECT id, amount FROM orders.sales WHERE id >= 2 ORDER BY id".into(), limit: 1000,
+                },
+                name: format!("catalog_orders_{index}"), selection,
+            }).unwrap();
+            assert_eq!(dataset.workspace_id, "local-duckdb");
+            assert_eq!(dataset.row_count, if index == 0 { 2 } else { 1 });
+            let result = engine.query(QueryRequest {
+                operation_id: format!("catalog-check-{index}"), workspace_id: "local-duckdb".into(),
+                sql: format!("SELECT id, amount FROM {} ORDER BY id", quote_identifier(&dataset.relation_name)), limit: 10,
+            }).unwrap();
+            assert_eq!(result.rows.len(), dataset.row_count);
+            assert!(result.rows.iter().all(|row| row == &vec![JsonValue::from(2), JsonValue::from(20)]
+                || row == &vec![JsonValue::from(3), JsonValue::from(30)]));
+            if index != 2 { assert_eq!(result.rows[0], vec![JsonValue::from(2), JsonValue::from(20)]); }
+            assert!(!std::fs::read_dir(&engine._temp_directory.0).unwrap()
+                .any(|entry| entry.unwrap().path().extension().is_some_and(|extension| extension == "parquet")));
+        }
+    }
+
+    #[test]
     fn local_duckdb_import_survives_restart() {
         let directory = create_temp_directory().unwrap();
         let path = directory.join("local.duckdb");

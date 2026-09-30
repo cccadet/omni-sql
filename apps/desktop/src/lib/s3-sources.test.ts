@@ -2,6 +2,16 @@
 import { expect, test } from "vitest";
 import { detectS3Tables, discoverS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type DuckLakeCatalog } from "./s3-sources";
 
+test("DuckLake candidates are unique and sorted alphabetically across case and accents", () => {
+  expect(duckLakeCandidatePrefixes([
+    "s3://bucket/Zebra/ducklake-a.parquet",
+    "s3://bucket/ábaco/ducklake-b.parquet",
+    "s3://bucket/apple/ducklake-c.parquet",
+    "s3://bucket/apple/ducklake-d.parquet",
+    "s3://bucket/ignored/orders.parquet",
+  ])).toEqual(["s3://bucket/ábaco", "s3://bucket/apple", "s3://bucket/Zebra"]);
+});
+
 test("detects mixed tables in one S3 bucket", () => {
   expect(detectS3Tables([
     "s3://bucket/csv/orders.csv",
