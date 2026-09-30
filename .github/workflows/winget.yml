@@ -48,31 +48,6 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $manifest = 'distribution/winget/manifests/c/cccadet/omni-sql/0.5.2'
           $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\omni-sql'
-          $diagnostics = Join-Path $env:RUNNER_TEMP 'winget-diagnostics'
-          New-Item -ItemType Directory -Force $diagnostics | Out-Null
-          Start-Job -ArgumentList $diagnostics -ScriptBlock {
-            param($destination)
-            Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-            while ($true) {
-              Get-Process | Where-Object ProcessName -Match 'winget|setup|msedge|webview|^app$' |
-                Select-Object ProcessName, Id, CPU, MainWindowTitle |
-                Export-Csv (Join-Path $destination 'live-processes.csv') -NoTypeInformation
-              $root = [System.Windows.Automation.AutomationElement]::RootElement
-              $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition) |
-                ForEach-Object {
-                  $window = $_
-                  if ($window.Current.Name -match 'omni-sql|Setup|Installer|Window Dialog') {
-                    $window.Current.Name
-                    $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
-                      ForEach-Object { $_.Current.Name }
-                  }
-                } | Set-Content (Join-Path $destination 'installer-windows.txt')
-              Get-ChildItem (Join-Path $env:LOCALAPPDATA 'omni-sql') -Recurse -File -ErrorAction SilentlyContinue |
-                Measure-Object | Select-Object Count | ConvertTo-Json |
-                Set-Content (Join-Path $destination 'installed-files.json')
-              Start-Sleep -Seconds 15
-            }
-          } | Out-Null
           $webview = 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
           Get-ItemProperty "HKCU:\$webview", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -Name pv -ErrorAction SilentlyContinue |
             Select-Object PSPath, pv | Format-List
@@ -103,8 +78,13 @@ jobs:
                 throw 'Installed application executable is missing'
               }
             } finally {
-              winget uninstall --manifest $manifest --silent --accept-source-agreements --disable-interactivity --verbose-logs
-              if ($LASTEXITCODE -ne 0) { throw 'Silent uninstallation failed' }
+              # v0.5.2 lacks QuietUninstallString; preflight checks the fixed bundle with WinGet.
+              $uninstaller = (Get-ItemProperty $registry).UninstallString.Trim('"')
+              $process = Start-Process $uninstaller -ArgumentList '/S' -Wait -PassThru
+              if ($process.ExitCode -ne 0) { throw 'Silent NSIS uninstallation failed' }
+              for ($attempt = 0; $attempt -lt 30 -and (Test-Path $registry); $attempt++) {
+                Start-Sleep -Milliseconds 500
+              }
             }
             if (Test-Path $registry) { throw 'Uninstallation left the package registered' }
           }
