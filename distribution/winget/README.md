@@ -8,7 +8,8 @@ WinGet. Submission and approval happen separately in `microsoft/winget-pkgs`.
 Do not advertise `winget install` until the package is available in its source.
 
 The downloaded installer SHA256 was verified against the release's `SHA256SUMS`.
-The YAML files are validated against Microsoft's manifest schemas. The
+The YAML files use Microsoft's 1.10 manifest schemas, supported by the Windows
+runner's WinGet 1.11 client; no fields require a newer schema. The
 `WinGet package validation` workflow checks the actual Windows client, silent
 installation, Add/Remove Programs detection, upgrade from `v0.5.1` and silent
 uninstallation. Its first successful run is required before submission. This
