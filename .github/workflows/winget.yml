@@ -31,6 +31,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'WinGet setup failed' }
           winget settings --enable LocalManifestFiles
           if ($LASTEXITCODE -ne 0) { throw 'Could not enable local manifests' }
+          # Local manifests do not inherit the community source's trusted zone.
+          # Limit this disposable runner's trust to the HTTPS release hosts;
+          # WinGet still verifies SHA256 and runs Attachment Execution Services.
+          foreach ($map in @('Domains', 'EscDomains')) {
+            foreach ($hostName in @('github.com', 'release-assets.githubusercontent.com')) {
+              $zone = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\$map\$hostName"
+              New-Item -Path $zone -Force | Out-Null
+              New-ItemProperty -Path $zone -Name https -Value 2 -PropertyType DWord -Force | Out-Null
+            }
+          }
       - name: Validate installation, upgrade and uninstallation
         shell: pwsh
         timeout-minutes: 8
@@ -51,7 +61,8 @@ jobs:
               $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition) |
                 ForEach-Object {
                   $window = $_
-                  if ($window.Current.Name -match 'omni-sql|Setup|Installer') {
+                  if ($window.Current.Name -match 'omni-sql|Setup|Installer|Window Dialog') {
+                    $window.Current.Name
                     $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
                       ForEach-Object { $_.Current.Name }
                   }

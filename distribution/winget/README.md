@@ -2,8 +2,7 @@
 
 Package identifier: `cccadet.omni-sql`. Initial submission targets the published
 `v0.5.2` Windows x64 NSIS installer, installed for the current user.
-WebView2 is declared as a WinGet dependency so the package manager provisions the
-runtime before the NSIS installer starts, instead of relying on its bootstrapper.
+The existing NSIS installer provisions WebView2 when the runtime is missing.
 
 Keeping these manifests in this repository does not publish the package to
 WinGet. Submission and approval happen separately in `microsoft/winget-pkgs`.
@@ -16,6 +15,12 @@ runner's WinGet 1.11 client; no fields require a newer schema. The
 installation, Add/Remove Programs detection, upgrade from `v0.5.1` and silent
 uninstallation. Its first successful run is required before submission. This
 checks packaging, not application UI or database query behavior.
+
+The disposable Windows runner trusts the HTTPS GitHub release hosts for this
+test. Local manifests otherwise retain Internet-zone Mark of the Web, which can
+block unattended ShellExecute with a security dialog before NSIS starts. Packages
+from WinGet's trusted community source receive a trusted-zone mark after their
+hash is verified. The test keeps SHA256 verification and antivirus scanning.
 
 `AppsAndFeaturesEntries.Publisher` is `omnisql`, the existing Tauri default derived
 from `dev.omnisql`. The public publisher metadata uses the author's name from the
