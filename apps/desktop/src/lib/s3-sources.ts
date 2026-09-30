@@ -26,7 +26,7 @@ export function resolveDuckLakeSource<T extends S3TableSource>(source: T, creden
 
 export function duckLakeCandidatePrefixes(objects: readonly string[]): string[] {
   return [...new Set(objects.filter((uri) => /\/ducklake-[^/]+\.parquet$/i.test(uri))
-    .map((uri) => uri.slice(0, uri.lastIndexOf("/"))))].sort();
+    .map((uri) => uri.slice(0, uri.lastIndexOf("/"))))].sort((a, b) => a.localeCompare(b));
 }
 
 export function detectS3Tables(objects: readonly string[]): S3TableSource[] {

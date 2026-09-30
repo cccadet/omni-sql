@@ -86,7 +86,7 @@ jobs:
     name: SonarCloud analysis
     needs: verify-ts
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     # Fork PRs cannot receive repository secrets. Keep the scan out of those
     # runs rather than changing the workflow to pull untrusted code with a token.
     if: >-
@@ -142,7 +142,14 @@ jobs:
         with:
           name: typescript-coverage
           path: .
+      - name: Prepare S3 integration fixtures
+        run: |
+          docker compose -f docker/test-dbs/docker-compose.yml -f docker/test-dbs/docker-compose.s3-moto.yml up -d minio
+          docker compose -f docker/test-dbs/docker-compose.yml -f docker/test-dbs/docker-compose.s3-moto.yml run --build --rm minio-fixtures
       - name: Generate coverage reports
+        env:
+          OMNI_SQL_RUN_S3_INTEGRATION: "1"
+          OMNI_SQL_TEST_S3_ENDPOINT: http://127.0.0.1:9000
         run: |
           ./services/jvm-sidecar/gradlew -p services/jvm-sidecar test jacocoTestReport
           mkdir -p apps/desktop/src-tauri/coverage
