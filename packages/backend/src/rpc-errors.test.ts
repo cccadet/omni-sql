@@ -31,3 +31,14 @@ test("safePostgresDatabaseError rejects unstructured errors", () => {
   assert.equal(safePostgresDatabaseError(Object.assign(new Error("bad"), { code: "not-sqlstate" })), undefined);
   assert.equal(safePostgresDatabaseError(Object.assign(new Error("user-defined secret"), { code: "P0001" })), undefined);
 });
+
+test("PostgreSQL connection errors use fixed messages without driver secrets", () => {
+  for (const code of ["ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "CERT_HAS_EXPIRED"]) {
+    const safe = safePostgresDatabaseError(Object.assign(new Error("password=secret"), { code }));
+    assert.ok(safe instanceof RpcDatabaseError);
+    assert.ok(safe.message.startsWith(`${code}: `));
+    assert.ok(!safe.message.includes("secret"));
+  }
+  const safe = safePostgresDatabaseError(Object.assign(new Error("password authentication failed"), { code: "28P01" }));
+  assert.equal(safe?.message, "28P01: password authentication failed");
+});

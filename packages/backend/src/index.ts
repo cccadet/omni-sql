@@ -504,9 +504,10 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         send(res, 200, errorResponse(rpc.id, -32601, "Method not found"), origin);
         return;
       }
-      logFailure(rpc.method, e, Date.now() - t0);
-      const isSafeError = e instanceof RpcValidationError || e instanceof RpcDatabaseError || e instanceof McpBridgeError;
-      const message = isSafeError ? e.message : INTERNAL_ERROR_MESSAGE;
+      const safeError = e instanceof RpcValidationError || e instanceof RpcDatabaseError || e instanceof McpBridgeError
+        ? e : safePostgresDatabaseError(e);
+      logFailure(rpc.method, safeError ?? e, Date.now() - t0);
+      const message = safeError?.message ?? INTERNAL_ERROR_MESSAGE;
       const code = e instanceof McpBridgeError ? -32001 : -32000;
       send(res, 200, errorResponse(rpc.id, code, message), origin);
     } finally {
