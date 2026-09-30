@@ -33,10 +33,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not enable local manifests' }
       - name: Validate installation, upgrade and uninstallation
         shell: pwsh
+        timeout-minutes: 8
         run: |
           $ErrorActionPreference = 'Stop'
           $manifest = 'distribution/winget/manifests/c/cccadet/omni-sql/0.5.2'
           $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\omni-sql'
+          $webview = 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          Get-ItemProperty "HKCU:\$webview", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -Name pv -ErrorAction SilentlyContinue |
+            Select-Object PSPath, pv | Format-List
           winget validate --manifest $manifest
           if ($LASTEXITCODE -ne 0) { throw 'Manifest validation failed' }
           $previous = Join-Path $env:RUNNER_TEMP 'omni-sql_0.5.1_x64-setup.exe'
@@ -53,7 +57,7 @@ jobs:
               }
             }
             try {
-              winget $operation --manifest $manifest --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+              winget $operation --manifest $manifest --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --verbose-logs
               if ($LASTEXITCODE -ne 0) { throw "Silent $operation failed" }
               $entry = Get-ItemProperty $registry
               if ($entry.DisplayName -ne 'omni-sql' -or $entry.DisplayVersion -ne '0.5.2' -or $entry.Publisher -ne 'omnisql') {
@@ -64,8 +68,26 @@ jobs:
                 throw 'Installed application executable is missing'
               }
             } finally {
-              winget uninstall --manifest $manifest --silent --disable-interactivity
+              winget uninstall --manifest $manifest --silent --accept-source-agreements --disable-interactivity --verbose-logs
               if ($LASTEXITCODE -ne 0) { throw 'Silent uninstallation failed' }
             }
             if (Test-Path $registry) { throw 'Uninstallation left the package registered' }
           }
+      - name: Collect installer diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'winget-diagnostics'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          $logs = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\DiagOutputDir'
+          Get-ChildItem $logs -Filter '*.log' -ErrorAction SilentlyContinue | Copy-Item -Destination $destination
+          Get-ChildItem $env:TEMP -Filter 'msedge_installer.log' -ErrorAction SilentlyContinue | Copy-Item -Destination $destination
+          Get-CimInstance Win32_Process | Where-Object Name -Match 'winget|setup|msedge|webview' |
+            Select-Object Name, ProcessId, ParentProcessId | Export-Csv (Join-Path $destination 'processes.csv') -NoTypeInformation
+      - name: Upload installer diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: winget-installer-diagnostics
+          path: ${{ runner.temp }}/winget-diagnostics
+          retention-days: 7
