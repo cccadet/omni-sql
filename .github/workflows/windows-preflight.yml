@@ -58,7 +58,8 @@ jobs:
       - name: Build Tauri NSIS installer
         run: pnpm --filter desktop exec tauri build --target x86_64-pc-windows-msvc --bundles nsis
 
-      - name: Verify NSIS executable
+      - name: Verify NSIS executable and silent WinGet uninstallation
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $configPath = "apps/desktop/src-tauri/tauri.conf.json"
@@ -91,6 +92,30 @@ jobs:
           "Installer: $($installer.FullName)"
           "ProductName: $binaryProductName"
           "FileVersion: $fileVersion"
+
+          $ErrorActionPreference = 'Stop'
+          Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery -Scope CurrentUser
+          Repair-WinGetPackageManager -AllUsers
+          winget --version
+          if ($LASTEXITCODE -ne 0) { throw 'WinGet setup failed' }
+          $process = Start-Process $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Silent installation failed' }
+          $registry = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$productName"
+          $entry = Get-ItemProperty $registry
+          $expected = "$($entry.UninstallString) /S"
+          if ($entry.DisplayVersion -ne $version -or $entry.QuietUninstallString -ne $expected) {
+            throw 'Installer did not register the expected silent uninstall command'
+          }
+          $entry | Select-Object DisplayName, DisplayVersion, QuietUninstallString | Format-List
+          winget uninstall --product-code $productName --silent --accept-source-agreements --disable-interactivity --verbose-logs
+          if ($LASTEXITCODE -ne 0) { throw 'Silent WinGet uninstallation failed' }
+          # NSIS starts a temporary copy so its original executable can be removed.
+          for ($attempt = 0; $attempt -lt 30 -and (Test-Path $registry); $attempt++) {
+            Start-Sleep -Milliseconds 500
+          }
+          if ((Test-Path $registry) -or (Test-Path $entry.DisplayIcon.Trim('"'))) {
+            throw 'Uninstallation did not remove the package and executable'
+          }
 
       - name: Upload NSIS artifact
         uses: actions/upload-artifact@v4
