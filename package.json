@@ -14,7 +14,7 @@
     "test": "pnpm -r --parallel test",
     "test:coverage": "node ./scripts/test-coverage.mjs",
     "test:fast": "pnpm -r --filter \"./packages/**\" test && pnpm --filter desktop exec vitest run src/lib --exclude src/lib/monaco-config.test.ts",
-    "precommit": "pnpm -r typecheck && pnpm -r lint && pnpm test:fast",
+    "precommit": "node ./scripts/precommit.mjs",
     "verify": "pnpm -r typecheck && pnpm -r lint && pnpm -r test",
     "build": "pnpm -r --filter './packages/**' build",
     "dev:frontend": "pnpm --filter desktop dev",
@@ -23,7 +23,10 @@
     "build:tauri": "pnpm --filter desktop build:tauri",
     "prepare:resources": "node ./scripts/prepare-resources.mjs",
     "validate:resources": "node ./scripts/prepare-resources.mjs --validate",
-    "seed:test-connections": "tsx ./docker/test-dbs/register-connections.ts"
+    "seed:test-connections": "tsx ./docker/test-dbs/register-connections.ts",
+    "verify:push": "python3 ./scripts/verify-push.py",
+    "coverage:native": "bash ./scripts/coverage-native.sh",
+    "verify:release": "bash ./scripts/pre-release.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

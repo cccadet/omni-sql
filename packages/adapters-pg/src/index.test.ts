@@ -58,6 +58,26 @@ test("PostgresAdapter: factory via construtor produz instância Adapter", () => 
   assert.equal(a.dialect, "postgres");
 });
 
+test("connection endpoints preserve credentials and options without connecting", async () => {
+  for (const endpoint of ["db.example:5440/orders", "db.example", "postgresql://reader@db.example/orders", "host=db.example dbname=orders", "port=5440 host=db.example"]) {
+    const adapter = new PostgresAdapter({ ...cfg(endpoint), user: "reader", options: { application_name: "omni-test", password: "configured" } }, "from-keyring");
+    const pool = (adapter as unknown as { pool: Pool }).pool;
+    assert.equal(pool.options.password, "from-keyring");
+    assert.equal(pool.options.application_name, "omni-test");
+    if (endpoint === "db.example:5440/orders") {
+      assert.equal(pool.options.host, "db.example");
+      assert.equal(pool.options.port, 5440);
+      assert.equal(pool.options.database, "orders");
+      assert.equal(pool.options.user, "reader");
+    } else if (endpoint === "db.example") assert.equal(pool.options.database, "postgres");
+    else assert.equal(pool.options.connectionString, endpoint);
+    await adapter.close();
+  }
+  const adapter = new PostgresAdapter({ ...cfg(), options: { password: "configured" } }, "");
+  assert.equal((adapter as unknown as { pool: Pool }).pool.options.password, "configured");
+  await adapter.close();
+});
+
 test("applyServerRowCap limita apenas leitura sem LIMIT/FETCH existente", () => {
   assert.equal(applyServerRowCap("SELECT v FROM items", 10), "SELECT v FROM items LIMIT 11");
   assert.equal(applyServerRowCap("WITH x AS (SELECT 1) SELECT * FROM x;", 2), "WITH x AS (SELECT 1) SELECT * FROM x LIMIT 3;");
@@ -189,6 +209,118 @@ test("cancelRunning cancela query ativa e não deixa estado após cleanup", asyn
     }).cancel = originalCancel;
     await a.close();
   }
+});
+
+test("streamQuery preserves batch order, nulls, schema and database timestamp precision", async () => {
+  const calls: string[] = [];
+  let released = 0;
+  const fields = [{ name: "id", dataTypeID: 23 }, { name: "created", dataTypeID: 1114 }];
+  const results = [
+    { fields, rows: [{ id: 1, created: "2026-01-02 03:04:05.123456" }, { id: 2 }] },
+    { fields, rows: [{ id: 3, created: null }] },
+    { fields, rows: [] },
+  ];
+  const client = {
+    query(query: string | PgQuery) {
+      if (typeof query === "string") { calls.push(query); return Promise.resolve(); }
+      calls.push((query as unknown as { text: string }).text);
+      const types = (query as unknown as { types: { getTypeParser(oid: number, format: string): (value: string) => unknown } }).types;
+      assert.equal(types.getTypeParser(1114, "text")("2026-01-02 03:04:05.123456"), "2026-01-02 03:04:05.123456");
+      assert.equal(types.getTypeParser(23, "text")("42"), 42);
+      queueMicrotask(() => query.emit("end", results.shift() as never));
+      return query;
+    },
+    release() { released += 1; },
+  } as unknown as PoolClient;
+  const adapter = new PostgresAdapter(cfg());
+  (adapter as unknown as { pool: Pool }).pool = { connect: async () => client } as unknown as Pool;
+  const batches = [];
+  for await (const batch of adapter.streamQuery("SELECT id, created FROM orders", { batchSize: 2, signal: new AbortController().signal })) batches.push(batch);
+  assert.deepEqual(batches.map((batch) => batch.rows), [[[1, "2026-01-02 03:04:05.123456"], [2, null]], [[3, null]]]);
+  assert.deepEqual(batches[0]?.columns.map((column) => column.name), ["id", "created"]);
+  assert.equal(calls[0], "BEGIN READ ONLY");
+  assert.match(calls[1] ?? "", /NO SCROLL CURSOR FOR SELECT id, created FROM orders$/);
+  assert.equal(calls.filter((sql) => sql.startsWith("FETCH 2 FROM")).length, 3);
+  assert.equal(calls.at(-1), "ROLLBACK");
+  assert.equal(released, 1);
+});
+
+test("streamQuery releases its transaction on empty results, early exit, cancellation and driver failures", async (t) => {
+  for (const scenario of ["empty", "early exit", "cancelled", "declare failure", "fetch failure", "rollback failure"] as const) {
+    await t.test(scenario, async () => {
+      const controller = new AbortController();
+      const calls: string[] = [];
+      let released = 0;
+      const client = {
+        query(query: string | PgQuery) {
+          if (typeof query === "string") {
+            calls.push(query);
+            if (scenario === "declare failure" && query.startsWith("DECLARE")) return Promise.reject(new Error("declaration failed"));
+            if (scenario === "rollback failure" && query === "ROLLBACK") return Promise.reject(new Error("connection lost"));
+            return Promise.resolve();
+          }
+          calls.push((query as unknown as { text: string }).text);
+          queueMicrotask(() => {
+            if (scenario === "fetch failure") query.emit("error", new Error("fetch failed"));
+            else query.emit("end", { fields: [{ name: "id", dataTypeID: 23 }], rows: scenario === "empty" ? [] : [{ id: 1 }] } as never);
+          });
+          return query;
+        },
+        release() { released += 1; },
+      } as unknown as PoolClient;
+      const adapter = new PostgresAdapter(cfg());
+      (adapter as unknown as { pool: Pool }).pool = { connect: async () => client } as unknown as Pool;
+      const consume = async () => {
+        for await (const batch of adapter.streamQuery("SELECT id FROM orders", { batchSize: 1, signal: controller.signal })) {
+          if (scenario === "empty") assert.deepEqual(batch, { columns: [{ name: "id", dataType: "integer", nullable: true }], rows: [] });
+          if (scenario === "cancelled") controller.abort();
+          else break;
+        }
+      };
+      if (scenario === "declare failure") await assert.rejects(consume, /declaration failed/);
+      else if (scenario === "fetch failure") await assert.rejects(consume, /fetch failed/);
+      else if (scenario === "cancelled") await assert.rejects(consume, /analytical source query cancelled/);
+      else await consume();
+      assert.equal(calls.at(-1), "ROLLBACK");
+      assert.equal(released, 1);
+      assert.equal(calls.filter((sql) => sql.startsWith("FETCH")).length, scenario === "declare failure" ? 0 : 1);
+      await adapter.cancelRunning();
+    });
+  }
+});
+
+test("streamQuery rejects invalid batch sizes before acquiring a connection", async () => {
+  const adapter = new PostgresAdapter(cfg());
+  (adapter as unknown as { pool: Pool }).pool = { connect: () => { assert.fail("invalid stream must not connect"); } } as unknown as Pool;
+  for (const batchSize of [0, -1, 1.5, 10_001, NaN, Infinity]) {
+    await assert.rejects(async () => {
+      for await (const batch of adapter.streamQuery("SELECT 1", { batchSize, signal: new AbortController().signal })) void batch;
+    }, /stream batch size must be between 1 and 10000/);
+  }
+});
+
+test("EXPLAIN releases the client on success and invalid SQL and produces validation diagnostics", async () => {
+  let released = 0;
+  const plan = [{ "QUERY PLAN": [{ Plan: { "Node Type": "Seq Scan" } }] }];
+  const client = {
+    async query(sql: string) {
+      assert.match(sql, /^EXPLAIN \(FORMAT JSON\) /);
+      if (sql.includes("missing_table")) throw Object.assign(new Error('relation "missing_table" does not exist'), { code: "42P01", position: "15" });
+      return { rows: plan };
+    },
+    release() { released += 1; },
+  } as unknown as PoolClient;
+  const adapter = new PostgresAdapter(cfg());
+  (adapter as unknown as { pool: Pool }).pool = { connect: async () => client } as unknown as Pool;
+  const explanation = await adapter.explain("SELECT * FROM orders");
+  assert.equal(explanation.format, "json");
+  assert.deepEqual(JSON.parse(explanation.textual), plan);
+  assert.deepEqual(explanation.raw, plan);
+  assert.deepEqual(await adapter.validateQuery("SELECT * FROM orders"), []);
+  const diagnostics = await adapter.validateQuery("SELECT * FROM missing_table");
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0]?.message ?? "", /missing_table/);
+  assert.equal(released, 3);
 });
 
 test("PostgreSQL metadata helpers preserve filtered relations, overloads, definitions, and bound updates", async () => {

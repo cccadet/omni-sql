@@ -1,11 +1,16 @@
 #!/bin/sh
+set -eu
 release=0
+push=0
 while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+  push=1
   case "$local_ref" in
     refs/tags/v*) release=1 ;;
   esac
 done
-pnpm test:coverage || exit $?
+[ "$push" -eq 0 ] && exit 0
 if [ "$release" -eq 1 ]; then
   exec bash "$(git rev-parse --show-toplevel)/scripts/pre-release.sh"
 fi
+pnpm verify:push

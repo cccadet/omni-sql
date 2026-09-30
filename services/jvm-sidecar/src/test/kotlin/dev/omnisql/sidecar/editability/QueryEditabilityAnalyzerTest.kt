@@ -32,6 +32,31 @@ class QueryEditabilityAnalyzerTest {
     }
 
     @Test
+    fun `day intervals preserve editable table mapping with quoted predicates and multiple bounds`() {
+        for (sql in listOf(
+            "SELECT id FROM users WHERE created_at > CURRENT_TIMESTAMP - interval '1.5 day' AND created_at < CURRENT_TIMESTAMP - INTERVAL '2 days' ORDER BY id;",
+            "SELECT id FROM users WHERE name = 'owner''s interval text' AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 days'",
+        )) {
+            val result = QueryEditabilityAnalyzer.analyze(sql)
+            assertTrue(result.editable, result.reason ?: sql)
+            assertEquals(EditableTable(null, "users"), result.table)
+            assertEquals(listOf(EditableColumn("id")), result.columns)
+        }
+    }
+
+    @Test
+    fun `interval normalization does not make joined or grouped rows editable`() {
+        for (sql in listOf(
+            "SELECT a.id FROM users a JOIN orders b ON a.id = b.user_id WHERE b.created_at > CURRENT_TIMESTAMP - INTERVAL '1 days'",
+            "SELECT id FROM users HAVING count(*) > 1",
+            "SELECT row_number() OVER w FROM users WINDOW w AS (ORDER BY id)",
+            "SELECT 1",
+        )) {
+            assertFalse(QueryEditabilityAnalyzer.analyze(sql).editable, sql)
+        }
+    }
+
+    @Test
     fun `aliased table is still resolved`() {
         val r = QueryEditabilityAnalyzer.analyze("select * from users u")
         assertTrue(r.editable)
