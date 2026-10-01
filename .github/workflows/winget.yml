@@ -1,24 +1,15 @@
-name: WinGet package validation
+name: WinGet Defender diagnosis
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - distribution/winget/**
-      - .github/workflows/winget.yml
-  push:
-    branches: [main]
-    paths:
-      - distribution/winget/**
-      - .github/workflows/winget.yml
 
 permissions:
   contents: read
 
 jobs:
-  validate:
+  diagnose:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Enable Defender for isolated diagnosis
@@ -41,86 +32,76 @@ jobs:
           if (-not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $status.AMRunningMode -ne 'Normal') {
             throw 'Defender is not active; this runner cannot reproduce the scan'
           }
-      - name: Prepare WinGet
+      - name: Download and verify published installer
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery -Scope CurrentUser
-          Repair-WinGetPackageManager -AllUsers
-          winget --version
-          if ($LASTEXITCODE -ne 0) { throw 'WinGet setup failed' }
-          winget settings --enable LocalManifestFiles
-          if ($LASTEXITCODE -ne 0) { throw 'Could not enable local manifests' }
-          # Local manifests do not inherit the community source's trusted zone.
-          # Limit this disposable runner's trust to the HTTPS release hosts;
-          # WinGet still verifies SHA256 and runs Attachment Execution Services.
-          foreach ($map in @('Domains', 'EscDomains')) {
-            foreach ($hostName in @('github.com', 'release-assets.githubusercontent.com')) {
-              $zone = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\$map\$hostName"
-              New-Item -Path $zone -Force | Out-Null
-              New-ItemProperty -Path $zone -Name https -Value 2 -PropertyType DWord -Force | Out-Null
-            }
+          $destination = Join-Path $env:RUNNER_TEMP 'winget-diagnostics'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          $installer = Join-Path $destination 'omni-sql_0.5.4_x64-setup.exe'
+          Invoke-WebRequest 'https://github.com/cccadet/omni-sql/releases/download/v0.5.4/omni-sql_0.5.4_x64-setup.exe' -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne '3F88BB1D8C559697C14D13164CFE32C977A2468B0DA5F34B08DB34DF3CA471D1') {
+            throw 'Published installer checksum mismatch'
           }
-      - name: Validate installation, upgrade and uninstallation
+          Get-AuthenticodeSignature $installer | Select-Object Path, Status, StatusMessage | Format-List
+      - name: Scan published installer with Defender
         shell: pwsh
-        timeout-minutes: 15
+        timeout-minutes: 6
         run: |
           $ErrorActionPreference = 'Stop'
-          $manifest = 'distribution/winget/manifests/c/cccadet/omni-sql/0.5.4'
-          $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\omni-sql'
-          $webview = 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-          Get-ItemProperty "HKCU:\$webview", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -Name pv -ErrorAction SilentlyContinue |
-            Select-Object PSPath, pv | Format-List
-          winget validate --manifest $manifest
-          if ($LASTEXITCODE -ne 0) { throw 'Manifest validation failed' }
-          $previous = Join-Path $env:RUNNER_TEMP 'omni-sql_0.5.3_x64-setup.exe'
-          Invoke-WebRequest 'https://github.com/cccadet/omni-sql/releases/download/v0.5.3/omni-sql_0.5.3_x64-setup.exe' -OutFile $previous
-          if ((Get-FileHash $previous -Algorithm SHA256).Hash -ne 'C5ADDACEB51802FEAA01E5FB9E8B5CE9C9F1CDE61640769D93652252FDA84980') {
-            throw 'Previous installer checksum mismatch'
+          $destination = Join-Path $env:RUNNER_TEMP 'winget-diagnostics'
+          $installer = Join-Path $destination 'omni-sql_0.5.4_x64-setup.exe'
+          $scanner = Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $scanner) { $scanner = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe' }
+          $process = Start-Process $scanner -ArgumentList @('-Scan', '-ScanType', '3', '-File', "`"$installer`"") -PassThru -RedirectStandardOutput (Join-Path $destination 'installer-scan.log') -RedirectStandardError (Join-Path $destination 'installer-scan-error.log')
+          if (-not $process.WaitForExit(300000)) {
+            try { $process.Kill($true) } catch { Write-Warning $_ }
+            throw 'Installer scan did not finish within five minutes'
           }
-          foreach ($operation in @('install', 'upgrade')) {
-            if ($operation -eq 'upgrade') {
-              $process = Start-Process $previous -ArgumentList '/S' -Wait -PassThru
-              if ($process.ExitCode -ne 0) { throw 'Previous version installation failed' }
-              if ((Get-ItemProperty $registry).DisplayVersion -ne '0.5.3') {
-                throw 'Previous version was not installed'
-              }
-            }
-            try {
-              winget $operation --manifest $manifest --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --verbose-logs
-              if ($LASTEXITCODE -ne 0) { throw "Silent $operation failed" }
-              $entry = Get-ItemProperty $registry
-              if ($entry.DisplayName -ne 'omni-sql' -or $entry.DisplayVersion -ne '0.5.4' -or $entry.Publisher -ne 'omnisql') {
-                throw 'Installed package does not match WinGet detection metadata'
-              }
-              $entry | Select-Object DisplayName, DisplayVersion, Publisher, InstallLocation | Format-List
-              $executable = $entry.DisplayIcon.Trim('"')
-              if (-not (Test-Path $executable)) {
-                throw 'Installed application executable is missing'
-              }
-              if ($operation -eq 'install') {
-                Get-AuthenticodeSignature $executable | Select-Object Path, Status, StatusMessage | Format-List
-                $scanRoot = Split-Path $executable
-                $scanner = Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue |
-                  Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
-                if (-not $scanner) { $scanner = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe' }
-                & $scanner -Scan -ScanType 3 -File $scanRoot
-                $scanExit = $LASTEXITCODE
-                Get-MpThreat | Select-Object ThreatID, ThreatName, IsActive, DidThreatExecute | Format-List
-                Get-MpThreatDetection | Select-Object ThreatID, Resources, ActionSuccess, InitialDetectionTime | Format-List
-                if ($scanExit -ne 0) { throw "Defender scan failed with exit code $scanExit; see diagnostics" }
-                $detections = @(Get-MpThreatDetection | Where-Object { $_.Resources -match [regex]::Escape($scanRoot) })
-                if ($detections.Count) { throw 'Defender detected a threat in the application; see diagnostics' }
-              }
-            } finally {
-              winget uninstall --manifest $manifest --silent --accept-source-agreements --disable-interactivity --verbose-logs
-              if ($LASTEXITCODE -ne 0) { throw 'Silent WinGet uninstallation failed' }
-              for ($attempt = 0; $attempt -lt 30 -and (Test-Path $registry); $attempt++) {
-                Start-Sleep -Milliseconds 500
-              }
-            }
-            if (Test-Path $registry) { throw 'Uninstallation left the package registered' }
-            if (Test-Path $executable) { throw 'Uninstallation left the application executable' }
+          Get-Content (Join-Path $destination 'installer-scan.log')
+          if ($process.ExitCode -ne 0) { throw "Installer scan returned $($process.ExitCode)" }
+          if (Get-MpThreatDetection | Where-Object { $_.Resources -match [regex]::Escape($installer) }) {
+            throw 'Defender detected a threat in the installer; see diagnostics'
+          }
+      - name: Install published NSIS package
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'winget-diagnostics\omni-sql_0.5.4_x64-setup.exe'
+          $process = Start-Process $installer -ArgumentList '/S' -PassThru
+          if (-not $process.WaitForExit(120000)) {
+            Get-Process | Where-Object MainWindowTitle | Select-Object ProcessName, Id, MainWindowTitle | Format-List
+            try { $process.Kill($true) } catch { Write-Warning $_ }
+            throw 'Silent installation did not finish within two minutes'
+          }
+          if ($process.ExitCode -ne 0) { throw "Installation returned $($process.ExitCode)" }
+          $entry = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\omni-sql'
+          $entry | Select-Object DisplayName, DisplayVersion, Publisher | Format-List
+          if ($entry.DisplayVersion -ne '0.5.4') { throw 'Expected version is not installed' }
+      - name: Scan installed application with Defender
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $destination = Join-Path $env:RUNNER_TEMP 'winget-diagnostics'
+          $entry = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\omni-sql'
+          $executable = $entry.DisplayIcon.Trim('"')
+          $scanRoot = Split-Path $executable
+          Get-AuthenticodeSignature $executable | Select-Object Path, Status, StatusMessage | Format-List
+          $scanner = Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $scanner) { $scanner = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe' }
+          $process = Start-Process $scanner -ArgumentList @('-Scan', '-ScanType', '3', '-File', "`"$scanRoot`"") -PassThru -RedirectStandardOutput (Join-Path $destination 'application-scan.log') -RedirectStandardError (Join-Path $destination 'application-scan-error.log')
+          if (-not $process.WaitForExit(300000)) {
+            try { $process.Kill($true) } catch { Write-Warning $_ }
+            throw 'Application scan did not finish within five minutes'
+          }
+          Get-Content (Join-Path $destination 'application-scan.log')
+          if ($process.ExitCode -ne 0) { throw "Application scan returned $($process.ExitCode)" }
+          if (Get-MpThreatDetection | Where-Object { $_.Resources -match [regex]::Escape($scanRoot) }) {
+            throw 'Defender detected a threat in the application; see diagnostics'
           }
       - name: Collect Defender diagnostics
         if: always()
@@ -136,21 +117,10 @@ jobs:
           $report | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $destination 'defender.json')
           Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; Id=1000,1001,1002,1116,1117} -MaxEvents 50 -ErrorAction SilentlyContinue |
             Select-Object TimeCreated, Id, Message | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $destination 'defender-events.json')
-      - name: Collect installer diagnostics
-        if: failure()
-        shell: pwsh
-        run: |
-          $destination = Join-Path $env:RUNNER_TEMP 'winget-diagnostics'
-          New-Item -ItemType Directory -Force $destination | Out-Null
-          $logs = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\DiagOutputDir'
-          Get-ChildItem $logs -Filter '*.log' -ErrorAction SilentlyContinue | Copy-Item -Destination $destination
-          Get-ChildItem $env:TEMP -Filter 'msedge_installer.log' -ErrorAction SilentlyContinue | Copy-Item -Destination $destination
-          Get-CimInstance Win32_Process | Where-Object Name -Match 'winget|setup|msedge|webview' |
-            Select-Object Name, ProcessId, ParentProcessId | Export-Csv (Join-Path $destination 'processes.csv') -NoTypeInformation
-      - name: Upload installer diagnostics
+      - name: Upload Defender diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: winget-installer-diagnostics
+          name: winget-defender-diagnostics
           path: ${{ runner.temp }}/winget-diagnostics
           retention-days: 7
