@@ -18,9 +18,29 @@ permissions:
 jobs:
   validate:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Enable Defender for isolated diagnosis
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection'
+          if (Test-Path $policy) {
+            Set-ItemProperty $policy -Name ForceDefenderPassiveMode -Value 0 -Type DWord
+          }
+          Start-Service WinDefend
+          Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -DisableScriptScanning $false -DisableArchiveScanning $false -DisableBlockAtFirstSeen $false -PUAProtection Enabled -MAPSReporting Advanced -ScanAvgCPULoadFactor 50
+          $preferences = Get-MpPreference
+          if ($preferences.ExclusionPath) { Remove-MpPreference -ExclusionPath $preferences.ExclusionPath }
+          if ($preferences.ExclusionProcess) { Remove-MpPreference -ExclusionProcess $preferences.ExclusionProcess }
+          if ($preferences.ExclusionExtension) { Remove-MpPreference -ExclusionExtension $preferences.ExclusionExtension }
+          Update-MpSignature
+          $status = Get-MpComputerStatus
+          $status | Select-Object AMRunningMode, AntivirusEnabled, RealTimeProtectionEnabled, AntivirusSignatureVersion, AntivirusSignatureLastUpdated | Format-List
+          if (-not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $status.AMRunningMode -ne 'Normal') {
+            throw 'Defender is not active; this runner cannot reproduce the scan'
+          }
       - name: Prepare WinGet
         shell: pwsh
         run: |
@@ -43,7 +63,7 @@ jobs:
           }
       - name: Validate installation, upgrade and uninstallation
         shell: pwsh
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: |
           $ErrorActionPreference = 'Stop'
           $manifest = 'distribution/winget/manifests/c/cccadet/omni-sql/0.5.4'
@@ -78,6 +98,20 @@ jobs:
               if (-not (Test-Path $executable)) {
                 throw 'Installed application executable is missing'
               }
+              if ($operation -eq 'install') {
+                Get-AuthenticodeSignature $executable | Select-Object Path, Status, StatusMessage | Format-List
+                $scanRoot = Split-Path $executable
+                $scanner = Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue |
+                  Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+                if (-not $scanner) { $scanner = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe' }
+                & $scanner -Scan -ScanType 3 -File $scanRoot
+                $scanExit = $LASTEXITCODE
+                Get-MpThreat | Select-Object ThreatID, ThreatName, IsActive, DidThreatExecute | Format-List
+                Get-MpThreatDetection | Select-Object ThreatID, Resources, ActionSuccess, InitialDetectionTime | Format-List
+                if ($scanExit -ne 0) { throw "Defender scan failed with exit code $scanExit; see diagnostics" }
+                $detections = @(Get-MpThreatDetection | Where-Object { $_.Resources -match [regex]::Escape($scanRoot) })
+                if ($detections.Count) { throw 'Defender detected a threat in the application; see diagnostics' }
+              }
             } finally {
               winget uninstall --manifest $manifest --silent --accept-source-agreements --disable-interactivity --verbose-logs
               if ($LASTEXITCODE -ne 0) { throw 'Silent WinGet uninstallation failed' }
@@ -88,6 +122,20 @@ jobs:
             if (Test-Path $registry) { throw 'Uninstallation left the package registered' }
             if (Test-Path $executable) { throw 'Uninstallation left the application executable' }
           }
+      - name: Collect Defender diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'winget-diagnostics'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          $report = @{
+            Status = Get-MpComputerStatus | Select-Object AMRunningMode, AntivirusEnabled, RealTimeProtectionEnabled, AntivirusSignatureVersion, AntivirusSignatureLastUpdated
+            Threats = @(Get-MpThreat | Select-Object ThreatID, ThreatName, IsActive, DidThreatExecute)
+            Detections = @(Get-MpThreatDetection | Select-Object ThreatID, Resources, ActionSuccess, InitialDetectionTime)
+          }
+          $report | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $destination 'defender.json')
+          Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; Id=1000,1001,1002,1116,1117} -MaxEvents 50 -ErrorAction SilentlyContinue |
+            Select-Object TimeCreated, Id, Message | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $destination 'defender-events.json')
       - name: Collect installer diagnostics
         if: failure()
         shell: pwsh
@@ -100,7 +148,7 @@ jobs:
           Get-CimInstance Win32_Process | Where-Object Name -Match 'winget|setup|msedge|webview' |
             Select-Object Name, ProcessId, ParentProcessId | Export-Csv (Join-Path $destination 'processes.csv') -NoTypeInformation
       - name: Upload installer diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: winget-installer-diagnostics
