@@ -7,7 +7,6 @@ UpgradeBehavior: install
 ProductCode: omni-sql
 AppsAndFeaturesEntries:
   - DisplayName: omni-sql
-    DisplayVersion: 0.5.4
     Publisher: omnisql
 Installers:
   - Architecture: x64
