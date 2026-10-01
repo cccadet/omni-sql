@@ -46,23 +46,23 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference = 'Stop'
-          $manifest = 'distribution/winget/manifests/c/cccadet/omni-sql/0.5.2'
+          $manifest = 'distribution/winget/manifests/c/cccadet/omni-sql/0.5.4'
           $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\omni-sql'
           $webview = 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
           Get-ItemProperty "HKCU:\$webview", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -Name pv -ErrorAction SilentlyContinue |
             Select-Object PSPath, pv | Format-List
           winget validate --manifest $manifest
           if ($LASTEXITCODE -ne 0) { throw 'Manifest validation failed' }
-          $previous = Join-Path $env:RUNNER_TEMP 'omni-sql_0.5.1_x64-setup.exe'
-          Invoke-WebRequest 'https://github.com/cccadet/omni-sql/releases/download/v0.5.1/omni-sql_0.5.1_x64-setup.exe' -OutFile $previous
-          if ((Get-FileHash $previous -Algorithm SHA256).Hash -ne '9A3ACA712DE0FB7424163A0ABBECFFA2B118CEB208A2E8FCA0A68F19A4AFA5B8') {
+          $previous = Join-Path $env:RUNNER_TEMP 'omni-sql_0.5.3_x64-setup.exe'
+          Invoke-WebRequest 'https://github.com/cccadet/omni-sql/releases/download/v0.5.3/omni-sql_0.5.3_x64-setup.exe' -OutFile $previous
+          if ((Get-FileHash $previous -Algorithm SHA256).Hash -ne 'C5ADDACEB51802FEAA01E5FB9E8B5CE9C9F1CDE61640769D93652252FDA84980') {
             throw 'Previous installer checksum mismatch'
           }
           foreach ($operation in @('install', 'upgrade')) {
             if ($operation -eq 'upgrade') {
               $process = Start-Process $previous -ArgumentList '/S' -Wait -PassThru
               if ($process.ExitCode -ne 0) { throw 'Previous version installation failed' }
-              if ((Get-ItemProperty $registry).DisplayVersion -ne '0.5.1') {
+              if ((Get-ItemProperty $registry).DisplayVersion -ne '0.5.3') {
                 throw 'Previous version was not installed'
               }
             }
@@ -70,23 +70,23 @@ jobs:
               winget $operation --manifest $manifest --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --verbose-logs
               if ($LASTEXITCODE -ne 0) { throw "Silent $operation failed" }
               $entry = Get-ItemProperty $registry
-              if ($entry.DisplayName -ne 'omni-sql' -or $entry.DisplayVersion -ne '0.5.2' -or $entry.Publisher -ne 'omnisql') {
+              if ($entry.DisplayName -ne 'omni-sql' -or $entry.DisplayVersion -ne '0.5.4' -or $entry.Publisher -ne 'omnisql') {
                 throw 'Installed package does not match WinGet detection metadata'
               }
               $entry | Select-Object DisplayName, DisplayVersion, Publisher, InstallLocation | Format-List
-              if (-not (Test-Path $entry.DisplayIcon.Trim('"'))) {
+              $executable = $entry.DisplayIcon.Trim('"')
+              if (-not (Test-Path $executable)) {
                 throw 'Installed application executable is missing'
               }
             } finally {
-              # v0.5.2 lacks QuietUninstallString; preflight checks the fixed bundle with WinGet.
-              $uninstaller = (Get-ItemProperty $registry).UninstallString.Trim('"')
-              $process = Start-Process $uninstaller -ArgumentList '/S' -Wait -PassThru
-              if ($process.ExitCode -ne 0) { throw 'Silent NSIS uninstallation failed' }
+              winget uninstall --manifest $manifest --silent --accept-source-agreements --disable-interactivity --verbose-logs
+              if ($LASTEXITCODE -ne 0) { throw 'Silent WinGet uninstallation failed' }
               for ($attempt = 0; $attempt -lt 30 -and (Test-Path $registry); $attempt++) {
                 Start-Sleep -Milliseconds 500
               }
             }
             if (Test-Path $registry) { throw 'Uninstallation left the package registered' }
+            if (Test-Path $executable) { throw 'Uninstallation left the application executable' }
           }
       - name: Collect installer diagnostics
         if: failure()
