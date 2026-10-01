@@ -306,6 +306,9 @@ importers:
       '@omni-sql/metadata-cache':
         specifier: workspace:*
         version: link:../metadata-cache
+      '@omni-sql/mcp-server':
+        specifier: workspace:*
+        version: link:../mcp-server
       '@omni-sql/ts-types':
         specifier: workspace:*
         version: link:../ts-types

@@ -112,6 +112,31 @@ interface Session {
 
 const sessions = new Map<string, Session>();
 
+const activeQueries = new Set<string>();
+
+async function runCancellableQuery(session: Session, sql: string, limit: number, signal?: AbortSignal): Promise<RunQueryResult> {
+  const id = session.config.id;
+  if (activeQueries.has(id)) throw new RpcValidationError("A query is already running on this connection");
+  activeQueries.add(id);
+  let started = false;
+  let cancellation: Promise<void> | undefined;
+  const cancel = (): void => {
+    if (started) cancellation ??= session.adapter.cancelRunning?.().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    signal?.throwIfAborted();
+    await session.adapter.connect();
+    signal?.throwIfAborted();
+    started = true;
+    return await session.adapter.runQuery(sql, limit);
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    await cancellation;
+    activeQueries.delete(id);
+  }
+}
+
 const DEFAULT_QUERY_LIMIT = 1_000;
 const MAX_QUERY_LIMIT = 10_000;
 const RELEASES_URL = "https://api.github.com/repos/cccadet/omni-sql/releases/latest";
@@ -843,14 +868,13 @@ export const handlers: BackendRpcRouter = {
     }
   },
 
-  async "query.run"({ connectionId, sql, limit, executionRiskAccepted }: RunQueryParams): Promise<RunQueryResult> {
+  async "query.run"({ connectionId, sql, limit, executionRiskAccepted }: RunQueryParams, signal?: AbortSignal): Promise<RunQueryResult> {
     await connectionsRestored;
     const s = requireSession(connectionId);
     assertExecutionRiskAccepted(sql, s.config.dialect, executionRiskAccepted);
-    await s.adapter.connect();
     let result: RunQueryResult;
     try {
-      result = await s.adapter.runQuery(sql, normalizeQueryLimit(limit));
+      result = await runCancellableQuery(s, sql, normalizeQueryLimit(limit), signal);
     } catch (error) {
       if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
       if (s.config.dialect === "postgres") throw safePostgresDatabaseError(error) ?? error;

@@ -198,7 +198,7 @@ test("HTTP startup binds valid ephemeral listeners and rejects absent token", as
   }
 });
 
-test("advertises exactly seven approved tools", async () => {
+test("advertises exactly eight approved tools", async () => {
   const expectedTools = [
     "getActiveSql",
     "getActiveConnectionContext",
@@ -207,6 +207,7 @@ test("advertises exactly seven approved tools", async () => {
     "explainSql",
     "getLatestSqlExecutionError",
     "proposeSqlEdit",
+    "executeSql",
   ];
   const client = new BackendMcpClient(
     { endpoint: "http://127.0.0.1:41920", token: "test-token", pid: 1234, startNonce: "run-1" },
@@ -782,4 +783,36 @@ test("graceful HTTP close disposes listener and MCP sessions", async () => {
   await initializeSession(port);
   await closeStreamableHttpServer(server);
   assert.equal(server.listening, false);
+});
+
+test("HTTP host and origin allowlists restrict ingress and allow the configured tunnel", async () => {
+  const client = new BackendMcpClient(descriptor, { fetchImpl: async () => new Response("{}") });
+  const server = createStreamableHttpServer(client, { httpToken, allowedHosts: ["127.0.0.1:0", "tunnel.example"], allowedOrigins: ["https://tunnel.example"] });
+  const port = await listen(server);
+  try {
+    const headers = { authorization: `Bearer ${httpToken}`, "content-type": "application/json" };
+    const badHost = await rawPost(port, "/mcp", { ...headers, host: "evil.example" }, "{}");
+    assert.equal(badHost.status, 403);
+    const badOrigin = await rawPost(port, "/mcp", { ...headers, origin: "https://evil.example" }, "{}");
+    assert.equal(badOrigin.status, 403);
+    const sessionId = await initializeSession(port, httpToken, { host: "tunnel.example", origin: "https://tunnel.example" });
+    assert.ok(sessionId);
+  } finally { await closeStreamableHttpServer(server); }
+});
+
+test("CLI startup failures produce a diagnostic and a failing exit code", async (t) => {
+  const previousArgs = process.argv;
+  const previousExitCode = process.exitCode;
+  const diagnostic = t.mock.method(process.stderr, "write", () => true);
+  try {
+    process.argv = [process.execPath, new URL("./cli.ts", import.meta.url).pathname];
+    await import("./cli.ts");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(process.exitCode, 1);
+    assert.match(String(diagnostic.mock.calls[0]?.arguments[0]), /\[omni-sql-mcp\] runtime descriptor path is required/);
+  } finally {
+    process.argv = previousArgs;
+    process.exitCode = previousExitCode;
+    diagnostic.mock.restore();
+  }
 });

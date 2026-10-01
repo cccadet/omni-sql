@@ -34,6 +34,7 @@ export const mcpToolNames = [
   "explainSql",
   "getLatestSqlExecutionError",
   "proposeSqlEdit",
+  "executeSql",
 ] as const satisfies readonly McpToolName[];
 
 export type { McpToolName } from "@omni-sql/ts-types";
@@ -255,7 +256,7 @@ export class BackendMcpClient {
 
   private readonly timeoutMs: number;
 
-  async call<T>(tool: McpToolName, args: Record<string, unknown>): Promise<T> {
+  async call<T>(tool: McpToolName, args: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
     if (!mcpToolNames.includes(tool)) throw new Error("unsupported MCP tool");
     const body = { tool, args } as BackendToolRequest;
     const serialized = JSON.stringify(body);
@@ -264,6 +265,9 @@ export class BackendMcpClient {
     }
 
     const controller = new AbortController();
+    const onAbort = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const response = await this.fetchImpl(this.url, {
@@ -287,6 +291,7 @@ export class BackendMcpClient {
       throw new BackendClientError({ code: "unavailable", message: "backend is unavailable" });
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
     }
   }
 }

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Tab, TabList, Text, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Textarea, Tab, TabList, Text, tokens } from "@fluentui/react-components";
 import { ArrowClockwiseRegular, ChevronDownRegular, ChevronUpRegular, CopyRegular, PlugConnectedRegular } from "@fluentui/react-icons";
 import { invoke } from "@tauri-apps/api/core";
-import type { McpHistoryEntry, McpHistoryResult, McpStatusResult } from "@omni-sql/ts-types";
+import type { McpHttpStatus, McpHistoryEntry, McpHistoryResult, McpStatusResult } from "@omni-sql/ts-types";
 import { backend } from "../lib/backend";
 import { useLanguage } from "../i18n";
 import type { McpVisualState } from "./StatusBar";
@@ -26,6 +26,12 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
   const [section, setSection] = useState<"configuration" | "activity">("configuration");
   const [client, setClient] = useState<"copilot" | "stdio" | "http">("copilot");
   const [config, setConfig] = useState<McpLauncherConfig | null>(null);
+  const [http, setHttp] = useState<McpHttpStatus>({ endpoint: null, sessions: 0 });
+  const [httpToken, setHttpToken] = useState("");
+  const [httpPort, setHttpPort] = useState("41922");
+  const [httpOrigins, setHttpOrigins] = useState("");
+  const [httpBusy, setHttpBusy] = useState(false);
+  const [httpError, setHttpError] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
   const [history, setHistory] = useState<readonly McpHistoryEntry[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -33,8 +39,20 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const label = state === "connected" ? t("mcpConnected") : state === "error" ? t("mcpError") : state === "listening" ? t("mcpListening") : t("mcpInactive");
   const color = state === "connected" ? tokens.colorPaletteGreenForeground1 : state === "error" ? tokens.colorPaletteRedForeground1 : state === "listening" ? tokens.colorPaletteYellowForeground1 : tokens.colorNeutralForeground2;
-  const connected = state === "connected" || status?.uiConnected === true;
-  const endpoint = safeHttpEndpoint(config?.endpoint);
+  const endpoint = safeHttpEndpoint(http.endpoint);
+  const refreshHttp = () => backend.call<McpHttpStatus>("mcp.http.status", undefined).then((value) => setHttp({ endpoint: value.endpoint ?? null, sessions: value.sessions ?? 0 })).catch((reason: unknown) => setHttpError(reason instanceof Error ? reason.message : String(reason)));
+  const changeHttp = async () => {
+    setHttpBusy(true);
+    setHttpError(null);
+    try {
+      const result = endpoint
+        ? await backend.call<McpHttpStatus>("mcp.http.stop", undefined)
+        : await backend.call<McpHttpStatus>("mcp.http.start", { token: httpToken, port: Number(httpPort), allowedOrigins: httpOrigins.split(/\r?\n/u).map((item) => item.trim()).filter(Boolean) });
+      setHttp(result);
+      setHttpToken("");
+    } catch (reason) { setHttpError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setHttpBusy(false); }
+  };
 
   const loadHistory = () => {
     setHistoryError(null);
@@ -53,9 +71,14 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
     setHistory(null);
     setHistoryError(null);
     setExpanded(new Set());
+    setHttpToken("");
+    setHttpError(null);
+    void refreshHttp();
+    const timer = window.setInterval(() => void refreshHttp(), 5_000);
     void invoke<McpLauncherConfig>("get_mcp_launcher_config")
-      .then((value) => { setConfig(value); setClient(safeHttpEndpoint(value.endpoint) ? "http" : "copilot"); })
+      .then((value) => { setConfig(value); setClient("copilot"); })
       .catch((reason: unknown) => setConfigError(reason instanceof Error ? reason.message : String(reason)));
+    return () => { window.clearInterval(timer); };
   }, [open]);
 
   const selectSection = (value: "configuration" | "activity") => {
@@ -74,7 +97,7 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
               <div className="omni-mcp-summary-copy">
                 <Text weight="semibold" style={{ color }}>{label}</Text>
                 <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                  {connected ? `${t("mcpActiveClient")} · ${t("mcpQueue")}: ${status?.queueSize ?? 0}` : t("mcpNoClient")}
+                  {status?.uiConnected ? t("mcpUiReady") : t("mcpInactive")} · {t("mcpQueue")}: {status?.queueSize ?? 0} · {t("mcpInFlight")}: {status?.inFlight ?? 0} · {t("mcpHttpSessions")}: {http.sessions}
                 </Text>
               </div>
               <span className="omni-mcp-status-dot" style={{ background: color }} />
@@ -96,12 +119,21 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
                 {config ? (
                   <>
                     <TabList size="small" selectedValue={client} onTabSelect={(_, data) => setClient(data.value as typeof client)} aria-label={t("configureClient")}>
-                      {!endpoint && <Tab value="copilot">{t("mcpCopilotVsCodeConfig")}</Tab>}
-                      {endpoint && <Tab value="http">HTTP</Tab>}
+                      <Tab value="copilot">{t("mcpCopilotVsCodeConfig")}</Tab>
+                      <Tab value="http">HTTP</Tab>
                       <Tab value="stdio">{t("mcpStdioTab")}</Tab>
                     </TabList>
                     {client === "copilot" && <McpValue value={createCopilotVsCodeMcpConfig(config)} copyLabel={t("copyCopilotVsCodeConfig")} copiedLabel={t("copied")} multiline help={t("mcpCopilotVsCodeHelp")} />}
-                    {client === "http" && endpoint && <McpValue label={t("mcpHttpEndpoint")} value={endpoint} copyLabel={t("copyEndpoint")} copiedLabel={t("copied")} />}
+                    {client === "http" && <div className="omni-mcp-section">
+                      <Text>{t("mcpHttpHelp")}</Text>
+                      {endpoint ? <McpValue label={t("mcpHttpEndpoint")} value={endpoint} copyLabel={t("copyEndpoint")} copiedLabel={t("copied")} /> : <>
+                        <Field label={t("mcpHttpToken")}><Input type="password" autoComplete="new-password" value={httpToken} onChange={(_, data) => setHttpToken(data.value)} /></Field>
+                        <Field label={t("mcpHttpPort")}><Input type="number" min={1} max={65535} value={httpPort} onChange={(_, data) => setHttpPort(data.value)} /></Field>
+                        <Field label={t("mcpHttpOrigins")}><Textarea value={httpOrigins} onChange={(_, data) => setHttpOrigins(data.value)} /></Field>
+                      </>}
+                      {httpError && <Text role="alert">{httpError}</Text>}
+                      <Button onClick={() => void changeHttp()} disabled={httpBusy || (!endpoint && (httpToken.length < 16 || !Number.isInteger(Number(httpPort)) || Number(httpPort) < 1 || Number(httpPort) > 65535))}>{t(endpoint ? "mcpHttpStop" : "mcpHttpStart")}</Button>
+                    </div>}
                     {client === "stdio" && <div className="omni-mcp-stdio-list">
                       <McpValue label={t("mcpCommand")} value={config.command} copyLabel={t("copyCommand")} copiedLabel={t("copied")} />
                       {config.args.map((argument, index) => <McpValue key={`${index}-${argument}`} label={`${t("mcpArgument")} ${index + 1}`} value={argument} copyLabel={`${t("copyArgument")} ${index + 1}`} copiedLabel={t("copied")} />)}
@@ -144,8 +176,9 @@ function HistoryEntry({ entry, expanded, onToggle }: { entry: McpHistoryEntry; e
   const statusColor = entry.status === "completed" ? tokens.colorPaletteGreenForeground1 : entry.status === "error" ? tokens.colorPaletteRedForeground1 : tokens.colorPaletteYellowForeground1;
   return <article className="omni-mcp-history-item">
     <div className="omni-mcp-history-heading"><Text size={200} className="omni-mcp-history-time">{new Date(entry.receivedAt).toLocaleTimeString()}</Text><Text weight="semibold" className="omni-mcp-history-tool">{entry.tool}</Text><Text size={200} style={{ color: statusColor }}>{statusLabel}</Text></div>
-    <Text size={200} className="omni-mcp-history-rationale">{entry.rationale}</Text>
-    <button type="button" className="omni-mcp-sql-toggle" onClick={onToggle} aria-expanded={expanded}>{expanded ? <ChevronUpRegular /> : <ChevronDownRegular />} {expanded ? t("mcpHideSql") : t("mcpShowSql")}</button>
+    {entry.completedAt !== undefined && <Text size={200}>{entry.completedAt - entry.receivedAt} ms</Text>}
+    {entry.rationale && <Text size={200} className="omni-mcp-history-rationale">{entry.rationale}</Text>}
+    {entry.sql && <button type="button" className="omni-mcp-sql-toggle" onClick={onToggle} aria-expanded={expanded}>{expanded ? <ChevronUpRegular /> : <ChevronDownRegular />} {expanded ? t("mcpHideSql") : t("mcpShowSql")}</button>}
     {expanded && <pre className="omni-mcp-history-sql">{entry.sql}</pre>}
     {entry.errorMessage && <Text size={200} style={{ color: tokens.colorPaletteRedForeground1, overflowWrap: "anywhere" }}>{entry.errorMessage}</Text>}
   </article>;
@@ -163,4 +196,4 @@ function McpValue({ label, value, copyLabel, copiedLabel, multiline, help }: { l
   </div>;
 }
 
-function safeHttpEndpoint(value?: string): string | null { if (!value) return null; try { const url = new URL(value); return /^https?:$/.test(url.protocol) && !url.username && !url.password ? `${url.origin}${url.pathname || "/"}` : null; } catch { return null; } }
+function safeHttpEndpoint(value?: string | null): string | null { if (!value) return null; try { const url = new URL(value); return /^https?:$/.test(url.protocol) && !url.username && !url.password ? `${url.origin}${url.pathname || "/"}` : null; } catch { return null; } }

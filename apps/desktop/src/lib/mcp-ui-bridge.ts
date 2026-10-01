@@ -4,7 +4,9 @@ import type {
   McpErrorCode,
   McpStatusResult,
   McpToolResultByName,
+  McpToolArgsByName,
 } from "@omni-sql/ts-types";
+import { MCP_DEFAULT_QUERY_LIMIT, MCP_MAX_ERROR_MESSAGE_BYTES } from "@omni-sql/ts-types";
 import { backend } from "./backend";
 
 const POLL_WAIT_MS = 25_000;
@@ -39,10 +41,11 @@ type SchemaSummary = McpToolResultByName["getSchemaSummary"];
 
 export interface McpUiBridgeHandlers {
   readState: () => McpUiState;
-  getSchemaSummary: (connectionId: string) => Promise<SchemaSummary>;
+  getSchemaSummary: (connectionId: string, args?: McpToolArgsByName["getSchemaSummary"]) => Promise<SchemaSummary>;
   getTableIndexes: (connectionId: string, schema: string, table: string) => Promise<McpToolResultByName["getTableIndexes"]>;
   explainSql: (connectionId: string, sql: string) => Promise<McpToolResultByName["explainSql"]>;
   proposeEdit: (args: { sql: string; rationale: string; tabId: string; originalSql: string; expiresAt?: number }) => Promise<"approved" | "rejected" | "stale">;
+  approveExecution: (args: { sql: string; limit: number; tabId: string; connectionId: string; connectionLabel: string; expiresAt: number }) => Promise<"approved" | "rejected" | "stale">;
   onStatus: (status: McpStatusResult | null, error?: string) => void;
 }
 
@@ -91,7 +94,7 @@ export class McpUiBridge {
           signal,
         );
         if (signal.aborted || !this.running) return;
-        if (request) await this.respond(request, signal);
+        if (request) void this.respond(request, signal).catch(() => { /* expired or cancelled requests may no longer accept a response */ });
         await this.refreshStatus(signal);
       } catch (error) {
         if (signal.aborted || !this.running) return;
@@ -122,7 +125,9 @@ export class McpUiBridge {
     } catch (error) {
       if (signal.aborted) return;
       const code: McpErrorCode = error instanceof McpUiError ? error.code : "rejected";
-      const message = error instanceof Error ? error.message : String(error);
+      let message = error instanceof Error ? error.message : String(error);
+      while (new TextEncoder().encode(message).byteLength > MCP_MAX_ERROR_MESSAGE_BYTES) message = message.slice(0, -1);
+      message ||= "MCP request failed";
       await backend.call("mcp.ui.respond", {
         listenerId: this.listenerId,
         id: request.id,
@@ -133,6 +138,7 @@ export class McpUiBridge {
   }
 
   async handleRequest(request: McpBridgeRequest): Promise<unknown> {
+    if (request.expiresAt <= Date.now() + PROPOSAL_SAFETY_WINDOW_MS) throw new McpUiError("timeout", "MCP request expired");
     const state = this.handlers.readState();
     switch (request.tool) {
       case "getActiveSql": {
@@ -148,7 +154,7 @@ export class McpUiBridge {
       case "getSchemaSummary": {
         const connectionId = state.activeConnection?.id;
         if (!connectionId) throw new McpUiError("unavailable", "No database connection is active");
-        const result = await this.handlers.getSchemaSummary(connectionId);
+        const result = await this.handlers.getSchemaSummary(connectionId, request.args);
         if (this.handlers.readState().activeConnection?.id !== connectionId) {
           throw new McpUiError("stale", "Active connection changed while reading schema");
         }
@@ -174,6 +180,17 @@ export class McpUiBridge {
       }
       case "getLatestSqlExecutionError":
         return { error: state.activeTab?.latestSqlExecutionError ?? null } satisfies McpToolResultByName["getLatestSqlExecutionError"];
+      case "executeSql": {
+        const connection = state.activeConnection;
+        const tab = state.activeTab;
+        if (!connection || !tab) throw new McpUiError("unavailable", "No connected SQL tab is active");
+        const outcome = await this.handlers.approveExecution({ sql: request.args.sql, limit: request.args.limit ?? MCP_DEFAULT_QUERY_LIMIT, tabId: tab.id, connectionId: connection.id, connectionLabel: connection.label, expiresAt: request.expiresAt });
+        if (outcome !== "approved") throw new McpUiError(outcome === "stale" ? "stale" : "rejected", "SQL execution was not approved");
+        const current = this.handlers.readState();
+        if (current.activeConnection?.id !== connection.id || current.activeTab?.id !== tab.id) throw new McpUiError("stale", "Active tab or connection changed before execution");
+        if (request.expiresAt <= Date.now() + PROPOSAL_SAFETY_WINDOW_MS) throw new McpUiError("timeout", "SQL execution request expired");
+        return backend.call<McpToolResultByName["executeSql"]>("mcp.ui.execute", { id: request.id, listenerId: this.listenerId, connectionId: connection.id });
+      }
       case "proposeSqlEdit": {
         if (!state.activeTab) throw new McpUiError("unavailable", "No SQL tab is active");
         const originalSql = state.editor?.getAllText() ?? state.activeTab.sql;

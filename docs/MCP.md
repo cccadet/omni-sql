@@ -6,21 +6,27 @@ por padrão. Streamable HTTP é opt-in e escuta apenas em loopback.
 
 ## Capacidades e limites
 
-As sete ferramentas expostas são:
+As oito ferramentas expostas são:
 
 1. `getActiveSql`: lê SQL e dialeto da conexão da aba ativa; o dialeto é
    `null` quando a aba não tem conexão.
 2. `getActiveConnectionContext`: retorna contexto seguro da conexão ativa,
    sem senha ou credenciais.
 3. `getSchemaSummary`: retorna schemas, relações e colunas da conexão ativa.
+   Aceita `schema`, `table`, `offset` e `limit` (até 100 relações; padrão 50).
+   Quando há mais relações, retorna `nextOffset` para a próxima página.
 4. `getTableIndexes`: retorna os índices de uma tabela da conexão ativa.
 5. `explainSql`: gera um plano sem executar a query, usando a conexão ativa.
 6. `getLatestSqlExecutionError`: retorna último erro de execução da aba ativa.
 7. `proposeSqlEdit`: apresenta proposta de edição para aprovação explícita no
    desktop; rejeita estado obsoleto.
+8. `executeSql`: executa o SQL somente depois de aprovação explícita no desktop,
+   mostrando a conexão e o SQL. Aceita `sql` e `limit` (padrão 100; máximo 1.000).
+   Retorna colunas, linhas, tempo, quantidade afetada quando disponível e
+   `truncated`/`rowsMoreAvailable`. A resposta SQL é limitada a 256 KiB.
 
-Não há ferramenta para executar SQL, ler conexões arbitrárias, acessar senhas,
-tokens, strings de conexão, arquivos, shell ou processos. SQL, nomes de schema,
+Não há ferramentas dedicadas a ler conexões arbitrárias, credenciais da
+configuração do IDE, descritores, arquivos, shell ou processos. SQL, nomes de schema,
 metadados e resultados permitidos retornados pelas ferramentas ficam visíveis ao
 cliente MCP local conectado; use a integração somente quando essa exposição for
 aceitável.
@@ -32,7 +38,33 @@ cole seu conteúdo.
 
 ## Streamable HTTP e Secure MCP Tunnel
 
-Para habilitar:
+No desktop, abra **MCP > Configuração > HTTP**, informe um token separado de
+pelo menos 16 caracteres e a porta (padrão 41922), e clique em **Iniciar HTTP**.
+Configure o cliente com o endpoint exibido e o header `Authorization: Bearer`
+usando esse token. O token não é persistido nem incluído nas configurações
+copiadas. **Parar HTTP** encerra as sessões; fechar o Omni SQL encerra o listener.
+
+O endpoint MCP público local é `http://127.0.0.1:41922/mcp` na porta padrão.
+`http://127.0.0.1:41920/mcp` é a ponte interna e não aceita o protocolo MCP.
+Para um tunnel, informe sua origem HTTPS na lista de origens permitidas; o
+host correspondente também será aceito. Sem configuração, o listener gerenciado
+pelo desktop aceita hosts locais e não aceita requests com `Origin` externo.
+
+O painel distingue disponibilidade do desktop, pedidos em andamento e sessões
+HTTP. O indicador **MCP em atividade** significa atividade, não prova que um
+cliente STDIO continua conectado. O histórico registra todas as ferramentas,
+tempo e resultado; não guarda as linhas retornadas. Uma aprovação pendente não
+bloqueia as ferramentas de leitura.
+
+`executeSql` pode modificar dados e estrutura. A aprovação está vinculada ao
+pedido e à conexão, não pode ser repetida e expira junto com o pedido (120 s).
+Rejeição, troca de aba/conexão antes da aprovação e pedidos já cancelados não
+iniciam SQL. Notificações MCP de cancelamento e timeout são propagados ao
+adapter quando ele suporta cancelamento. Cancelar não desfaz comandos já
+confirmados no banco. Objetos e valores bigint em células são convertidos para
+texto JSON/string para o transporte.
+
+O launcher separado também continua disponível. Para habilitar:
 
 ```bash
 OMNI_SQL_MCP_HTTP_TOKEN='<segredo separado>' \
@@ -49,8 +81,9 @@ nunca expor segredo. Encaminhar para `http://127.0.0.1:41922/mcp` preservando
 métodos `POST`, `GET`, `DELETE`, headers `Mcp-Session-Id`,
 `Mcp-Protocol-Version`, `Last-Event-ID`, `Accept` e `Content-Type`, além de
 SSE/chunked streaming sem buffering ou reescrita. Não adicionar OAuth aqui;
-tunnel possui HTTPS/auth pública. Headers `Host`/`Origin` encaminhados podem ser
-do domínio público do tunnel; listener valida apenas formato e exige bearer.
+tunnel possui HTTPS/auth pública. No launcher separado, headers `Host`/`Origin` encaminhados são validados pelo
+formato. No listener gerenciado pelo desktop, os domínios encaminhados precisam
+estar na lista configurada. Ambos exigem bearer.
 
 ## Inicialização e launcher real
 
@@ -166,7 +199,7 @@ Além do comando acima, valide manualmente:
 1. Inicie Omni SQL, abra uma aba SQL conectada e confirme que **MCP** aparece
    como pronto na barra de status.
 2. Inicie o launcher STDIO com o `command` e os `args` copiados da UI.
-3. Liste as sete ferramentas e chame `getActiveSql`; confira SQL e dialeto.
+3. Liste as oito ferramentas e chame `getActiveSql`; confira SQL e dialeto.
 4. Chame `proposeSqlEdit` com `sql` e `rationale`. O desktop deve mostrar a
    comparação antes/depois sem alterar a aba automaticamente.
 5. Aplique ou rejeite no desktop e confira o retorno `approved` no cliente MCP.

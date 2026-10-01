@@ -393,8 +393,8 @@ interface SqlToken {
 /**
  * Adds a server-side cap only where appending PostgreSQL `LIMIT` is safe.
  *
- * This deliberately conservative lexer ignores strings, quoted identifiers,
- * comments, and dollar-quoted bodies. It is not a SQL parser: unsupported or
+ * This deliberately conservative lexer treats quoted values as opaque tokens
+ * and ignores comments. It is not a SQL parser: unsupported or
  * ambiguous statements stay unchanged rather than risking DML semantics.
  */
 export function applyServerRowCap(sql: string, limit: number): string {
@@ -465,6 +465,7 @@ function tokenizeSql(sql: string): SqlToken[] | null {
       continue;
     }
     if (char === "'" || char === '"') {
+      const start = i;
       const quote = char;
       i += 1;
       let closed = false;
@@ -484,6 +485,7 @@ function tokenizeSql(sql: string): SqlToken[] | null {
         }
       }
       if (!closed) return null;
+      tokens.push({ kind: "symbol", value: "", start, end: i, depth });
       continue;
     }
     if (char === "$") {
@@ -492,6 +494,7 @@ function tokenizeSql(sql: string): SqlToken[] | null {
         const bodyStart = i + delimiter.length;
         const bodyEnd = sql.indexOf(delimiter, bodyStart);
         if (bodyEnd < 0) return null;
+        tokens.push({ kind: "symbol", value: "", start: i, end: bodyEnd + delimiter.length, depth });
         i = bodyEnd + delimiter.length;
         continue;
       }
