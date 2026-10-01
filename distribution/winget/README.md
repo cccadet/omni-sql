@@ -1,9 +1,7 @@
 # WinGet distribution
 
-Package identifier: `cccadet.omni-sql`. Draft manifests currently target the published
-`v0.5.2` Windows x64 NSIS installer, installed for the current user. This version
-lacks `QuietUninstallString`; retarget to the release containing the installer
-fix (planned `v0.5.4`) before submitting to Microsoft.
+Package identifier: `cccadet.omni-sql`. Manifests target the published `v0.5.4`
+Windows x64 NSIS installer, installed for the current user.
 The existing NSIS installer provisions WebView2 when the runtime is missing.
 
 Keeping these manifests in this repository does not publish the package to
@@ -14,11 +12,10 @@ The downloaded installer SHA256 was verified against the release's `SHA256SUMS`.
 The YAML files use Microsoft's 1.10 manifest schemas, supported by the Windows
 runner's WinGet 1.11 client; no fields require a newer schema. The
 `WinGet package validation` workflow checks the actual Windows client, silent
-installation, Add/Remove Programs detection, upgrade from `v0.5.1` and silent
-NSIS uninstallation. Windows preflight checks the newly built installer and
-silent removal through WinGet. After the fixed release is published, retarget
-the manifests and use WinGet for removal in the package workflow too. A successful
-run against that release is required before submission. This
+installation, Add/Remove Programs detection, upgrade from `v0.5.3` and silent
+uninstallation through WinGet. Windows preflight also checks the newly built
+installer and silent removal through WinGet. A successful run against the
+published release is required before submission. This
 checks packaging, not application UI or database query behavior.
 
 The disposable Windows runner trusts the HTTPS GitHub release hosts for this
@@ -35,9 +32,9 @@ MIT license. Do not change the installed publisher without checking upgrades.
 
 1. Run the Windows validation workflow and merge the approved Omni SQL PR into
    `main` before submitting to Microsoft's repository.
-2. Copy `manifests/c/cccadet/omni-sql/0.5.2/` into a fork of
+2. Copy `manifests/c/cccadet/omni-sql/0.5.4/` into a fork of
    [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs).
-3. Open a PR titled `New package: cccadet.omni-sql version 0.5.2`.
+3. Open a PR titled `New package: cccadet.omni-sql version 0.5.4`.
 4. Address Microsoft's validation/review findings; after merge, verify
    `winget show --id cccadet.omni-sql --exact --source winget`.
 
