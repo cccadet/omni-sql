@@ -28,11 +28,11 @@ import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } 
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationColumn, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
-import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
+import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type McpToolArgsByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
-import { makeListenerId, McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
+import { McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
 import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import { s3Buckets } from "./lib/s3-buckets";
@@ -288,7 +288,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [mcpStarted, setMcpStarted] = useState(false);
   const [mcpProposal, setMcpProposal] = useState<McpEditProposal | null>(null);
   const mcpProposalResolverRef = useRef<((outcome: "approved" | "rejected" | "stale") => void) | null>(null);
-  const mcpListenerIdRef = useRef(makeListenerId());
   const mcpStateRef = useRef<McpUiState>({ activeTab: null, activeConnection: null, editor: null });
   const connectionHealthCheckRef = useRef(0);
   const executionSequenceRef = useRef(0);
@@ -1361,7 +1360,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   }, [activeConnectionId, addTab, onOpenFile, onSaveTab]);
 
 
-  const getMcpSchemaSummary = useCallback(async (connectionId: string): Promise<McpToolResultByName["getSchemaSummary"]> => {
+  const getMcpSchemaSummary = useCallback(async (connectionId: string, args: McpToolArgsByName["getSchemaSummary"] = {}): Promise<McpToolResultByName["getSchemaSummary"]> => {
     if (mcpStateRef.current.activeConnection?.id !== connectionId) {
       throw new McpUiError("stale", "Active connection changed before schema read");
     }
@@ -1373,7 +1372,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       throw new McpUiError("stale", "Active connection changed during schema read");
     }
     const schemas = new Map<string, { name: string; relations: { name: string; kind: "table" | "view"; columns: { name: string; dataType: string }[] }[] }>();
-    for (const relation of response.relations) {
+    const filtered = response.relations.filter((relation) => (!args.schema || relation.schema === args.schema) && (!args.table || relation.name === args.table));
+    const offset = args.offset ?? 0;
+    const limit = args.limit ?? 50;
+    for (const relation of filtered.slice(offset, offset + limit)) {
       const schema = schemas.get(relation.schema) ?? { name: relation.schema, relations: [] };
       schema.relations.push({
         name: relation.name,
@@ -1382,7 +1384,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       });
       schemas.set(relation.schema, schema);
     }
-    return { connectionId, schemas: [...schemas.values()] };
+    return { connectionId, schemas: [...schemas.values()], ...(offset + limit < filtered.length ? { nextOffset: offset + limit } : {}) };
   }, []);
 
   const getMcpTableIndexes = useCallback(async (
@@ -1426,7 +1428,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         resolve("rejected");
         return;
       }
-      mcpProposalResolverRef.current?.("rejected");
+      if (mcpProposalResolverRef.current) { resolve("rejected"); return; }
       mcpProposalResolverRef.current = resolve;
       setMcpProposal({
         tabId: args.tabId,
@@ -1437,7 +1439,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         revision: getTabRevision(args.tabId),
       });
     });
-  }, []);
+  }, [getTabRevision]);
+
+  const approveMcpExecution = useCallback((args: { sql: string; limit: number; tabId: string; connectionId: string; connectionLabel: string; expiresAt: number }) => {
+    return new Promise<"approved" | "rejected" | "stale">((resolve) => {
+      if (mcpProposalResolverRef.current || args.expiresAt <= Date.now() + MCP_PROPOSAL_SAFETY_WINDOW_MS) { resolve("rejected"); return; }
+      mcpProposalResolverRef.current = resolve;
+      setMcpProposal({ kind: "execute", tabId: args.tabId, connectionId: args.connectionId, connectionLabel: args.connectionLabel, limit: args.limit, expiresAt: args.expiresAt, originalSql: editorRef.current?.getAllText() ?? mcpStateRef.current.activeTab?.sql ?? "", proposedSql: args.sql, rationale: "", revision: getTabRevision(args.tabId) });
+    });
+  }, [getTabRevision]);
 
   const resolveMcpProposal = useCallback((outcome: "approved" | "rejected" | "stale") => {
     const resolver = mcpProposalResolverRef.current;
@@ -1452,6 +1462,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       resolveMcpProposal("rejected");
       return;
     }
+    if (mcpProposal.kind === "execute") {
+      const state = mcpStateRef.current;
+      resolveMcpProposal(state.activeTab?.id === mcpProposal.tabId && state.activeConnection?.id === mcpProposal.connectionId && getTabRevision(mcpProposal.tabId) === mcpProposal.revision ? "approved" : "stale");
+      return;
+    }
     const applied = compareAndSwapTabSql(
       mcpProposal.tabId,
       mcpProposal.revision,
@@ -1464,7 +1479,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       return;
     }
     resolveMcpProposal("approved");
-  }, [compareAndSwapTabSql, mcpProposal, resolveMcpProposal]);
+  }, [compareAndSwapTabSql, getTabRevision, mcpProposal, resolveMcpProposal]);
 
   useEffect(() => {
     if (!mcpProposal?.expiresAt) return;
@@ -1480,11 +1495,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       getTableIndexes: getMcpTableIndexes,
       explainSql: explainMcpSql,
       proposeEdit: proposeMcpEdit,
+      approveExecution: approveMcpExecution,
       onStatus: (status, error) => {
         setMcpStatus(status);
         setMcpError(error ?? null);
       },
-    }, mcpListenerIdRef.current);
+    });
     setMcpStarted(true);
     bridge.start();
     void bridge.refresh();
@@ -1494,7 +1510,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       mcpProposalResolverRef.current?.("rejected");
       mcpProposalResolverRef.current = null;
     };
-  }, [explainMcpSql, getMcpSchemaSummary, getMcpTableIndexes, proposeMcpEdit]);
+  }, [approveMcpExecution, explainMcpSql, getMcpSchemaSummary, getMcpTableIndexes, proposeMcpEdit]);
 
   const mcpActive = Boolean(mcpStatus?.uiConnected && (mcpStatus.queueSize > 0 || mcpStatus.inFlight > 0));
   const mcpState: McpVisualState = mcpError ? "error" : !mcpStarted ? "inactive" : mcpActive ? "connected" : "listening";

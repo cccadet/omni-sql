@@ -10,6 +10,10 @@ import type {
   ExplainResult,
   SqlDiagnostic,
   McpStatusResult,
+  McpHttpStatus,
+  McpHttpStartParams,
+  McpExecuteApproval,
+  McpToolResultByName,
   McpHistoryResult,
   McpUiNextParams,
   McpUiNextResult,
@@ -276,6 +280,11 @@ export interface McpUiRouter {
   "mcp.ui.respond": (p: McpUiRespondParams) => Promise<McpUiRespondResult>;
   "mcp.status": () => Promise<McpStatusResult>;
   "mcp.history": () => Promise<McpHistoryResult>;
+  "mcp.http.status": () => Promise<McpHttpStatus>;
+  "mcp.http.start": (p: McpHttpStartParams) => Promise<McpHttpStatus>;
+  "mcp.http.stop": () => Promise<McpHttpStatus>;
+  "mcp.ui.execute": (p: McpExecuteApproval) => Promise<McpToolResultByName["executeSql"]>;
+  "mcp.ui.release": (p: { listenerId: string }) => Promise<{ released: boolean }>;
 }
 
 export interface McpUiRequestContext {
@@ -298,7 +307,7 @@ export interface RpcRouter {
   "connection.test": (p: TestConnectionParams) => Promise<TestConnectionResult>;
   "connection.status": (p: ConnectionStatusParams) => Promise<TestConnectionResult>;
   "connection.listSchemas": (p: ListSchemasParams) => Promise<ListSchemasResult>;
-  "query.run": (p: RunQueryParams) => Promise<RunQueryResult>;
+  "query.run": (p: RunQueryParams, signal?: AbortSignal) => Promise<RunQueryResult>;
   "query.cancel": (p: CancelQueryParams) => Promise<CancelQueryResult>;
   "query.explain": (p: ExplainQueryParams) => Promise<ExplainQueryResult>;
   "query.diagnose": (p: DiagnoseQueryParams) => Promise<DiagnoseQueryResult>;
@@ -319,6 +328,11 @@ export interface RpcRouter {
   "mcp.ui.respond": (p: McpUiRespondParams) => Promise<McpUiRespondResult>;
   "mcp.status": () => Promise<McpStatusResult>;
   "mcp.history": () => Promise<McpHistoryResult>;
+  "mcp.http.status": () => Promise<McpHttpStatus>;
+  "mcp.http.start": (p: McpHttpStartParams) => Promise<McpHttpStatus>;
+  "mcp.http.stop": () => Promise<McpHttpStatus>;
+  "mcp.ui.execute": (p: McpExecuteApproval) => Promise<McpToolResultByName["executeSql"]>;
+  "mcp.ui.release": (p: { listenerId: string }) => Promise<{ released: boolean }>;
 }
 
 export type BackendRpcRouter = Omit<RpcRouter, keyof McpUiRouter>;

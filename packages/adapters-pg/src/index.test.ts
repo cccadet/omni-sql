@@ -482,3 +482,10 @@ if (PG_CONN) {
     assert.ok(true);
   });
 }
+
+test("row cap follows trailing literals and quoted identifiers, preserving comments", () => {
+  for (const sql of ["SELECT 'LIMIT'", "SELECT * FROM users WHERE name = 'O''Brien'", 'SELECT * FROM "users"', "SELECT $body$LIMIT$body$"]) {
+    assert.equal(applyServerRowCap(sql, 1), `${sql} LIMIT 2`);
+  }
+  assert.equal(applyServerRowCap("SELECT 'active'; -- comment", 1), "SELECT 'active' LIMIT 2; -- comment");
+});

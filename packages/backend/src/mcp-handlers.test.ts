@@ -112,3 +112,21 @@ test("mcp.history returns recorded proposeSqlEdit entries", async () => {
     closeMcpBridge();
   }
 });
+
+test("SQL and schema inputs keep authorization out of tool arguments", () => {
+  assert.deepEqual(validateMcpRequest({ tool: "executeSql", args: { sql: "SELECT 1", limit: 100 } }).args, { sql: "SELECT 1", limit: 100 });
+  for (const limit of [0, -1, 1001, 1.5, "100"]) invalid({ tool: "executeSql", args: { sql: "SELECT 1", limit } });
+  invalid({ tool: "executeSql", args: { sql: "SELECT 1", executionRiskAccepted: true } });
+  invalid({ tool: "executeSql", args: { sql: "SELECT 1", connectionId: "arbitrary" } });
+  assert.deepEqual(validateMcpRequest({ tool: "getSchemaSummary", args: { schema: "public", table: "users", offset: 2, limit: 10 } }).args, { schema: "public", table: "users", offset: 2, limit: 10 });
+});
+
+test("SQL results stop at byte and row limits without treating column values as credentials", async () => {
+  const { boundMcpQueryResult } = await import("./mcp-handlers.ts");
+  const result = { columns: [{ name: "password", dataType: "text", nullable: true }], rows: [[{ token: "a database value" }], [1n], ["x".repeat(300_000)]], rowsMoreAvailable: false, elapsedMs: 1 };
+  const bounded = boundMcpQueryResult("connection", result);
+  assert.deepEqual(bounded.rows, [['{"token":"a database value"}'], ["1"]]);
+  assert.equal(bounded.truncated, true);
+  assert.equal(bounded.rowsMoreAvailable, true);
+  assert.ok(Buffer.byteLength(JSON.stringify(bounded)) <= MCP_LIMITS.maxBridgeResultBytes);
+});

@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { check } from "@tauri-apps/plugin-updater";
 import App from "./App";
+import { McpUiBridge } from "./lib/mcp-ui-bridge";
 import { LanguageProvider } from "./i18n";
 import { backend } from "./lib/backend";
 import { pickAnalysisExportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
@@ -658,4 +659,26 @@ describe("App update event listener", () => {
 
     expect(await screen.findByText("Could not install the update: signature rejected")).toBeTruthy();
   });
+});
+
+
+it("MCP execution shows connection and SQL and requires approval before the execution RPC", async () => {
+  seedSession("SELECT original", 1000, "conn-1");
+  const bridges: McpUiBridge[] = [];
+  const start = vi.spyOn(McpUiBridge.prototype, "start").mockImplementation(function (this: McpUiBridge) { bridges.push(this); });
+  try {
+    renderApp();
+    await waitFor(async () => expect(await bridges.at(-1)!.handleRequest({ id: "context", tool: "getActiveConnectionContext", args: {}, expiresAt: Date.now() + 60_000 })).toMatchObject({ connectionId: "conn-1" }));
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = bridges.at(-1)!.handleRequest({ id: "mcp-execute", tool: "executeSql", args: { sql: "DELETE FROM users", limit: 25 }, expiresAt: Date.now() + 60_000 });
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Approve SQL execution" });
+    expect(within(dialog).getByText(/Local Postgres/)).toBeTruthy();
+    expect(within(dialog).getByDisplayValue("DELETE FROM users")).toBeTruthy();
+    expect(call.mock.calls.some(([method]) => method === "mcp.ui.execute")).toBe(false);
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Run" })); await pending; });
+    expect(call).toHaveBeenCalledWith("mcp.ui.execute", expect.objectContaining({ id: "mcp-execute", connectionId: "conn-1" }));
+    expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe("SELECT original");
+  } finally { start.mockRestore(); }
 });
