@@ -1,3 +1,8 @@
+import { configure } from "@testing-library/react";
+
+// Coverage can delay React commits beyond the default one-second async wait.
+configure({ asyncUtilTimeout: 5_000 });
+
 const values = new Map<string, string>();
 const storage: Storage = {
   get length() {
