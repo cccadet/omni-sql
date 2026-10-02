@@ -143,6 +143,15 @@ test("/catalog suggests existing examples and replaces the full command with SQL
   assert.ok(all.suggestions.some((suggestion) => suggestion.label === "Add column"));
   assert.ok(all.suggestions.some((suggestion) => suggestion.label === "Upsert"));
 
+  const insert = await complete("/catalog insert into");
+  if (!insert) throw new Error("insert completion was not returned");
+  const insertRow = insert.suggestions.find((suggestion) => suggestion.label === "Insert row");
+  assert.ok(insertRow);
+  assert.equal(insertRow.insertText, "INSERT INTO table_name (id, column_name)\nVALUES (value, value);");
+  assert.deepEqual(insertRow.range, {
+    startLineNumber: 1, endLineNumber: 1, startColumn: 1, endColumn: 21,
+  });
+
   const partial = await complete("/cat");
   if (!partial) throw new Error("partial catalog completion was not returned");
   assert.deepEqual(partial.suggestions.map((suggestion) => suggestion.label), ["/catalog"]);

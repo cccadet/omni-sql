@@ -33,6 +33,23 @@ services:
       retries: 10
       start_period: 120s
 
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: omni_test
+      MARIADB_USER: omni
+      MARIADB_PASSWORD: omni
+      MARIADB_ROOT_PASSWORD: root
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./init/02-mysql.sql:/docker-entrypoint-initdb.d/02-mysql.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:

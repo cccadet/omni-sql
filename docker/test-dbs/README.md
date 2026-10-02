@@ -10,6 +10,7 @@ dados fictícios.
 |---------------|---------------------------------|-------|----------------------|
 | PostgreSQL    | `postgres:16`                   | 5432  | `omni` / `omni`      |
 | MySQL         | `mysql:8`                       | 3306  | `omni` / `omni`      |
+| MariaDB       | `mariadb:11.4`                  | 3307  | `omni` / `omni`      |
 | SQL Server    | `mssql/server:2022-latest`      | 1433  | `sa` / `Omni!2024`   |
 | Oracle XE     | `gvenzl/oracle-xe:21-slim`      | 1521  | `OMNI` / `omni`      |
 | H2 (JDBC)     | build local (`./jdbc-h2/`)      | 9092  | `omni` / `omni`      |
@@ -250,7 +251,7 @@ docker compose down -v
 docker compose up -d
 ```
 
-As portas `5432`, `3306`, `1433`, `1521` e `9092` precisam estar livres no host.
+As portas `5432`, `3306`, `3307`, `1433`, `1521` e `9092` precisam estar livres no host.
 
 <!--
 # Comandos antigos, mantidos apenas como referência:
