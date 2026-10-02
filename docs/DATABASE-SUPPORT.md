@@ -6,7 +6,7 @@
 | MySQL | Supported | Native `mysql2/promise` adapter; MySQL metadata queries, pooled connections, and `EXPLAIN FORMAT=JSON`. |
 | MariaDB | Supported | Uses the MySQL wire-compatible `mysql2/promise` adapter. Server/version-specific SQL or metadata differences can limit introspection. |
 | SQL Server | Supported | Native `mssql`/Tedious adapter; metadata queries and `SET SHOWPLAN_XML ON` in an isolated transaction for plans. |
-| Oracle | Supported | Native `oracledb` thin-mode adapter; Oracle metadata and `EXPLAIN PLAN`. No Oracle Instant Client is required for thin mode. |
+| Oracle | Supported | Native `oracledb` thin-mode adapter; Oracle metadata and `EXPLAIN PLAN` with available row, byte, cost, time estimates, and predicates. No Oracle Instant Client is required for thin mode. |
 | Generic JDBC | Experimental | JVM sidecar loads a user-provided driver JAR and `java.sql.Driver` class, then connects through the supplied JDBC URL. |
 | ODBC | Experimental | Generic ODBC adapter with bounded query and stream support. Requires a separately installed 64-bit driver compatible with the target database. |
 | MongoDB | Deferred to v2 | No document-database adapter in the current product. |

@@ -11,6 +11,9 @@ flowchart LR
   UI -->|Tauri analysis commands| DuckDB[(Rust / DuckDB\nlocal.duckdb)]
   API -->|bounded authenticated NDJSON stream| DuckDB
   DuckDB -->|registered remote scans| S3[(S3 objects)]
+  Client[MCP client] -->|STDIO or authenticated loopback HTTP :41922/mcp| MCP[Local MCP server]
+  MCP -->|authenticated internal bridge| API
+  API -->|SQL edits and execution require approval| UI
   API --> Cache[(SQLite metadata cache\nnode:sqlite)]
   API --> Keyring[OS keyring]
   API --> Native[Native adapters\npg / mysql2 / mssql / oracledb / ODBC]
@@ -29,6 +32,10 @@ flowchart LR
 - **Node backend:** TypeScript HTTP JSON-RPC service on loopback port `41920`.
   It owns connection state, handlers, adapters, metadata synchronization, and
   autocomplete orchestration.
+- **MCP server:** STDIO by default, with optional authenticated Streamable HTTP
+  on loopback port `41922`. The internal backend `/mcp` route is a separate
+  authenticated bridge. SQL edits and execution require explicit desktop
+  approval; SQL results are bounded. See [MCP integration](MCP.md).
 - **Metadata cache:** SQLite through Node's built-in `node:sqlite`, including
   metadata timestamps. Passwords use the OS keyring; development fallback is
   explicitly opt-in.
