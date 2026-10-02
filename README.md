@@ -40,6 +40,10 @@ engines and want useful SQL intelligence without sending their schema to a hoste
 3. **Write** in a Monaco-powered editor with metadata and CTE-aware completion.
 4. **Run and analyze** statements, results, messages, exports, and supported execution plans.
 
+Use `/catalog` in the editor to find SQL templates for the active dialect, including
+`/catalog insert` for an **Insert row** example. Oracle Explain displays available
+row, byte, cost, and time estimates alongside plan predicates.
+
 ## Database support
 
 | Database | Connection | Metadata autocomplete | Query execution |
@@ -167,14 +171,14 @@ modern workflow and is free and open source.
 omni-sql includes a local MCP server that lets compatible AI clients work with the
 SQL tab you already have open. An assistant can read the active statement and its
 database context, inspect schema metadata and indexes, explain a query without
-executing it, or prepare an edit for review.
+executing it, prepare an edit for review, or execute SQL after explicit approval in the desktop.
 
 ![Review an SQL edit proposed through MCP before applying it](docs/images/mcp-sql-proposal.png)
 
 ```text
-AI client  ──MCP/STDIO──▶  local omni-sql bridge  ──▶  active desktop tab
+AI client  ──MCP/STDIO or HTTP──▶  local omni-sql bridge  ──▶  active desktop tab
                                                         │
-                                                        └─ proposed edits require approval
+                                                        └─ edits and SQL execution require approval
 ```
 
 | Tool | What it does |
@@ -186,14 +190,18 @@ AI client  ──MCP/STDIO──▶  local omni-sql bridge  ──▶  active de
 | `explainSql` | Produces a non-executing query plan. |
 | `getLatestSqlExecutionError` | Reads the latest execution error from the active tab. |
 | `proposeSqlEdit` | Opens a before/after proposal that you can apply or reject in omni-sql. |
+| `executeSql` | Runs SQL on the active connection after explicit desktop approval, returning bounded results. |
 
 The default transport is local STDIO. The generated launcher configuration is
 available from the **MCP** item in the status bar after the backend is ready. Copy
 its `command` and `args` exactly into your MCP client; runtime paths are temporary
 and are regenerated whenever omni-sql starts.
 
-The integration cannot execute SQL, read passwords or connection strings, access
-files, or bypass the approval dialog. See the [MCP guide](docs/MCP.md) for Codex,
+Optional Streamable HTTP can be started from **MCP > Configuration > HTTP** with
+a separate token and a loopback endpoint (default `http://127.0.0.1:41922/mcp`).
+SQL execution can modify data or structure and always requires desktop approval.
+The integration cannot read stored passwords or connection strings, access files
+through dedicated tools, or bypass the approval dialog. See the [MCP guide](docs/MCP.md) for Codex,
 Claude Desktop, and ChatGPT Desktop setup, optional Streamable HTTP transport,
 verification steps, limits, and the complete security model.
 
@@ -202,7 +210,7 @@ verification steps, limits, and the complete security model.
 - ✅ Native PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle adapters
 - ✅ CTE-aware autocomplete
 - 🧪 Generic JDBC (experimental)
-- 📋 ODBC
+- 🧪 ODBC (experimental; requires a separately installed 64-bit driver)
 - 📋 MongoDB (deferred to v2)
 - 📋 More installer formats and platforms
 
