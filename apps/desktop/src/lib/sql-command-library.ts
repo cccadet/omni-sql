@@ -16,6 +16,7 @@ const ALL: readonly DialectId[] = ["postgres", "mysql", "mariadb", "sqlserver", 
 const MYSQL: readonly DialectId[] = ["mysql", "mariadb"];
 
 export const SQL_COMMANDS: readonly SqlCommand[] = [
+  { id: "insert", title: "Insert row", description: "Insert a row with explicit columns and values.", category: "data", dialects: ALL, searchTerms: ["inserir dados", "inserir linha", "insert into"], sql: "INSERT INTO table_name (id, column_name)\nVALUES (value, value);" },
   { id: "create-table", title: "Create table", description: "Create a table with primary key and required columns.", category: "schema", dialects: ALL, searchTerms: ["criar tabela", "ddl"], sql: "CREATE TABLE table_name (\n  id INTEGER NOT NULL,\n  name VARCHAR(255) NOT NULL,\n  CONSTRAINT pk_table_name PRIMARY KEY (id)\n);" },
   { id: "add-column", title: "Add column", description: "Add a column to an existing table.", category: "schema", dialects: ALL, searchTerms: ["adicionar coluna", "alter table"], sql: "ALTER TABLE table_name\nADD COLUMN column_name VARCHAR(255);" },
   { id: "create-index", title: "Create index", description: "Create an index for frequently filtered columns.", category: "indexes", dialects: ALL, searchTerms: ["criar índice", "performance"], sql: "CREATE INDEX idx_table_column\nON table_name (column_name);" },

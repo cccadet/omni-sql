@@ -20,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build --wait postgres mysql mssql oracle h2
+"${compose[@]}" up -d --build --wait postgres mysql mariadb mssql oracle h2
 "${compose[@]}" run --rm mssql-init
 "${compose[@]}" run --rm h2-init
 
