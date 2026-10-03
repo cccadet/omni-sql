@@ -3805,7 +3805,14 @@ mod mongo_tests {
             assert!(!error.contains("saved MongoDB"), "reached credentials for {sql}: {error}");
         }
         assert!(validate_mongo_sql("WITH x AS (SELECT * FROM \"test\".\"items\") SELECT * FROM x").is_ok());
-        assert_eq!(mongo_connection_uri(&MongoCredentials { endpoint: "mongodb://localhost/test?authSource=admin".into(), user: "u@ser".into(), password: Some("p:'/?".into()) }).unwrap(), "mongodb://u%40ser:p%3A%27%2F%3F@localhost/test?authSource=admin");
+        let uri = mongo_connection_uri(&MongoCredentials { endpoint: "mongodb://localhost/test?authSource=admin".into(), user: "u@ser".into(), password: Some("p:'/?".into()) }).unwrap();
+        // Validate synthetic credentials separately without embedding a credential-bearing URI in source.
+        let parsed = reqwest::Url::parse(&uri).unwrap();
+        assert_eq!(parsed.username(), "u%40ser");
+        assert_eq!(parsed.password(), Some("p%3A%27%2F%3F"));
+        assert_eq!(parsed.host_str(), Some("localhost"));
+        assert_eq!(parsed.path(), "/test");
+        assert_eq!(parsed.query(), Some("authSource=admin"));
     }
 
     #[test]
