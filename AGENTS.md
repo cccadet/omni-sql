@@ -100,6 +100,11 @@ Native build approvals in `pnpm-workspace.yaml#allowBuilds`: `esbuild`,
 stale/legacy; current frontend uses React, not Svelte.
 
 ## Conventions
+- **Release versioning:** new user-visible functionality increments the minor
+  version and resets patch (for example, MongoDB support: `0.5.x` → `0.6.0`).
+  Releases containing only fixes increment patch (`0.6.0` → `0.6.1`). When
+  features and fixes ship together, use the minor increment. Preserve release
+  tags already pushed; a failed release does not justify overwriting its tag.
 - **TypeScript:** strict, `noUncheckedIndexedAccess`, `noImplicitOverride`,
   `allowImportingTsExtensions`, target ES2022, ESNext modules, Bundler resolution;
   see `tsconfig.base.json`.
