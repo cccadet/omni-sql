@@ -13,6 +13,24 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoQueryRequest {
+    pub operation_id: String,
+    pub connection_id: String,
+    pub sql: String,
+    pub limit: usize,
+    #[serde(default)]
+    pub explain: bool,
+}
+
+#[derive(Deserialize)]
+struct MongoCredentials {
+    endpoint: String,
+    user: String,
+    password: Option<String>,
+}
+
 const DEFAULT_MEMORY_LIMIT: &str = "512MB";
 const DEFAULT_THREADS: u8 = 2;
 const MAX_SNAPSHOT_ROWS: usize = 10_000;
@@ -1113,6 +1131,45 @@ impl DataEngine {
     pub fn import_s3(&self, request: S3ImportRequest) -> Result<DatasetRef, String> {
         let operation_id = request.operation_id.clone();
         self.run_operation(operation_id, || self.import_s3_inner(request))
+    }
+
+    pub fn query_mongo(&self, request: MongoQueryRequest, token: &str, backend_port: u16) -> Result<AnalysisQueryResult, String> {
+        self.run_operation(request.operation_id.clone(), || {
+            let sql = validate_mongo_sql(&request.sql)?;
+            if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
+                return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
+            }
+            let response: JsonValue = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(10)).build()
+                .map_err(|_| "Failed to create MongoDB credential client")?
+                .post(format!("http://127.0.0.1:{backend_port}/rpc"))
+                .bearer_auth(token)
+                .json(&serde_json::json!({ "jsonrpc": "2.0", "id": request.operation_id,
+                    "method": "connection.mongoCredentials", "params": { "connectionId": request.connection_id } }))
+                .send().and_then(|response| response.error_for_status()).and_then(|response| response.json())
+                .map_err(|_| "Unable to read saved MongoDB connection")?;
+            let credentials: MongoCredentials = serde_json::from_value(response.get("result").cloned().unwrap_or(JsonValue::Null))
+                .map_err(|_| "Saved MongoDB connection is unavailable")?;
+            let uri = mongo_connection_uri(&credentials)?;
+            let remote = Connection::open_in_memory().map_err(|_| "Unable to open MongoDB SQL engine")?;
+            let _guard = self.arm_remote_interrupt(&remote)?;
+            remote.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS}; SET allow_unsigned_extensions = false; INSTALL mongo FROM community; LOAD mongo;"))
+                .map_err(|_| "Unable to load MongoDB SQL extension. Check network access and DuckDB extension compatibility.")?;
+            // The catalog itself is read-only, independently of the SQL guard and UI mode.
+            remote.execute_batch(&format!("ATTACH '{}' AS mongo (TYPE MONGO, READ_ONLY); USE mongo;", uri.replace('\'', "''")))
+                .map_err(|_| "Unable to connect MongoDB SQL engine. Check URI, credentials, TLS and database permissions.")?;
+            remote.execute_batch("SET mongo_enable_direct_scan = false; SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
+                .map_err(|_| "Unable to enforce MongoDB SQL read-only restrictions")?;
+            // The preview wraps the submitted statement in SELECT and enforces row and byte limits.
+            if request.explain {
+                let mut statement = remote.prepare(&format!("EXPLAIN {sql}")).map_err(|_| "Invalid MongoDB SQL query")?;
+                let rows = statement.query_map([], |row| Ok(vec![JsonValue::String(row.get::<_, String>(0)?), JsonValue::String(row.get::<_, String>(1)?)]))
+                    .map_err(|_| "Unable to explain MongoDB SQL query")?;
+                return Ok(AnalysisQueryResult { columns: vec![QueryColumn { name: "key".into(), data_type: "VARCHAR".into(), nullable: false }, QueryColumn { name: "plan".into(), data_type: "VARCHAR".into(), nullable: false }], rows: rows.collect::<Result<Vec<_>, _>>().map_err(|_| "Unable to read MongoDB SQL plan")?, rows_more_available: false });
+            }
+            Self::query_preview(&remote, sql, request.limit)
+                .map_err(|_| "MongoDB SQL query failed. Check SQL syntax, collection names and inferred field types.".to_string())
+        })
     }
 
     pub fn query_s3(&self, request: S3QueryRequest) -> Result<AnalysisQueryResult, String> {
@@ -2552,6 +2609,28 @@ fn validate_read_only_sql(sql: &str) -> Result<&str, String> {
     Ok(trimmed)
 }
 
+fn validate_mongo_sql(sql: &str) -> Result<&str, String> {
+    let sql = validate_read_only_sql(sql)?;
+    let tokens = sql_tokens_with_identifiers(sql, true)?;
+    if tokens.iter().any(|token| matches!(token.as_str(), "query" | "query_table" | "mongo_scan" | "mongo_clear_cache" | "duckdb_secrets" | "duckdb_views")) {
+        return Err("MongoDB SQL must query registered collections using SELECT or WITH".to_string());
+    }
+    Ok(sql)
+}
+
+fn mongo_connection_uri(credentials: &MongoCredentials) -> Result<String, String> {
+    let (scheme, rest) = credentials.endpoint.split_once("://").ok_or("Invalid MongoDB URI")?;
+    if !matches!(scheme, "mongodb" | "mongodb+srv") || rest.split(['/', '?']).next().unwrap_or("").contains('@') {
+        return Err("MongoDB URI cannot contain embedded credentials".to_string());
+    }
+    if credentials.user.is_empty() { return Ok(credentials.endpoint.clone()); }
+    let encode = |value: &str| value.bytes().map(|byte| {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') { (byte as char).to_string() }
+        else { format!("%{byte:02X}") }
+    }).collect::<String>();
+    Ok(format!("{scheme}://{}:{}@{rest}", encode(&credentials.user), encode(credentials.password.as_deref().unwrap_or(""))))
+}
+
 fn validate_s3_sql(sql: &str) -> Result<&str, String> {
     let sql = validate_read_only_sql(sql)?;
     // ponytail: direct URI literals are blocked; use a SQL parser if indirect readers become reachable.
@@ -2563,6 +2642,10 @@ fn validate_s3_sql(sql: &str) -> Result<&str, String> {
 }
 
 fn sql_tokens(sql: &str) -> Result<Vec<String>, String> {
+    sql_tokens_with_identifiers(sql, false)
+}
+
+fn sql_tokens_with_identifiers(sql: &str, include_identifiers: bool) -> Result<Vec<String>, String> {
     let mut tokens = Vec::new();
     let mut token = String::new();
     let mut chars = sql.chars().peekable();
@@ -2572,10 +2655,12 @@ fn sql_tokens(sql: &str) -> Result<Vec<String>, String> {
             if character == delimiter {
                 if chars.peek() == Some(&delimiter) {
                     chars.next();
+                    if include_identifiers && delimiter == '"' { token.push(character); }
                 } else {
                     quote = None;
+                    if include_identifiers && delimiter == '"' { tokens.push(std::mem::take(&mut token)); }
                 }
-            }
+            } else if include_identifiers && delimiter == '"' { token.push(character.to_ascii_lowercase()); }
             continue;
         }
         match character {
@@ -3705,5 +3790,61 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(a.len(), 10);
         assert_ne!(a, rows[..10]);
+    }
+}
+
+#[cfg(test)]
+mod mongo_tests {
+    use super::*;
+
+    #[test]
+    fn mongo_sql_rejects_writes_and_indirect_queries_before_credentials() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        for sql in ["INSERT INTO mongo.test.items VALUES (1)", "DELETE FROM mongo.test.items", "UPDATE mongo.test.items SET n=1", "DROP TABLE mongo.test.items", "COPY mongo.test.items TO 'x.json'", "ATTACH 'mongodb://localhost' AS other (TYPE MONGO)", "SELECT 1; DELETE FROM items", "WITH x AS (DELETE FROM items) SELECT * FROM x", "SELECT * FROM query('DELETE FROM items')", "SELECT * FROM \"query\"('DELETE FROM items')", "SELECT * FROM mongo_scan('mongodb://elsewhere', 'test', 'items')"] {
+            let error = engine.query_mongo(MongoQueryRequest { operation_id: format!("guard-{}", sql.len()), connection_id: "absent".into(), sql: sql.into(), limit: 100, explain: false }, "unused", 1).unwrap_err();
+            assert!(!error.contains("saved MongoDB"), "reached credentials for {sql}: {error}");
+        }
+        assert!(validate_mongo_sql("WITH x AS (SELECT * FROM \"test\".\"items\") SELECT * FROM x").is_ok());
+        assert_eq!(mongo_connection_uri(&MongoCredentials { endpoint: "mongodb://localhost/test?authSource=admin".into(), user: "u@ser".into(), password: Some("p:'/?".into()) }).unwrap(), "mongodb://u%40ser:p%3A%27%2F%3F@localhost/test?authSource=admin");
+    }
+
+    #[test]
+    #[ignore = "requires OMNI_SQL_TEST_MONGO_URI and community extension download access"]
+    fn mongo_sql_real_database_readonly_catalog() {
+        use std::io::Write;
+        use std::net::TcpListener;
+        let endpoint = std::env::var("OMNI_SQL_TEST_MONGO_URI").expect("MongoDB test URI");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let credentials = MongoCredentials { endpoint: endpoint.clone(), user: std::env::var("OMNI_SQL_TEST_MONGO_USER").unwrap_or_default(), password: std::env::var("OMNI_SQL_TEST_MONGO_PASSWORD").ok() };
+        let direct_uri = mongo_connection_uri(&credentials).unwrap();
+        let server_uri = endpoint.clone();
+        let server_user = credentials.user;
+        let server_password = credentials.password;
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+                let mut request = [0; 8192];
+                let length = socket.read(&mut request).unwrap();
+                assert!(String::from_utf8_lossy(&request[..length]).contains("Bearer test-token"));
+                let payload = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": { "endpoint": server_uri, "user": server_user, "password": server_password } }).to_string();
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", payload.len(), payload).unwrap();
+            }
+        });
+        let engine = DataEngine::open_in_memory().unwrap();
+        let result = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-live-query".into(), connection_id: "test".into(), sql: "SELECT name FROM items ORDER BY name".into(), limit: 1, explain: false }, "test-token", port).unwrap();
+        assert_eq!(result.rows.len(), 1);
+        assert!(result.rows_more_available);
+        let plan = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-live-explain".into(), connection_id: "test".into(), sql: "SELECT * FROM items LIMIT 1".into(), limit: 10, explain: true }, "test-token", port).unwrap();
+        assert!(plan.rows.iter().any(|row| row.iter().any(|value| value.as_str().is_some_and(|text| text.contains("MONGO_SCAN")))));
+        server.join().unwrap();
+        // Even a direct call bypassing the SQL guard cannot write to the attached catalog.
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("LOAD mongo;").unwrap();
+        connection.execute_batch(&format!("ATTACH '{}' AS mongo (TYPE MONGO, READ_ONLY); USE mongo", direct_uri.replace('\'', "''"))).unwrap();
+        for sql in ["INSERT INTO items (name) VALUES ('forbidden')", "DROP TABLE items", "CREATE TABLE forbidden AS SELECT 1 AS n"] {
+            assert!(connection.execute_batch(sql).is_err(), "read-only catalog accepted {sql}");
+        }
     }
 }

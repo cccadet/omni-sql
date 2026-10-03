@@ -682,3 +682,37 @@ it("MCP execution shows connection and SQL and requires approval before the exec
     expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe("SELECT original");
   } finally { start.mockRestore(); }
 });
+
+it("keeps MongoDB native/SQL text per tab and executes SQL only through read-only DuckDB", async () => {
+  const native = '{"collection":"items","operation":"find","filter":{"name":"a;b"}}';
+  seedSession(native, 100, "mongo-1");
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "mongo-1", label: "MongoDB test", dialect: "mongodb", endpoint: "mongodb://localhost/test", user: "" }] })
+    : defaultCall(method, params, signal));
+  vi.mocked(invoke).mockImplementation(async (command) => command === "analysis_query_mongo"
+    ? { columns: [{ name: "n", dataType: "BIGINT", nullable: false }], rows: [[1]], rowsMoreAvailable: false } : undefined);
+  renderApp();
+  const tag = await screen.findByRole("button", { name: "SQL via DuckDB (read-only)" });
+  expect(tag.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", expect.objectContaining({ connectionId: "mongo-1", sql: native }), expect.any(AbortSignal)));
+  await waitFor(() => expect((tag as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(tag);
+  expect(tag.getAttribute("aria-pressed")).toBe("true");
+  expect(tag.classList.contains("active")).toBe(true);
+  expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual("SELECT 1");
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("analysis_query_mongo", { request: expect.objectContaining({ connectionId: "mongo-1", sql: "SELECT 1", limit: 100, explain: false }) }));
+  expect(call.mock.calls.filter(([method]) => method === "query.run")).toHaveLength(1);
+  await waitFor(() => expect((tag as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(tag);
+  expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual(native);
+  fireEvent.click(tag);
+  expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual("SELECT 1");
+  fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+  await waitFor(() => expect(tag.getAttribute("aria-pressed")).toBe("false"));
+  expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual(expect.stringContaining('"operation": "find"'));
+  fireEvent.click(screen.getByRole("tab", { name: /Query 1/ }));
+  expect(tag.getAttribute("aria-pressed")).toBe("true");
+});

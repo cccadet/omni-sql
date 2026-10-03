@@ -15,6 +15,7 @@ export type DialectId =
   | "oracle"
   | "jdbc-generic"
   | "odbc"
+  | "mongodb"
   | "duckdb"
   | "s3";
 

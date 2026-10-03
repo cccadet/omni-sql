@@ -150,6 +150,7 @@ const REGISTRY = {
   odbc: odbcDescriptor,
   s3: s3Descriptor,
   duckdb: duckdbDescriptor,
+  mongodb: { ...duckdbDescriptor, dialect: "mongodb", keywords: new Set() },
 } satisfies Record<DialectId, DialectDescriptor>;
 
 export function dialectDescriptor(dialect: DialectId): Readonly<DialectDescriptor> {

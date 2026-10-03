@@ -67,6 +67,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, databas
     "jdbc-generic": "JDBC",
     odbc: "ODBC",
     s3: "S3",
+    mongodb: "MongoDB",
     duckdb: "DuckDB",
   };
   const healthLabel = health === "online" ? t("headerConnected") : health === "verifying" ? t("headerVerifying") : health === "offline" ? t("headerOffline") : t("statusUnknown");

@@ -10,6 +10,7 @@ import { OracleAdapter } from "@omni-sql/adapters-oracle";
 import { MysqlAdapter } from "@omni-sql/adapters-mysql";
 import { MssqlAdapter } from "@omni-sql/adapters-mssql";
 import { JdbcAdapter } from "@omni-sql/adapters-jdbc";
+import { MongoAdapter } from "./mongo-adapter.ts";
 import { OdbcAdapter } from "@omni-sql/adapters-odbc";
 import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
@@ -21,7 +22,7 @@ import {
   type Token,
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
-import { RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
+import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
 import {
   assertEndpointHasNoEmbeddedCredentials,
   assertExecutionRiskAccepted,
@@ -230,6 +231,7 @@ registerAdapter("mysql", (config, password) => new MysqlAdapter(config, password
 registerAdapter("mariadb", (config, password) => new MysqlAdapter(config, password));
 registerAdapter("sqlserver", (config, password) => new MssqlAdapter(config, password));
 registerAdapter("jdbc-generic", (config, password) => new JdbcAdapter(config, password));
+registerAdapter("mongodb", (config, password) => new MongoAdapter(config, password));
 registerAdapter("odbc", (config, password) => new OdbcAdapter(config, password));
 
 // ─────────────────────────── Adapter construction
@@ -692,6 +694,13 @@ export const handlers: BackendRpcRouter = {
     return { configs };
   },
 
+  async "connection.mongoCredentials"({ connectionId }) {
+    await connectionsRestored;
+    const session = requireSession(connectionId);
+    if (session.config.dialect !== "mongodb") throw new RpcValidationError("MongoDB connection required");
+    return { endpoint: session.config.endpoint, user: session.config.user, password: await readStoredPassword(session.config, "reading MongoDB credentials") };
+  },
+
   async "connection.s3Credentials"({ connectionId }) {
     await connectionsRestored;
     const configs = cache.listConnections();
@@ -822,7 +831,7 @@ export const handlers: BackendRpcRouter = {
       return {
         ok: false,
         latencyMs: Date.now() - startedAt,
-        message: (config.dialect === "postgres" ? safePostgresDatabaseError(e)?.message : undefined) ?? "Connection test failed",
+        message: (e instanceof RpcDatabaseError || e instanceof RpcValidationError ? e.message : config.dialect === "postgres" ? safePostgresDatabaseError(e)?.message : undefined) ?? "Connection test failed",
       };
     }
   },
@@ -903,13 +912,14 @@ export const handlers: BackendRpcRouter = {
   async "query.explain"({ connectionId, sql }: ExplainQueryParams): Promise<ExplainQueryResult> {
     await connectionsRestored;
     const s = requireSession(connectionId);
-    assertSafeExplainSql(sql, s.config.dialect);
+    if (s.config.dialect !== "mongodb") assertSafeExplainSql(sql, s.config.dialect);
     await s.adapter.connect();
     return s.adapter.explain(sql);
   },
 
   async "query.diagnose"({ connectionId, sql }: DiagnoseQueryParams): Promise<DiagnoseQueryResult> {
     const s = requireSession(connectionId);
+    if (s.config.dialect === "mongodb") return { diagnostics: [] };
     const local = diagnoseDialectFunctions(sql, s.config.dialect);
     if (!sql.trim() || !s.adapter.validateQuery) return { diagnostics: local };
     try {
@@ -1196,6 +1206,7 @@ export const handlers: BackendRpcRouter = {
     cursor,
   }: CompletionParams): Promise<CompletionResult> {
     const s = requireSession(connectionId);
+    if (s.config.dialect === "mongodb") return { suggestions: [] };
     // Tier2: resolve colunas de CTEs via sidecar JVM/Calcite antes de rodar
     // o tier1 (lexer puro, síncrono) — best-effort, timeout curto; se o
     // sidecar não responder a tempo, cteRelations fica vazio e o

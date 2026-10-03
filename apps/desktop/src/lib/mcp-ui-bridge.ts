@@ -28,6 +28,7 @@ export interface McpUiState {
     id: string;
     title: string;
     sql: string;
+    mongoSqlMode?: boolean;
     latestSqlExecutionError?: McpToolResultByName["getLatestSqlExecutionError"]["error"];
   } | null;
   activeConnection: { id: string; label: string; dialect: DialectId } | null;
@@ -144,7 +145,7 @@ export class McpUiBridge {
       case "getActiveSql": {
         if (!state.activeTab) throw new McpUiError("unavailable", "No SQL tab is active");
         // Contract returns full SQL and its tab connection's dialect. Editor handle remains source of truth while mounted.
-        return { sql: state.editor?.getAllText() ?? state.activeTab.sql, dialect: state.activeConnection?.dialect ?? null } satisfies McpToolResultByName["getActiveSql"];
+        return { sql: state.editor?.getAllText() ?? state.activeTab.sql, dialect: state.activeConnection?.dialect === "mongodb" && state.activeTab.mongoSqlMode ? "duckdb" : state.activeConnection?.dialect ?? null } satisfies McpToolResultByName["getActiveSql"];
       }
       case "getActiveConnectionContext": {
         const connection = state.activeConnection;
@@ -184,6 +185,7 @@ export class McpUiBridge {
         const connection = state.activeConnection;
         const tab = state.activeTab;
         if (!connection || !tab) throw new McpUiError("unavailable", "No connected SQL tab is active");
+        if (connection.dialect === "mongodb" && tab.mongoSqlMode) throw new McpUiError("unavailable", "Execute MongoDB SQL in the query editor; MCP cannot route this connection through DuckDB");
         const outcome = await this.handlers.approveExecution({ sql: request.args.sql, limit: request.args.limit ?? MCP_DEFAULT_QUERY_LIMIT, tabId: tab.id, connectionId: connection.id, connectionLabel: connection.label, expiresAt: request.expiresAt });
         if (outcome !== "approved") throw new McpUiError(outcome === "stale" ? "stale" : "rejected", "SQL execution was not approved");
         const current = this.handlers.readState();
