@@ -208,3 +208,9 @@ describe("MCP SQL approval", () => {
     } finally { bridge.stop(); rpc.mockRestore(); }
   });
 });
+
+it("reports DuckDB for MongoDB SQL tabs and prevents MCP from executing through the native adapter", async () => {
+  const bridge = setup({ activeTab: { id: "tab", title: "Mongo SQL", sql: "SELECT 1", mongoSqlMode: true }, activeConnection: { id: "mongo", label: "MongoDB", dialect: "mongodb" }, editor: null });
+  await expect(bridge.handleRequest({ id: "mode", tool: "getActiveSql", args: {}, expiresAt: Date.now() + 60_000 })).resolves.toEqual({ sql: "SELECT 1", dialect: "duckdb" });
+  await expect(bridge.handleRequest({ id: "execute", tool: "executeSql", args: { sql: '{"collection":"items","operation":"deleteMany","filter":{}}' }, expiresAt: Date.now() + 60_000 })).rejects.toThrow("query editor");
+});

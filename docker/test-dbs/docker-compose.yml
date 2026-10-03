@@ -1,4 +1,17 @@
 services:
+  mongo:
+    image: mongo:8
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: omni_root
+      MONGO_INITDB_ROOT_PASSWORD: omni_root
+    ports:
+      - "127.0.0.1:27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--username", "omni_root", "--password", "omni_root", "--authenticationDatabase", "admin", "--eval", "db.adminCommand({ ping: 1 })"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   postgres:
     image: postgres:16
     environment:

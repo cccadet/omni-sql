@@ -195,6 +195,12 @@ export async function dropStableAnalysis(workspaceId: string, handleId: string):
   return invoke<boolean>("analysis_query_drop", { workspaceId, handleId });
 }
 
+export async function runMongoSql(connectionId: string, sql: string, limit: number, operationId: string, explain = false): Promise<QueryResult> {
+  const started = performance.now();
+  const result = await invoke<Omit<QueryResult, "elapsedMs">>("analysis_query_mongo", { request: { connectionId, sql, limit, operationId, explain } });
+  return { ...result, elapsedMs: performance.now() - started };
+}
+
 export async function cancelAnalysis(operationId: string): Promise<boolean> {
   return invoke<boolean>("analysis_cancel", { operationId });
 }

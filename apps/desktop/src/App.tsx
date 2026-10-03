@@ -34,7 +34,7 @@ import { basenameNoExt, pickAnalysisExportPath, pickAnalysisImportPath, pickOpen
 import { useLanguage } from "./i18n";
 import { McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
-import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
+import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runMongoSql, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import { s3Buckets } from "./lib/s3-buckets";
 import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type S3DiscoveryCredentials, type S3TableSource } from "./lib/s3-sources";
 import { s3ReferencedRelations, s3Suggestions } from "./lib/s3-autocomplete";
@@ -52,7 +52,7 @@ const historyTextEncoder = new TextEncoder();
 
 const DIALECT_LABELS: Record<string, string> = {
   postgres: "PostgreSQL", mysql: "MySQL", mariadb: "MariaDB", sqlserver: "SQL Server",
-  oracle: "Oracle", "jdbc-generic": "JDBC", odbc: "ODBC", s3: "S3", duckdb: "DuckDB",
+  mongodb: "MongoDB", oracle: "Oracle", "jdbc-generic": "JDBC", odbc: "ODBC", s3: "S3", duckdb: "DuckDB",
 };
 
 function supportsInAppUpdate(): boolean {
@@ -554,13 +554,22 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   }, [activeConnectionId, activeTab.id, activeTab.queryLimit, activeTab.sql, activeTab.title, analysisImporting, analysisLoadOrigin, analysisSampleRows, analysisSelection, analysisSourceSql, connections, loadConnections, result, s3Catalog, updateTab]);
 
   const activeDialect: DialectId = useMemo(
-    () => connections.find((c) => c.id === activeConnectionId)?.dialect ?? "jdbc-generic",
-    [connections, activeConnectionId],
+    () => {
+      const dialect = connections.find((c) => c.id === activeConnectionId)?.dialect ?? "jdbc-generic";
+      return dialect === "mongodb" && activeTab.mongoSqlMode ? "duckdb" : dialect;
+    },
+    [connections, activeConnectionId, activeTab.mongoSqlMode],
   );
   const activeConnection = useMemo(
     () => connections.find((c) => c.id === activeConnectionId) ?? null,
     [connections, activeConnectionId],
   );
+  useEffect(() => {
+    if (activeConnection?.dialect === "mongodb" && !activeTab.mongoSqlMode && activeTab.sql === "SELECT 1") {
+      updateTabSql(activeTab.id, JSON.stringify({ collection: "collection", operation: "find", filter: {} }, null, 2));
+    }
+  }, [activeConnection, activeTab.id, activeTab.sql, activeTab.mongoSqlMode, updateTabSql]);
+
   const analysisS3Connection = connections.find((connection) => connection.id === analysisS3ConnectionId) ?? null;
   const crossSourceConnection = connections.find((connection) => connection.id === crossSourceConnectionId);
 
@@ -588,6 +597,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       title: activeTab.title,
       sql: activeTab.sql,
       latestSqlExecutionError: activeTab.latestSqlExecutionError ?? null,
+      mongoSqlMode: activeTab.mongoSqlMode,
     } : null,
     activeConnection: activeConnection ? { id: activeConnection.id, label: activeConnection.label, dialect: activeConnection.dialect } : null,
     editor: editorRef.current,
@@ -618,7 +628,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   useEffect(() => {
     setDiagnostics([]);
-    if (!activeConnectionId || !activeConnection || activeDialect === "s3" || activeDialect === "duckdb" || !activeTab.sql.trim()) return;
+    if (!activeConnectionId || !activeConnection || activeDialect === "mongodb" || activeDialect === "s3" || activeDialect === "duckdb" || !activeTab.sql.trim()) return;
     const timer = window.setTimeout(() => {
       const statement = editorRef.current?.getCurrentStatement();
       const base = statement?.start ?? 0;
@@ -800,12 +810,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const onRefreshMetadata = useCallback(() => {
     if (!activeConnectionId) return;
-    if (activeDialect === "s3" || activeDialect === "duckdb") {
+    if (activeDialect === "s3" || (activeDialect === "duckdb" && activeConnection?.dialect !== "mongodb")) {
       void loadSidebarData(activeConnectionId);
       return;
     }
     setMetadataRefreshConfirmOpen(true);
-  }, [activeConnectionId, activeDialect, loadSidebarData]);
+  }, [activeConnectionId, activeConnection, activeDialect, loadSidebarData]);
 
   const onSelectConnection = useCallback(
     async (id: string) => {
@@ -939,6 +949,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         const updated = data.relations.map((relation) => resolved.find((item) => item.schema === relation.schema && item.name === relation.name) ?? relation);
         return localizeSuggestionLabels(s3Suggestions(sql, cursor, updated), t("autocompleteAllColumns"));
       }
+      if (activeConnection?.dialect === "mongodb") return activeTab.mongoSqlMode ? s3Suggestions(sql, cursor, sidebarCache[activeConnectionId]?.relations ?? []) : [];
       if (activeDialect === "duckdb") return [];
       const r = await backend.call<{ suggestions: Suggestion[] }>("completion.get", {
         connectionId: activeConnectionId,
@@ -947,9 +958,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       }, signal);
       return localizeSuggestionLabels(r.suggestions, t("autocompleteAllColumns"));
     },
-    [activeConnectionId, activeConnection, activeDialect, loadS3Columns, sidebarCache, t],
+    [activeConnectionId, activeConnection, activeDialect, activeTab.mongoSqlMode, loadS3Columns, sidebarCache, t],
   );
-  const analysisSourceStreaming = activeConnection !== null && activeDialect !== "duckdb";
+  const analysisSourceStreaming = activeConnection !== null && activeDialect !== "duckdb" && activeConnection.dialect !== "mongodb";
 
   const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
     if (!diagnostic.transpiledSql) return;
@@ -987,7 +998,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const runSqlSequence = useCallback(
     async (sqls: string[], label: string, executionRiskAccepted = false) => {
       if (!activeConnectionId || !activeConnection || !activeTab) return;
-      const variables = extractVariablesUnion(sqls);
+      const variables = activeConnection.dialect === "mongodb" ? [] : extractVariablesUnion(sqls);
       if (variables.length > 0) {
         setRunAfterVariables({ sqls, label });
         setVariableNames(variables);
@@ -995,7 +1006,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         return;
       }
       const joinedSql = sqls.join(";\n");
-      const risk = analyzeExecutionRisk(joinedSql, activeDialect);
+      const risk: ExecutionRiskAnalysis = activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode
+        ? { level: "none", findings: [] } : analyzeExecutionRisk(joinedSql, activeDialect);
       const warningTrusted = risk.level === "warning" && trustedWarningConnections.has(activeConnectionId);
       if (risk.level !== "none" && !executionRiskAccepted && !warningTrusted) {
         setPendingRiskRun({ sqls, label, analysis: risk });
@@ -1040,6 +1052,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             });
             continue;
           }
+          if (activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode) {
+            activeQuery.engineOperationId = `mongo-query-${crypto.randomUUID()}`;
+            lastResult = await runMongoSql(activeConnectionId, sql, activeTab.queryLimit, activeQuery.engineOperationId);
+            continue;
+          }
           if (activeDialect === "duckdb") {
             activeQuery.engineOperationId = `local-query-${crypto.randomUUID()}`;
             lastResult = await runAnalysis("local-duckdb", sql, activeTab.queryLimit, activeQuery.engineOperationId);
@@ -1059,7 +1076,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         ++connectionHealthCheckRef.current;
         setConnectionHealth("online");
         pushHistory(sqls.join(";\n"), true);
-        if (activeDialect !== "s3" && activeDialect !== "duckdb") void backend
+        if (activeDialect !== "s3" && activeDialect !== "duckdb" && activeDialect !== "mongodb") void backend
           .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: joinedSql })
           .then((nextEditability) => {
             if (executionSequence === executionSequenceRef.current) setEditability(nextEditability);
@@ -1085,7 +1102,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           latestSqlExecutionError: executionError,
         });
         const executedSql = sqls.join(";\n");
-        if (activeDialect !== "s3" && activeDialect !== "duckdb") void backend
+        if (activeDialect !== "s3" && activeDialect !== "duckdb" && activeDialect !== "mongodb") void backend
           .call<{ diagnostics: SqlDiagnostic[] }>("query.diagnose", {
             connectionId: activeConnectionId,
             sql: executedSql,
@@ -1154,6 +1171,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const handleRun = useCallback(() => {
     if (!activeConnectionId) return;
+    if (activeDialect === "mongodb") { void runSqlSequence([editorRef.current?.getAllText() ?? activeTab.sql], t("running")); return; }
     const target = editorRef.current?.getSelectionOrCurrent();
     const sql = target?.sql ?? activeTab.sql;
     const statements = splitStatements(sql);
@@ -1164,14 +1182,15 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const sqls = target?.sql ? [target.sql] : statements.map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
     void runSqlSequence(sqls, t("running"));
-  }, [activeConnectionId, activeTab.sql, runSqlSequence, t]);
+  }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, t]);
 
   const handleRunAll = useCallback(() => {
     if (!activeConnectionId) return;
+    if (activeDialect === "mongodb") { void runSqlSequence([editorRef.current?.getAllText() ?? activeTab.sql], t("runningAll")); return; }
     const sqls = editorRef.current?.getStatements().map((s) => s.text) ?? splitStatements(activeTab.sql).map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
     void runSqlSequence(sqls, t("runningAll"));
-  }, [activeConnectionId, activeTab.sql, runSqlSequence, t]);
+  }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, t]);
 
   const handleRunChoice = useCallback(
     (choice: "current" | "all") => {
@@ -1207,12 +1226,14 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     if (!sql.trim()) return;
     setBusyMsg(t("explaining"));
     setPlanText(null);
-    backend
-      .call<{ textual: string }>("query.explain", { connectionId: activeConnectionId, sql })
+    const explanation = activeConnection?.dialect === "mongodb" && activeTab.mongoSqlMode
+      ? runMongoSql(activeConnectionId, sql, activeTab.queryLimit, `mongo-explain-${crypto.randomUUID()}`, true).then((result) => ({ textual: result.rows.map((row) => row.join("\n")).join("\n") }))
+      : backend.call<{ textual: string }>("query.explain", { connectionId: activeConnectionId, sql });
+    explanation
       .then((res) => setPlanText(res.textual))
       .catch((e) => updateTab(activeTab.id, { error: e instanceof Error ? e.message : String(e) }))
       .finally(() => setBusyMsg(null));
-  }, [activeConnectionId, activeTab, updateTab, t]);
+  }, [activeConnectionId, activeConnection, activeTab, updateTab, t]);
 
   const handleCellEdit = useCallback(
     async (rowIndex: number, colIndex: number, value: unknown) => {
@@ -1325,11 +1346,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const onOpenInNewTab = useCallback(
     (title: string, sql: string) => {
-      const newTab = makeTab({ title, sql, connectionId: activeConnectionId });
+      const newTab = makeTab({ title, sql, connectionId: activeConnectionId, mongoSqlMode: activeTab.mongoSqlMode });
       setTabs((prev) => [...prev, newTab]);
       selectTab(newTab.id);
     },
-    [activeConnectionId, setTabs, selectTab],
+    [activeConnectionId, activeTab.mongoSqlMode, setTabs, selectTab],
   );
 
   useEffect(() => {
@@ -1412,10 +1433,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     if (mcpStateRef.current.activeConnection?.id !== connectionId) {
       throw new McpUiError("stale", "Active connection changed before SQL explain");
     }
-    const response = await backend.call<McpToolResultByName["explainSql"] & { raw: unknown }>(
-      "query.explain",
-      { connectionId, sql },
-    );
+    const state = mcpStateRef.current;
+    const response = state.activeConnection?.dialect === "mongodb" && state.activeTab?.mongoSqlMode
+      ? await runMongoSql(connectionId, sql, 100, `mongo-mcp-explain-${crypto.randomUUID()}`, true).then((result) => ({ textual: result.rows.map((row) => row.join("\n")).join("\n"), format: "text" as const }))
+      : await backend.call<McpToolResultByName["explainSql"] & { raw: unknown }>("query.explain", { connectionId, sql });
     if (mcpStateRef.current.activeConnection?.id !== connectionId) {
       throw new McpUiError("stale", "Active connection changed during SQL explain");
     }
@@ -1552,7 +1573,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
               </span>
               <span className="omni-header-detail">
                 <DialectIcon dialect={activeConnection.dialect} size={14} />
-                {DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect}
+                {activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode ? "SQL · DuckDB · " + t("readOnly") : DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect}
               </span>
               {activeDatabase && <span className="omni-header-detail"><span>{t("headerDatabase")}</span><strong>{activeDatabase}</strong></span>}
               <span className={`omni-header-state omni-header-state-${connectionHealth}`}>
@@ -1581,7 +1602,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onAdd={() => addTab(activeConnectionId)}
           onRun={handleRun}
           onExplain={handleExplain}
-          explainAvailable={activeDialect !== "s3" && activeDialect !== "duckdb"}
+          explainAvailable={activeConnection?.dialect === "mongodb" || (activeDialect !== "s3" && activeDialect !== "duckdb")}
           onCancelRun={handleCancelRun}
           onRunChoice={handleRunChoice}
           onRunChoiceCancel={handleRunChoiceCancel}
@@ -1597,7 +1618,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           globalOnly={analysisWorkspaceId !== null}
           analysisMode={analysisWorkspaceId !== null}
           onExitAnalysis={() => void closeAnalysisWorkspace()}
-          onSendToAnalysis={activeDialect === "s3" || activeDialect === "duckdb" ? undefined : sendCurrentSqlToAnalysis}
+          onSendToAnalysis={activeDialect === "s3" || activeDialect === "duckdb" || activeDialect === "mongodb" ? undefined : sendCurrentSqlToAnalysis}
           onImportLocalFile={onImportLocalFile}
         />
       </div>
@@ -1609,6 +1630,17 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           connectionGroups={connectionGroups}
           connection={activeConnection}
           connectionId={activeConnectionId}
+          mongoSqlMode={activeTab.mongoSqlMode === true}
+          onToggleMongoSql={() => {
+            if (running || activeConnection?.dialect !== "mongodb") return;
+            const enabled = !activeTab.mongoSqlMode;
+            updateTab(activeTab.id, { mongoSqlMode: enabled,
+              ...(enabled ? { mongoNativeText: activeTab.sql, sql: activeTab.mongoSqlText ?? "SELECT 1" }
+                : { mongoSqlText: activeTab.sql, sql: activeTab.mongoNativeText ?? JSON.stringify({ collection: "collection", operation: "find", filter: {} }, null, 2) }),
+              error: null, latestSqlExecutionError: null });
+            setResult(null); setEditability(null); setPlanText(null); setDiagnostics([]);
+          }}
+          queryRunning={running}
           relations={sidebarData?.relations ?? []}
           schemas={sidebarData?.schemas ?? []}
           functions={sidebarData?.functions ?? []}
@@ -1655,8 +1687,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onAdd={() => addTab(activeConnectionId)}
           onRename={renameTab}
         />
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <Editor
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          {activeConnection?.dialect === "mongodb" && <div className="omni-mongo-mode-label">
+            {activeTab.mongoSqlMode ? t("mongoSqlMode") : t("mongoNativeMode")}
+          </div>}
+          <div style={{ flex: 1, minHeight: 0 }}><Editor
             ref={editorRef}
             value={activeTab.sql}
             onChange={(sql) => updateTabSql(activeTab.id, sql)}
@@ -1674,7 +1709,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
               setBusyMsg(`${t("error")}: ${message}`);
               window.setTimeout(() => setBusyMsg(null), 4_000);
             }}
-          />
+          /></div>
         </div>
       </section>}
 
@@ -1716,7 +1751,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       {analysisWorkspaceId && (
         <section style={{ gridColumn: 2, gridRow: "3 / span 3", display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={onAnalysisDatasetSelected} sourceConnections={connections.filter((connection) => connection.dialect !== "s3")} s3Connections={connections.filter((connection) => connection.dialect === "s3")} onSelectS3Connection={(id) => void onSelectConnection(id)} onConfigureS3Connection={onEditConnection} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} initialS3Connection={analysisS3Connection} />
+          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={onAnalysisDatasetSelected} sourceConnections={connections.filter((connection) => connection.dialect !== "s3" && connection.dialect !== "mongodb")} s3Connections={connections.filter((connection) => connection.dialect === "s3")} onSelectS3Connection={(id) => void onSelectConnection(id)} onConfigureS3Connection={onEditConnection} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} initialS3Connection={analysisS3Connection} />
         </section>
       )}
 
@@ -1742,7 +1777,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
               <div>Selecione uma conexão e uma tabela, ou escreva uma consulta para importar somente os dados necessários.</div>
               <select className="omni-cross-source-select" aria-label="Banco de origem" value={crossSourceConnectionId} onChange={(event) => { setCrossSourceConnectionId(event.target.value); setCrossSourceSql(""); setCrossSourceError(null); }}>
                 <option value="">Selecione uma conexão</option>
-                {connections.filter((connection) => connection.dialect !== "s3" && connection.dialect !== "duckdb")
+                {connections.filter((connection) => connection.dialect !== "s3" && connection.dialect !== "duckdb" && connection.dialect !== "mongodb")
                   .map((connection) => <option key={connection.id} value={connection.id}>{connection.label} ({DIALECT_LABELS[connection.dialect] ?? connection.dialect})</option>)}
               </select>
               {crossSourceConnectionId && <>

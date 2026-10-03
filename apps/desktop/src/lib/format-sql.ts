@@ -14,6 +14,7 @@ const DIALECT_MAP: Record<DialectId, SqlLanguage> = {
   odbc: "sql",
   s3: "sql",
   duckdb: "sql",
+  mongodb: "sql",
 };
 
 export interface FormatterSettings {

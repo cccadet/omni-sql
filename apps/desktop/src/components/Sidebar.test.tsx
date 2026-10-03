@@ -407,3 +407,19 @@ describe("Sidebar", () => {
     expect(localStorage.getItem("omni-sql:connectionsHeight")).toBeTruthy();
   });
 });
+
+it("opens MongoDB collections with a native filter or SQL according to the active mode", () => {
+  const onOpenInNewTab = vi.fn();
+  const mongo = { ...connection, dialect: "mongodb" as const };
+  const view = renderSidebar({ connection: mongo, onOpenInNewTab });
+  fireEvent.click(screen.getByRole("button", { name: "public" }));
+  fireEvent.click(screen.getByRole("button", { name: "Collections (1)" }));
+  fireEvent.doubleClick(screen.getByText("orders"));
+  expect(JSON.parse(onOpenInNewTab.mock.calls[0]![1])).toEqual({ database: "public", collection: "orders", operation: "find", filter: {} });
+  view.unmount();
+  renderSidebar({ connection: mongo, onOpenInNewTab, mongoSqlMode: true });
+  fireEvent.click(screen.getByRole("button", { name: "public" }));
+  fireEvent.click(screen.getByRole("button", { name: "Collections (1)" }));
+  fireEvent.doubleClick(screen.getByText("orders"));
+  expect(onOpenInNewTab).toHaveBeenLastCalledWith("orders", 'SELECT * FROM "public"."orders" LIMIT 1000');
+});

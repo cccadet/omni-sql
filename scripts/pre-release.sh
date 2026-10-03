@@ -20,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build --wait postgres mysql mariadb mssql oracle h2
+"${compose[@]}" up -d --build --wait postgres mysql mariadb mssql oracle h2 mongo
 "${compose[@]}" run --rm mssql-init
 "${compose[@]}" run --rm h2-init
 
@@ -36,7 +36,7 @@ curl --silent --fail --header 'Authorization: Bearer integration-auth-token' "$O
 (
   cd docker/test-dbs
   OMNI_SQL_RUN_INTEGRATION=1 node --test ./smoke-test.ts
-  OMNI_SQL_RUN_INTEGRATION=1 node --test ./integration-test.ts
+  pnpm test:integration
 )
 
 cp .cache/coverage-checkpoint.json .cache/release-checkpoint.json

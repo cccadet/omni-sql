@@ -38,6 +38,12 @@ export function assertSafeExplainSql(sql: string, dialect: ConnectionConfig["dia
 }
 
 export function assertEndpointHasNoEmbeddedCredentials(config: ConnectionConfig): void {
+  if (config.dialect === "mongodb") {
+    if (!/^mongodb(?:\+srv)?:\/\//i.test(config.endpoint) || /@/.test(config.endpoint.split("?")[0]!) || /[\r\n]/.test(config.endpoint)) {
+      throw new RpcValidationError("MongoDB URI must use mongodb:// or mongodb+srv:// without embedded credentials; use the user and password fields");
+    }
+    return;
+  }
   if (config.dialect === "odbc") {
     if (/(?:^|;)\s*(?:PWD|PASSWORD|UID|USER(?:NAME)?)\s*=/iu.test(config.endpoint)) {
       throw new RpcValidationError("endpoint ODBC não pode incluir usuário ou senha; use os campos de conexão");

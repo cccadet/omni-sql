@@ -4,6 +4,8 @@ import type { ExecutionRiskAnalysis, ExecutionRiskKind } from "@omni-sql/autocom
 import { useLanguage, type TranslationKey } from "../i18n";
 
 const FINDING_KEYS: Record<ExecutionRiskKind, TranslationKey> = {
+  "mongo-update": "executionRisk.mongo-update",
+  "mongo-delete": "executionRisk.mongo-delete",
   truncate: "executionRisk.truncate",
   drop: "executionRisk.drop",
   "delete-without-where": "executionRisk.delete-without-where",

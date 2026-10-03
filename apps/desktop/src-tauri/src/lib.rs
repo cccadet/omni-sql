@@ -1633,6 +1633,13 @@ async fn analysis_import_s3(
 }
 
 #[tauri::command]
+async fn analysis_query_mongo(app: AppHandle, request: data_engine::MongoQueryRequest) -> Result<data_engine::AnalysisQueryResult, String> {
+    let token = wait_for_auth_token(&app.state::<AuthToken>())?;
+    tauri::async_runtime::spawn_blocking(move || app.state::<data_engine::DataEngine>().query_mongo(request, &token, BACKEND_PORT))
+        .await.map_err(|_| "MongoDB SQL query task failed".to_string())?
+}
+
+#[tauri::command]
 async fn analysis_query_s3(
     app: AppHandle,
     request: data_engine::S3QueryRequest,
@@ -1755,6 +1762,7 @@ pub fn run() {
             analysis_export_query,
             analysis_import_file,
             analysis_import_s3,
+            analysis_query_mongo,
             analysis_query_s3,
             analysis_list_s3,
             analysis_list_ducklake,

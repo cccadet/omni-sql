@@ -7,13 +7,14 @@
     "stop": "docker compose down -v",
     "restart": "docker compose down -v && docker compose up -d",
     "test": "node --test ./smoke-test.ts",
-    "test:integration": "OMNI_SQL_RUN_INTEGRATION=1 node --test ./integration-test.ts",
+    "test:integration": "OMNI_SQL_RUN_INTEGRATION=1 node --test ./integration-test.ts ../../packages/backend/test/mongo.integration.test.ts && sh ./test-mongo-sql.sh",
     "test:integration:h2": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern=JDBC ./integration-test.ts",
     "test:smoke": "OMNI_SQL_RUN_INTEGRATION=1 node --test ./smoke-test.ts",
     "test:pg": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern=PostgreSQL ./smoke-test.ts",
     "test:mysql": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern=MySQL ./smoke-test.ts",
     "test:mssql": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern='SQL Server' ./smoke-test.ts",
-    "test:oracle": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern='Oracle XE' ./smoke-test.ts"
+    "test:oracle": "OMNI_SQL_RUN_INTEGRATION=1 node --test --test-name-pattern='Oracle XE' ./smoke-test.ts",
+    "test:integration:mongo": "OMNI_SQL_RUN_INTEGRATION=1 node --test ../../packages/backend/test/mongo.integration.test.ts && sh ./test-mongo-sql.sh"
   },
   "dependencies": {
     "@omni-sql/backend": "workspace:*",
