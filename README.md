@@ -1,8 +1,8 @@
 <p align="center"><img src="omni-sql.svg" alt="omni-sql logo" width="96" /></p>
 <h1 align="center">omni-sql</h1>
-<p align="center"><strong>One focused SQL workspace for every database.</strong></p>
-<p align="center">A modern, open-source desktop SQL IDE for developers working across<br />PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle.</p>
-<p align="center"><a href="https://github.com/cccadet/omni-sql/releases/latest"><strong>Download omni-sql</strong></a> · <a href="#quick-start">Quick start</a> · <a href="docs/DATABASE-SUPPORT.md">Database support</a></p>
+<p align="center"><strong>Query CSV and Parquet in your SQL IDE, locally.</strong></p>
+<p align="center">An open-source SQL workspace with DuckDB analysis and native connections to<br />PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle.</p>
+<p align="center"><a href="https://github.com/cccadet/omni-sql/releases/latest"><strong>Download omni-sql</strong></a> · <a href="#analyze-files-and-database-results-locally">Try local analysis</a> · <a href="#quick-start">Quick start</a> · <a href="docs/DATABASE-SUPPORT.md">Database support</a></p>
 <p align="center"><strong>Runs locally · No account required · No separate runtime or database client to install</strong></p>
 <p align="center">
   <a href="https://github.com/cccadet/omni-sql/actions/workflows/ci.yml"><img src="https://github.com/cccadet/omni-sql/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" /></a>
@@ -11,34 +11,42 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
 </p>
 
-![Explore schemas, complete SQL, inspect results, and analyze PostgreSQL execution plans](docs/images/release-visuals/omni-sql-demo.gif)
-
 <p align="center"><sub>Early-stage software · Installers currently available for Windows x64 and Linux amd64</sub></p>
 
-## One IDE instead of a tool for each database
+## Analyze files and database results locally
 
-omni-sql brings query writing, schema exploration, execution, and results into one
-consistent desktop workspace. It is built for developers who move between database
-engines and want useful SQL intelligence without sending their schema to a hosted service.
+Received a CSV or Parquet export to investigate? Import it and query it with SQL
+in the same desktop IDE, using embedded DuckDB. A spreadsheet fits this workflow
+when exported as CSV. You do not need to load the file into your source database
+or write a separate script.
 
-### What makes omni-sql different
+You can also import a database query result and join it with the file locally,
+including results from another supported connection.
 
-| | Why it matters |
-| --- | --- |
-| **Five native database adapters** | Use the same workflow with PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle. |
-| **CTE-aware autocomplete** | Complete CTE names and projected columns alongside metadata-backed tables and columns. |
-| **Dialect intelligence** | Turn supported dialect diagnostics into database-compatible SQL through editor quick fixes. |
-| **Local desktop workflow** | Connections, metadata, queries, and results stay in the desktop application; no account is required. |
-| **Safety-minded editing** | Inline row edits are enabled only when primary-key checks establish a safe update path. |
-| **Local analysis with DuckDB** | Load full results or samples from supported connections and CSV/Parquet files, join local datasets, and export complete analytical results without sending the dataset through the grid. |
-| **Ready-to-run installers** | Release packages bundle the required runtimes; users do not install Node.js, Java, Rust, or vendor client SDKs. |
+**Example:** sales are in PostgreSQL, targets are in a CSV. Import both and use
+a local SQL join to find the region that missed its target without uploading
+the file to PostgreSQL. [Try the demo with fictional data](docs/demo/README.md).
 
-## From connection to result
+![PostgreSQL sales result imported into DuckDB and joined with a local targets CSV](docs/images/release-visuals/local-analysis-demo.gif)
 
-1. **Connect** to one of the supported databases.
-2. **Explore** schemas, tables, columns, keys, indexes, functions, and definitions.
-3. **Write** in a Monaco-powered editor with metadata and CTE-aware completion.
-4. **Run and analyze** statements, results, messages, exports, and supported execution plans.
+1. Run a source query and open **Analyze locally**.
+2. Choose **Full query result** to load the full source query, or choose a sample.
+3. Add a CSV or Parquet dataset and join it with the imported result using SQL.
+4. Inspect the result and export the full local query output.
+
+A full export contains the rows available in your imported datasets. If you
+imported a sample, the export still represents that sample.
+[Read about import coverage and provenance](docs/ANALYTICAL-PROVENANCE.md).
+
+## SQL editing and database exploration
+
+The editor has metadata and CTE-aware completion, dialect quick fixes, and
+supported execution plans. Browse schemas and definitions, inspect results,
+and edit rows when primary-key checks establish a safe update path.
+Compatible AI clients can propose SQL changes through the
+[local MCP integration](#mcp-integration), with an approval dialog before applying them.
+
+![SQL editor walkthrough: schemas, autocomplete, results, and PostgreSQL execution plans](docs/images/release-visuals/omni-sql-demo.gif)
 
 ## Database support
 
@@ -73,6 +81,11 @@ do not need to install Node.js, Java, Rust, a database client, or a vendor clien
 
 ## Quick start
 
+For files only, install the app, choose **Import file**, and select a CSV or
+Parquet file. Query the imported table in the **Local DuckDB** SQL tab.
+
+To work with a database:
+
 1. Install the package for your platform.
 2. Open omni-sql and create a connection.
 3. Select a database type, enter the connection details, and choose **Test connection**.
@@ -81,53 +94,8 @@ do not need to install Node.js, Java, Rust, a database client, or a vendor clien
 6. Run the selection or current statement, then inspect, filter, sort, page, or export the results.
 7. Open **Analyze locally** to import a displayed result, stream a full query or sample, or add CSV/Parquet datasets for local joins.
 
-The grid preview limit is separate from analytical ingestion. A full analytical load
-reads the source query to completion, subject to local resource budgets; a sample
-retains only the selected rows. The local SQL editor uses DuckDB syntax and omits
-identifier quotes when they are unnecessary. See the [Rust data engine plan](docs/RUST_DATA_ENGINE_PLAN.md)
-and [remaining-work checklist](docs/RUST_DATA_ENGINE_TODO.md) for implementation
-status and validation still needed.
-The [analytical provenance guide](docs/ANALYTICAL-PROVENANCE.md) explains which
-imports are complete, sampled, or truncated and what an export can contain.
-
-Local DuckDB datasets are saved in the application's `local.duckdb` database and
-are available after restart. Federated datasets used for a session's joins and
-temporary result pages are cleared when the process exits. S3 object queries use
-separate DuckDB readers; CSV and Parquet support and optional Delta/Iceberg
-support depend on DuckDB extensions, which may need network access on first use.
-For DuckLake, configure a catalog on the S3 connection for a bucket or table
-prefix. The catalog can use a saved PostgreSQL connection or a SQLite/DuckDB
-file; the longest matching prefix wins when a bucket contains mixed data.
-S3 query results in the editor are bounded previews. To export every selected
-S3 row, import the object into a local DuckDB dataset, then use the analytical
-full-result export; exporting the visible grid only writes displayed rows.
-The main DuckDB editor offers **Export full CSV** for the last executed query.
-For SQL Server analytical imports, the current driver cannot preserve very large
-`DECIMAL`/`NUMERIC` values as JavaScript numbers. The stream rejects detected
-unsafe values; cast those columns to `VARCHAR` in the source SQL to retain their
-exact digits. MySQL and Oracle analytical streams return large numeric values as
-text for the same reason. SQL Server and Oracle drivers can also discard
-sub-millisecond timestamp precision; analytical streaming rejects those values
-when detected. Cast the column to text in the source SQL (`VARCHAR` on SQL
-Server, `TO_CHAR(..., 'YYYY-MM-DD HH24:MI:SS.FF6')` on Oracle) to preserve it.
-Generic ODBC streams also reject driver-decoded decimal and date/time values
-when their precision cannot be established; cast them to text in the source SQL.
-The ODBC adapter requires a separately installed 64-bit driver. The legacy
-Windows SQL Server ODBC driver on the test host connected but failed even to
-fetch `SELECT 1`, so that combination has no fidelity claim.
-
-In Analyze Locally, **Browse all rows** materializes a stable temporary result
-and pages it in groups of 1,000. Editing SQL or leaving the workspace releases
-the result. Imported dataset metadata records coverage and selection; streamed
-sources also record the source-query start and finish times. A full export
-contains all rows of the current local query, but cannot restore rows omitted
-by an earlier sample or truncated import. Local full exports write a companion
-`.omni.json` file with workspace dataset provenance. It omits raw SQL literals.
-
-To compare repeatable local input samples before a join, use DuckDB's native
-`USING SAMPLE reservoir(1000 ROWS) REPEATABLE (42)` on each input subquery.
-Sampling each side of a join can exclude matching rows. Aggregates over these
-sampled inputs describe the sample, not the full source.
+For full imports, sampling, S3, driver precision, and export behavior, read the
+[local analysis guide](docs/LOCAL-ANALYSIS.md) and [data provenance guide](docs/ANALYTICAL-PROVENANCE.md).
 
 Need help connecting? Read [Database support](docs/DATABASE-SUPPORT.md) or [Troubleshooting](docs/TROUBLESHOOTING.md).
 
@@ -149,15 +117,14 @@ active database dialect without leaving the editor.
 
 ## Positioning
 
-omni-sql is intentionally a focused SQL IDE, not a full database administration suite.
-It is a good fit when you value a consistent cross-database editor, local operation,
-CTE-aware completion, and guarded data edits. Mature tools such as DBeaver and DataGrip
-cover broader administration and ecosystem needs; omni-sql focuses on a smaller,
-modern workflow and is free and open source.
+omni-sql combines SQL editing with local analysis of imported database results
+and files. Mature tools such as DBeaver and DataGrip cover broader administration
+and ecosystem needs. You can use omni-sql alongside them for local DuckDB analysis.
 
 | Choose omni-sql when you want… | Consider a broader tool when you need… |
 | --- | --- |
-| One editor across five major relational databases | Deep vendor-specific administration |
+| Local DuckDB joins across imported database results and files | Deep vendor-specific administration |
+| One editor across five major relational databases | Built-in data modeling and migration tools |
 | CTE and metadata-aware SQL completion | A large plugin ecosystem or enterprise support |
 | A local desktop app with no account | Built-in data modeling, migration, or team features |
 | An MIT-licensed project you can inspect and contribute to | An established, long-supported product |
@@ -202,12 +169,13 @@ verification steps, limits, and the complete security model.
 - ✅ Native PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle adapters
 - ✅ CTE-aware autocomplete
 - 🧪 Generic JDBC (experimental)
-- 📋 ODBC
+- 🧪 Generic ODBC (requires a separately installed 64-bit driver)
 - 📋 MongoDB (deferred to v2)
 - 📋 More installer formats and platforms
 
 ## Documentation
 
+- [Local analysis with DuckDB](docs/LOCAL-ANALYSIS.md)
 - [Database support and connections](docs/DATABASE-SUPPORT.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [MCP integration](docs/MCP.md)
@@ -224,6 +192,11 @@ If omni-sql is useful to you, **[star the repository](https://github.com/cccadet
 to help other developers discover it. You can [report a bug](https://github.com/cccadet/omni-sql/issues/new/choose),
 share a database compatibility result, or suggest a focused improvement. Pull requests
 are welcome—please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+Tried installing or running your first database + file join?
+[Share your first-run experience](https://github.com/cccadet/omni-sql/issues/new?template=first_run.yml),
+including successful attempts. Tell us your platform, database, and where you
+got stuck; requests for a macOS installer are useful too.
 
 ## License
 
