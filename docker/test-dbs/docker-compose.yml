@@ -19,7 +19,7 @@ services:
       POSTGRES_USER: omni
       POSTGRES_PASSWORD: omni
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${OMNI_SQL_TEST_PG_PORT:-5432}:5432"
     volumes:
       - ./init/01-postgres.sql:/docker-entrypoint-initdb.d/01-postgres.sql
     healthcheck:

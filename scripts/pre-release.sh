@@ -20,7 +20,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Let Docker allocate a PostgreSQL port instead of using a development database.
+export OMNI_SQL_TEST_PG_PORT=0
 "${compose[@]}" up -d --build --wait postgres mysql mariadb mssql oracle h2 mongo
+export OMNI_SQL_TEST_PG_PORT
+OMNI_SQL_TEST_PG_PORT=$("${compose[@]}" port postgres 5432 | sed 's/.*://')
 "${compose[@]}" run --rm mssql-init
 "${compose[@]}" run --rm h2-init
 
