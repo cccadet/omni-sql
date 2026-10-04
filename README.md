@@ -13,7 +13,7 @@
 
 ![Explore schemas, complete SQL, inspect results, and analyze PostgreSQL execution plans](docs/images/release-visuals/omni-sql-demo.gif)
 
-<p align="center"><sub>Early-stage software · Installers currently available for Windows x64 and Linux amd64</sub></p>
+<p align="center"><sub>Early-stage software · Windows x64, Linux amd64 and macOS Apple Silicon / Intel installers</sub></p>
 
 ## One IDE instead of a tool for each database
 
@@ -67,10 +67,26 @@ Download the package for your platform from the **[latest GitHub release](https:
 | --- | --- | --- |
 | Windows 10/11 x64 | `.exe` installer | Available |
 | Debian/Ubuntu amd64 | `.deb` package | Available |
-| macOS, ARM, AppImage, RPM | — | Not packaged yet |
+| macOS 15+ Apple Silicon / Intel | `.dmg` installer | Included starting with v0.7.0 |
+| Linux ARM, AppImage, RPM | — | Not packaged yet |
 
 Release assets include a `SHA256SUMS` file so downloads can be verified. End users
 do not need to install Node.js, Java, Rust, a database client, or a vendor client SDK.
+
+### macOS first launch
+
+Choose the `aarch64.dmg` download for Apple Silicon (M1 or newer), or `x64.dmg`
+for an Intel Mac. Open the disk image, drag **omni-sql** to **Applications**,
+and launch it from there.
+
+Initial macOS packages use a free ad-hoc signature and are not notarized by Apple.
+If macOS blocks the first launch because the developer cannot be verified, open
+**System Settings → Privacy & Security → Open Anyway**, then confirm opening
+omni-sql. Follow [Apple's instructions](https://support.apple.com/102445) for an
+app downloaded from a source you trust. No paid Apple account is needed to install.
+
+Node.js, Java and the ODBC driver manager are bundled. ODBC connections still
+require a separately installed driver for the database, as on other platforms.
 
 > omni-sql is early-stage software. Test it with development data before using it
 > against important environments, and please report unexpected behavior.
