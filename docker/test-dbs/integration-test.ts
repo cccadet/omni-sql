@@ -110,7 +110,7 @@ const TARGETS: Record<string, Target> = {
   pg: {
     label: "PostgreSQL",
     dialect: "postgres",
-    endpoint: "127.0.0.1:5432/omni_test",
+    endpoint: `127.0.0.1:${process.env.OMNI_SQL_TEST_PG_PORT ?? "5432"}/omni_test`,
     user: "omni",
     password: "omni",
     schema: "public",
