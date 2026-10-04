@@ -1,0 +1,57 @@
+name: macOS preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-preflight-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and launch ${{ matrix.target }} DMG
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: darwin-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install ODBC build dependency
+        run: brew install unixodbc
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build macOS installer
+        run: pnpm --filter desktop exec tauri build --bundles app,dmg
+      - name: Verify installed app without external runtimes
+        run: bash scripts/verify-macos-bundle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.target }}-${{ github.sha }}
+          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 7

@@ -93,7 +93,21 @@ jobs:
             bundles: deb
             bundle-paths: |
               apps/desktop/src-tauri/target/release/bundle/deb
+          - os: macos-15
+            target: darwin-arm64
+            bundles: app,dmg
+            bundle-paths: |
+              apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+              apps/desktop/src-tauri/target/release/bundle/macos/*.tar.gz*
+          - os: macos-15-intel
+            target: darwin-x64
+            bundles: app,dmg
+            bundle-paths: |
+              apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+              apps/desktop/src-tauri/target/release/bundle/macos/*.tar.gz*
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -119,6 +133,10 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev \
             libfuse2 xdg-utils file libayatana-appindicator3-dev
 
+      - name: Install macOS ODBC build dependency
+        if: runner.os == 'macOS'
+        run: brew install unixodbc
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -142,6 +160,19 @@ jobs:
           pnpm --filter desktop exec tauri build \
             --bundles "${{ matrix.bundles }}" \
             --config "$RUNNER_TEMP/tauri-version.json"
+
+      - name: Verify macOS installer and distinguish updater architectures
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          RESOURCE_TARGET: ${{ matrix.target }}
+        run: |
+          bash scripts/verify-macos-bundle.sh
+          directory=apps/desktop/src-tauri/target/release/bundle/macos
+          name="omni-sql_${VERSION}_${RESOURCE_TARGET}.app.tar.gz"
+          mv "$directory/omni-sql.app.tar.gz" "$directory/$name"
+          mv "$directory/omni-sql.app.tar.gz.sig" "$directory/$name.sig"
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -178,27 +209,12 @@ jobs:
               exit 1
             fi
             cp "$file" "release-assets/$name"
-          done < <(find release-files -type f \( -name '*.deb' -o -name '*.exe' -o -name '*.sig' \) -print0 | sort -z)
+          done < <(find release-files -type f \( -name '*.deb' -o -name '*.exe' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.sig' \) -print0 | sort -z)
 
       - name: Create updater manifest
-        working-directory: release-assets
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          installer="$(find . -maxdepth 1 -type f -name '*-setup.exe' -print -quit)"
-          test -n "$installer"
-          signature_file="${installer}.sig"
-          test -f "$signature_file"
-          asset_name="${installer#./}"
-          jq -n \
-            --arg version "$VERSION" \
-            --arg pub_date "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-            --arg signature "$(cat "$signature_file")" \
-            --arg url "https://github.com/cccadet/omni-sql/releases/download/v${VERSION}/${asset_name}" \
-            '{version: $version, pub_date: $pub_date, platforms: {"windows-x86_64": {signature: $signature, url: $url}}}' \
-            > latest.json
+        run: node scripts/create-updater-manifest.mjs release-assets "$VERSION"
 
       - name: Create SHA256SUMS
         working-directory: release-assets

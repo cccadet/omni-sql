@@ -1,3 +1,4 @@
+/* global process, URL */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -5,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildMcp, extract, gradleInvocation, pnpmCommand, pnpmInvocation, runGradle, runPnpm, stageMcp, stageNode } from "./prepare-resources.mjs";
+import { buildMcp, extract, gradleInvocation, pnpmCommand, pnpmInvocation, runGradle, runPnpm, stageMacosNativeLibraries, stageMcp, stageNode } from "./prepare-resources.mjs";
 
 const script = fileURLToPath(new URL("./prepare-resources.mjs", import.meta.url));
 
@@ -72,9 +73,9 @@ test("preserves ./gradlew on Unix", () => {
 
 test("converts the native Tauri platform/arch environment to the resource target", () => {
   const tauriPlatform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
-  const expected = process.platform === "win32" ? "windows-x64" : process.platform === "darwin" ? "darwin-x64" : "linux-x64";
+  const expected = `${tauriPlatform}-${process.arch}`;
   const output = execFileSync(process.execPath, [script, "--print-target"], {
-    env: { ...process.env, TAURI_ENV_PLATFORM: tauriPlatform, TAURI_ENV_ARCH: "x86_64" },
+    env: { ...process.env, TAURI_ENV_PLATFORM: tauriPlatform, TAURI_ENV_ARCH: process.arch },
     encoding: "utf8",
   });
   assert.equal(output.trim(), expected);
@@ -192,4 +193,32 @@ test("stages an existing MCP server build without invoking a package build", () 
 
   fs.rmSync(source, { recursive: true, force: true });
   fs.rmSync(out, { recursive: true, force: true });
+});
+
+test("relocates macOS native dependency chains and signs them before their loader", (t) => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "omni-macos-libraries-"));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  for (const name of ["odbc.node", "libodbc.2.dylib", "libltdl.7.dylib", "index.mjs"]) fs.writeFileSync(path.join(out, name), name);
+  const calls = [];
+  const dependencies = {
+    "odbc.node": ["/opt/homebrew/opt/unixodbc/lib/libodbc.2.dylib"],
+    "libodbc.2.dylib": ["/opt/homebrew/opt/unixodbc/lib/libodbc.2.dylib", "/usr/local/opt/libtool/lib/libltdl.7.dylib"],
+    "libltdl.7.dylib": ["/usr/lib/libSystem.B.dylib"],
+  };
+  const run = (command, args) => {
+    calls.push([command, ...args]);
+    if (command === "file") return path.basename(args[1]) === "index.mjs" ? "JavaScript source" : "Mach-O 64-bit";
+    if (command === "otool") return `${args[1]}:\n${dependencies[path.basename(args[1])].map((dependency) => `\t${dependency} (compatibility version 1.0.0, current version 1.0.0)`).join("\n")}`;
+    if (command === "brew") return '{"formulae":[]}';
+    return "";
+  };
+  stageMacosNativeLibraries(out, run);
+  assert.deepEqual(calls.filter(([command]) => command === "install_name_tool").sort(), [
+    ["install_name_tool", "-change", "/usr/local/opt/libtool/lib/libltdl.7.dylib", "@loader_path/libltdl.7.dylib", path.join(out, "libodbc.2.dylib")],
+    ["install_name_tool", "-change", "/opt/homebrew/opt/unixodbc/lib/libodbc.2.dylib", "@loader_path/libodbc.2.dylib", path.join(out, "odbc.node")],
+  ].sort());
+  const signed = calls.filter(([command]) => command === "codesign").map((call) => path.basename(call.at(-1)));
+  assert.deepEqual(signed, ["libltdl.7.dylib", "libodbc.2.dylib", "odbc.node"]);
+  assert.equal(fs.existsSync(path.join(out, "licenses/macos-odbc-LGPL-2.1.txt")), true);
+  assert.throws(() => stageMacosNativeLibraries(out, (command, args) => command === "file" ? "Mach-O" : command === "otool" ? `${args[1]}:\n\t/private/unbundled.dylib (compatibility version 1.0.0)` : ""), /unexpected macOS library dependency/);
 });
