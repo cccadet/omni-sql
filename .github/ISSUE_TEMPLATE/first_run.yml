@@ -1,0 +1,76 @@
+name: Installation and first analysis feedback
+description: Tell us whether you could install, open, and query your first file or complete a local join.
+title: "[First run]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Successful attempts are useful too. Please share only fictional or redacted examples; omit credentials, hostnames, and private data.
+  - type: input
+    id: version
+    attributes:
+      label: omni-sql version
+      placeholder: "For example: 0.7.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows 10 x64
+        - Windows 11 x64
+        - Debian/Ubuntu amd64
+        - Other Linux
+        - macOS Apple Silicon
+        - macOS Intel
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: How far did you get?
+      options:
+        - No installer available for my platform
+        - Downloaded but could not install
+        - Installed but could not open
+        - Opened but could not connect
+        - Opened but could not import a file
+        - Imported and queried a local file
+        - Connected but could not import a query result
+        - Imported data but could not join it with a file
+        - Completed a local join
+        - Completed a local join and export
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Where did you hear about omni-sql?
+      placeholder: "LinkedIn, Reddit, Hacker News, GitHub, or another source"
+  - type: textarea
+    id: experience
+    attributes:
+      label: What worked, or where did you get stuck?
+      description: Include the database type/version, installation method, and exact error if relevant. What would make you use it again?
+    validations:
+      required: true
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Which installation option would help you most?
+      options:
+        - Current installer works for me
+        - WinGet
+        - Scoop
+        - Signed/notarized macOS installer
+        - Another Linux package format
+        - Other
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials, hostnames, and private data.
+          required: true
