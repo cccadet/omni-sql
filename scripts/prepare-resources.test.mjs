@@ -208,6 +208,7 @@ test("relocates macOS native dependency chains and signs them before their loade
   const run = (command, args) => {
     calls.push([command, ...args]);
     if (command === "file") return path.basename(args[1]) === "index.mjs" ? "JavaScript source" : "Mach-O 64-bit";
+    if (command === "otool" && args[0] === "-D") return `${args[1]}:\n${path.basename(args[1]) === "libodbc.2.dylib" ? dependencies["libodbc.2.dylib"][0] : ""}`;
     if (command === "otool") return `${args[1]}:\n${dependencies[path.basename(args[1])].map((dependency) => `\t${dependency} (compatibility version 1.0.0, current version 1.0.0)`).join("\n")}`;
     if (command === "brew") return '{"formulae":[]}';
     return "";
@@ -221,4 +222,25 @@ test("relocates macOS native dependency chains and signs them before their loade
   assert.deepEqual(signed, ["libltdl.7.dylib", "libodbc.2.dylib", "odbc.node"]);
   assert.equal(fs.existsSync(path.join(out, "licenses/macos-odbc-LGPL-2.1.txt")), true);
   assert.throws(() => stageMacosNativeLibraries(out, (command, args) => command === "file" ? "Mach-O" : command === "otool" ? `${args[1]}:\n\t/private/unbundled.dylib (compatibility version 1.0.0)` : ""), /unexpected macOS library dependency/);
+});
+
+
+test("ignores the upstream install name of a renamed keyring addon, but rejects missing dependencies", (t) => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "omni-keyring-install-name-"));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  const binary = path.join(out, "keyring.darwin-arm64.node");
+  fs.writeFileSync(binary, "keyring");
+  const installName = "/Users/runner/work/keyring-node/target/release/deps/libnapi_keyring.dylib";
+  const signed = [];
+  const run = (command, args) => {
+    if (command === "file") return "Mach-O 64-bit";
+    if (command === "otool") return args[0] === "-D" ? `${binary}:\n${installName}\n` : `${binary}:\n\t${installName} (compatibility version 0.0.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)`;
+    if (command === "codesign") signed.push(args.at(-1));
+    else throw new Error(`Unexpected command: ${command}`);
+    return "";
+  };
+  stageMacosNativeLibraries(out, run);
+  assert.deepEqual(signed, [binary]);
+  assert.throws(() => stageMacosNativeLibraries(out, (command, args) =>
+    command === "otool" && args[0] === "-D" ? `${binary}:\n` : run(command, args)), /unexpected macOS library dependency/);
 });

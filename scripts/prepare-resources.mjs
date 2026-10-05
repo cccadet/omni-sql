@@ -213,12 +213,13 @@ export function stageMacosNativeLibraries(out, run = execFileSync) {
     if (visited.has(file)) return;
     visited.add(file);
     if (!run("file", ["-b", file], { encoding: "utf8" }).includes("Mach-O")) return;
+    const installNames = run("otool", ["-D", file], { encoding: "utf8" }).split("\n").slice(1).map((line) => line.trim());
     const dependencies = run("otool", ["-L", file], { encoding: "utf8" }).split("\n").slice(1);
     for (const line of dependencies) {
       const dependency = line.trim().split(" (compatibility version")[0];
       if (!dependency?.startsWith("/") || dependency.startsWith("/usr/lib/") || dependency.startsWith("/System/Library/")) continue;
-      // A dylib's first entry can be its own install name.
-      if (path.basename(dependency) === path.basename(file)) continue;
+      // LC_ID_DYLIB can retain the upstream build path after a .dylib is renamed to .node.
+      if (installNames.includes(dependency)) continue;
       if (!dependency.startsWith("/opt/homebrew/") && !dependency.startsWith("/usr/local/")) fail(`unexpected macOS library dependency: ${dependency}`);
       bundledLibraries = true;
       const destination = path.join(path.dirname(file), path.basename(dependency));

@@ -49,6 +49,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify Windows runtime cleanup
+        shell: powershell
+        run: ./scripts/stop-runtime.test.ps1
+
       - name: Prepare resources
         run: pnpm prepare:resources
 
