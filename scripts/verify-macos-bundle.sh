@@ -31,7 +31,8 @@ while IFS= read -r -d '' binary; do
   if file -b "$binary" | grep -q 'Mach-O'; then
     codesign --verify --strict "$binary"
     # No absolute Homebrew dependency may escape the installed application.
-    if otool -L "$binary" | grep -E '^[[:space:]]+/(opt/homebrew|usr/local)/' | grep -v "$(basename "$binary") (compatibility version"; then
+    install_name="$(otool -D "$binary" | tail -n +2 | head -n 1)"
+    if otool -L "$binary" | awk -v id="$install_name" '$1 != id' | grep -E '^[[:space:]]+/(opt/homebrew|usr/local)/'; then
       echo "Unbundled native dependency: $binary" >&2
       exit 1
     fi

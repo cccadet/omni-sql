@@ -67,7 +67,7 @@ Download the package for your platform from the **[latest GitHub release](https:
 | --- | --- | --- |
 | Windows 10/11 x64 | `.exe` installer | Available |
 | Debian/Ubuntu amd64 | `.deb` package | Available |
-| macOS 15+ Apple Silicon / Intel | `.dmg` installer | Included starting with v0.7.0 |
+| macOS 15+ Apple Silicon / Intel | `.dmg` installer | Included starting with v0.7.1 |
 | Linux ARM, AppImage, RPM | — | Not packaged yet |
 
 Release assets include a `SHA256SUMS` file so downloads can be verified. End users
