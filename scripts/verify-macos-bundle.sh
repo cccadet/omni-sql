@@ -4,6 +4,8 @@ set -euo pipefail
 bundle_dir="${1:-apps/desktop/src-tauri/target/release/bundle}"
 test "$(uname -s)" = Darwin
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/omni-macos.XXXXXX")"
+# macOS /var and /tmp are symlinks; Tauri rejects a symlink in its executable path.
+work_dir="$(cd "$work_dir" && pwd -P)"
 mount_dir="$work_dir/mount"
 app_pid=""
 cleanup() {
