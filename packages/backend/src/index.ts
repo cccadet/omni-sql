@@ -320,7 +320,7 @@ function sendMcpError(
 }
 
 export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof createServer> {
-  const server = createServer(async (req, res) => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === "OPTIONS") {
       const headers: Record<string, string> = {
         "access-control-allow-methods": "POST, OPTIONS, GET",
@@ -385,7 +385,13 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
       return;
     }
 
-    const requestUrl = new URL(route ?? "/", "http://127.0.0.1");
+    let requestUrl: URL;
+    try {
+      requestUrl = new URL(route ?? "/", "http://127.0.0.1");
+    } catch {
+      send(res, 400, { error: "invalid request target" }, origin);
+      return;
+    }
     if (requestUrl.pathname === "/health") {
       const challenge = requestUrl.searchParams.get("challenge");
       const healthToken = process.env.OMNI_SQL_HEALTH_TOKEN;
@@ -524,6 +530,12 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
     } finally {
       requestAbort.cleanup();
     }
+  };
+  const server = createServer((req, res) => {
+    void handleRequest(req, res).catch(() => {
+      if (res.headersSent) res.destroy();
+      else send(res, 500, { error: INTERNAL_ERROR_MESSAGE });
+    });
   });
 
   server.listen(port, "127.0.0.1");

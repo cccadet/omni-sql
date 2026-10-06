@@ -1,3 +1,4 @@
+import { tokenize } from "./lexer.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mysqlDescriptor, oracleDescriptor, postgresDescriptor, sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
@@ -762,4 +763,11 @@ test("execution risk examines every statement and modifying CTEs", () => {
   assert.equal(batch.findings[0]?.kind, "update-without-where");
   assert.equal(analyzeExecutionRisk("WITH gone AS (DELETE FROM users RETURNING id) SELECT * FROM gone", "postgres").findings[0]?.kind, "delete-without-where");
   assert.equal(analyzeExecutionRisk("DELETE FROM users\nGO\nSELECT 1", "sqlserver").findings[0]?.kind, "delete-without-where");
+});
+
+test("PostgreSQL escaped literals cannot conceal a trailing mutation", () => {
+  const sql = String.raw`SELECT E'\'a'; DELETE FROM victims; --'`;
+  const tokens = tokenize(sql, postgresDescriptor);
+  assert.ok(tokens.some(token => token.upper === "DELETE"));
+  assert.equal(tokenize("SELECT $$a;b$$ /* outer /* ; */ ; */; SELECT 2", postgresDescriptor).filter(token => token.value === ";").length, 1);
 });

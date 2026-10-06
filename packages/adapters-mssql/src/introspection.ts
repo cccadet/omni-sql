@@ -1,4 +1,4 @@
-import type { ConnectionPool, Request } from "mssql";
+import sql, { type ConnectionPool, type Request } from "mssql";
 import type {
   Column,
   Constraint,
@@ -225,7 +225,7 @@ export async function introspectSchemas(
   const colsByTable = new Map<string, ColumnRow[]>();
   for (const c of cols) {
     if (allow && !allow.has(c.table_schema)) continue;
-    const key = `${c.table_schema}.${c.table_name}`;
+    const key = JSON.stringify([c.table_schema, c.table_name]);
     if (!colsByTable.has(key)) colsByTable.set(key, []);
     colsByTable.get(key)!.push(c);
   }
@@ -233,7 +233,7 @@ export async function introspectSchemas(
   let i = 0;
   for (const [schemaName, schemaRels] of bySchema) {
     const relations: Relation[] = schemaRels.map((r) => {
-      const rcols = colsByTable.get(`${schemaName}.${r.table_name}`) ?? [];
+      const rcols = colsByTable.get(JSON.stringify([schemaName, r.table_name])) ?? [];
       const columns: Column[] = rcols.map((c) => ({
         name: c.column_name,
         ...(c.description?.trim() ? { description: c.description.trim() } : {}),
@@ -528,27 +528,38 @@ export async function updateRowViaPool(pool: ConnectionPool, spec: RowUpdateSpec
   if (setEntries.length === 0) throw new Error("updateRow: nada para atualizar (set vazio)");
   if (whereEntries.length === 0) throw new Error("updateRow: where vazio (sem PK para localizar a linha)");
 
-  const request = pool.request();
-  const setClause = setEntries
-    .map(([col, val], i) => {
-      const p = `s${i}`;
-      request.input(p, val);
-      return `${quoteIdentifier(sqlserverDescriptor, col)} = @${p}`;
-    })
-    .join(", ");
-  const whereClause = whereEntries
-    .map(([col, val], i) => {
-      const p = `w${i}`;
-      request.input(p, val);
-      return `${quoteIdentifier(sqlserverDescriptor, col)} = @${p}`;
-    })
-    .join(" AND ");
-  const tableRef = spec.schema
-    ? `${quoteIdentifier(sqlserverDescriptor, spec.schema)}.${quoteIdentifier(sqlserverDescriptor, spec.table)}`
-    : quoteIdentifier(sqlserverDescriptor, spec.table);
+  const transaction = pool.transaction();
+  await transaction.begin();
+  try {
+    const request = transaction.request();
+    const setClause = setEntries
+      .map(([col, val], i) => {
+        const p = `s${i}`;
+        request.input(p, val);
+        return `${quoteIdentifier(sqlserverDescriptor, col)} = @${p}`;
+      })
+      .join(", ");
+    const whereClause = whereEntries
+      .map(([col, val], i) => {
+        const p = `w${i}`;
+        request.input(p, val);
+        return `${quoteIdentifier(sqlserverDescriptor, col)} = @${p}`;
+      })
+      .join(" AND ");
+    const tableRef = spec.schema
+      ? `${quoteIdentifier(sqlserverDescriptor, spec.schema)}.${quoteIdentifier(sqlserverDescriptor, spec.table)}`
+      : quoteIdentifier(sqlserverDescriptor, spec.table);
 
-  const result = await request.query(`UPDATE ${tableRef} SET ${setClause} WHERE ${whereClause}`);
-  return result.rowsAffected?.[0] ?? 0;
+    request.output("omni_rows", sql.Int);
+    const result = await request.query(`DECLARE @omni_updated TABLE (matched bit); UPDATE ${tableRef} SET ${setClause} OUTPUT 1 INTO @omni_updated WHERE ${whereClause}; SET @omni_rows = (SELECT COUNT(*) FROM @omni_updated);`);
+    const count = Number(result.output.omni_rows);
+    if (count === 1) await transaction.commit();
+    else await transaction.rollback();
+    return count;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
 }
 
 function mapMssqlTypeToDataType(type: unknown): string {

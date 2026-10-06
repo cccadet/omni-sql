@@ -219,7 +219,7 @@ export async function introspectSchemas(
   const colsByTable = new Map<string, ColumnRow[]>();
   for (const c of cols) {
     if (allow && !allow.has(c.table_schema)) continue;
-    const key = `${c.table_schema}.${c.table_name}`;
+    const key = JSON.stringify([c.table_schema, c.table_name]);
     if (!colsByTable.has(key)) colsByTable.set(key, []);
     colsByTable.get(key)!.push(c);
   }
@@ -227,7 +227,7 @@ export async function introspectSchemas(
   let i = 0;
   for (const [schemaName, schemaRels] of bySchema) {
     const relations: Relation[] = schemaRels.map((r) => {
-      const rcols = colsByTable.get(`${schemaName}.${r.table_name}`) ?? [];
+      const rcols = colsByTable.get(JSON.stringify([schemaName, r.table_name])) ?? [];
       const columns: Column[] = rcols.map((c) => ({
         name: c.column_name,
         ...(c.description?.trim() ? { description: c.description.trim() } : {}),
@@ -589,11 +589,31 @@ export async function updateRowViaPool(pool: Pool, spec: RowUpdateSpec): Promise
     ? `${quoteIdentifier(mysqlDescriptor, spec.schema)}.${quoteIdentifier(mysqlDescriptor, spec.table)}`
     : quoteIdentifier(mysqlDescriptor, spec.table);
 
-  const [result] = await pool.query<ResultSetHeader>(
-    `UPDATE ${tableRef} SET ${setClause} WHERE ${whereClause}`,
-    values,
-  );
-  return result.affectedRows ?? 0;
+  const connection = await pool.getConnection();
+  let discard = false;
+  try {
+    await connection.beginTransaction();
+    // Hold the table metadata lock until commit/rollback, preventing an ENGINE change.
+    await connection.query(`SELECT 1 FROM ${tableRef} LIMIT 0`);
+    const [engines] = await connection.query<(RowDataPacket & { transactional: string })[]>(
+      "SELECT e.TRANSACTIONS AS transactional FROM information_schema.tables t JOIN information_schema.engines e ON e.ENGINE = t.ENGINE WHERE t.TABLE_SCHEMA = COALESCE(?, DATABASE()) AND t.TABLE_NAME = ?",
+      [spec.schema || null, spec.table],
+    );
+    if (engines[0]?.transactional !== "YES") throw new Error("row updates require a transactional MySQL table");
+    const [result] = await connection.query<ResultSetHeader>(
+      `UPDATE ${tableRef} SET ${setClause} WHERE ${whereClause}`, values,
+    );
+    const count = result.affectedRows ?? 0;
+    if (count === 1) await connection.commit();
+    else await connection.rollback();
+    return count;
+  } catch (error) {
+    try { await connection.rollback(); } catch { discard = true; }
+    throw error;
+  } finally {
+    if (discard) connection.destroy();
+    else connection.release();
+  }
 }
 
 function mapMysqlTypeToDataType(typeId: number | undefined): string {

@@ -1,3 +1,5 @@
+import type { DialectId } from "@omni-sql/ts-types";
+
 /**
  * Divide um texto SQL em instruções separadas por `;`, ignorando `;` dentro
  * de strings, identificadores entre aspas, comentários e blocos com
@@ -21,7 +23,7 @@ export interface SqlStatement {
  * `null`. Compartilhado entre `splitStatements` e a extração de variáveis
  * (`sql-variables.ts`) — ambos precisam pular esses trechos do mesmo jeito.
  */
-export function skipNonCode(sql: string, i: number): number | null {
+export function skipNonCode(sql: string, i: number, dialect?: DialectId): number | null {
   const n = sql.length;
   const c = sql[i];
 
@@ -31,14 +33,23 @@ export function skipNonCode(sql: string, i: number): number | null {
   }
 
   if (c === "/" && sql[i + 1] === "*") {
-    const close = sql.indexOf("*/", i + 2);
-    return close === -1 ? n : close + 2;
+    let j = i + 2;
+    let depth = 1;
+    while (j < n && depth > 0) {
+      if ((dialect === "postgres" || dialect === "sqlserver") && sql.startsWith("/*", j)) { depth++; j += 2; }
+      else if (sql.startsWith("*/", j)) { depth--; j += 2; }
+      else j++;
+    }
+    return j;
   }
 
-  if (c === "'" || c === '"') {
-    const quote = c;
-    let j = i + 1;
+  const escapeString = (c === "E" || c === "e") && sql[i + 1] === "'" &&
+    (i === 0 || !/[A-Za-z0-9_$]/.test(sql[i - 1]!));
+  if (c === "'" || c === '"' || escapeString) {
+    const quote = escapeString ? "'" : c;
+    let j = i + (escapeString ? 2 : 1);
     while (j < n) {
+      if (escapeString && sql[j] === "\\") { j = Math.min(n, j + 2); continue; }
       if (sql[j] === quote) {
         if (sql[j + 1] === quote) {
           j += 2;
@@ -52,7 +63,7 @@ export function skipNonCode(sql: string, i: number): number | null {
     return j;
   }
 
-  if (c === "$") {
+  if (c === "$" && (i === 0 || !/[A-Za-z0-9_$]/.test(sql[i - 1]!))) {
     const tagMatch = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
     if (tagMatch) {
       const tag = tagMatch[0];
@@ -64,7 +75,7 @@ export function skipNonCode(sql: string, i: number): number | null {
   return null;
 }
 
-export function splitStatements(sql: string): SqlStatement[] {
+export function splitStatements(sql: string, dialect?: DialectId): SqlStatement[] {
   const statements: SqlStatement[] = [];
   const n = sql.length;
   let i = 0;
@@ -81,7 +92,7 @@ export function splitStatements(sql: string): SqlStatement[] {
   };
 
   while (i < n) {
-    const skip = skipNonCode(sql, i);
+    const skip = skipNonCode(sql, i, dialect);
     if (skip !== null) {
       i = skip;
       continue;

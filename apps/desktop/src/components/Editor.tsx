@@ -125,20 +125,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         const position = editor.getPosition();
         const cursorOffset = model && position ? model.getOffsetAt(position) : 0;
         const selectionText = model && sel && !sel.isEmpty() ? model.getValueInRange(sel) : null;
-        const currentStatement = model ? statementAt(splitStatements(model.getValue()), cursorOffset) ?? null : null;
+        const currentStatement = model ? statementAt(splitStatements(model.getValue(), dialectRef.current), cursorOffset) ?? null : null;
         return { selectionText, cursorOffset, currentStatement };
       },
       getStatements: () => {
         const editor = editorRef.current;
         const model = editor?.getModel();
-        return model ? splitStatements(model.getValue()) : [];
+        return model ? splitStatements(model.getValue(), dialectRef.current) : [];
       },
       getCurrentStatement: () => {
         const editor = editorRef.current;
         const model = editor?.getModel();
         const position = editor?.getPosition();
         if (!model || !position) return null;
-        return statementAt(splitStatements(model.getValue()), model.getOffsetAt(position)) ?? null;
+        return statementAt(splitStatements(model.getValue(), dialectRef.current), model.getOffsetAt(position)) ?? null;
       },
       getAllText: () => editorRef.current?.getModel()?.getValue() ?? "",
       getSelectionOrCurrent: () => {
@@ -151,7 +151,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
         const position = editor?.getPosition();
         const offset = position ? model.getOffsetAt(position) : 0;
-        const stmt = statementAt(splitStatements(model.getValue()), offset);
+        const stmt = statementAt(splitStatements(model.getValue(), dialectRef.current), offset);
         return stmt ? { sql: stmt.text, start: stmt.start } : { sql: model.getValue(), start: 0 };
       },
       formatDocument: () => {

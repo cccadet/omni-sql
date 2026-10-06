@@ -721,7 +721,7 @@ export function ResultsGrid({
                 {t("export")}
               </Button>
             </Tooltip>
-            {onExportFullCsv && <Button appearance="outline" onClick={() => void onExportFullCsv()} disabled={!result || running}>
+            {onExportFullCsv && <Button title={t("analysisExportCsvSafe")} appearance="outline" onClick={() => void onExportFullCsv()} disabled={!result || running}>
               {t("analysisExportCsv")}
             </Button>}
           </div>

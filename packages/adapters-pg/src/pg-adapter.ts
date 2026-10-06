@@ -141,15 +141,24 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
 
   async explain(sql: string): Promise<ExplainResult> {
     const client = await this.pool.connect();
+    let discard = false;
     try {
-      const r = await client.query(`EXPLAIN (FORMAT JSON) ${sql}`);
+      await client.query("BEGIN READ ONLY");
+      // Extended protocol rejects additional statements, including COMMIT bypasses.
+      const query = { text: `EXPLAIN (FORMAT JSON) ${sql}`, queryMode: "extended" };
+      const r = await client.query(query);
       return {
         textual: JSON.stringify(r.rows, null, 2),
         format: "json",
         raw: r.rows,
       };
     } finally {
-      client.release();
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        discard = true;
+      }
+      client.release(discard);
     }
   }
 

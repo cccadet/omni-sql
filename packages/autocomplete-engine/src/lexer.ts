@@ -59,8 +59,15 @@ export function tokenize(input: string, dialect: DialectDescriptor): Token[] {
 
     // Block comment
     if (input.startsWith(dialect.blockComment[0], i)) {
-      const end = input.indexOf(dialect.blockComment[1], i + dialect.blockComment[0].length);
-      const j = end === -1 ? n : end + dialect.blockComment[1].length;
+      let j = i + dialect.blockComment[0].length;
+      let depth = 1;
+      while (j < n && depth > 0) {
+        if (dialect.dialect === "postgres" && input.startsWith(dialect.blockComment[0], j)) {
+          depth++; j += dialect.blockComment[0].length;
+        } else if (input.startsWith(dialect.blockComment[1], j)) {
+          depth--; j += dialect.blockComment[1].length;
+        } else j++;
+      }
       tokens.push({ type: "comment", value: input.slice(start, j), start, end: j });
       i = j;
       continue;
@@ -76,10 +83,21 @@ export function tokenize(input: string, dialect: DialectDescriptor): Token[] {
       continue;
     }
 
-    // String literal (single quote, doubled escape)
-    if (c === "'") {
-      let j = i + 1;
+    if (dialect.dialect === "postgres" && c === "$" && (i === 0 || !isIdentCont(input[i - 1]!))) {
+      const delimiter = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(input.slice(i))?.[0];
+      if (delimiter) {
+        const end = input.indexOf(delimiter, i + delimiter.length);
+        const j = end < 0 ? n : end + delimiter.length;
+        tokens.push({ type: "string", value: input.slice(start, j), start, end: j });
+        i = j;
+        continue;
+      }
+    }
+    const escapeString = dialect.dialect === "postgres" && /[eE]/.test(c) && input[i + 1] === "'";
+    if (c === "'" || escapeString) {
+      let j = i + (escapeString ? 2 : 1);
       while (j < n) {
+        if (escapeString && input[j] === "\\") { j = Math.min(n, j + 2); continue; }
         if (input[j] === "'") {
           if (input[j + 1] === "'") {
             j += 2;
