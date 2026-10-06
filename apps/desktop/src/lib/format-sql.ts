@@ -96,7 +96,7 @@ export function buildFormatOptions(
 }
 
 export function formatSql(sql: string, dialect: DialectId, settings: FormatterSettings): string {
-  const statements = splitStatements(sql);
+  const statements = splitStatements(sql, dialect);
   if (statements.length > 1) {
     let result = sql;
     for (const statement of [...statements].reverse()) {

@@ -964,7 +964,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const handleApplyTranspiled = useCallback((diagnostic: SqlDiagnostic) => {
     if (!diagnostic.transpiledSql) return;
-    const statement = splitStatements(activeTab.sql).find(
+    const statement = splitStatements(activeTab.sql, activeDialect).find(
       (candidate) => diagnostic.start >= candidate.start && diagnostic.start < candidate.end,
     );
     if (!statement) return;
@@ -998,7 +998,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const runSqlSequence = useCallback(
     async (sqls: string[], label: string, executionRiskAccepted = false) => {
       if (!activeConnectionId || !activeConnection || !activeTab) return;
-      const variables = activeConnection.dialect === "mongodb" ? [] : extractVariablesUnion(sqls);
+      const variables = activeConnection.dialect === "mongodb" ? [] : extractVariablesUnion(sqls, activeDialect);
       if (variables.length > 0) {
         setRunAfterVariables({ sqls, label });
         setVariableNames(variables);
@@ -1174,7 +1174,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     if (activeDialect === "mongodb") { void runSqlSequence([editorRef.current?.getAllText() ?? activeTab.sql], t("running")); return; }
     const target = editorRef.current?.getSelectionOrCurrent();
     const sql = target?.sql ?? activeTab.sql;
-    const statements = splitStatements(sql);
+    const statements = splitStatements(sql, activeDialect);
     if (statements.length > 1 && !target?.sql) {
       setPendingRun({ sqls: statements.map((s) => s.text), label: t("running"), runAll: false });
       return;
@@ -1187,7 +1187,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const handleRunAll = useCallback(() => {
     if (!activeConnectionId) return;
     if (activeDialect === "mongodb") { void runSqlSequence([editorRef.current?.getAllText() ?? activeTab.sql], t("runningAll")); return; }
-    const sqls = editorRef.current?.getStatements().map((s) => s.text) ?? splitStatements(activeTab.sql).map((s) => s.text);
+    const sqls = editorRef.current?.getStatements().map((s) => s.text) ?? splitStatements(activeTab.sql, activeDialect).map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
     void runSqlSequence(sqls, t("runningAll"));
   }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, t]);
@@ -1213,11 +1213,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     (values: Record<string, string>) => {
       setVariablesOpen(false);
       if (!runAfterVariables) return;
-      const sqls = runAfterVariables.sqls.map((sql) => substituteVariables(sql, values));
+      const sqls = runAfterVariables.sqls.map((sql) => substituteVariables(sql, values, activeDialect));
       void runSqlSequence(sqls, runAfterVariables.label);
       setRunAfterVariables(null);
     },
-    [runAfterVariables, runSqlSequence],
+    [runAfterVariables, runSqlSequence, activeDialect],
   );
 
   const handleExplain = useCallback(() => {

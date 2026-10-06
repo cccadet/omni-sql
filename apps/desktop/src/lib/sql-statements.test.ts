@@ -42,3 +42,15 @@ test("statementAt: returns statement containing offset", () => {
   const second = statementAt(stmts, 12);
   assert.equal(second?.text, "SELECT 2");
 });
+
+test("PostgreSQL escape strings, nested comments and dollar quotes preserve boundaries", () => {
+  assert.equal(splitStatements(String.raw`SELECT E'\'a'; DELETE FROM victims; --'`).length, 3);
+  assert.equal(splitStatements("SELECT $$a;b$$; SELECT 2").length, 2);
+  assert.equal(splitStatements("SELECT 1 /* outer /* ; */ ; */; SELECT 2", "postgres").length, 2);
+});
+
+test("block comment nesting follows the active dialect", () => {
+  for (const dialect of ["mysql", "mariadb", "oracle"] as const) {
+    assert.equal(splitStatements("SELECT 1 /* text /* marker */; SELECT 2;", dialect).length, 2);
+  }
+});

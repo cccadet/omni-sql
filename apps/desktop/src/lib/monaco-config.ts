@@ -257,7 +257,7 @@ export function configureFormatter(
       return;
     }
     const position = editor.getPosition();
-    const statement = statementAt(splitStatements(model.getValue()), position ? model.getOffsetAt(position) : 0);
+    const statement = statementAt(splitStatements(model.getValue(), dialect), position ? model.getOffsetAt(position) : 0);
     if (statement) formatRange(editor, statement.start, statement.end);
   }
 
