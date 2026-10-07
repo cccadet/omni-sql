@@ -90,6 +90,17 @@ class CoverageCheckpointTest(unittest.TestCase):
                 process = subprocess.run(['bash', str(checkpoint.ROOT / 'scripts/require-release-ci.sh')],
                                          env=env, capture_output=True)
                 self.assertEqual(process.returncode, expected, process.stderr.decode())
+            # A cold native build can still be running after the former 90 polls.
+            gh.write_text('#!/bin/sh\ncount=0\nif [ -f "$FAKE_COUNTER" ]; then read -r count < "$FAKE_COUNTER"; fi\ncount=$((count + 1))\nprintf "%s\\n" "$count" > "$FAKE_COUNTER"\nif [ "$count" -lt 95 ]; then echo "in_progress pending https://ci"; else echo "completed success https://ci"; fi\n')
+            sleep = root / 'sleep'
+            sleep.write_text('#!/bin/sh\nexit 0\n')
+            sleep.chmod(0o755)
+            counter = root / 'ci-polls'
+            env['FAKE_COUNTER'] = str(counter)
+            process = subprocess.run(['bash', str(checkpoint.ROOT / 'scripts/require-release-ci.sh')],
+                                     env=env, capture_output=True)
+            self.assertEqual(process.returncode, 0, process.stderr.decode())
+            self.assertEqual(counter.read_text().strip(), '95')
 
 
 if __name__ == '__main__':
