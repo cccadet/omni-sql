@@ -48,3 +48,12 @@ A conversão destina-se a campos escalares com tipos compatíveis; não expande 
 Joins, subconsultas, CTEs, funções escalares, janelas, `DISTINCT`, `OFFSET`, `LIKE`, modificadores de agregação e `NULLS FIRST/LAST` explícitos não são suportados. A conversão mostra o motivo e preserva o SQL original. Se o editor, a conexão ou o modo mudar durante a conversão, o resultado não sobrescreve a edição atual.
 
 O modo **SQL via DuckDB** continua disponível para consultas SQL que não precisam gerar JSON nativo.
+
+No SQL via DuckDB, um campo MongoDB que contém um array não pode ser comparado diretamente a um texto com `=`. Para buscar um elemento, use `list_contains`:
+
+```sql
+SELECT * FROM base_laudos.padronizacao
+WHERE list_contains(id_guia, '52712827');
+```
+
+Essa consulta serve para `id_guia` inferido como uma lista de textos (`VARCHAR[]`). Os tipos dos valores devem corresponder aos tipos dos elementos da lista.

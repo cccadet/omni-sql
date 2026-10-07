@@ -2789,6 +2789,9 @@ fn mongo_sql_query_error(sql: &str, error: &str) -> String {
         } else { message.to_string() };
     }
     if error.contains("Conversion Error:") || error.contains("Type Mismatch Error:") {
+        if error.contains("[]") && (error.contains("destination type") || error.contains("Unimplemented type for cast")) {
+            return "MongoDB SQL cannot convert a scalar value to an array. To filter by an array element, use list_contains(field, 'value') instead of field = 'value'.".to_string();
+        }
         return "MongoDB SQL encountered incompatible field types. Check mixed types across documents and the types used in filters. SQL infers collection types from sampled documents.".to_string();
     }
     for (kind, hint) in [
@@ -4105,6 +4108,24 @@ mod mongo_tests {
     use super::*;
 
     #[test]
+    fn mongo_sql_array_filters_explain_membership() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE items (id_guia VARCHAR[]); INSERT INTO items VALUES (['123', '456']), (['789']), ([]), (NULL);").unwrap();
+        for value in ["'123'", "123"] {
+            let sql = format!("SELECT * FROM items WHERE id_guia = {value}");
+            let error = DataEngine::query_preview(&connection, &sql, 10).unwrap_err();
+            let message = mongo_sql_query_error(&sql, &error);
+            assert!(message.contains("list_contains(field, 'value')"), "{message}");
+            assert!(!message.contains("123"));
+        }
+        let sql = "SELECT * FROM items WHERE list_contains(id_guia, '456')";
+        assert!(validate_mongo_sql(sql).is_ok());
+        let result = DataEngine::query_preview(&connection, sql, 10).unwrap();
+        assert_eq!(result.rows, vec![vec![serde_json::json!(["123", "456"])]]);
+        assert!(DataEngine::query_preview(&connection, "SELECT * FROM items WHERE list_contains(id_guia, 'missing')", 10).unwrap().rows.is_empty());
+    }
+
+    #[test]
     fn mongo_sql_missing_quoted_field_suggests_single_quoted_values() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE items (id_guia VARCHAR); INSERT INTO items VALUES ('123');").unwrap();
@@ -4166,7 +4187,7 @@ mod mongo_tests {
         let server_user = credentials.user;
         let server_password = credentials.password;
         let server = std::thread::spawn(move || {
-            for _ in 0..2 {
+            for _ in 0..6 {
                 let (mut socket, _) = listener.accept().unwrap();
                 socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
                 let mut request = [0; 8192];
@@ -4180,6 +4201,14 @@ mod mongo_tests {
         let result = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-live-query".into(), connection_id: "test".into(), sql: "SELECT name FROM items ORDER BY name".into(), limit: 1, explain: false }, "test-token", port).unwrap();
         assert_eq!(result.rows.len(), 1);
         assert!(result.rows_more_available);
+        for (index, value) in ["'123'", "123"].into_iter().enumerate() {
+            let error = engine.query_mongo(MongoQueryRequest { operation_id: format!("mongo-array-invalid-{index}"), connection_id: "test".into(), sql: format!("SELECT * FROM items WHERE id_guia = {value}"), limit: 10, explain: false }, "test-token", port).unwrap_err();
+            assert!(error.contains("list_contains(field, 'value')"), "{error}");
+        }
+        let result = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-array-membership".into(), connection_id: "test".into(), sql: "SELECT name FROM items WHERE list_contains(id_guia, '456')".into(), limit: 10, explain: false }, "test-token", port).unwrap();
+        assert_eq!(result.rows, vec![vec![JsonValue::String("first".into())]]);
+        let result = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-array-no-match".into(), connection_id: "test".into(), sql: "SELECT name FROM items WHERE list_contains(id_guia, 'missing')".into(), limit: 10, explain: false }, "test-token", port).unwrap();
+        assert!(result.rows.is_empty());
         let plan = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-live-explain".into(), connection_id: "test".into(), sql: "SELECT * FROM items LIMIT 1".into(), limit: 10, explain: true }, "test-token", port).unwrap();
         assert!(plan.rows.iter().any(|row| row.iter().any(|value| value.as_str().is_some_and(|text| text.contains("MONGO_SCAN")))));
         server.join().unwrap();

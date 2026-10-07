@@ -21,7 +21,7 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
   await client.connect();
   const db = client.db();
   await db.collection("items").deleteMany({});
-  await db.collection("items").insertMany([{ name: "first", nested: { city: "SP" }, tags: ["a", "b"] }, { name: "second", price: 10 }]);
+  await db.collection("items").insertMany([{ name: "first", nested: { city: "SP" }, tags: ["a", "b"], id_guia: ["123", "456"] }, { name: "second", price: 10, id_guia: ["789"] }]);
   const user = "omni_mongo_test";
   const password = "p:'/?@";
   await client.db("admin").command({ dropUser: user }).catch(() => undefined);
