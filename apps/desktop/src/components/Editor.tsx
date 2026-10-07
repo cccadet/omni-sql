@@ -1,3 +1,4 @@
+import { mongoCommandSql } from "../lib/mongo-command";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import MonacoEditor, { type BeforeMount } from "@monaco-editor/react";
 import type * as monaco from "monaco-editor";
@@ -347,7 +348,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   return (
     <MonacoEditor
       height="100%"
-      language={dialect === "mongodb" ? "json" : LANGUAGE_ID}
+      language={dialect === "mongodb" && mongoCommandSql(value) === null ? "json" : LANGUAGE_ID}
       theme={theme}
       value={value}
       onChange={(v) => onChange?.(v ?? "")}

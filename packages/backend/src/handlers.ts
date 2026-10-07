@@ -10,6 +10,7 @@ import { OracleAdapter } from "@omni-sql/adapters-oracle";
 import { MysqlAdapter } from "@omni-sql/adapters-mysql";
 import { MssqlAdapter } from "@omni-sql/adapters-mssql";
 import { JdbcAdapter } from "@omni-sql/adapters-jdbc";
+import { mongoSqlToNative } from "./mongo-sql.ts";
 import { MongoAdapter } from "./mongo-adapter.ts";
 import { OdbcAdapter } from "@omni-sql/adapters-odbc";
 import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
@@ -907,6 +908,13 @@ export const handlers: BackendRpcRouter = {
     if (!s.adapter.cancelRunning) return { cancelled: false };
     await s.adapter.cancelRunning();
     return { cancelled: true };
+  },
+
+  async "query.mongoConvert"({ connectionId, sql }) {
+    const session = requireSession(connectionId);
+    if (session.config.dialect !== "mongodb") throw new RpcValidationError("MongoDB connection required");
+    const database = /^mongodb(?:\+srv)?:\/\/[^/]+\/([^?]*)/i.exec(session.config.endpoint)?.[1];
+    return { query: mongoSqlToNative(sql, database ? decodeURIComponent(database) : undefined) };
   },
 
   async "query.explain"({ connectionId, sql }: ExplainQueryParams): Promise<ExplainQueryResult> {

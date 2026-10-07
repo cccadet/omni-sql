@@ -169,3 +169,49 @@ test("/catalog suggests existing examples and replaces the full command with SQL
   });
   assert.equal(backendCompletion.mock.calls.length, 0);
 });
+
+test("MongoDB JSON completion replaces the string contents and preserves quotes", async () => {
+  const providers = new Map<string, monaco.languages.CompletionItemProvider>();
+  const instance = { languages: {
+    ...monaco.languages,
+    registerCompletionItemProvider: (language: string, provider: monaco.languages.CompletionItemProvider) => {
+      providers.set(language, provider);
+      return { dispose: vi.fn() };
+    },
+  } } as never;
+  const callback = vi.fn(async () => [{ label: "aggregate", kind: "keyword" as const, relevance: 100 }]);
+  configureAutocomplete(instance, { current: callback }, { current: "mongodb" });
+  const text = '{"operation":"agregate"}';
+  const cursor = text.indexOf("agregate") + 2;
+  const result = await providers.get("json")!.provideCompletionItems({
+    getLanguageId: () => "json", getOffsetAt: () => cursor, getValue: () => text,
+    getWordUntilPosition: () => ({ startColumn: 15, endColumn: 23 }),
+    getPositionAt: (offset: number) => ({ lineNumber: 1, column: offset + 1 }),
+  } as never, { lineNumber: 1, column: cursor + 1 } as never, {} as never, {
+    isCancellationRequested: false, onCancellationRequested: () => ({ dispose: vi.fn() }),
+  } as never);
+  const item = result!.suggestions[0]!;
+  const range = item.range as monaco.IRange;
+  assert.equal(text.slice(0, range.startColumn - 1) + item.insertText + text.slice(range.endColumn - 1), '{"operation":"aggregate"}');
+  assert.equal(callback.mock.calls.length, 1);
+});
+
+test("/mongo is discoverable from native JSON and inserts an editable SQL template", async () => {
+  const providers = new Map<string, monaco.languages.CompletionItemProvider>();
+  const instance = { languages: {
+    ...monaco.languages,
+    registerCompletionItemProvider: (language: string, provider: monaco.languages.CompletionItemProvider) => {
+      providers.set(language, provider); return { dispose: vi.fn() };
+    },
+  } } as never;
+  const callback = vi.fn();
+  configureAutocomplete(instance, { current: callback }, { current: "mongodb" });
+  const result = await providers.get("json")!.provideCompletionItems({
+    getLanguageId: () => "json", getOffsetAt: () => 3, getValue: () => "/mo",
+  } as never, { lineNumber: 1, column: 4 } as never, {} as never, {
+    isCancellationRequested: false, onCancellationRequested: () => ({ dispose: vi.fn() }),
+  } as never);
+  assert.equal(result!.suggestions[0]?.label, "/mongo");
+  assert.ok(result!.suggestions[0]?.insertText.startsWith("/mongo\nSELECT"));
+  assert.equal(callback.mock.calls.length, 0);
+});

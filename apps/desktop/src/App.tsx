@@ -37,6 +37,8 @@ import { localizeSuggestionLabels } from "./lib/localize-suggestions";
 import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runMongoSql, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import { s3Buckets } from "./lib/s3-buckets";
 import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type S3DiscoveryCredentials, type S3TableSource } from "./lib/s3-sources";
+import { mongoCommandSql } from "./lib/mongo-command";
+import { initialMongoQuery, mongoSuggestions } from "./lib/mongo-autocomplete";
 import { s3ReferencedRelations, s3Suggestions } from "./lib/s3-autocomplete";
 import type { McpStatusResult } from "@omni-sql/ts-types";
 
@@ -566,9 +568,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   );
   useEffect(() => {
     if (activeConnection?.dialect === "mongodb" && !activeTab.mongoSqlMode && activeTab.sql === "SELECT 1") {
-      updateTabSql(activeTab.id, JSON.stringify({ collection: "collection", operation: "find", filter: {} }, null, 2));
+      updateTabSql(activeTab.id, initialMongoQuery(activeConnection.endpoint, sidebarCache[activeConnection.id]?.relations));
     }
-  }, [activeConnection, activeTab.id, activeTab.sql, activeTab.mongoSqlMode, updateTabSql]);
+  }, [activeConnection, activeTab.id, activeTab.sql, activeTab.mongoSqlMode, updateTabSql, sidebarCache]);
 
   const analysisS3Connection = connections.find((connection) => connection.id === analysisS3ConnectionId) ?? null;
   const crossSourceConnection = connections.find((connection) => connection.id === crossSourceConnectionId);
@@ -949,7 +951,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         const updated = data.relations.map((relation) => resolved.find((item) => item.schema === relation.schema && item.name === relation.name) ?? relation);
         return localizeSuggestionLabels(s3Suggestions(sql, cursor, updated), t("autocompleteAllColumns"));
       }
-      if (activeConnection?.dialect === "mongodb") return activeTab.mongoSqlMode ? s3Suggestions(sql, cursor, sidebarCache[activeConnectionId]?.relations ?? []) : [];
+      if (activeConnection.dialect === "mongodb") {
+        const relations = sidebarCache[activeConnectionId]?.relations ?? [];
+        const commandSql = mongoCommandSql(sql);
+        if (commandSql !== null) return s3Suggestions(commandSql, Math.max(0, cursor - (sql.length - commandSql.length)), relations);
+        return activeTab.mongoSqlMode ? s3Suggestions(sql, cursor, relations) : mongoSuggestions(sql, cursor, relations);
+      }
       if (activeDialect === "duckdb") return [];
       const r = await backend.call<{ suggestions: Suggestion[] }>("completion.get", {
         connectionId: activeConnectionId,
@@ -1169,9 +1176,32 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     }
   }, [activeConnectionId, activeDialect, activeTab.id, activeTab.title, analysisSourceSql, finishQuery, t, updateTab]);
 
+  const handleConvertMongo = useCallback(async () => {
+    if (!activeConnectionId || activeDialect !== "mongodb" || running) return;
+    const original = editorRef.current?.getAllText() ?? activeTab.sql;
+    const revision = getTabRevision(activeTab.id);
+    const sql = mongoCommandSql(original) ?? original;
+    updateTab(activeTab.id, { error: null });
+    try {
+      const response = await backend.call<{ query: string }>("query.mongoConvert", { connectionId: activeConnectionId, sql });
+      const applied = compareAndSwapTabSql(activeTab.id, revision, original, response.query, () =>
+        mcpStateRef.current.activeTab?.id === activeTab.id
+        && mcpStateRef.current.activeConnection?.id === activeConnectionId
+        && !mcpStateRef.current.activeTab?.mongoSqlMode,
+      );
+      if (!applied) updateTab(activeTab.id, { error: t("mongoConversionStale") });
+    } catch (cause) {
+      updateTab(activeTab.id, { error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  }, [activeConnectionId, activeDialect, activeTab.id, activeTab.sql, running, getTabRevision, compareAndSwapTabSql, updateTab, t]);
+
   const handleRun = useCallback(() => {
     if (!activeConnectionId) return;
-    if (activeDialect === "mongodb") { void runSqlSequence([editorRef.current?.getAllText() ?? activeTab.sql], t("running")); return; }
+    if (activeDialect === "mongodb") {
+      const text = editorRef.current?.getAllText() ?? activeTab.sql;
+      if (mongoCommandSql(text) !== null) { void handleConvertMongo(); return; }
+      void runSqlSequence([text], t("running")); return;
+    }
     const target = editorRef.current?.getSelectionOrCurrent();
     const sql = target?.sql ?? activeTab.sql;
     const statements = splitStatements(sql, activeDialect);
@@ -1182,15 +1212,19 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const sqls = target?.sql ? [target.sql] : statements.map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
     void runSqlSequence(sqls, t("running"));
-  }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, t]);
+  }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, handleConvertMongo, t]);
 
   const handleRunAll = useCallback(() => {
     if (!activeConnectionId) return;
-    if (activeDialect === "mongodb") { void runSqlSequence([editorRef.current?.getAllText() ?? activeTab.sql], t("runningAll")); return; }
+    if (activeDialect === "mongodb") {
+      const text = editorRef.current?.getAllText() ?? activeTab.sql;
+      if (mongoCommandSql(text) !== null) { void handleConvertMongo(); return; }
+      void runSqlSequence([text], t("runningAll")); return;
+    }
     const sqls = editorRef.current?.getStatements().map((s) => s.text) ?? splitStatements(activeTab.sql, activeDialect).map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
     void runSqlSequence(sqls, t("runningAll"));
-  }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, t]);
+  }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, handleConvertMongo, t]);
 
   const handleRunChoice = useCallback(
     (choice: "current" | "all") => {
@@ -1636,7 +1670,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             const enabled = !activeTab.mongoSqlMode;
             updateTab(activeTab.id, { mongoSqlMode: enabled,
               ...(enabled ? { mongoNativeText: activeTab.sql, sql: activeTab.mongoSqlText ?? "SELECT 1" }
-                : { mongoSqlText: activeTab.sql, sql: activeTab.mongoNativeText ?? JSON.stringify({ collection: "collection", operation: "find", filter: {} }, null, 2) }),
+                : { mongoSqlText: activeTab.sql, sql: activeTab.mongoNativeText ?? initialMongoQuery(activeConnection.endpoint, sidebarCache[activeConnection.id]?.relations) }),
               error: null, latestSqlExecutionError: null });
             setResult(null); setEditability(null); setPlanText(null); setDiagnostics([]);
           }}
@@ -1690,6 +1724,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
           {activeConnection?.dialect === "mongodb" && <div className="omni-mongo-mode-label">
             {activeTab.mongoSqlMode ? t("mongoSqlMode") : t("mongoNativeMode")}
+            {!activeTab.mongoSqlMode && <Button size="small" appearance="subtle" disabled={running} onClick={() => void handleConvertMongo()} title={t("mongoConvertHint")}>
+              {t("mongoConvert")}
+            </Button>}
           </div>}
           <div style={{ flex: 1, minHeight: 0 }}><Editor
             ref={editorRef}
