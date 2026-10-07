@@ -1754,7 +1754,7 @@ impl DataEngine {
                     .column_name(index)
                     .cloned()
                     .unwrap_or_else(|_| format!("column_{}", index + 1)),
-                data_type: format!("{:?}", executed.column_logical_type(index).id()),
+                data_type: analytical_result_type(&executed.column_logical_type(index)),
                 nullable: true,
             })
             .collect::<Vec<_>>();
@@ -2789,6 +2789,12 @@ fn mongo_sql_query_error(sql: &str, error: &str) -> String {
         } else { message.to_string() };
     }
     if error.contains("Conversion Error:") || error.contains("Type Mismatch Error:") {
+        if let Some((source, target)) = mongo_sql_conversion_types(error) {
+            let tip = if target.ends_with("[]") && !source.ends_with("[]") {
+                " To filter by an array element, use list_contains(field, value) with a value of the array element type."
+            } else { " Check that filter values match the inferred field type." };
+            return format!("MongoDB SQL type mismatch: supplied type {source}, target type {target}.{tip}");
+        }
         if error.contains("[]") && (error.contains("destination type") || error.contains("Unimplemented type for cast")) {
             return "MongoDB SQL cannot convert a scalar value to an array. To filter by an array element, use list_contains(field, 'value') instead of field = 'value'.".to_string();
         }
@@ -2808,6 +2814,31 @@ fn mongo_sql_query_error(sql: &str, error: &str) -> String {
         }
     }
     message.to_string()
+}
+
+fn mongo_sql_conversion_types(error: &str) -> Option<(String, String)> {
+    let (source, target) = if let Some((_, tail)) = error.split_once("Conversion Error: Type ") {
+        let source = tail.split_once(" with value ")?.0;
+        let target = tail.rsplit_once("can't be cast to the destination type ")?.1.lines().next()?;
+        (source, target)
+    } else {
+        let tail = error.split_once("Conversion Error: Unimplemented type for cast (")?.1;
+        tail.split_once(')')?.0.split_once(" -> ")?
+    };
+    let safe_type = |value: &str| {
+        let value = value.trim();
+        let base = value.trim_end_matches("[]");
+        (value.len() <= 64 && matches!(base, "BOOLEAN" | "TINYINT" | "SMALLINT" | "INTEGER" | "BIGINT" | "HUGEINT" | "UTINYINT" | "USMALLINT" | "UINTEGER" | "UBIGINT" | "UHUGEINT" | "FLOAT" | "DOUBLE" | "VARCHAR" | "BLOB" | "DATE" | "TIME" | "TIMESTAMP" | "TIMESTAMP WITH TIME ZONE" | "INTERVAL" | "UUID" | "JSON")).then(|| value.to_string())
+    };
+    Some((safe_type(source)?, safe_type(target)?))
+}
+
+fn analytical_result_type(logical_type: &duckdb::core::LogicalTypeHandle) -> String {
+    if logical_type.id() == duckdb::core::LogicalTypeId::List {
+        format!("{}[]", analytical_result_type(&logical_type.child(0)))
+    } else {
+        format!("{:?}", logical_type.id())
+    }
 }
 
 fn validate_mongo_sql(sql: &str) -> Result<&str, String> {
@@ -2944,7 +2975,7 @@ fn relation_query_columns(connection: &Connection, relation_name: &str) -> Resul
     let executed = cursor.as_ref().ok_or_else(|| "stable analytical result has no metadata".to_string())?;
     Ok((0..executed.column_count()).map(|index| QueryColumn {
         name: executed.column_name(index).cloned().unwrap_or_else(|_| format!("column_{}", index + 1)),
-        data_type: format!("{:?}", executed.column_logical_type(index).id()),
+        data_type: analytical_result_type(&executed.column_logical_type(index)),
         nullable: true,
     }).collect())
 }
@@ -4115,13 +4146,21 @@ mod mongo_tests {
             let sql = format!("SELECT * FROM items WHERE id_guia = {value}");
             let error = DataEngine::query_preview(&connection, &sql, 10).unwrap_err();
             let message = mongo_sql_query_error(&sql, &error);
-            assert!(message.contains("list_contains(field, 'value')"), "{message}");
+            assert!(message.contains("list_contains(field, value)"), "{message}");
+            assert!(message.contains("target type VARCHAR[]"), "{message}");
+            assert!(message.contains(if value.starts_with('\'') { "supplied type VARCHAR," } else { "supplied type INTEGER," }), "{message}");
             assert!(!message.contains("123"));
         }
         let sql = "SELECT * FROM items WHERE list_contains(id_guia, '456')";
         assert!(validate_mongo_sql(sql).is_ok());
         let result = DataEngine::query_preview(&connection, sql, 10).unwrap();
+        assert_eq!(result.columns[0].data_type, "Varchar[]");
         assert_eq!(result.rows, vec![vec![serde_json::json!(["123", "456"])]]);
+        assert_eq!(relation_query_columns(&connection, "items").unwrap()[0].data_type, "Varchar[]");
+        let nested = DataEngine::query_preview(&connection, "SELECT [['text']] AS nested, [1] AS numbers", 10).unwrap();
+        assert_eq!(nested.columns[0].data_type, "Varchar[][]");
+        assert_eq!(nested.columns[1].data_type, "Integer[]");
+        assert!(mongo_sql_conversion_types("Conversion Error: Unimplemented type for cast (private-type -> VARCHAR[])").is_none());
         assert!(DataEngine::query_preview(&connection, "SELECT * FROM items WHERE list_contains(id_guia, 'missing')", 10).unwrap().rows.is_empty());
     }
 
@@ -4203,7 +4242,8 @@ mod mongo_tests {
         assert!(result.rows_more_available);
         for (index, value) in ["'123'", "123"].into_iter().enumerate() {
             let error = engine.query_mongo(MongoQueryRequest { operation_id: format!("mongo-array-invalid-{index}"), connection_id: "test".into(), sql: format!("SELECT * FROM items WHERE id_guia = {value}"), limit: 10, explain: false }, "test-token", port).unwrap_err();
-            assert!(error.contains("list_contains(field, 'value')"), "{error}");
+            assert!(error.contains("list_contains(field, value)"), "{error}");
+            assert!(error.contains("target type VARCHAR[]"), "{error}");
         }
         let result = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-array-membership".into(), connection_id: "test".into(), sql: "SELECT name FROM items WHERE list_contains(id_guia, '456')".into(), limit: 10, explain: false }, "test-token", port).unwrap();
         assert_eq!(result.rows, vec![vec![JsonValue::String("first".into())]]);
