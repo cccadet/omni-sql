@@ -1,13 +1,14 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), isTauri: vi.fn() }));
 
 describe("backend authentication", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
+    vi.mocked(isTauri).mockReturnValue(false);
   });
 
   it("gets the per-run token from Tauri and sends it on RPC calls", async () => {
@@ -47,6 +48,23 @@ describe("backend authentication", () => {
         authorization: "Bearer dev-token",
       },
     });
+  });
+
+  it("keeps desktop readiness failures visible and retries the Tauri token on the next call", async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("backend did not become ready before timeout"))
+      .mockResolvedValueOnce("ready-token");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true } }),
+      { headers: { "content-type": "application/json" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    const { backend } = await import("./backend");
+    await expect(backend.call("connection.list", {})).rejects.toThrow("backend did not become ready before timeout");
+    expect(fetchMock).not.toHaveBeenCalled();
+    await backend.call("connection.list", {});
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: { authorization: "Bearer ready-token" } });
   });
 
   it("fails explicitly for non-2xx responses", async () => {
