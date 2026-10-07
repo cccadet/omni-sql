@@ -2791,6 +2791,19 @@ fn mongo_sql_query_error(sql: &str, error: &str) -> String {
     if error.contains("Conversion Error:") || error.contains("Type Mismatch Error:") {
         return "MongoDB SQL encountered incompatible field types. Check mixed types across documents and the types used in filters. SQL infers collection types from sampled documents.".to_string();
     }
+    for (kind, hint) in [
+        ("Binder Error:", "The query could not be bound to the inferred collection schema."),
+        ("Catalog Error:", "The collection catalog could not be resolved."),
+        ("Parser Error:", "The SQL syntax is invalid."),
+        ("Invalid Input Error:", "The MongoDB extension rejected input while preparing or reading the collection."),
+        ("IO Error:", "The MongoDB extension could not read the collection. Check connection and read permissions."),
+        ("Not implemented Error:", "The MongoDB extension does not support this query or field type."),
+        ("Internal Error:", "The MongoDB extension encountered an internal error."),
+    ] {
+        if error.contains(kind) {
+            return format!("{message} Diagnostic: {}. {hint}", kind.trim_end_matches(':'));
+        }
+    }
     message.to_string()
 }
 
@@ -4113,6 +4126,12 @@ mod mongo_tests {
         assert!(message.contains("incompatible field types"));
         assert!(!message.contains("private-value"));
         assert!(!mongo_sql_query_error("SELECT 1", "unknown driver failure with private-value").contains("private-value"));
+        let sql = "SELECT FROM items";
+        let error = DataEngine::query_preview(&connection, sql, 10).unwrap_err();
+        assert!(mongo_sql_query_error(sql, &error).contains("SQL syntax is invalid"));
+        let message = mongo_sql_query_error("SELECT 1", "IO Error: private-value");
+        assert!(message.contains("Diagnostic: IO Error"));
+        assert!(!message.contains("private-value"));
     }
 
     #[test]
