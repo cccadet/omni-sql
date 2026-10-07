@@ -2779,8 +2779,17 @@ fn validate_read_only_sql(sql: &str) -> Result<&str, String> {
 
 fn mongo_sql_query_error(sql: &str, error: &str) -> String {
     let message = "MongoDB SQL query failed. Check SQL syntax, collection names and inferred field types.";
-    if sql.contains('"') && error.contains("Referenced column") && error.contains("not found") {
-        return format!("{message} Tip: double quotes identify field names in SQL. If you intended a text value, use single quotes, for example WHERE field = 'value'.");
+    if error.contains("Catalog Error:") && error.contains("does not exist") {
+        return "MongoDB SQL collection or database was not found. Check database.collection, collection listing permissions and the database in the connection URI: SQL only exposes that database when the URI specifies one; authSource is a separate authentication setting.".to_string();
+    }
+    if error.contains("Binder Error:") && error.contains("Referenced column") && error.contains("not found") {
+        let message = "MongoDB SQL field was not found in the inferred schema. Check the field name and sampled documents.";
+        return if sql.contains('"') {
+            format!("{message} Tip: double quotes identify field names in SQL. If you intended a text value, use single quotes, for example WHERE field = 'value'.")
+        } else { message.to_string() };
+    }
+    if error.contains("Conversion Error:") || error.contains("Type Mismatch Error:") {
+        return "MongoDB SQL encountered incompatible field types. Check mixed types across documents and the types used in filters. SQL infers collection types from sampled documents.".to_string();
     }
     message.to_string()
 }
@@ -4094,8 +4103,16 @@ mod mongo_tests {
         assert_eq!(DataEngine::query_preview(&connection, "SELECT * FROM items WHERE \"id_guia\" = '123'", 10).unwrap().rows.len(), 1);
         for sql in ["SELECT missing FROM items", "SELECT * FROM \"missing_table\""] {
             let error = DataEngine::query_preview(&connection, sql, 10).unwrap_err();
-            assert!(!mongo_sql_query_error(sql, &error).contains("Tip:"));
+            let message = mongo_sql_query_error(sql, &error);
+            assert!(!message.contains("Tip:"));
+            assert!(message.contains(if sql.contains("missing_table") { "connection URI" } else { "inferred schema" }));
         }
+        let sql = "SELECT CAST('private-value' AS INTEGER)";
+        let error = DataEngine::query_preview(&connection, sql, 10).unwrap_err();
+        let message = mongo_sql_query_error(sql, &error);
+        assert!(message.contains("incompatible field types"));
+        assert!(!message.contains("private-value"));
+        assert!(!mongo_sql_query_error("SELECT 1", "unknown driver failure with private-value").contains("private-value"));
     }
 
     #[test]
