@@ -3,7 +3,7 @@ import type {
   IndexInfo,
   ObjectDefinitionKind,
 } from "@omni-sql/ts-types";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 export type { SqlDiagnostic } from "@omni-sql/ts-types";
 
 export interface ConnectionEntry {
@@ -107,9 +107,10 @@ async function getAuthToken(): Promise<string | undefined> {
     if (!token.trim()) throw new Error("Tauri returned an empty backend token");
     return token;
   }).catch((error: unknown) => {
-    if (VITE_ENV?.DEV === true || VITE_ENV?.DEV === "true") {
+    if (!isTauri() && (VITE_ENV?.DEV === true || VITE_ENV?.DEV === "true")) {
       return VITE_ENV.VITE_BACKEND_AUTH_TOKEN?.toString() || DEV_AUTH_TOKEN;
     }
+    authTokenPromise = undefined;
     throw error;
   });
   return authTokenPromise;

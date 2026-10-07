@@ -1915,10 +1915,9 @@ pub fn run() {
             let descriptor_start_nonce = mcp_start_nonce.clone();
             std::thread::spawn(move || {
                 let deadline = Instant::now() + Duration::from_secs(30);
-                let mut last_probe_error = "no health probe completed".to_string();
-                let mut backend_ready = false;
+                let mut startup_warning_logged = false;
 
-                while Instant::now() < deadline {
+                loop {
                     {
                         let state: tauri::State<'_, BackendChild> = app_handle.state();
                         let mut guard = state.0.lock().unwrap();
@@ -1943,7 +1942,7 @@ pub fn run() {
                     }
 
                     let expected_health_proof = health_proof(&backend_health_challenge, &backend_health_token);
-                    match http_get(BACKEND_PORT, &format!("/health?challenge={backend_health_challenge}"), None) {
+                    let last_probe_error = match http_get(BACKEND_PORT, &format!("/health?challenge={backend_health_challenge}"), None) {
                         Ok((status, body)) if backend_health_is_expected(status, &body, &expected_health_proof) => {
                             let token_state: tauri::State<'_, AuthToken> = app_handle.state();
                             *token_state.token.lock().unwrap() = Some(backend_auth_token.clone());
@@ -1984,25 +1983,20 @@ pub fn run() {
                                 return;
                             }
 
-                            backend_ready = true;
                             log::info!("backend sidecar health check passed on 127.0.0.1:{BACKEND_PORT}");
                             break;
                         }
-                        Ok((status, body)) => {
-                            last_probe_error = backend_health_probe_error(status, &body);
-                        }
-                        Err(err) => {
-                            last_probe_error = err;
-                        }
+                        Ok((status, body)) => backend_health_probe_error(status, &body),
+                        Err(err) => err,
+                    };
+
+                    if !startup_warning_logged && Instant::now() >= deadline {
+                        log::warn!(
+                            "backend sidecar did not become ready in 30s; continuing health checks; last /health probe error: {last_probe_error}"
+                        );
+                        startup_warning_logged = true;
                     }
-
                     std::thread::sleep(Duration::from_millis(100));
-                }
-
-                if !backend_ready {
-                    log::warn!(
-                        "backend sidecar did not become ready in 30s; last /health probe error: {last_probe_error}"
-                    );
                 }
 
                 loop {
