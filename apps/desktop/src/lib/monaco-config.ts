@@ -1,3 +1,5 @@
+import { mongoCommandSql } from "./mongo-command";
+import { mongoCompletionContext } from "./mongo-autocomplete";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import {
   jdbcGenericDescriptor,
@@ -311,12 +313,24 @@ export function configureAutocomplete(
   onAutocompleteRef: { current: AutocompleteCallback | null },
   dialectRef: { current: DialectId } = { current: "jdbc-generic" },
 ): monaco.IDisposable {
-  return monacoInstance.languages.registerCompletionItemProvider(LANGUAGE_ID, {
-    triggerCharacters: [".", " ", "/"],
+  const provider: monaco.languages.CompletionItemProvider = {
+    triggerCharacters: [".", " ", "/", '"', "$"],
     async provideCompletionItems(model, position, _context, token) {
+      if ((model.getLanguageId?.() === "json") !== (dialectRef.current === "mongodb" && mongoCommandSql(model.getValue()) === null)) return { suggestions: [] };
       const cursor = model.getOffsetAt(position);
       const textBeforeCursor = model.getValue().slice(0, cursor);
       const currentLine = textBeforeCursor.slice(textBeforeCursor.lastIndexOf("\n") + 1);
+      const mongoCommand = /^\s*(\/[a-z]*)$/i.exec(currentLine)?.[1];
+      if (dialectRef.current === "mongodb" && mongoCommand && "/mongo".startsWith(mongoCommand.toLowerCase())) {
+        return { suggestions: [{
+          label: "/mongo", kind: monaco.languages.CompletionItemKind.Snippet,
+          detail: "SQL → MongoDB · Ctrl+Enter converts without executing",
+          insertText: "/mongo\nSELECT ${1:field} FROM ${2:database}.${3:collection} WHERE ${4:field} = ${5:'value'}",
+          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+          range: { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
+            startColumn: position.column - mongoCommand.length, endColumn: position.column },
+        }] };
+      }
       const partialCatalogMatch = /^(\s*)(\/[a-z]*)$/i.exec(currentLine);
       const partialCatalog = partialCatalogMatch?.[2];
       if (partialCatalog && "/catalog".startsWith(partialCatalog.toLowerCase())
@@ -374,11 +388,14 @@ export function configureAutocomplete(
       } finally {
         cancellationDisposable.dispose();
       }
+      const jsonContext = dialectRef.current === "mongodb" && mongoCommandSql(model.getValue()) === null ? mongoCompletionContext(model.getValue(), cursor) : null;
+      const jsonStart = jsonContext ? model.getPositionAt(jsonContext.start) : null;
+      const jsonEnd = jsonContext ? model.getPositionAt(cursor + (/^(?:\\.|[^"\\])*/.exec(model.getValue().slice(cursor))?.[0].length ?? 0)) : null;
       const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn,
+        startLineNumber: jsonStart?.lineNumber ?? position.lineNumber,
+        endLineNumber: jsonEnd?.lineNumber ?? position.lineNumber,
+        startColumn: jsonStart?.column ?? word.startColumn,
+        endColumn: jsonEnd?.column ?? word.endColumn,
       };
       const relevanceRanks = new Map(
         [...new Set(suggestions.map((s) => s.relevance))]
@@ -407,5 +424,7 @@ export function configureAutocomplete(
         })),
       };
     },
-  });
+  };
+  const registrations = [LANGUAGE_ID, "json"].map((language) => monacoInstance.languages.registerCompletionItemProvider(language, provider));
+  return { dispose: () => registrations.forEach((registration) => registration.dispose()) };
 }

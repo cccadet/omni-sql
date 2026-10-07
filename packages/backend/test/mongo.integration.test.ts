@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MongoClient } from "mongodb";
+import { BSON, MongoClient } from "mongodb";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,6 +59,41 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
     assert.equal((await rpc("query.run", { connectionId, sql: query("aggregate", { pipeline: [{ $match: { name: "updated" } }] }) })).error, undefined);
     assert.equal((await rpc("query.explain", { connectionId, sql: query("find", { filter: { name: "updated" } }) })).result?.format, "json");
     assert.equal((await rpc("query.run", { connectionId, sql: query("deleteOne", { filter: { name: "updated" } }), executionRiskAccepted: true })).result?.rowsAffected, 1);
+    // Exercise the same conversion and execution RPCs used by /mongo.
+    const conversionCollection = db.collection("conversion_cases");
+    await conversionCollection.deleteMany({});
+    await conversionCollection.insertMany([
+      { category: "A", value: 10 }, { category: "A", value: 20 },
+      { category: "B", value: null }, { category: "B" }, { category: "C", value: 5 },
+    ]);
+    async function convertAndRun(sql: string) {
+      const before = await conversionCollection.countDocuments();
+      const converted = await rpc("query.mongoConvert", { connectionId, sql });
+      assert.equal(converted.error, undefined, converted.error?.message);
+      assert.equal(await conversionCollection.countDocuments(), before, "conversion does not execute");
+      const result = await rpc("query.run", { connectionId, sql: converted.result?.query, limit: 100 });
+      assert.equal(result.error, undefined, result.error?.message);
+      const columns = result.result?.columns as { name: string }[];
+      return (result.result?.rows as unknown[][]).map((row) => BSON.EJSON.deserialize(
+        Object.fromEntries(columns.map((column, i) => [column.name, row[i]])), { relaxed: true },
+      ));
+    }
+    assert.deepEqual(await convertAndRun("SELECT category AS status, value FROM conversion_cases WHERE value >= 10 ORDER BY value DESC LIMIT 1"), [{ status: "A", value: 20 }]);
+    assert.deepEqual(await convertAndRun("SELECT category, COUNT(*) AS total, COUNT(value) AS n, SUM(value) AS soma, AVG(value) AS media, MIN(value) AS minimo, MAX(value) AS maximo FROM conversion_cases GROUP BY category ORDER BY category"), [
+      { category: "A", total: 2, n: 2, soma: 30, media: 15, minimo: 10, maximo: 20 },
+      { category: "B", total: 2, n: 0, soma: null, media: null, minimo: null, maximo: null },
+      { category: "C", total: 1, n: 1, soma: 5, media: 5, minimo: 5, maximo: 5 },
+    ]);
+    assert.deepEqual(await convertAndRun("SELECT category, COUNT(*) AS total FROM conversion_cases GROUP BY category HAVING COUNT(*) >= 2 ORDER BY total DESC, category LIMIT 1"), [{ category: "A", total: 2 }]);
+    assert.deepEqual(await convertAndRun("SELECT COUNT(*) AS total, SUM(value) AS soma FROM conversion_cases WHERE value > 999"), [{ total: 0, soma: null }]);
+    assert.deepEqual(await convertAndRun("SELECT category FROM conversion_cases WHERE value IS NULL ORDER BY category"), [{ category: "B" }, { category: "B" }]);
+    assert.deepEqual(await convertAndRun("SELECT category FROM conversion_cases WHERE value <> 10 ORDER BY value"), [{ category: "C" }, { category: "A" }]);
+    assert.deepEqual(await convertAndRun("SELECT * FROM conversion_cases WHERE value NOT IN (10, NULL)"), []);
+    assert.deepEqual(await convertAndRun("SELECT * FROM conversion_cases LIMIT 0"), []);
+    assert.match((await rpc("query.mongoConvert", { connectionId, sql: "SELECT * FROM conversion_cases JOIN items ON true" })).error!.message, /não suportada/);
+    assert.deepEqual(await convertAndRun("SELECT category FROM conversion_cases GROUP BY category HAVING COUNT(*) >= 2 ORDER BY SUM(value) DESC"), [{ category: "A" }, { category: "B" }]);
+    assert.deepEqual(await convertAndRun("SELECT category FROM conversion_cases WHERE NOT (value = 10 OR value IS NULL) ORDER BY value"), [{ category: "C" }, { category: "A" }]);
+    await conversionCollection.drop();
     const rejected = await rpc("connection.add", { config: { ...config, endpoint: "mongodb://secret:password@localhost/test" } });
     assert.match(rejected.error!.message, /embedded credentials/);
     assert.ok(!rejected.error!.message.includes("password@"));

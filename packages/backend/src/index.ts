@@ -220,6 +220,8 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["query.run"](params as never, context?.signal);
     case "query.cancel":
       return handlers["query.cancel"](params as never);
+    case "query.mongoConvert":
+      return handlers["query.mongoConvert"](params as never);
     case "query.explain":
       return handlers["query.explain"](params as never);
     case "query.diagnose":

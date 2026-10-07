@@ -194,7 +194,7 @@ verification steps, limits, and the complete security model.
 - ✅ CTE-aware autocomplete
 - 🧪 Generic JDBC (experimental)
 - 🧪 ODBC (experimental; requires a separately installed 64-bit driver)
-- 📋 MongoDB (deferred to v2)
+- ✅ MongoDB: native Extended JSON, autocomplete, SQL-to-native conversion with `/mongo`, and read-only SQL via DuckDB. See [MongoDB usage](docs/MONGODB.md).
 - 📋 More installer formats and platforms
 
 ## Documentation
