@@ -86,7 +86,7 @@ jobs:
     name: SonarCloud analysis
     needs: verify-ts
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     # Fork PRs cannot receive repository secrets. Keep the scan out of those
     # runs rather than changing the workflow to pull untrusted code with a token.
     if: >-
