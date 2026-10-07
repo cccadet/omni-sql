@@ -1212,13 +1212,13 @@ impl DataEngine {
                 .map_err(|_| "Unable to enforce MongoDB SQL read-only restrictions")?;
             // The preview wraps the submitted statement in SELECT and enforces row and byte limits.
             if request.explain {
-                let mut statement = remote.prepare(&format!("EXPLAIN {sql}")).map_err(|_| "Invalid MongoDB SQL query")?;
+                let mut statement = remote.prepare(&format!("EXPLAIN {sql}")).map_err(|error| mongo_sql_query_error(sql, &error.to_string()))?;
                 let rows = statement.query_map([], |row| Ok(vec![JsonValue::String(row.get::<_, String>(0)?), JsonValue::String(row.get::<_, String>(1)?)]))
                     .map_err(|_| "Unable to explain MongoDB SQL query")?;
                 return Ok(AnalysisQueryResult { columns: vec![QueryColumn { name: "key".into(), data_type: "VARCHAR".into(), nullable: false }, QueryColumn { name: "plan".into(), data_type: "VARCHAR".into(), nullable: false }], rows: rows.collect::<Result<Vec<_>, _>>().map_err(|_| "Unable to read MongoDB SQL plan")?, rows_more_available: false });
             }
             Self::query_preview(&remote, sql, request.limit)
-                .map_err(|_| "MongoDB SQL query failed. Check SQL syntax, collection names and inferred field types.".to_string())
+                .map_err(|error| mongo_sql_query_error(sql, &error))
         })
     }
 
@@ -2777,6 +2777,14 @@ fn validate_read_only_sql(sql: &str) -> Result<&str, String> {
     Ok(trimmed)
 }
 
+fn mongo_sql_query_error(sql: &str, error: &str) -> String {
+    let message = "MongoDB SQL query failed. Check SQL syntax, collection names and inferred field types.";
+    if sql.contains('"') && error.contains("Referenced column") && error.contains("not found") {
+        return format!("{message} Tip: double quotes identify field names in SQL. If you intended a text value, use single quotes, for example WHERE field = 'value'.");
+    }
+    message.to_string()
+}
+
 fn validate_mongo_sql(sql: &str) -> Result<&str, String> {
     let sql = validate_read_only_sql(sql)?;
     let tokens = sql_tokens_with_identifiers(sql, true)?;
@@ -4073,6 +4081,22 @@ mod tests {
 #[cfg(test)]
 mod mongo_tests {
     use super::*;
+
+    #[test]
+    fn mongo_sql_missing_quoted_field_suggests_single_quoted_values() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE items (id_guia VARCHAR); INSERT INTO items VALUES ('123');").unwrap();
+        let sql = "SELECT * FROM items WHERE id_guia = \"123\"";
+        let error = DataEngine::query_preview(&connection, sql, 10).unwrap_err();
+        let message = mongo_sql_query_error(sql, &error);
+        assert!(message.contains("use single quotes"), "{message}");
+        assert!(!message.contains("123"));
+        assert_eq!(DataEngine::query_preview(&connection, "SELECT * FROM items WHERE \"id_guia\" = '123'", 10).unwrap().rows.len(), 1);
+        for sql in ["SELECT missing FROM items", "SELECT * FROM \"missing_table\""] {
+            let error = DataEngine::query_preview(&connection, sql, 10).unwrap_err();
+            assert!(!mongo_sql_query_error(sql, &error).contains("Tip:"));
+        }
+    }
 
     #[test]
     fn mongo_sql_rejects_writes_and_indirect_queries_before_credentials() {
