@@ -1,3 +1,4 @@
+/* global process, console */
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -54,6 +55,7 @@ function main() {
   stageMcp(output);
   stageSidecar(output);
   stageLicenses(output, downloads);
+  if (target.startsWith("darwin")) stageMacosNativeLibraries(output);
   validate(output, target);
   console.log(`[omni-sql] prepared ${target} at ${path.relative(root, output)}`);
 }
@@ -201,6 +203,43 @@ function stageSidecar(out) {
 function stageLicenses(out, downloads) {
   const licenses = path.join(out, "licenses"); fs.mkdirSync(licenses, { recursive: true }); fs.copyFileSync(path.join(root, "LICENSE"), path.join(licenses, "omni-sql-LICENSE"));
   for (const [name, dir] of [["node", path.join(downloads, "node-extract")], ["jre", path.join(downloads, "jre-extract")]]) for (const file of ["LICENSE", "NOTICE", "NOTICE.txt"]) { const found = findFile(dir, file); if (found) fs.copyFileSync(found, path.join(licenses, `${name}-${file}`)); }
+}
+// Resource binaries are outside Tauri's sidecar/framework signing paths.
+// Keep their Homebrew dependencies local and sign before Tauri seals the app.
+export function stageMacosNativeLibraries(out, run = execFileSync) {
+  const visited = new Set();
+  let bundledLibraries = false;
+  function stage(file) {
+    if (visited.has(file)) return;
+    visited.add(file);
+    if (!run("file", ["-b", file], { encoding: "utf8" }).includes("Mach-O")) return;
+    const installNames = run("otool", ["-D", file], { encoding: "utf8" }).split("\n").slice(1).map((line) => line.trim());
+    const dependencies = run("otool", ["-L", file], { encoding: "utf8" }).split("\n").slice(1);
+    for (const line of dependencies) {
+      const dependency = line.trim().split(" (compatibility version")[0];
+      if (!dependency?.startsWith("/") || dependency.startsWith("/usr/lib/") || dependency.startsWith("/System/Library/")) continue;
+      // LC_ID_DYLIB can retain the upstream build path after a .dylib is renamed to .node.
+      if (installNames.includes(dependency)) continue;
+      if (!dependency.startsWith("/opt/homebrew/") && !dependency.startsWith("/usr/local/")) fail(`unexpected macOS library dependency: ${dependency}`);
+      bundledLibraries = true;
+      const destination = path.join(path.dirname(file), path.basename(dependency));
+      if (!fs.existsSync(destination)) fs.copyFileSync(dependency, destination);
+      run("install_name_tool", ["-change", dependency, `@loader_path/${path.basename(dependency)}`, file]);
+      stage(destination);
+    }
+    run("codesign", ["--force", "--sign", "-", "--preserve-metadata=entitlements", file], { stdio: "inherit" });
+  }
+  for (const file of fs.readdirSync(out, { recursive: true })) {
+    const absolute = path.join(out, file);
+    if (fs.statSync(absolute).isFile()) stage(absolute);
+  }
+  if (bundledLibraries) {
+    const licenses = path.join(out, "licenses");
+    fs.mkdirSync(licenses, { recursive: true });
+    fs.copyFileSync(path.join(root, "docs/licenses/LGPL-2.1.txt"), path.join(licenses, "macos-odbc-LGPL-2.1.txt"));
+    fs.writeFileSync(path.join(licenses, "macos-odbc-sources.json"), run("brew", ["info", "--json=v2", "unixodbc", "libtool"], { encoding: "utf8" }));
+    fs.writeFileSync(path.join(licenses, "macos-odbc-NOTICE.txt"), "Bundled unixODBC and libltdl libraries are licensed under LGPL-2.1-or-later.\nExact versions and corresponding source archive URLs are in macos-odbc-sources.json.\nOnly Mach-O loader paths and ad-hoc signatures were changed; no library source was modified.\nThese dynamically loaded libraries can be replaced with compatible builds in the app resources.\n");
+  }
 }
 function findFile(dir, wanted) { for (const item of fs.readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, item.name); if (item.isFile() && item.name.toLowerCase() === wanted.toLowerCase()) return p; if (item.isDirectory()) { const found = findFile(p, wanted); if (found) return found; } } return undefined; }
 function validate(dir, targetName) { const binary = targetName.startsWith("windows") ? "node.exe" : "node"; const java = targetName.startsWith("windows") ? "java.exe" : "java"; const required = [path.join(dir, "backend/index.mjs"), path.join(dir, "mcp-server/index.js"), path.join(dir, "mcp-server/package.json"), path.join(dir, `runtime/node/${binary}`), path.join(dir, `runtime/jre/bin/${java}`), path.join(dir, "sidecar/omni-sql-sidecar.jar"), path.join(dir, "runtime-manifest.json"), path.join(dir, "licenses")]; for (const p of required) if (!fs.existsSync(p)) fail(`missing required resource ${path.relative(dir, p)}`); }

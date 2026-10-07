@@ -1,3 +1,4 @@
+import { mongoCommandSql } from "../lib/mongo-command";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import MonacoEditor, { type BeforeMount } from "@monaco-editor/react";
 import type * as monaco from "monaco-editor";
@@ -125,20 +126,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         const position = editor.getPosition();
         const cursorOffset = model && position ? model.getOffsetAt(position) : 0;
         const selectionText = model && sel && !sel.isEmpty() ? model.getValueInRange(sel) : null;
-        const currentStatement = model ? statementAt(splitStatements(model.getValue()), cursorOffset) ?? null : null;
+        const currentStatement = model ? statementAt(splitStatements(model.getValue(), dialectRef.current), cursorOffset) ?? null : null;
         return { selectionText, cursorOffset, currentStatement };
       },
       getStatements: () => {
         const editor = editorRef.current;
         const model = editor?.getModel();
-        return model ? splitStatements(model.getValue()) : [];
+        return model ? splitStatements(model.getValue(), dialectRef.current) : [];
       },
       getCurrentStatement: () => {
         const editor = editorRef.current;
         const model = editor?.getModel();
         const position = editor?.getPosition();
         if (!model || !position) return null;
-        return statementAt(splitStatements(model.getValue()), model.getOffsetAt(position)) ?? null;
+        return statementAt(splitStatements(model.getValue(), dialectRef.current), model.getOffsetAt(position)) ?? null;
       },
       getAllText: () => editorRef.current?.getModel()?.getValue() ?? "",
       getSelectionOrCurrent: () => {
@@ -151,10 +152,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
         const position = editor?.getPosition();
         const offset = position ? model.getOffsetAt(position) : 0;
-        const stmt = statementAt(splitStatements(model.getValue()), offset);
+        const stmt = statementAt(splitStatements(model.getValue(), dialectRef.current), offset);
         return stmt ? { sql: stmt.text, start: stmt.start } : { sql: model.getValue(), start: 0 };
       },
       formatDocument: () => {
+        if (dialect === "mongodb") { void editorRef.current?.getAction("editor.action.formatDocument")?.run(); return; }
         const editor = editorRef.current;
         if (!editor) return;
         formatterRef.current?.formatCurrentDocument(editor);
@@ -175,14 +177,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         editor.focus();
       },
     }),
-    [],
+    [dialect],
   );
 
   const handleFormat = useCallback(() => {
+    if (dialect === "mongodb") { void editorRef.current?.getAction("editor.action.formatDocument")?.run(); return; }
     const editor = editorRef.current;
     if (!editor) return;
     formatterRef.current?.formatCurrent(editor);
-  }, []);
+  }, [dialect]);
 
   useEffect(() => {
     onRunRef.current.current = onRun;
@@ -242,6 +245,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   }, [diagnostics]);
 
   const handleBeforeMount = useCallback<BeforeMount>((monacoInstance) => {
+    monacoInstance.languages.json.jsonDefaults.setDiagnosticsOptions({
+      validate: true,
+      schemas: [{ uri: "omni://mongodb/query", fileMatch: ["*"], schema: {
+        type: "object", required: ["collection", "operation"], additionalProperties: false,
+        properties: {
+          database: { type: "string" }, collection: { type: "string" },
+          operation: { enum: ["find", "aggregate", "insertOne", "updateOne", "updateMany", "deleteOne", "deleteMany"] },
+          filter: { type: "object", default: {} }, projection: { type: "object" }, sort: { type: "object" },
+          pipeline: { type: "array", items: { type: "object" } }, document: { type: "object" }, update: { type: "object" },
+        },
+      } }],
+    });
     registerSqlLanguage(monacoInstance);
     registerOmniThemes(monacoInstance);
   }, []);
@@ -333,7 +348,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   return (
     <MonacoEditor
       height="100%"
-      language={LANGUAGE_ID}
+      language={dialect === "mongodb" && mongoCommandSql(value) === null ? "json" : LANGUAGE_ID}
       theme={theme}
       value={value}
       onChange={(v) => onChange?.(v ?? "")}

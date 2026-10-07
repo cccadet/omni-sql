@@ -544,3 +544,17 @@ if (ORACLE_CONN) {
     assert.ok(true);
   });
 }
+
+test("row update commits only a unique match", async () => {
+  for (const count of [0, 1, 2, -1]) {
+    const events: string[] = [];
+    const connection = {
+      async execute() { if (count < 0) throw new Error("query failed"); return { rowsAffected: count }; },
+      async commit() { events.push("commit"); }, async rollback() { events.push("rollback"); },
+    } as unknown as Connection;
+    const operation = updateRowViaConnection(connection, { schema: "APP", table: "ITEMS", set: { V: 2 }, where: { ID: 1 } });
+    if (count < 0) await assert.rejects(operation, /query failed/);
+    else assert.equal(await operation, count);
+    assert.deepEqual(events, [count === 1 ? "commit" : "rollback"]);
+  }
+});

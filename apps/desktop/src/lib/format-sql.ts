@@ -14,6 +14,7 @@ const DIALECT_MAP: Record<DialectId, SqlLanguage> = {
   odbc: "sql",
   s3: "sql",
   duckdb: "sql",
+  mongodb: "sql",
 };
 
 export interface FormatterSettings {
@@ -95,7 +96,7 @@ export function buildFormatOptions(
 }
 
 export function formatSql(sql: string, dialect: DialectId, settings: FormatterSettings): string {
-  const statements = splitStatements(sql);
+  const statements = splitStatements(sql, dialect);
   if (statements.length > 1) {
     let result = sql;
     for (const statement of [...statements].reverse()) {

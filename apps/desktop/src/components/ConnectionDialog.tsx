@@ -20,7 +20,7 @@ import { listAnalysisS3 } from "../lib/analysis";
 import { s3Buckets } from "../lib/s3-buckets";
 import { useLanguage } from "../i18n";
 
-type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "s3" | "demo";
+type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "s3" | "mongodb" | "demo";
 
 const DEFAULT_PORTS: Record<Mode, string> = {
   postgres: "5432",
@@ -30,6 +30,7 @@ const DEFAULT_PORTS: Record<Mode, string> = {
   sqlserver: "1433",
   "jdbc-generic": "",
   odbc: "",
+  mongodb: "",
   s3: "",
   demo: "5432",
 };
@@ -42,6 +43,7 @@ const DEFAULT_DATABASES: Record<Mode, string> = {
   sqlserver: "master",
   "jdbc-generic": "",
   odbc: "",
+  mongodb: "",
   s3: "",
   demo: "postgres",
 };
@@ -54,6 +56,7 @@ const DEFAULT_USERS: Record<Mode, string> = {
   sqlserver: "sa",
   "jdbc-generic": "",
   odbc: "",
+  mongodb: "",
   s3: "",
   demo: "postgres",
 };
@@ -98,6 +101,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [password, setPassword] = useState("");
   const [ssl, setSsl] = useState(false);
   const [jdbcUrl, setJdbcUrl] = useState("");
+  const [mongoUri, setMongoUri] = useState("mongodb://localhost:27017/test");
   const [odbcEndpoint, setOdbcEndpoint] = useState("");
   const [s3BucketList, setS3BucketList] = useState("");
   const [availableBuckets, setAvailableBuckets] = useState<string[] | null>(null);
@@ -121,8 +125,9 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     const isJdbc = editingDialect === "jdbc-generic";
     const isOdbc = editingDialect === "odbc";
     const isS3 = editingDialect === "s3";
-    const nextMode = isKnown ? editingDialect : isJdbc ? "jdbc-generic" : isOdbc ? "odbc" : isS3 ? "s3" : "demo";
+    const nextMode = editingDialect === "mongodb" ? "mongodb" : isKnown ? editingDialect : isJdbc ? "jdbc-generic" : isOdbc ? "odbc" : isS3 ? "s3" : "demo";
     setMode(nextMode);
+    setMongoUri(editingDialect === "mongodb" ? editing!.endpoint : "mongodb://localhost:27017/test");
     setLabel(editing?.label ?? "");
     setId(duplicating ? generateId() : editing?.id ?? "");
     setUser(editing?.user ?? "");
@@ -172,13 +177,15 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
   const buildEndpoint = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl;
+    if (mode === "mongodb") return mongoUri.trim();
     if (mode === "odbc") return odbcEndpoint;
     if (mode === "s3") return bucketUris(s3BucketList)[0] ?? "s3://";
     return `${host}:${port}/${database}`;
-  }, [mode, jdbcUrl, odbcEndpoint, s3BucketList, host, port, database]);
+  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, s3BucketList, host, port, database]);
 
   const buildOptions = useCallback((): ConnectionConfig["options"] => {
     if (mode === "jdbc-generic") return { jarPath, driverClassName };
+    if (mode === "mongodb") return undefined;
     if (mode === "odbc") return { timeout: 30 };
     if (mode === "s3") return { region: s3Region.trim(), endpoint: s3Endpoint.trim(),
       buckets: JSON.stringify(bucketUris(s3BucketList)),
@@ -188,15 +195,17 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
   const defaultLabel = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl || t("jdbcGeneric");
+    if (mode === "mongodb") return mongoUri.trim() || "MongoDB";
     if (mode === "odbc") return odbcEndpoint || "ODBC";
     if (mode === "s3") return bucketUris(s3BucketList)[0] || "S3";
     return `${host}/${database}`;
-  }, [mode, jdbcUrl, odbcEndpoint, s3BucketList, host, database, t]);
+  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, s3BucketList, host, database, t]);
 
   const canConnect = useCallback(() => {
     if (mode === "jdbc-generic") {
       return jdbcUrl.length > 0 && jarPath.length > 0 && driverClassName.length > 0 && user.length > 0;
     }
+    if (mode === "mongodb") return /^mongodb(?:\+srv)?:\/\//i.test(mongoUri.trim()) && !mongoUri.split("?")[0]!.includes("@");
     if (mode === "odbc") return odbcEndpoint.trim().length > 0;
     if (mode === "s3") {
       const buckets = bucketUris(s3BucketList);
@@ -206,7 +215,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
           && (mapping.kind === "postgres" ? !!mapping.connectionId : !!mapping.path?.trim()));
     }
     return host.length > 0 && user.length > 0;
-  }, [mode, jdbcUrl, odbcEndpoint, s3BucketList, jarPath, driverClassName, user, host, ducklakeMappings]);
+  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, s3BucketList, jarPath, driverClassName, user, host, ducklakeMappings]);
 
   const buildConfig = useCallback((): ConnectionConfig => {
     if (mode === "demo") {
@@ -369,6 +378,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 <option value="oracle">Oracle</option>
                 <option value="jdbc-generic">{t("jdbcGeneric")}</option>
                 <option value="odbc">ODBC</option>
+                <option value="mongodb">MongoDB</option>
                 <option value="s3">S3</option>
                 <option value="demo">Demo (in-memory)</option>
               </select>
@@ -377,6 +387,11 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
             <Field label={t("connectionName")}>
               <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />
             </Field>
+
+            {mode === "mongodb" && <Field label="MongoDB URI">
+              <Input value={mongoUri} onChange={(_, data) => setMongoUri(data.value)} placeholder="mongodb://localhost:27017/test?authSource=admin" disabled={busy} required />
+              <Text size={200}>{t("mongoUriHint")}</Text>
+            </Field>}
 
             {mode === "jdbc-generic" && (
               <>
@@ -474,7 +489,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </>
             )}
 
-            {mode !== "demo" && mode !== "jdbc-generic" && mode !== "odbc" && mode !== "s3" && (
+            {mode !== "demo" && mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && mode !== "s3" && (
               <>
                 <div className="omni-connection-host-row">
                   <Field label="Host" style={{ flex: 1 }}>
@@ -493,7 +508,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
             {mode !== "demo" && mode !== "s3" && (
               <>
                 <Field label={t("user")}>
-                  <Input value={user} onChange={(_, data) => setUser(data.value)} placeholder={DEFAULT_USERS[mode]} disabled={busy} required style={{ marginTop: 4 }} />
+                  <Input value={user} onChange={(_, data) => setUser(data.value)} placeholder={DEFAULT_USERS[mode]} disabled={busy} required={mode !== "mongodb"} style={{ marginTop: 4 }} />
                 </Field>
                 <Field label={t("password")}>
                   <Input type="password" value={password} onChange={(_, data) => setPassword(data.value)} placeholder="••••••" disabled={busy} style={{ marginTop: 4 }} />
@@ -504,7 +519,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
             {mode !== "demo" && mode !== "s3" && (
               <>
-                {mode !== "jdbc-generic" && mode !== "odbc" && (
+                {mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && (
                   <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />
                 )}
                 <section className="connection-schema-picker">

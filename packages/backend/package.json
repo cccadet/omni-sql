@@ -30,9 +30,11 @@
     "@omni-sql/adapters-pg": "workspace:*",
     "@omni-sql/autocomplete-engine": "workspace:*",
     "@omni-sql/dialect-descriptors": "workspace:*",
+    "@omni-sql/mcp-server": "workspace:*",
     "@omni-sql/metadata-cache": "workspace:*",
     "@omni-sql/ts-types": "workspace:*",
     "@polyglot-sql/sdk": "0.6.1",
+    "mongodb": "^7.7.0",
     "odbc": "^2.5.0"
   },
   "devDependencies": {

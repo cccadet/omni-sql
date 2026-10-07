@@ -10,8 +10,10 @@ dados fictícios.
 |---------------|---------------------------------|-------|----------------------|
 | PostgreSQL    | `postgres:16`                   | 5432  | `omni` / `omni`      |
 | MySQL         | `mysql:8`                       | 3306  | `omni` / `omni`      |
+| MariaDB       | `mariadb:11.4`                  | 3307  | `omni` / `omni`      |
 | SQL Server    | `mssql/server:2022-latest`      | 1433  | `sa` / `Omni!2024`   |
 | Oracle XE     | `gvenzl/oracle-xe:21-slim`      | 1521  | `OMNI` / `omni`      |
+| MongoDB       | `mongo:8`                      | 27017 | `omni_root` / `omni_root` (admin) |
 | H2 (JDBC)     | build local (`./jdbc-h2/`)      | 9092  | `omni` / `omni`      |
 
 > **H2** é o banco "JDBC custom": não há adaptador nativo no omni-sql, então a
@@ -222,8 +224,25 @@ dos adaptadores. Execute-o com todos os bancos disponíveis:
 
 ```bash
 docker compose up -d
-OMNI_SQL_RUN_INTEGRATION=1 pnpm exec tsx --test ./integration-test.ts
+pnpm test:integration
 ```
+
+A integração inclui MongoDB autenticado pelo HTTP JSON-RPC e SQL via DuckDB,
+com verificação de SELECT, EXPLAIN e bloqueio de INSERT, DROP e CREATE.
+O caminho SQL exige Rust e acesso ao download da extensão comunitária Mongo.
+
+Para executar apenas MongoDB (nativo e SQL):
+
+```bash
+docker compose up -d --wait mongo
+pnpm test:integration:mongo
+```
+
+Os testes isolam o SQLite e o keyring em uma pasta temporária. Eles recriam
+a coleção `items` e o usuário `omni_mongo_test` no banco de teste.
+Para outro container, configure `OMNI_SQL_TEST_MONGO_URI` (sem credenciais na URI),
+`OMNI_SQL_TEST_MONGO_ADMIN_USER` e `OMNI_SQL_TEST_MONGO_ADMIN_PASSWORD`.
+A validação de release também sobe o Mongo e executa esses dois caminhos.
 
 ## Diagnóstico
 
@@ -250,7 +269,7 @@ docker compose down -v
 docker compose up -d
 ```
 
-As portas `5432`, `3306`, `1433`, `1521` e `9092` precisam estar livres no host.
+As portas `5432`, `3306`, `3307`, `1433`, `1521` e `9092` precisam estar livres no host.
 
 <!--
 # Comandos antigos, mantidos apenas como referência:

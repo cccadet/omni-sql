@@ -20,7 +20,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build --wait postgres mysql mssql oracle h2
+# Let Docker allocate a PostgreSQL port instead of using a development database.
+export OMNI_SQL_TEST_PG_PORT=0
+"${compose[@]}" up -d --build --wait postgres mysql mariadb mssql oracle h2 mongo
+export OMNI_SQL_TEST_PG_PORT
+OMNI_SQL_TEST_PG_PORT=$("${compose[@]}" port postgres 5432 | sed 's/.*://')
 "${compose[@]}" run --rm mssql-init
 "${compose[@]}" run --rm h2-init
 
@@ -36,7 +40,7 @@ curl --silent --fail --header 'Authorization: Bearer integration-auth-token' "$O
 (
   cd docker/test-dbs
   OMNI_SQL_RUN_INTEGRATION=1 node --test ./smoke-test.ts
-  OMNI_SQL_RUN_INTEGRATION=1 node --test ./integration-test.ts
+  pnpm test:integration
 )
 
 cp .cache/coverage-checkpoint.json .cache/release-checkpoint.json

@@ -13,6 +13,24 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoQueryRequest {
+    pub operation_id: String,
+    pub connection_id: String,
+    pub sql: String,
+    pub limit: usize,
+    #[serde(default)]
+    pub explain: bool,
+}
+
+#[derive(Deserialize)]
+struct MongoCredentials {
+    endpoint: String,
+    user: String,
+    password: Option<String>,
+}
+
 const DEFAULT_MEMORY_LIMIT: &str = "512MB";
 const DEFAULT_THREADS: u8 = 2;
 const MAX_SNAPSHOT_ROWS: usize = 10_000;
@@ -22,6 +40,7 @@ const MAX_PREVIEW_ROWS: usize = 10_000;
 const MAX_PREVIEW_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DATASETS: usize = 16;
 const MAX_RESULT_HANDLES: usize = 8;
+const MAX_SAMPLE_BYTES: usize = MAX_SNAPSHOT_BYTES;
 const MAX_DATASET_BYTES: usize = 4 * 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -560,9 +579,51 @@ impl DataEngine {
 
     pub fn open_persistent(path: &Path) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| format!("failed to create DuckDB data directory: {error}"))?;
+            private_data_directory(parent)?;
         }
-        Self::open_at(Some(path))
+        if std::fs::symlink_metadata(path).is_ok() { validate_owned_path(path, false)?; }
+        let wal = path.with_extension("duckdb.wal");
+        if std::fs::symlink_metadata(&wal).is_ok() { validate_owned_path(&wal, false)?; }
+        let engine = Self::open_at(Some(path))?;
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|error| error.to_string())?;
+        }
+        Ok(engine)
+    }
+
+    pub fn open_migrating(path: &Path, legacy: &Path) -> Result<Self, String> {
+        private_data_directory(path.parent().ok_or("missing data directory")?)?;
+        if std::fs::symlink_metadata(path).is_err() && std::fs::symlink_metadata(legacy).is_ok() && path != legacy {
+            #[cfg(unix)] {
+                use std::os::unix::fs::MetadataExt;
+                let metadata = std::fs::symlink_metadata(legacy.parent().ok_or("missing legacy directory")?).map_err(|error| error.to_string())?;
+                if metadata.uid() != process_uid() {
+                    log::warn!("legacy analytical data belongs to another user; left unchanged");
+                    return Self::open_persistent(path);
+                }
+            }
+            private_data_directory(legacy.parent().ok_or("missing legacy directory")?)?;
+            validate_owned_path(legacy, false)?;
+            let wal = legacy.with_extension("duckdb.wal");
+            if std::fs::symlink_metadata(&wal).is_ok() { validate_owned_path(&wal, false)?; }
+            // Hold DuckDB's process lock and recover/checkpoint any WAL before copying.
+            let source = Connection::open(legacy).map_err(|error| format!("close the previous application before analytical migration: {error}"))?;
+            source.execute_batch("CHECKPOINT").map_err(|error| format!("failed to checkpoint legacy analytical data: {error}"))?;
+            let temporary = path.with_extension(format!("migration-{}", random_id()?));
+            let mut input = File::open(legacy).map_err(|error| error.to_string())?;
+            let mut output = File::create_new(&temporary).map_err(|error| error.to_string())?;
+            let migrate = (|| {
+                std::io::copy(&mut input, &mut output).map_err(|error| error.to_string())?;
+                output.sync_all().map_err(|error| error.to_string())?;
+                // Publishing a hard link fails if another startup already created the destination.
+                std::fs::hard_link(&temporary, path).map_err(|error| error.to_string())?;
+                std::fs::remove_file(&temporary).map_err(|error| error.to_string())
+            })();
+            if migrate.is_err() { let _ = std::fs::remove_file(&temporary); }
+            migrate?;
+        }
+        Self::open_persistent(path)
     }
 
     fn open_at(path: Option<&Path>) -> Result<Self, String> {
@@ -867,6 +928,7 @@ impl DataEngine {
                         }
                         ImportSelection::Reservoir { rows: limit, .. } => {
                             if reservoir.len() < *limit {
+                                approximate_bytes = sample_bytes(approximate_bytes, 0, retained_row_bytes(&row), MAX_SAMPLE_BYTES)?;
                                 reservoir.push(row);
                             } else {
                                 random_state ^= random_state << 13;
@@ -874,6 +936,7 @@ impl DataEngine {
                                 random_state ^= random_state << 17;
                                 let selected = (random_state % scanned_rows as u64) as usize;
                                 if selected < *limit {
+                                    approximate_bytes = sample_bytes(approximate_bytes, retained_row_bytes(&reservoir[selected]), retained_row_bytes(&row), MAX_SAMPLE_BYTES)?;
                                     reservoir[selected] = row;
                                 }
                             }
@@ -896,10 +959,6 @@ impl DataEngine {
             }
             if matches!(&request.selection, ImportSelection::Reservoir { .. }) {
                 for (index, row) in reservoir.iter().enumerate() {
-                    approximate_bytes = approximate_bytes.saturating_add(measure_row(row)?);
-                    if approximate_bytes > MAX_DATASET_BYTES {
-                        return Err(format!("analytical source sample exceeds the {MAX_DATASET_BYTES} byte dataset budget"));
-                    }
                     append_row(&mut appender, row, &columns, index + 1)?;
                 }
                 row_count = reservoir.len();
@@ -1113,6 +1172,45 @@ impl DataEngine {
     pub fn import_s3(&self, request: S3ImportRequest) -> Result<DatasetRef, String> {
         let operation_id = request.operation_id.clone();
         self.run_operation(operation_id, || self.import_s3_inner(request))
+    }
+
+    pub fn query_mongo(&self, request: MongoQueryRequest, token: &str, backend_port: u16) -> Result<AnalysisQueryResult, String> {
+        self.run_operation(request.operation_id.clone(), || {
+            let sql = validate_mongo_sql(&request.sql)?;
+            if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
+                return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
+            }
+            let response: JsonValue = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(10)).build()
+                .map_err(|_| "Failed to create MongoDB credential client")?
+                .post(format!("http://127.0.0.1:{backend_port}/rpc"))
+                .bearer_auth(token)
+                .json(&serde_json::json!({ "jsonrpc": "2.0", "id": request.operation_id,
+                    "method": "connection.mongoCredentials", "params": { "connectionId": request.connection_id } }))
+                .send().and_then(|response| response.error_for_status()).and_then(|response| response.json())
+                .map_err(|_| "Unable to read saved MongoDB connection")?;
+            let credentials: MongoCredentials = serde_json::from_value(response.get("result").cloned().unwrap_or(JsonValue::Null))
+                .map_err(|_| "Saved MongoDB connection is unavailable")?;
+            let uri = mongo_connection_uri(&credentials)?;
+            let remote = Connection::open_in_memory().map_err(|_| "Unable to open MongoDB SQL engine")?;
+            let _guard = self.arm_remote_interrupt(&remote)?;
+            remote.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS}; SET allow_unsigned_extensions = false; INSTALL mongo FROM community; LOAD mongo;"))
+                .map_err(|_| "Unable to load MongoDB SQL extension. Check network access and DuckDB extension compatibility.")?;
+            // The catalog itself is read-only, independently of the SQL guard and UI mode.
+            remote.execute_batch(&format!("ATTACH '{}' AS mongo (TYPE MONGO, READ_ONLY); USE mongo;", uri.replace('\'', "''")))
+                .map_err(|_| "Unable to connect MongoDB SQL engine. Check URI, credentials, TLS and database permissions.")?;
+            remote.execute_batch("SET mongo_enable_direct_scan = false; SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
+                .map_err(|_| "Unable to enforce MongoDB SQL read-only restrictions")?;
+            // The preview wraps the submitted statement in SELECT and enforces row and byte limits.
+            if request.explain {
+                let mut statement = remote.prepare(&format!("EXPLAIN {sql}")).map_err(|_| "Invalid MongoDB SQL query")?;
+                let rows = statement.query_map([], |row| Ok(vec![JsonValue::String(row.get::<_, String>(0)?), JsonValue::String(row.get::<_, String>(1)?)]))
+                    .map_err(|_| "Unable to explain MongoDB SQL query")?;
+                return Ok(AnalysisQueryResult { columns: vec![QueryColumn { name: "key".into(), data_type: "VARCHAR".into(), nullable: false }, QueryColumn { name: "plan".into(), data_type: "VARCHAR".into(), nullable: false }], rows: rows.collect::<Result<Vec<_>, _>>().map_err(|_| "Unable to read MongoDB SQL plan")?, rows_more_available: false });
+            }
+            Self::query_preview(&remote, sql, request.limit)
+                .map_err(|_| "MongoDB SQL query failed. Check SQL syntax, collection names and inferred field types.".to_string())
+        })
     }
 
     pub fn query_s3(&self, request: S3QueryRequest) -> Result<AnalysisQueryResult, String> {
@@ -1420,15 +1518,22 @@ impl DataEngine {
                     ImportSelection::Reservoir { rows: limit, .. } => {
                         for index in 0..batch.num_rows() {
                             let seen = scanned_rows - batch.num_rows() + index + 1;
-                            let one = compact_arrow_row(&batch, index)?;
-                            if reservoir.len() < *limit {
-                                reservoir.push(one);
+                            let selected = if reservoir.len() < *limit {
+                                reservoir.len()
                             } else {
                                 random_state ^= random_state << 13;
                                 random_state ^= random_state >> 7;
                                 random_state ^= random_state << 17;
-                                let selected = (random_state % seen as u64) as usize;
-                                if selected < *limit { reservoir[selected] = one; }
+                                (random_state % seen as u64) as usize
+                            };
+                            if selected < *limit {
+                                // Bound the copy and replacement peak before allocating the selected row.
+                                sample_bytes(approximate_bytes, 0, arrow_row_copy_bound(&batch, index), MAX_SAMPLE_BYTES)?;
+                                let one = compact_arrow_row(&batch, index)?;
+                                let removed = reservoir.get(selected).map_or(0, |row: &arrow::record_batch::RecordBatch| row.get_array_memory_size());
+                                approximate_bytes = sample_bytes(approximate_bytes, removed, one.get_array_memory_size(), MAX_SAMPLE_BYTES)?;
+                                if selected == reservoir.len() { reservoir.push(one); }
+                                else { reservoir[selected] = one; }
                             }
                         }
                     }
@@ -1443,10 +1548,6 @@ impl DataEngine {
             }
             if matches!(&request.selection, ImportSelection::Reservoir { .. }) {
                 for row in reservoir {
-                    approximate_bytes = approximate_bytes.saturating_add(row.get_array_memory_size());
-                    if approximate_bytes > MAX_DATASET_BYTES {
-                        return Err(format!("analytical file sample exceeds the {MAX_DATASET_BYTES} byte dataset budget"));
-                    }
                     appender.append_record_batch(row)
                         .map_err(|error| format!("failed to append analytical file reservoir: {error}"))?;
                     row_count += 1;
@@ -1529,7 +1630,7 @@ impl DataEngine {
                             return Err("analytical export cancelled".to_string());
                         }
                         rows += batch.num_rows();
-                        writer.write(&batch).map_err(|error| format!("CSV export failed: {error}"))?;
+                        writer.write(&spreadsheet_safe_batch(&batch)?).map_err(|error| format!("CSV export failed: {error}"))?;
                         self.update_progress(rows, rows, 0);
                     }
                 }
@@ -1882,6 +1983,118 @@ fn open_file_batches(
     }
 }
 
+#[cfg(unix)]
+fn process_uid() -> u32 {
+    unsafe extern "C" { fn getuid() -> u32; }
+    // getuid has no arguments or memory access and returns this process's owner.
+    unsafe { getuid() }
+}
+
+fn validate_owned_path(path: &Path, directory: bool) -> Result<(), String> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() || (directory && !metadata.is_dir()) || (!directory && !metadata.is_file()) {
+        return Err("analytical data path must be a regular owned file or directory".into());
+    }
+    #[cfg(unix)] {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.uid() != process_uid() || metadata.mode() & 0o022 != 0 {
+            return Err("analytical data path is owned by another user or writable by others".into());
+        }
+    }
+    Ok(())
+}
+
+fn private_data_directory(path: &Path) -> Result<(), String> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)] {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(path).map_err(|error| error.to_string())?;
+    validate_owned_path(path, true)?;
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn spreadsheet_text(value: &str) -> String {
+    if value.trim_start_matches(['\t', '\r', ' ']).starts_with(['=', '+', '-', '@']) {
+        format!("'{value}")
+    } else { value.to_owned() }
+}
+
+fn spreadsheet_safe_batch(batch: &arrow::record_batch::RecordBatch) -> Result<arrow::record_batch::RecordBatch, String> {
+    use arrow::{array::{ArrayRef, StringArray, LargeStringArray, StringViewArray}, datatypes::{DataType, Schema}};
+    let columns = batch.columns().iter().map(|source| -> Result<ArrayRef, String> {
+        let decoded;
+        let column = if let DataType::Dictionary(_, value_type) = source.data_type() {
+            decoded = arrow::compute::cast(source, value_type).map_err(|error| format!("failed to decode CSV dictionary: {error}"))?;
+            &decoded
+        } else { source };
+        macro_rules! protect {
+            ($kind:ty) => {
+                if let Some(strings) = column.as_any().downcast_ref::<$kind>() {
+                    let values = strings.iter().map(|value| value.map(spreadsheet_text)).collect::<Vec<_>>();
+                    return Ok(Arc::new(<$kind>::from(values)) as ArrayRef);
+                }
+            };
+        }
+        protect!(StringArray); protect!(LargeStringArray); protect!(StringViewArray);
+        Ok(column.clone())
+    }).collect::<Result<Vec<_>, _>>()?;
+    let fields = batch.schema().fields().iter().zip(&columns).map(|(field, column)| {
+        field.as_ref().clone().with_name(spreadsheet_text(field.name())).with_data_type(column.data_type().clone())
+    }).collect::<Vec<_>>();
+    arrow::record_batch::RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
+        .map_err(|error| format!("failed to protect spreadsheet CSV: {error}"))
+}
+
+fn retained_row_bytes(row: &[JsonValue]) -> usize {
+    fn value_bytes(value: &JsonValue) -> usize {
+        std::mem::size_of::<JsonValue>() + match value {
+            JsonValue::String(text) => text.capacity(),
+            JsonValue::Array(values) => values.capacity() * std::mem::size_of::<JsonValue>()
+                + values.iter().map(|value| value_bytes(value) - std::mem::size_of::<JsonValue>()).sum::<usize>(),
+            JsonValue::Object(values) => values.iter().map(|(key, value)| key.capacity() + value_bytes(value)
+                + std::mem::size_of::<String>() + 8 * std::mem::size_of::<usize>()).sum::<usize>(),
+            _ => 0,
+        }
+    }
+    std::mem::size_of::<Vec<JsonValue>>() + row.len() * std::mem::size_of::<JsonValue>()
+        + row.iter().map(value_bytes).sum::<usize>()
+}
+
+fn sample_bytes(retained: usize, removed: usize, incoming: usize, budget: usize) -> Result<usize, String> {
+    if retained.checked_add(incoming).is_none_or(|peak| peak > budget) {
+        return Err(format!("analytical sample exceeds the {budget} byte memory budget"));
+    }
+    Ok(retained - removed + incoming)
+}
+
+fn arrow_row_copy_bound(batch: &arrow::record_batch::RecordBatch, index: usize) -> usize {
+    use arrow::array::{StringArray, LargeStringArray, BinaryArray, LargeBinaryArray};
+    batch.columns().iter().map(|column| {
+        macro_rules! variable {
+            ($kind:ty) => {
+                if let Some(values) = column.as_any().downcast_ref::<$kind>() {
+                    return values.value(index).len().saturating_mul(2).saturating_add(256);
+                }
+            };
+        }
+        variable!(StringArray); variable!(LargeStringArray);
+        variable!(BinaryArray); variable!(LargeBinaryArray);
+        if column.data_type().is_primitive() || matches!(column.data_type(), arrow::datatypes::DataType::Boolean | arrow::datatypes::DataType::Null) {
+            256
+        } else {
+            // Views and nested arrays can retain source buffers after take.
+            column.slice(index, 1).get_array_memory_size()
+        }
+    }).fold(0_usize, usize::saturating_add)
+}
+
 fn compact_arrow_row(
     batch: &arrow::record_batch::RecordBatch,
     index: usize,
@@ -2067,11 +2280,14 @@ fn initialize_connection(connection: &Connection, temp_directory: &Path) -> Resu
 }
 
 fn create_temp_directory() -> Result<PathBuf, String> {
+    #[cfg(unix)]
+    let root = std::env::temp_dir().join(format!("omni-sql-analysis-{}", process_uid()));
+    #[cfg(not(unix))]
     let root = std::env::temp_dir().join("omni-sql-analysis");
+    private_data_directory(&root)?;
     cleanup_abandoned_temp_directories(&root);
     let path = root.join(random_id()?);
-    std::fs::create_dir_all(&path)
-        .map_err(|error| format!("failed to create analytical temporary directory: {error}"))?;
+    private_data_directory(&path)?;
     Ok(path)
 }
 
@@ -2552,6 +2768,28 @@ fn validate_read_only_sql(sql: &str) -> Result<&str, String> {
     Ok(trimmed)
 }
 
+fn validate_mongo_sql(sql: &str) -> Result<&str, String> {
+    let sql = validate_read_only_sql(sql)?;
+    let tokens = sql_tokens_with_identifiers(sql, true)?;
+    if tokens.iter().any(|token| matches!(token.as_str(), "query" | "query_table" | "mongo_scan" | "mongo_clear_cache" | "duckdb_secrets" | "duckdb_views")) {
+        return Err("MongoDB SQL must query registered collections using SELECT or WITH".to_string());
+    }
+    Ok(sql)
+}
+
+fn mongo_connection_uri(credentials: &MongoCredentials) -> Result<String, String> {
+    let (scheme, rest) = credentials.endpoint.split_once("://").ok_or("Invalid MongoDB URI")?;
+    if !matches!(scheme, "mongodb" | "mongodb+srv") || rest.split(['/', '?']).next().unwrap_or("").contains('@') {
+        return Err("MongoDB URI cannot contain embedded credentials".to_string());
+    }
+    if credentials.user.is_empty() { return Ok(credentials.endpoint.clone()); }
+    let encode = |value: &str| value.bytes().map(|byte| {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') { (byte as char).to_string() }
+        else { format!("%{byte:02X}") }
+    }).collect::<String>();
+    Ok(format!("{scheme}://{}:{}@{rest}", encode(&credentials.user), encode(credentials.password.as_deref().unwrap_or(""))))
+}
+
 fn validate_s3_sql(sql: &str) -> Result<&str, String> {
     let sql = validate_read_only_sql(sql)?;
     // ponytail: direct URI literals are blocked; use a SQL parser if indirect readers become reachable.
@@ -2563,6 +2801,10 @@ fn validate_s3_sql(sql: &str) -> Result<&str, String> {
 }
 
 fn sql_tokens(sql: &str) -> Result<Vec<String>, String> {
+    sql_tokens_with_identifiers(sql, false)
+}
+
+fn sql_tokens_with_identifiers(sql: &str, include_identifiers: bool) -> Result<Vec<String>, String> {
     let mut tokens = Vec::new();
     let mut token = String::new();
     let mut chars = sql.chars().peekable();
@@ -2572,10 +2814,12 @@ fn sql_tokens(sql: &str) -> Result<Vec<String>, String> {
             if character == delimiter {
                 if chars.peek() == Some(&delimiter) {
                     chars.next();
+                    if include_identifiers && delimiter == '"' { token.push(character); }
                 } else {
                     quote = None;
+                    if include_identifiers && delimiter == '"' { tokens.push(std::mem::take(&mut token)); }
                 }
-            }
+            } else if include_identifiers && delimiter == '"' { token.push(character.to_ascii_lowercase()); }
             continue;
         }
         match character {
@@ -3191,7 +3435,7 @@ mod tests {
             let mut request = [0_u8; 4096];
             let _ = socket.read(&mut request).unwrap();
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nConnection: close\r\n\r\n").unwrap();
-            for line in lines { writeln!(socket, "{line}").unwrap(); }
+            for line in lines { if writeln!(socket, "{line}").is_err() { break; } }
         });
         (port, handle)
     }
@@ -3705,5 +3949,171 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(a.len(), 10);
         assert_ne!(a, rows[..10]);
+    }
+    #[test]
+    fn sample_budget_bounds_insert_replacement_and_peak() {
+        assert_eq!(sample_bytes(4, 0, 3, 10).unwrap(), 7);
+        assert_eq!(sample_bytes(7, 4, 2, 10).unwrap(), 5);
+        assert!(sample_bytes(7, 4, 4, 10).is_err());
+        assert!(sample_bytes(usize::MAX, 0, 1, usize::MAX).is_err());
+        assert!(retained_row_bytes(&[serde_json::json!([null, null, null])]) > 16);
+    }
+
+    #[test]
+    fn csv_protects_strings_and_headers_preserving_numbers_and_quoting() {
+        use arrow::{array::{StringArray, Int64Array}, datatypes::{Schema, Field, DataType}, record_batch::RecordBatch};
+        let batch = RecordBatch::try_new(Arc::new(Schema::new(vec![
+            Field::new("=header", DataType::Utf8, true), Field::new("number", DataType::Int64, false),
+        ])), vec![Arc::new(StringArray::from(vec![Some(" =1+1"), Some("a,\"b\n"), None])), Arc::new(Int64Array::from(vec![-2, 3, 4]))]).unwrap();
+        let safe = spreadsheet_safe_batch(&batch).unwrap();
+        let mut output = Vec::new();
+        let mut writer = arrow::csv::WriterBuilder::new().with_header(true).build(&mut output);
+        writer.write(&safe).unwrap();
+        drop(writer);
+        let csv = String::from_utf8(output).unwrap();
+        assert!(csv.starts_with("'=header,number\n' =1+1,-2\n"), "{csv}");
+        assert!(csv.contains("\"a,\"\"b\n\",3"), "{csv}");
+        assert_eq!(batch.schema().field(0).name(), "=header");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn persistent_data_is_private_and_migration_preserves_legacy() {
+        use std::os::unix::{fs::{MetadataExt, PermissionsExt}, fs::symlink};
+        let root = create_temp_directory().unwrap();
+        let legacy_dir = root.join("legacy");
+        std::fs::create_dir(&legacy_dir).unwrap();
+        let legacy = legacy_dir.join("local.duckdb");
+        {
+            let connection = Connection::open(&legacy).unwrap();
+            connection.execute_batch("CREATE TABLE sentinel AS SELECT 42 AS value; CHECKPOINT").unwrap();
+        }
+        eprintln!("original DuckDB mode: {:o}", std::fs::metadata(&legacy).unwrap().mode() & 0o777);
+        let path = root.join("private/local.duckdb");
+        std::fs::create_dir(path.parent().unwrap()).unwrap();
+        let abandoned = path.with_extension("migration");
+        std::fs::write(&abandoned, "previous interrupted migration").unwrap();
+        let engine = DataEngine::open_migrating(&path, &legacy).unwrap();
+        assert_eq!(std::fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(engine.lock().unwrap().connection.query_row("SELECT value FROM sentinel", [], |row| row.get::<_, i32>(0)).unwrap(), 42);
+        assert!(legacy.exists());
+        assert_eq!(std::fs::read_to_string(&abandoned).unwrap(), "previous interrupted migration");
+        drop(engine);
+        {
+            let source = Connection::open(&legacy).unwrap();
+            source.execute_batch("UPDATE sentinel SET value=99; CHECKPOINT").unwrap();
+        }
+        let engine = DataEngine::open_migrating(&path, &legacy).unwrap();
+        assert_eq!(engine.lock().unwrap().connection.query_row("SELECT value FROM sentinel", [], |row| row.get::<_, i32>(0)).unwrap(), 42);
+        drop(engine);
+        let link = root.join("link");
+        symlink(&legacy_dir, &link).unwrap();
+        assert!(DataEngine::open_migrating(&root.join("other/local.duckdb"), &link.join("local.duckdb")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn wide_reservoir_stream_and_file_fail_without_publishing_and_recover() {
+        use arrow::{array::StringArray, datatypes::{DataType, Field, Schema}, record_batch::RecordBatch};
+        let engine = DataEngine::open_in_memory().unwrap();
+        let wide = "x".repeat(MAX_CELL_BYTES);
+        let frames = (0..10).map(|_| serde_json::json!({
+            "type": "batch", "columns": [{"name": "id", "dataType": "text", "nullable": false}], "rows": [[wide]],
+        }).to_string()).chain(std::iter::once(serde_json::json!({"type": "complete"}).to_string())).collect();
+        let (port, server) = serve_custom_stream(frames);
+        let error = engine.import_source(source_request(ImportSelection::Reservoir { rows: 10, seed: 42 }), "test-token", port).unwrap_err();
+        assert!(error.contains("memory budget"), "{error}");
+        let _ = server.join();
+        assert!(engine.list_datasets("workspace-stream").unwrap().is_empty());
+        let (port, server) = serve_stream(3);
+        assert!(engine.import_source(source_request(ImportSelection::Reservoir { rows: 2, seed: 42 }), "test-token", port).is_ok());
+        server.join().unwrap();
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("wide.parquet");
+        {
+            let batch = RecordBatch::try_new(Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)])),
+                vec![Arc::new(StringArray::from(vec![wide.as_str(); 10]))]).unwrap();
+            let mut writer = parquet::arrow::ArrowWriter::try_new(File::create(&path).unwrap(), batch.schema(), None).unwrap();
+            writer.write(&batch).unwrap(); writer.close().unwrap();
+        }
+        let error = engine.import_file(FileImportRequest { operation_id: "wide-file".into(), workspace_id: "wide-file".into(), name: "wide".into(), path, format: FileFormat::Parquet, selection: ImportSelection::Reservoir { rows: 10, seed: 42 } }).unwrap_err();
+        assert!(error.contains("memory budget"), "{error}");
+        assert!(engine.list_datasets("wide-file").unwrap().is_empty());
+        assert!(engine.import_result(request("wide-file")).is_ok());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn full_csv_export_neutralizes_formula_fields() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("safe.csv");
+        engine.export_query(ExportRequest { operation_id: "safe-csv".into(), workspace_id: "safe-csv".into(), sql: "SELECT '=1+1' AS \"=header\", -2 AS number, '@enum'::ENUM('@enum') AS enum_text".into(), path: path.clone(), format: ExportFormat::Csv }).unwrap();
+        let csv = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(csv, "'=header,number,enum_text\n'=1+1,-2,'@enum\n");
+        assert!(path.with_extension("csv.omni.json").exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod mongo_tests {
+    use super::*;
+
+    #[test]
+    fn mongo_sql_rejects_writes_and_indirect_queries_before_credentials() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        for sql in ["INSERT INTO mongo.test.items VALUES (1)", "DELETE FROM mongo.test.items", "UPDATE mongo.test.items SET n=1", "DROP TABLE mongo.test.items", "COPY mongo.test.items TO 'x.json'", "ATTACH 'mongodb://localhost' AS other (TYPE MONGO)", "SELECT 1; DELETE FROM items", "WITH x AS (DELETE FROM items) SELECT * FROM x", "SELECT * FROM query('DELETE FROM items')", "SELECT * FROM \"query\"('DELETE FROM items')", "SELECT * FROM mongo_scan('mongodb://elsewhere', 'test', 'items')"] {
+            let error = engine.query_mongo(MongoQueryRequest { operation_id: format!("guard-{}", sql.len()), connection_id: "absent".into(), sql: sql.into(), limit: 100, explain: false }, "unused", 1).unwrap_err();
+            assert!(!error.contains("saved MongoDB"), "reached credentials for {sql}: {error}");
+        }
+        assert!(validate_mongo_sql("WITH x AS (SELECT * FROM \"test\".\"items\") SELECT * FROM x").is_ok());
+        let uri = mongo_connection_uri(&MongoCredentials { endpoint: "mongodb://localhost/test?authSource=admin".into(), user: "u@ser".into(), password: Some("p:'/?".into()) }).unwrap();
+        // Validate synthetic credentials separately without embedding a credential-bearing URI in source.
+        let parsed = reqwest::Url::parse(&uri).unwrap();
+        assert_eq!(parsed.username(), "u%40ser");
+        assert_eq!(parsed.password(), Some("p%3A%27%2F%3F"));
+        assert_eq!(parsed.host_str(), Some("localhost"));
+        assert_eq!(parsed.path(), "/test");
+        assert_eq!(parsed.query(), Some("authSource=admin"));
+    }
+
+    #[test]
+    #[ignore = "requires OMNI_SQL_TEST_MONGO_URI and community extension download access"]
+    fn mongo_sql_real_database_readonly_catalog() {
+        use std::io::Write;
+        use std::net::TcpListener;
+        let endpoint = std::env::var("OMNI_SQL_TEST_MONGO_URI").expect("MongoDB test URI");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let credentials = MongoCredentials { endpoint: endpoint.clone(), user: std::env::var("OMNI_SQL_TEST_MONGO_USER").unwrap_or_default(), password: std::env::var("OMNI_SQL_TEST_MONGO_PASSWORD").ok() };
+        let direct_uri = mongo_connection_uri(&credentials).unwrap();
+        let server_uri = endpoint.clone();
+        let server_user = credentials.user;
+        let server_password = credentials.password;
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+                let mut request = [0; 8192];
+                let length = socket.read(&mut request).unwrap();
+                assert!(String::from_utf8_lossy(&request[..length]).contains("Bearer test-token"));
+                let payload = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": { "endpoint": server_uri, "user": server_user, "password": server_password } }).to_string();
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", payload.len(), payload).unwrap();
+            }
+        });
+        let engine = DataEngine::open_in_memory().unwrap();
+        let result = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-live-query".into(), connection_id: "test".into(), sql: "SELECT name FROM items ORDER BY name".into(), limit: 1, explain: false }, "test-token", port).unwrap();
+        assert_eq!(result.rows.len(), 1);
+        assert!(result.rows_more_available);
+        let plan = engine.query_mongo(MongoQueryRequest { operation_id: "mongo-live-explain".into(), connection_id: "test".into(), sql: "SELECT * FROM items LIMIT 1".into(), limit: 10, explain: true }, "test-token", port).unwrap();
+        assert!(plan.rows.iter().any(|row| row.iter().any(|value| value.as_str().is_some_and(|text| text.contains("MONGO_SCAN")))));
+        server.join().unwrap();
+        // Even a direct call bypassing the SQL guard cannot write to the attached catalog.
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("LOAD mongo;").unwrap();
+        connection.execute_batch(&format!("ATTACH '{}' AS mongo (TYPE MONGO, READ_ONLY); USE mongo", direct_uri.replace('\'', "''"))).unwrap();
+        for sql in ["INSERT INTO items (name) VALUES ('forbidden')", "DROP TABLE items", "CREATE TABLE forbidden AS SELECT 1 AS n"] {
+            assert!(connection.execute_batch(sql).is_err(), "read-only catalog accepted {sql}");
+        }
     }
 }

@@ -11,7 +11,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
 </p>
 
-<p align="center"><sub>Early-stage software · Installers currently available for Windows x64 and Linux amd64</sub></p>
+<p align="center"><sub>Early-stage software · Windows x64, Linux amd64 and macOS Apple Silicon / Intel installers</sub></p>
 
 ## Analyze files and database results locally
 
@@ -48,6 +48,10 @@ Compatible AI clients can propose SQL changes through the
 
 ![SQL editor walkthrough: schemas, autocomplete, results, and PostgreSQL execution plans](docs/images/release-visuals/omni-sql-demo.gif)
 
+Use `/catalog` in the editor to find SQL templates for the active dialect, including
+`/catalog insert` for an **Insert row** example. Oracle Explain displays available
+row, byte, cost, and time estimates alongside plan predicates.
+
 ## Database support
 
 | Database | Connection | Metadata autocomplete | Query execution |
@@ -71,10 +75,26 @@ Download the package for your platform from the **[latest GitHub release](https:
 | --- | --- | --- |
 | Windows 10/11 x64 | `.exe` installer | Available |
 | Debian/Ubuntu amd64 | `.deb` package | Available |
-| macOS, ARM, AppImage, RPM | — | Not packaged yet |
+| macOS 15+ Apple Silicon / Intel | `.dmg` installer | Included starting with v0.7.1 |
+| Linux ARM, AppImage, RPM | — | Not packaged yet |
 
 Release assets include a `SHA256SUMS` file so downloads can be verified. End users
 do not need to install Node.js, Java, Rust, a database client, or a vendor client SDK.
+
+### macOS first launch
+
+Choose the `aarch64.dmg` download for Apple Silicon (M1 or newer), or `x64.dmg`
+for an Intel Mac. Open the disk image, drag **omni-sql** to **Applications**,
+and launch it from there.
+
+Initial macOS packages use a free ad-hoc signature and are not notarized by Apple.
+If macOS blocks the first launch because the developer cannot be verified, open
+**System Settings → Privacy & Security → Open Anyway**, then confirm opening
+omni-sql. Follow [Apple's instructions](https://support.apple.com/102445) for an
+app downloaded from a source you trust. No paid Apple account is needed to install.
+
+Node.js, Java and the ODBC driver manager are bundled. ODBC connections still
+require a separately installed driver for the database, as on other platforms.
 
 > omni-sql is early-stage software. Test it with development data before using it
 > against important environments, and please report unexpected behavior.
@@ -134,14 +154,14 @@ and ecosystem needs. You can use omni-sql alongside them for local DuckDB analys
 omni-sql includes a local MCP server that lets compatible AI clients work with the
 SQL tab you already have open. An assistant can read the active statement and its
 database context, inspect schema metadata and indexes, explain a query without
-executing it, or prepare an edit for review.
+executing it, prepare an edit for review, or execute SQL after explicit approval in the desktop.
 
 ![Review an SQL edit proposed through MCP before applying it](docs/images/mcp-sql-proposal.png)
 
 ```text
-AI client  ──MCP/STDIO──▶  local omni-sql bridge  ──▶  active desktop tab
+AI client  ──MCP/STDIO or HTTP──▶  local omni-sql bridge  ──▶  active desktop tab
                                                         │
-                                                        └─ proposed edits require approval
+                                                        └─ edits and SQL execution require approval
 ```
 
 | Tool | What it does |
@@ -153,14 +173,18 @@ AI client  ──MCP/STDIO──▶  local omni-sql bridge  ──▶  active de
 | `explainSql` | Produces a non-executing query plan. |
 | `getLatestSqlExecutionError` | Reads the latest execution error from the active tab. |
 | `proposeSqlEdit` | Opens a before/after proposal that you can apply or reject in omni-sql. |
+| `executeSql` | Runs SQL on the active connection after explicit desktop approval, returning bounded results. |
 
 The default transport is local STDIO. The generated launcher configuration is
 available from the **MCP** item in the status bar after the backend is ready. Copy
 its `command` and `args` exactly into your MCP client; runtime paths are temporary
 and are regenerated whenever omni-sql starts.
 
-The integration cannot execute SQL, read passwords or connection strings, access
-files, or bypass the approval dialog. See the [MCP guide](docs/MCP.md) for Codex,
+Optional Streamable HTTP can be started from **MCP > Configuration > HTTP** with
+a separate token and a loopback endpoint (default `http://127.0.0.1:41922/mcp`).
+SQL execution can modify data or structure and always requires desktop approval.
+The integration cannot read stored passwords or connection strings, access files
+through dedicated tools, or bypass the approval dialog. See the [MCP guide](docs/MCP.md) for Codex,
 Claude Desktop, and ChatGPT Desktop setup, optional Streamable HTTP transport,
 verification steps, limits, and the complete security model.
 
@@ -169,8 +193,8 @@ verification steps, limits, and the complete security model.
 - ✅ Native PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle adapters
 - ✅ CTE-aware autocomplete
 - 🧪 Generic JDBC (experimental)
-- 🧪 Generic ODBC (requires a separately installed 64-bit driver)
-- 📋 MongoDB (deferred to v2)
+- 🧪 ODBC (experimental; requires a separately installed 64-bit driver)
+- ✅ MongoDB: native Extended JSON, autocomplete, SQL-to-native conversion with `/mongo`, and read-only SQL via DuckDB. See [MongoDB usage](docs/MONGODB.md).
 - 📋 More installer formats and platforms
 
 ## Documentation
@@ -196,7 +220,7 @@ are welcome—please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 Tried installing or running your first database + file join?
 [Share your first-run experience](https://github.com/cccadet/omni-sql/issues/new?template=first_run.yml),
 including successful attempts. Tell us your platform, database, and where you
-got stuck; requests for a macOS installer are useful too.
+got stuck.
 
 ## License
 

@@ -1,3 +1,4 @@
+import type { DialectId } from "@omni-sql/ts-types";
 import { skipNonCode } from "./sql-statements";
 
 /**
@@ -8,14 +9,14 @@ import { skipNonCode } from "./sql-statements";
 const VARIABLE_RE = /^:([A-Za-z_][A-Za-z0-9_]*)/;
 
 /** Nomes das variáveis em `sql`, na ordem de primeira ocorrência, sem duplicatas. */
-export function extractVariables(sql: string): string[] {
+export function extractVariables(sql: string, dialect?: DialectId): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
   const n = sql.length;
   let i = 0;
 
   while (i < n) {
-    const skip = skipNonCode(sql, i);
+    const skip = skipNonCode(sql, i, dialect);
     if (skip !== null) {
       i = skip;
       continue;
@@ -45,11 +46,11 @@ export function extractVariables(sql: string): string[] {
 }
 
 /** União (ordenada, sem duplicatas) das variáveis em várias instruções. */
-export function extractVariablesUnion(sqls: readonly string[]): string[] {
+export function extractVariablesUnion(sqls: readonly string[], dialect?: DialectId): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
   for (const sql of sqls) {
-    for (const name of extractVariables(sql)) {
+    for (const name of extractVariables(sql, dialect)) {
       if (!seen.has(name)) {
         seen.add(name);
         names.push(name);
@@ -66,13 +67,13 @@ export function extractVariablesUnion(sqls: readonly string[]): string[] {
  * enviado ao banco, e a comparação/coerção de tipo fica a cargo do próprio
  * SGBD (funciona bem para número/data comparados contra colunas tipadas).
  */
-export function substituteVariables(sql: string, values: Readonly<Record<string, string>>): string {
+export function substituteVariables(sql: string, values: Readonly<Record<string, string>>, dialect?: DialectId): string {
   let result = "";
   const n = sql.length;
   let i = 0;
 
   while (i < n) {
-    const skip = skipNonCode(sql, i);
+    const skip = skipNonCode(sql, i, dialect);
     if (skip !== null) {
       result += sql.slice(i, skip);
       i = skip;

@@ -10,6 +10,10 @@ import type {
   ExplainResult,
   SqlDiagnostic,
   McpStatusResult,
+  McpHttpStatus,
+  McpHttpStartParams,
+  McpExecuteApproval,
+  McpToolResultByName,
   McpHistoryResult,
   McpUiNextParams,
   McpUiNextResult,
@@ -276,6 +280,11 @@ export interface McpUiRouter {
   "mcp.ui.respond": (p: McpUiRespondParams) => Promise<McpUiRespondResult>;
   "mcp.status": () => Promise<McpStatusResult>;
   "mcp.history": () => Promise<McpHistoryResult>;
+  "mcp.http.status": () => Promise<McpHttpStatus>;
+  "mcp.http.start": (p: McpHttpStartParams) => Promise<McpHttpStatus>;
+  "mcp.http.stop": () => Promise<McpHttpStatus>;
+  "mcp.ui.execute": (p: McpExecuteApproval) => Promise<McpToolResultByName["executeSql"]>;
+  "mcp.ui.release": (p: { listenerId: string }) => Promise<{ released: boolean }>;
 }
 
 export interface McpUiRequestContext {
@@ -287,6 +296,7 @@ export interface McpUiRequestContext {
 export interface RpcRouter {
   "connection.add": (p: AddConnectionParams) => Promise<AddConnectionResult>;
   "connection.list": () => Promise<ListConnectionsResult>;
+  "connection.mongoCredentials": (p: { connectionId: string }) => Promise<{ endpoint: string; user: string; password?: string }>;
   "connection.s3Credentials": (p: { connectionId: string }) => Promise<{ accessKeyId: string; secretAccessKey?: string; ducklakeMappings?: { prefix: string; catalog: { kind: "postgres"; host: string; port: number; database: string; user: string; password?: string } | { kind: "sqlite" | "duckdb"; path: string } }[] }>;
   "connection.listBuckets": (p: { config: ConnectionConfig; password?: string }) => Promise<{ buckets: string[] }>;
   "connection.remove": (p: { connectionId: string }) => Promise<{ ok: boolean }>;
@@ -298,8 +308,9 @@ export interface RpcRouter {
   "connection.test": (p: TestConnectionParams) => Promise<TestConnectionResult>;
   "connection.status": (p: ConnectionStatusParams) => Promise<TestConnectionResult>;
   "connection.listSchemas": (p: ListSchemasParams) => Promise<ListSchemasResult>;
-  "query.run": (p: RunQueryParams) => Promise<RunQueryResult>;
+  "query.run": (p: RunQueryParams, signal?: AbortSignal) => Promise<RunQueryResult>;
   "query.cancel": (p: CancelQueryParams) => Promise<CancelQueryResult>;
+  "query.mongoConvert": (p: { connectionId: string; sql: string }) => Promise<{ query: string }>;
   "query.explain": (p: ExplainQueryParams) => Promise<ExplainQueryResult>;
   "query.diagnose": (p: DiagnoseQueryParams) => Promise<DiagnoseQueryResult>;
   "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;
@@ -319,6 +330,11 @@ export interface RpcRouter {
   "mcp.ui.respond": (p: McpUiRespondParams) => Promise<McpUiRespondResult>;
   "mcp.status": () => Promise<McpStatusResult>;
   "mcp.history": () => Promise<McpHistoryResult>;
+  "mcp.http.status": () => Promise<McpHttpStatus>;
+  "mcp.http.start": (p: McpHttpStartParams) => Promise<McpHttpStatus>;
+  "mcp.http.stop": () => Promise<McpHttpStatus>;
+  "mcp.ui.execute": (p: McpExecuteApproval) => Promise<McpToolResultByName["executeSql"]>;
+  "mcp.ui.release": (p: { listenerId: string }) => Promise<{ released: boolean }>;
 }
 
 export type BackendRpcRouter = Omit<RpcRouter, keyof McpUiRouter>;

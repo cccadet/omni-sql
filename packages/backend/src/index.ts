@@ -9,7 +9,7 @@ import type {
 import { closeBackendResources, handlers, streamAnalysisQuery } from "./handlers.ts";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
-import { closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
+import { closeMcpHttp, closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
 import { McpBridgeError } from "./mcp-bridge.ts";
 import {
   MCP_MAX_HTTP_BODY_BYTES,
@@ -45,6 +45,8 @@ let shutdownStarted = false;
 async function gracefulShutdown(): Promise<void> {
   if (shutdownStarted) return;
   shutdownStarted = true;
+  closeMcpBridge();
+  await closeMcpHttp();
   await Promise.all([...servers].map((server) => new Promise<void>((resolve) => {
     server.close(() => resolve());
   })));
@@ -192,6 +194,8 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["connection.add"](params as never);
     case "connection.list":
       return handlers["connection.list"]();
+    case "connection.mongoCredentials":
+      return handlers["connection.mongoCredentials"](params as never);
     case "connection.s3Credentials":
       return handlers["connection.s3Credentials"](params as never);
     case "connection.listBuckets":
@@ -213,9 +217,11 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
     case "connection.status":
       return handlers["connection.status"](params as never);
     case "query.run":
-      return handlers["query.run"](params as never);
+      return handlers["query.run"](params as never, context?.signal);
     case "query.cancel":
       return handlers["query.cancel"](params as never);
+    case "query.mongoConvert":
+      return handlers["query.mongoConvert"](params as never);
     case "query.explain":
       return handlers["query.explain"](params as never);
     case "query.diagnose":
@@ -252,6 +258,11 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return mcpHandlers["mcp.ui.next"](params as never, context);
     case "mcp.ui.respond":
       return mcpHandlers["mcp.ui.respond"](params as never);
+    case "mcp.ui.execute": return mcpHandlers["mcp.ui.execute"](params as never);
+    case "mcp.ui.release": return mcpHandlers["mcp.ui.release"](params as never);
+    case "mcp.http.start": return mcpHandlers["mcp.http.start"](params as never);
+    case "mcp.http.stop": return mcpHandlers["mcp.http.stop"]();
+    case "mcp.http.status": return mcpHandlers["mcp.http.status"]();
     case "mcp.status":
       return mcpHandlers["mcp.status"]();
     case "mcp.history":
@@ -311,7 +322,7 @@ function sendMcpError(
 }
 
 export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof createServer> {
-  const server = createServer(async (req, res) => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === "OPTIONS") {
       const headers: Record<string, string> = {
         "access-control-allow-methods": "POST, OPTIONS, GET",
@@ -357,8 +368,9 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         return;
       }
 
+      const requestAbort = trackRequestAbort(req, res);
       try {
-        const result = await handleMcpRequest(body);
+        const result = await handleMcpRequest(body, requestAbort.signal);
         send(res, 200, { result }, origin);
       } catch (error) {
         const mcpError = error instanceof McpBridgeError
@@ -371,10 +383,17 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
           origin,
         );
       }
+      requestAbort.cleanup();
       return;
     }
 
-    const requestUrl = new URL(route ?? "/", "http://127.0.0.1");
+    let requestUrl: URL;
+    try {
+      requestUrl = new URL(route ?? "/", "http://127.0.0.1");
+    } catch {
+      send(res, 400, { error: "invalid request target" }, origin);
+      return;
+    }
     if (requestUrl.pathname === "/health") {
       const challenge = requestUrl.searchParams.get("challenge");
       const healthToken = process.env.OMNI_SQL_HEALTH_TOKEN;
@@ -513,6 +532,12 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
     } finally {
       requestAbort.cleanup();
     }
+  };
+  const server = createServer((req, res) => {
+    void handleRequest(req, res).catch(() => {
+      if (res.headersSent) res.destroy();
+      else send(res, 500, { error: INTERNAL_ERROR_MESSAGE });
+    });
   });
 
   server.listen(port, "127.0.0.1");
@@ -520,7 +545,7 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
   installShutdownHandlers();
   server.once("close", () => {
     servers.delete(server);
-    if (servers.size === 0) closeMcpBridge();
+    if (servers.size === 0) { closeMcpBridge(); void closeMcpHttp(); }
     removeShutdownHandlers();
   });
   console.log(`[omni-sql] backend HTTP listening on http://127.0.0.1:${port}/rpc`);

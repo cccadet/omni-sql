@@ -9,7 +9,9 @@ export type ExecutionRiskKind =
   | "drop"
   | "delete-without-where"
   | "update-without-where"
-  | "alter-drop";
+  | "alter-drop"
+  | "mongo-update"
+  | "mongo-delete";
 
 export interface ExecutionRiskFinding {
   readonly kind: ExecutionRiskKind;
@@ -89,6 +91,13 @@ function hasWhereForOperation(tokens: readonly Token[], operationIndex: number):
 
 /** Conservative, dialect-aware preflight for statements that can destroy data or schema. */
 export function analyzeExecutionRisk(sql: string, dialect: DialectId): ExecutionRiskAnalysis {
+  if (dialect === "mongodb") {
+    try {
+      const query = JSON.parse(sql) as { operation?: string; collection?: string };
+      const kind = query.operation?.startsWith("delete") ? "mongo-delete" : query.operation?.startsWith("update") ? "mongo-update" : null;
+      return kind ? { level: "critical", findings: [{ kind, level: "critical", statement: sql, start: 0, objectName: query.collection }] } : { level: "none", findings: [] };
+    } catch { return { level: "none", findings: [] }; }
+  }
   const descriptor = dialectDescriptor(dialect);
   const tokens = codeTokens(sql, dialect);
   const findings: ExecutionRiskFinding[] = [];

@@ -278,7 +278,7 @@ test("introspection helpers preserve schema metadata, function signatures, index
       ],
     },
     { recordset: undefined, rowsAffected: [2, 3] },
-    { rowsAffected: [1] },
+    { rowsAffected: [999, 1], output: { omni_rows: 1 } },
   ];
   const pool = {
     request: () => {
@@ -289,6 +289,7 @@ test("introspection helpers preserve schema metadata, function signatures, index
           this.inputs.push([name, value]);
           return this;
         },
+        output() { return this; },
         async query(sql: string) {
           requests.push({ inputs: this.inputs, sql });
           const response = responses.shift();
@@ -298,6 +299,7 @@ test("introspection helpers preserve schema metadata, function signatures, index
       };
       return request;
     },
+    transaction: () => ({ begin: async () => {}, commit: async () => {}, rollback: async () => {}, request: () => pool.request() }),
   } as unknown as ConnectionPool;
 
   assert.deepEqual(await listSchemaNames(pool), ["app"]);
@@ -371,7 +373,7 @@ test("introspection helpers preserve schema metadata, function signatures, index
   assert.equal(rowsAffectedResult, 1);
   assert.deepEqual(requests.at(-1), {
     inputs: [["s0", "done"], ["w0", 7]],
-    sql: "UPDATE [app].[orders] SET [state] = @s0 WHERE [id] = @w0",
+    sql: "DECLARE @omni_updated TABLE (matched bit); UPDATE [app].[orders] SET [state] = @s0 OUTPUT 1 INTO @omni_updated WHERE [id] = @w0; SET @omni_rows = (SELECT COUNT(*) FROM @omni_updated);",
   });
 });
 
@@ -396,3 +398,18 @@ if (MSSQL_CONN) {
     assert.ok(true);
   });
 }
+
+test("row update commits only a unique match", async () => {
+  for (const count of [0, 1, 2, -1]) {
+    const events: string[] = [];
+    const transaction = {
+      async begin() { events.push("begin"); }, async commit() { events.push("commit"); }, async rollback() { events.push("rollback"); },
+      request: () => ({ input() { return this; }, output() { return this; }, async query() { if (count < 0) throw new Error("query failed"); return { rowsAffected: [1, count], output: { omni_rows: count } }; } }),
+    };
+    const pool = { transaction: () => transaction } as unknown as ConnectionPool;
+    const operation = updateRowViaPool(pool, { schema: "app", table: "items", set: { v: 2 }, where: { id: 1 } });
+    if (count < 0) await assert.rejects(operation, /query failed/);
+    else assert.equal(await operation, count);
+    assert.deepEqual(events, ["begin", count === 1 ? "commit" : "rollback"]);
+  }
+});

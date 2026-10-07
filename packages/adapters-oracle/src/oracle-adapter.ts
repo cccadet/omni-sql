@@ -282,7 +282,7 @@ export class OracleAdapter extends CachedAdapter implements Adapter {
         oracleExplainBinds(sql),
       );
       const r = await conn.execute(
-        `SELECT plan_table_output AS "line" FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', :planId, 'BASIC'))`,
+        `SELECT plan_table_output AS "line" FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', :planId, 'TYPICAL'))`,
         { planId },
         { outFormat: oracledb.OUT_FORMAT_OBJECT },
       );

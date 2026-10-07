@@ -281,12 +281,14 @@ test("MySQL metadata helpers preserve filtered relations, routine parameters, de
     { affectedRows: 1 },
   ];
   const query = async (sql: string, values?: readonly unknown[]) => {
+    if (sql.startsWith("SELECT 1 FROM")) return [[], []] as never;
+    if (sql.startsWith("SELECT e.TRANSACTIONS")) return [[{ transactional: "YES" }], []] as never;
     calls.push({ sql, values });
     const rows = responses.shift();
     assert.ok(rows, "unexpected SQL query");
     return [rows, []] as never;
   };
-  const pool = { query } as unknown as Pool;
+  const pool = { query, getConnection: async () => ({ query, beginTransaction: async () => {}, commit: async () => {}, rollback: async () => {}, release() {} }) } as unknown as Pool;
   const connection = pool as unknown as PoolConnection;
 
   assert.deepEqual(await listSchemaNames(connection), ["app"]);
@@ -366,3 +368,31 @@ if (MYSQL_CONN) {
     assert.ok(true);
   });
 }
+
+test("row update rolls back nonunique matches and errors", async () => {
+  for (const count of [0, 1, 2, -1]) {
+    const events: string[] = [];
+    const connection = {
+      async beginTransaction() { events.push("begin"); },
+      async query(sql: string) { if (sql.startsWith("SELECT 1 FROM")) return [[]]; if (sql.startsWith("SELECT e.TRANSACTIONS")) return [[{ transactional: "YES" }]]; if (count < 0) throw new Error("query failed"); return [{ affectedRows: count }]; },
+      async commit() { events.push("commit"); }, async rollback() { events.push("rollback"); },
+      release() { events.push("release"); },
+    };
+    const pool = { getConnection: async () => connection } as unknown as Pool;
+    const operation = updateRowViaPool(pool, { schema: "app", table: "items", set: { v: 2 }, where: { id: 1 } });
+    if (count < 0) await assert.rejects(operation, /query failed/);
+    else assert.equal(await operation, count);
+    assert.deepEqual(events, ["begin", count === 1 ? "commit" : "rollback", "release"]);
+  }
+});
+
+test("row update refuses a nontransactional table before mutation", async () => {
+  const statements: string[] = [];
+  const connection = { beginTransaction: async () => {}, rollback: async () => {}, release() {}, async query(sql: string) {
+    statements.push(sql);
+    return sql.startsWith("SELECT e.TRANSACTIONS") ? [[{ transactional: "NO" }]] : [[]];
+  } };
+  await assert.rejects(updateRowViaPool({ getConnection: async () => connection } as unknown as Pool,
+    { schema: "app", table: "items", set: { v: 2 }, where: { id: 1 } }), /transactional MySQL table/);
+  assert.equal(statements.some(sql => sql.startsWith("UPDATE")), false);
+});
