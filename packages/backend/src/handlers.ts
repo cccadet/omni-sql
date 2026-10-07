@@ -10,6 +10,8 @@ import { OracleAdapter } from "@omni-sql/adapters-oracle";
 import { MysqlAdapter } from "@omni-sql/adapters-mysql";
 import { MssqlAdapter } from "@omni-sql/adapters-mssql";
 import { JdbcAdapter } from "@omni-sql/adapters-jdbc";
+import { mongoSqlToNative } from "./mongo-sql.ts";
+import { MongoAdapter } from "./mongo-adapter.ts";
 import { OdbcAdapter } from "@omni-sql/adapters-odbc";
 import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
@@ -21,7 +23,7 @@ import {
   type Token,
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
-import { RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
+import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
 import {
   assertEndpointHasNoEmbeddedCredentials,
   assertExecutionRiskAccepted,
@@ -111,6 +113,31 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>();
+
+const activeQueries = new Set<string>();
+
+async function runCancellableQuery(session: Session, sql: string, limit: number, signal?: AbortSignal): Promise<RunQueryResult> {
+  const id = session.config.id;
+  if (activeQueries.has(id)) throw new RpcValidationError("A query is already running on this connection");
+  activeQueries.add(id);
+  let started = false;
+  let cancellation: Promise<void> | undefined;
+  const cancel = (): void => {
+    if (started) cancellation ??= session.adapter.cancelRunning?.().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    signal?.throwIfAborted();
+    await session.adapter.connect();
+    signal?.throwIfAborted();
+    started = true;
+    return await session.adapter.runQuery(sql, limit);
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    await cancellation;
+    activeQueries.delete(id);
+  }
+}
 
 const DEFAULT_QUERY_LIMIT = 1_000;
 const MAX_QUERY_LIMIT = 10_000;
@@ -205,6 +232,7 @@ registerAdapter("mysql", (config, password) => new MysqlAdapter(config, password
 registerAdapter("mariadb", (config, password) => new MysqlAdapter(config, password));
 registerAdapter("sqlserver", (config, password) => new MssqlAdapter(config, password));
 registerAdapter("jdbc-generic", (config, password) => new JdbcAdapter(config, password));
+registerAdapter("mongodb", (config, password) => new MongoAdapter(config, password));
 registerAdapter("odbc", (config, password) => new OdbcAdapter(config, password));
 
 // ─────────────────────────── Adapter construction
@@ -667,6 +695,13 @@ export const handlers: BackendRpcRouter = {
     return { configs };
   },
 
+  async "connection.mongoCredentials"({ connectionId }) {
+    await connectionsRestored;
+    const session = requireSession(connectionId);
+    if (session.config.dialect !== "mongodb") throw new RpcValidationError("MongoDB connection required");
+    return { endpoint: session.config.endpoint, user: session.config.user, password: await readStoredPassword(session.config, "reading MongoDB credentials") };
+  },
+
   async "connection.s3Credentials"({ connectionId }) {
     await connectionsRestored;
     const configs = cache.listConnections();
@@ -797,7 +832,7 @@ export const handlers: BackendRpcRouter = {
       return {
         ok: false,
         latencyMs: Date.now() - startedAt,
-        message: (config.dialect === "postgres" ? safePostgresDatabaseError(e)?.message : undefined) ?? "Connection test failed",
+        message: (e instanceof RpcDatabaseError || e instanceof RpcValidationError ? e.message : config.dialect === "postgres" ? safePostgresDatabaseError(e)?.message : undefined) ?? "Connection test failed",
       };
     }
   },
@@ -843,14 +878,13 @@ export const handlers: BackendRpcRouter = {
     }
   },
 
-  async "query.run"({ connectionId, sql, limit, executionRiskAccepted }: RunQueryParams): Promise<RunQueryResult> {
+  async "query.run"({ connectionId, sql, limit, executionRiskAccepted }: RunQueryParams, signal?: AbortSignal): Promise<RunQueryResult> {
     await connectionsRestored;
     const s = requireSession(connectionId);
     assertExecutionRiskAccepted(sql, s.config.dialect, executionRiskAccepted);
-    await s.adapter.connect();
     let result: RunQueryResult;
     try {
-      result = await s.adapter.runQuery(sql, normalizeQueryLimit(limit));
+      result = await runCancellableQuery(s, sql, normalizeQueryLimit(limit), signal);
     } catch (error) {
       if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
       if (s.config.dialect === "postgres") throw safePostgresDatabaseError(error) ?? error;
@@ -876,16 +910,24 @@ export const handlers: BackendRpcRouter = {
     return { cancelled: true };
   },
 
+  async "query.mongoConvert"({ connectionId, sql }) {
+    const session = requireSession(connectionId);
+    if (session.config.dialect !== "mongodb") throw new RpcValidationError("MongoDB connection required");
+    const database = /^mongodb(?:\+srv)?:\/\/[^/]+\/([^?]*)/i.exec(session.config.endpoint)?.[1];
+    return { query: mongoSqlToNative(sql, database ? decodeURIComponent(database) : undefined) };
+  },
+
   async "query.explain"({ connectionId, sql }: ExplainQueryParams): Promise<ExplainQueryResult> {
     await connectionsRestored;
     const s = requireSession(connectionId);
-    assertSafeExplainSql(sql, s.config.dialect);
+    if (s.config.dialect !== "mongodb") assertSafeExplainSql(sql, s.config.dialect);
     await s.adapter.connect();
     return s.adapter.explain(sql);
   },
 
   async "query.diagnose"({ connectionId, sql }: DiagnoseQueryParams): Promise<DiagnoseQueryResult> {
     const s = requireSession(connectionId);
+    if (s.config.dialect === "mongodb") return { diagnostics: [] };
     const local = diagnoseDialectFunctions(sql, s.config.dialect);
     if (!sql.trim() || !s.adapter.validateQuery) return { diagnostics: local };
     try {
@@ -1172,6 +1214,7 @@ export const handlers: BackendRpcRouter = {
     cursor,
   }: CompletionParams): Promise<CompletionResult> {
     const s = requireSession(connectionId);
+    if (s.config.dialect === "mongodb") return { suggestions: [] };
     // Tier2: resolve colunas de CTEs via sidecar JVM/Calcite antes de rodar
     // o tier1 (lexer puro, síncrono) — best-effort, timeout curto; se o
     // sidecar não responder a tempo, cteRelations fica vazio e o

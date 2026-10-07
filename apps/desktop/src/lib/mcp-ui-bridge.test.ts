@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { backend } from "./backend";
 import type { SqlExecutionError } from "@omni-sql/ts-types";
 import { McpUiBridge, McpUiError, makeListenerId, type McpUiState } from "./mcp-ui-bridge";
 
-function setup(state: McpUiState) {
+function setup(state: McpUiState, approveExecution: (args: unknown) => Promise<"approved" | "rejected" | "stale"> = vi.fn(async () => "approved" as const)) {
   return new McpUiBridge({
     readState: () => state,
     getSchemaSummary: vi.fn(async (connectionId) => ({ connectionId, schemas: [] })),
@@ -13,6 +14,7 @@ function setup(state: McpUiState) {
     })),
     explainSql: vi.fn(async () => ({ textual: "Seq Scan on orders", format: "text" as const })),
     proposeEdit: vi.fn(async () => "approved" as const),
+    approveExecution,
     onStatus: vi.fn(),
   }, "test-listener");
 }
@@ -76,7 +78,8 @@ describe("MCP UI bridge tools", () => {
       getTableIndexes: vi.fn(),
       explainSql: vi.fn(),
       proposeEdit: vi.fn(),
-      onStatus: vi.fn(),
+      approveExecution: vi.fn(async () => "approved" as const),
+    onStatus: vi.fn(),
     }, "test-listener");
     await expect(bridge.handleRequest({ id: "1", tool: "getSchemaSummary", args: {}, expiresAt: Date.now() + 60_000 })).resolves.toEqual({
       connectionId: "conn-1", schemas: [{ name: "public", relations: [] }],
@@ -159,4 +162,55 @@ describe("MCP UI listener IDs", () => {
       vi.unstubAllGlobals();
     }
   });
+});
+
+describe("MCP SQL approval", () => {
+  it("binds approval to the tab and connection and never sends SQL in the approval RPC", async () => {
+    const state: McpUiState = { activeTab: { id: "tab", title: "Query", sql: "SELECT original" }, activeConnection: { id: "connection", label: "Production", dialect: "postgres" }, editor: null };
+    let approve!: (outcome: "approved") => void;
+    const approval = vi.fn(() => new Promise<"approved">((resolve) => { approve = resolve; }));
+    const bridge = setup(state, approval);
+    const rpc = vi.spyOn(backend, "call").mockResolvedValue({ rows: [] });
+    try {
+      const pending = bridge.handleRequest({ id: "request", tool: "executeSql", args: { sql: "DELETE FROM users" }, expiresAt: Date.now() + 60_000 });
+      expect(rpc).not.toHaveBeenCalled();
+      expect(approval).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "connection", connectionLabel: "Production", sql: "DELETE FROM users", limit: 100 }));
+      approve("approved");
+      await pending;
+      expect(rpc).toHaveBeenCalledWith("mcp.ui.execute", { id: "request", listenerId: "test-listener", connectionId: "connection" });
+      rpc.mockClear();
+      const stale = bridge.handleRequest({ id: "stale", tool: "executeSql", args: { sql: "SELECT 1" }, expiresAt: Date.now() + 60_000 });
+      state.activeConnection = { id: "another", label: "Another", dialect: "postgres" };
+      approve("approved");
+      await expect(stale).rejects.toMatchObject({ code: "stale" });
+      expect(rpc).not.toHaveBeenCalled();
+    } finally { rpc.mockRestore(); }
+  });
+
+  it("continues serving reads while execution awaits approval", async () => {
+    const state: McpUiState = { activeTab: { id: "tab", title: "Query", sql: "SELECT 1" }, activeConnection: { id: "connection", label: "DB", dialect: "postgres" }, editor: null };
+    let rejectApproval!: (outcome: "rejected") => void;
+    const bridge = setup(state, () => new Promise<"rejected">((resolve) => { rejectApproval = resolve; }));
+    let polls = 0;
+    const rpc = vi.spyOn(backend, "call").mockImplementation(async (method, _params, signal) => {
+      if (method === "mcp.ui.next") {
+        if (++polls === 1) return { id: "approval", tool: "executeSql", args: { sql: "SELECT 2" }, expiresAt: Date.now() + 60_000 };
+        if (polls === 2) return { id: "read", tool: "getActiveSql", args: {}, expiresAt: Date.now() + 60_000 };
+        return new Promise((resolve) => signal?.addEventListener("abort", () => resolve(null), { once: true }));
+      }
+      return { uiConnected: true, queueSize: 0, inFlight: 1 };
+    });
+    try {
+      bridge.start();
+      await vi.waitFor(() => expect(rpc).toHaveBeenCalledWith("mcp.ui.respond", expect.objectContaining({ id: "read", ok: true, result: { sql: "SELECT 1", dialect: "postgres" } }), expect.any(AbortSignal)));
+      rejectApproval("rejected");
+      await vi.waitFor(() => expect(rpc).toHaveBeenCalledWith("mcp.ui.respond", expect.objectContaining({ id: "approval", ok: false }), expect.any(AbortSignal)));
+    } finally { bridge.stop(); rpc.mockRestore(); }
+  });
+});
+
+it("reports DuckDB for MongoDB SQL tabs and prevents MCP from executing through the native adapter", async () => {
+  const bridge = setup({ activeTab: { id: "tab", title: "Mongo SQL", sql: "SELECT 1", mongoSqlMode: true }, activeConnection: { id: "mongo", label: "MongoDB", dialect: "mongodb" }, editor: null });
+  await expect(bridge.handleRequest({ id: "mode", tool: "getActiveSql", args: {}, expiresAt: Date.now() + 60_000 })).resolves.toEqual({ sql: "SELECT 1", dialect: "duckdb" });
+  await expect(bridge.handleRequest({ id: "execute", tool: "executeSql", args: { sql: '{"collection":"items","operation":"deleteMany","filter":{}}' }, expiresAt: Date.now() + 60_000 })).rejects.toThrow("query editor");
 });

@@ -6,6 +6,9 @@ export interface QueryTab {
   title: string;
   sql: string;
   queryLimit: number;
+  mongoSqlMode?: boolean;
+  mongoNativeText?: string;
+  mongoSqlText?: string;
   connectionId: string | null;
   filePath: string | null;
   savedSql: string | null;
@@ -25,6 +28,9 @@ export function makeTab(partial?: Partial<QueryTab>): QueryTab {
     title: partial?.title ?? "SQL",
     sql: partial?.sql ?? "SELECT 1",
     queryLimit: partial?.queryLimit ?? 1000,
+    mongoSqlMode: partial?.mongoSqlMode ?? false,
+    mongoNativeText: partial?.mongoNativeText,
+    mongoSqlText: partial?.mongoSqlText,
     connectionId: partial?.connectionId ?? null,
     filePath: partial?.filePath ?? null,
     savedSql: partial?.savedSql ?? null,

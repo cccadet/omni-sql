@@ -385,7 +385,7 @@ test("MCP bridge records proposeSqlEdit history with outcomes", async () => {
     await otherWait;
     bridge.respond({ id: "request-3", ok: true, result: { sql: "select 1", dialect: "postgres" } }, "desktop");
     await other;
-    assert.equal(bridge.history().entries.length, 2); // only proposeSqlEdit recorded
+    assert.equal(bridge.history().entries.length, 3); // all tools are recorded
   } finally {
     bridge.close();
   }
@@ -421,4 +421,23 @@ test("MCP bridge history marks timeouts and bounds entry count", async () => {
   } finally {
     capped.close();
   }
+});
+
+test("cancelled execution cannot be approved and all read calls appear in history", async () => {
+  const bridge = new McpBridge();
+  const controller = new AbortController();
+  await bridge.next({ listenerId: "desktop" });
+  const cancelled = bridge.submit("executeSql", { sql: "SELECT 1" }, controller.signal);
+  const rejected = assert.rejects(cancelled, /cancelled/);
+  const request = await bridge.next({ listenerId: "desktop" });
+  controller.abort();
+  await rejected;
+  assert.throws(() => bridge.approveExecution(request!.id, "desktop"), /stale/);
+  const reading = bridge.submit("getActiveSql", {});
+  const read = await bridge.next({ listenerId: "desktop" });
+  bridge.respond({ id: read!.id, ok: true, result: { sql: "SELECT 1", dialect: null } }, "desktop");
+  await reading;
+  assert.equal(bridge.history().entries[0]?.tool, "getActiveSql");
+  assert.equal(bridge.history().entries[0]?.sql, undefined);
+  bridge.close();
 });

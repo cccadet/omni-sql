@@ -1,5 +1,4 @@
 from pathlib import Path
-import sys
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -97,37 +96,7 @@ def make_gif(scenes: list[tuple[Image.Image, str]]) -> None:
     )
 
 
-def make_local_analysis() -> None:
-    scenes = [
-        ("join", "Database + CSV: which region missed its target?", 6000),
-        ("source", "1. Query fictional sales data on PostgreSQL", 4000),
-        ("import", "2. Import the full query result into local DuckDB", 4000),
-        ("targets", "3. Import targets.csv as a local table", 4000),
-        ("join", "4. Join with SQL: South reached 84% of its target", 6000),
-    ]
-    frames = []
-    for name, label, _ in scenes:
-        shot = Image.open(SOURCE / f"local-analysis-{name}.png").convert("RGB")
-        frame = Image.new("RGB", (shot.width, shot.height + 64), "#0c0d0f")
-        frame.paste(shot, (0, 64))
-        ImageDraw.Draw(frame).text((24, 15), label, font=font(26, True), fill="#ffbd2e")
-        frames.append(frame)
-    frames[0].save(SOURCE / "local-analysis-poster.png", optimize=True)
-    frames[0].save(
-        SOURCE / "local-analysis-demo.gif",
-        save_all=True,
-        append_images=frames[1:],
-        duration=[duration for _, _, duration in scenes],
-        loop=0,
-        optimize=True,
-        disposal=2,
-    )
-
-
 def main() -> None:
-    if "--local-analysis" in sys.argv:
-        make_local_analysis()
-        return
     overview = Image.open(SOURCE / "omni-sql-overview.png").convert("RGB")
     autocomplete = Image.open(SOURCE / "omni-sql-autocomplete.png").convert("RGB")
     results = Image.open(SOURCE / "omni-sql-query-results.png").convert("RGB")

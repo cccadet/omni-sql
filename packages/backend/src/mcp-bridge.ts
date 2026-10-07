@@ -53,6 +53,7 @@ export const MCP_TOOL_NAMES: readonly McpToolName[] = [
   "explainSql",
   "getLatestSqlExecutionError",
   "proposeSqlEdit",
+  "executeSql",
 ];
 
 const SENSITIVE_KEY = /^(?:password|passwordslot|endpoint|user|options|secret|credential|token|dsn|connectionstring)$/i;
@@ -83,6 +84,9 @@ interface PendingRequest {
   readonly timer: ReturnType<typeof setTimeout>;
   state: "queued" | "delivered";
   deliveredTo?: string;
+  readonly controller: AbortController;
+  readonly cleanup: () => void;
+  executing?: boolean;
 }
 
 interface WaitingListener {
@@ -224,7 +228,7 @@ function validateActiveConnectionContextResult(value: unknown): McpToolResultByN
 }
 
 function validateSchemaSummaryResult(value: unknown): McpToolResultByName["getSchemaSummary"] {
-  const result = resultObject(value, ["connectionId", "schemas"], ["connectionId", "schemas"], "getSchemaSummary result");
+  const result = resultObject(value, ["connectionId", "schemas", "nextOffset"], ["connectionId", "schemas"], "getSchemaSummary result");
   const schemas = resultArray(result.schemas, "getSchemaSummary.schemas").map((schemaValue, schemaIndex) => {
     const schema = resultObject(
       schemaValue,
@@ -273,6 +277,7 @@ function validateSchemaSummaryResult(value: unknown): McpToolResultByName["getSc
   return {
     connectionId: resultString(result.connectionId, "getSchemaSummary.connectionId", MCP_MAX_CONNECTION_ID_BYTES),
     schemas,
+    ...(result.nextOffset === undefined ? {} : { nextOffset: nonnegativeNumber(result.nextOffset, "nextOffset") }),
   };
 }
 
@@ -363,12 +368,35 @@ function validateExecutionErrorResult(value: unknown): McpToolResultByName["getL
   };
 }
 
+function nonnegativeNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new McpBridgeError("invalid", `${label} must be nonnegative`);
+  return value;
+}
+
+function validateQueryResult(value: unknown): McpToolResultByName["executeSql"] {
+  if (byteLength(value) > MCP_MAX_BRIDGE_RESULT_BYTES) throw new McpBridgeError("invalid", "SQL result is too large");
+  const result = resultObject(value, ["connectionId", "columns", "rows", "rowsAffected", "rowsMoreAvailable", "elapsedMs", "truncated"], ["connectionId", "columns", "rows", "rowsMoreAvailable", "elapsedMs", "truncated"], "executeSql result");
+  const columns = resultArray(result.columns, "columns").map((raw) => {
+    const column = resultObject(raw, ["name", "dataType", "nullable"], ["name", "dataType", "nullable"], "column");
+    if (typeof column.nullable !== "boolean") throw new McpBridgeError("invalid", "invalid column nullable flag");
+    return { name: resultString(column.name, "column name"), dataType: resultString(column.dataType, "column type"), nullable: column.nullable };
+  });
+  const rows = resultArray(result.rows, "rows").map((raw) => {
+    const row = resultArray(raw, "row");
+    if (row.length !== columns.length || row.some((cell) => cell !== null && typeof cell !== "string" && typeof cell !== "boolean" && !(typeof cell === "number" && Number.isFinite(cell)))) throw new McpBridgeError("invalid", "invalid SQL row");
+    return [...row];
+  });
+  if (typeof result.rowsMoreAvailable !== "boolean" || typeof result.truncated !== "boolean" || rows.length > 1_000) throw new McpBridgeError("invalid", "invalid SQL result flags or row count");
+  return { connectionId: resultString(result.connectionId, "connectionId", MCP_MAX_CONNECTION_ID_BYTES), columns, rows, elapsedMs: nonnegativeNumber(result.elapsedMs, "elapsedMs"), rowsMoreAvailable: result.rowsMoreAvailable, truncated: result.truncated, ...(result.rowsAffected === undefined ? {} : { rowsAffected: nonnegativeNumber(result.rowsAffected, "rowsAffected") }) };
+}
+
 export function validateMcpToolResult<K extends McpToolName>(
   tool: K,
   value: unknown,
 ): McpToolResultByName[K] {
-  validateSafePayload(value, MCP_MAX_BRIDGE_RESULT_BYTES, "MCP result");
+  if (tool !== "executeSql") validateSafePayload(value, MCP_MAX_BRIDGE_RESULT_BYTES, "MCP result");
   switch (tool) {
+    case "executeSql": return validateQueryResult(value) as McpToolResultByName[K];
     case "getActiveSql":
       return validateActiveSqlResult(value) as McpToolResultByName[K];
     case "getActiveConnectionContext":
@@ -468,9 +496,10 @@ export class McpBridge {
   }
 
   submit<K extends McpToolName>(request: McpToolRequest<K>): Promise<unknown>;
-  submit<K extends McpToolName>(tool: K, args: McpToolArgsByName[K]): Promise<unknown>;
-  submit(toolOrRequest: McpToolName | McpToolRequest, args?: McpToolArgs): Promise<unknown> {
+  submit<K extends McpToolName>(tool: K, args: McpToolArgsByName[K], signal?: AbortSignal): Promise<unknown>;
+  submit(toolOrRequest: McpToolName | McpToolRequest, args?: McpToolArgs, signal?: AbortSignal): Promise<unknown> {
     this.expireListenerIfNeeded();
+    if (signal?.aborted) throw new McpBridgeError("rejected", "MCP request cancelled");
     const requestArgs = typeof toolOrRequest === "string" ? args : toolOrRequest.args;
     const tool = typeof toolOrRequest === "string" ? toolOrRequest : toolOrRequest.tool;
     if (!isMcpToolName(tool)) throw new McpBridgeError("invalid", "unsupported MCP tool");
@@ -495,19 +524,37 @@ export class McpBridge {
       const current = this.pending.get(request.id);
       if (!current) return;
       this.pending.delete(request.id);
+      current.cleanup();
+      current.controller.abort();
       const queueIndex = this.queue.indexOf(current);
       if (queueIndex >= 0) this.queue.splice(queueIndex, 1);
       rejectPending(new McpBridgeError("timeout", "desktop UI did not respond before timeout"));
       this.settleHistory(request.id, { status: "error", code: "timeout" });
     }, this.timeoutMs);
+    const controller = new AbortController();
+    const onAbort = (): void => {
+      const current = this.pending.get(request.id);
+      if (!current) return;
+      this.pending.delete(request.id);
+      clearTimeout(current.timer);
+      current.cleanup();
+      controller.abort();
+      const index = this.queue.indexOf(current);
+      if (index >= 0) this.queue.splice(index, 1);
+      current.reject(new McpBridgeError("rejected", "MCP request cancelled"));
+      this.settleHistory(request.id, { status: "error", code: "rejected" });
+    };
     const pending: PendingRequest = {
       request,
       resolve: resolvePending,
       reject: rejectPending,
       timer,
       state: "queued",
+      controller,
+      cleanup: () => signal?.removeEventListener("abort", onAbort),
     };
     this.pending.set(request.id, pending);
+    signal?.addEventListener("abort", onAbort, { once: true });
     this.recordHistory(request);
 
     if (this.waitingListener?.listenerId === this.listenerId) {
@@ -533,6 +580,7 @@ export class McpBridge {
     }
     this.pending.delete(response.id);
     clearTimeout(pending.timer);
+    pending.cleanup();
 
     if (response.ok) {
       try {
@@ -563,6 +611,21 @@ export class McpBridge {
     return { accepted: true };
   }
 
+  approveExecution(id: string, listenerId: string): { args: McpToolArgsByName["executeSql"]; signal: AbortSignal } {
+    const pending = this.pending.get(id);
+    if (!pending || pending.request.tool !== "executeSql" || pending.state !== "delivered" || pending.deliveredTo !== listenerId || pending.executing || pending.request.expiresAt <= Date.now() + 1_000) {
+      throw new McpBridgeError("stale", "SQL execution request is stale or already approved");
+    }
+    pending.executing = true;
+    return { args: pending.request.args, signal: pending.controller.signal };
+  }
+
+  release(listenerId: string): { released: boolean } {
+    if (this.listenerId !== listenerId) return { released: false };
+    this.close();
+    return { released: true };
+  }
+
   status(): McpStatusResult {
     this.expireListenerIfNeeded();
     return {
@@ -584,6 +647,8 @@ export class McpBridge {
     this.releaseWaiting(null);
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
+      pending.cleanup();
+      pending.controller.abort();
       pending.reject(new McpBridgeError("unavailable", "desktop UI listener unavailable"));
       this.settleHistory(pending.request.id, { status: "error", code: "unavailable" });
     }
@@ -594,16 +659,14 @@ export class McpBridge {
   }
 
   private recordHistory(request: McpBridgeRequest): void {
-    if (request.tool !== "proposeSqlEdit") return;
     const args = request.args as { sql?: unknown; rationale?: unknown } | undefined;
-    if (typeof args?.sql !== "string" || typeof args.rationale !== "string") return;
     this.historyEntries.push({
       id: request.id,
       tool: request.tool,
       receivedAt: Date.now(),
       status: "pending",
-      sql: args.sql,
-      rationale: args.rationale,
+      ...(typeof args?.sql === "string" ? { sql: args.sql } : {}),
+      ...(typeof args?.rationale === "string" ? { rationale: args.rationale } : {}),
     });
     if (this.historyEntries.length > MCP_MAX_HISTORY_ENTRIES) this.historyEntries.shift();
   }
@@ -663,6 +726,8 @@ export class McpBridge {
     for (const [id, pending] of this.pending) {
       if (pending.state === "delivered") continue;
       clearTimeout(pending.timer);
+      pending.cleanup();
+      pending.controller.abort();
       pending.reject(new McpBridgeError("unavailable", "desktop UI listener unavailable"));
       this.settleHistory(id, { status: "error", code: "unavailable" });
       this.pending.delete(id);

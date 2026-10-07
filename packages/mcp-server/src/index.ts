@@ -1,11 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { timingSafeEqual, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
-import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { MCP_DEFAULT_QUERY_LIMIT, MCP_MAX_QUERY_LIMIT } from "@omni-sql/ts-types";
 import {
   BackendClientError,
   BackendMcpClient,
@@ -30,6 +30,8 @@ export interface StreamableHttpServerOptions {
   authToken?: string;
   maxSessions?: number;
   sessionIdleTimeoutMs?: number;
+  allowedOrigins?: readonly string[];
+  allowedHosts?: readonly string[];
 }
 
 export const DEFAULT_MCP_HTTP_HOST = "127.0.0.1";
@@ -73,9 +75,30 @@ const explainSqlInputSchema = z.object({
   sql: boundedText(MAX_SQL_BYTES, "sql"),
 }).strict();
 
+export const executeSqlInputSchema = z.object({
+  sql: boundedText(MAX_SQL_BYTES, "sql"),
+  limit: z.number().int().min(1).max(MCP_MAX_QUERY_LIMIT).optional(),
+}).strict();
+const schemaSummaryInputSchema = z.object({
+  schema: boundedText(MAX_SQL_BYTES, "schema").optional(),
+  table: boundedText(MAX_SQL_BYTES, "table").optional(),
+  offset: z.number().int().min(0).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+}).strict();
+const executeSqlOutputSchema = z.object({
+  connectionId: z.string(),
+  columns: z.array(z.object({ name: z.string(), dataType: z.string(), nullable: z.boolean() })),
+  rows: z.array(z.array(z.unknown())),
+  rowsAffected: z.number().optional(),
+  rowsMoreAvailable: z.boolean(),
+  elapsedMs: z.number(),
+  truncated: z.boolean(),
+}).strict();
+
 type ToolResult = {
   content: [{ type: "text"; text: string }];
   isError?: boolean;
+  structuredContent?: Record<string, unknown>;
 };
 
 function resultText(value: unknown): string {
@@ -94,7 +117,7 @@ function errorText(error: unknown): string {
 }
 
 function success(value: unknown): ToolResult {
-  return { content: [{ type: "text", text: resultText(value) }] };
+  return { content: [{ type: "text", text: resultText(value) }], ...(value !== null && typeof value === "object" && !Array.isArray(value) ? { structuredContent: value as Record<string, unknown> } : {}) };
 }
 
 function failure(error: unknown): ToolResult {
@@ -117,10 +140,11 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     {
       description: "Read SQL from active Omni SQL tab.",
       inputSchema: emptyInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    async (input) => invoke(() => {
+    async (input, extra) => invoke(() => {
       emptyInputSchema.parse(input);
-      return client.call("getActiveSql", {});
+      return client.call("getActiveSql", {}, extra.signal);
     }),
   );
 
@@ -129,22 +153,23 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     {
       description: "Read safe context for active Omni SQL connection.",
       inputSchema: emptyInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    async (input) => invoke(() => {
+    async (input, extra) => invoke(() => {
       emptyInputSchema.parse(input);
-      return client.call("getActiveConnectionContext", {});
+      return client.call("getActiveConnectionContext", {}, extra.signal);
     }),
   );
 
   server.registerTool(
     "getSchemaSummary",
     {
-      description: "Read permitted schema summary for active Omni SQL connection.",
-      inputSchema: emptyInputSchema,
+      description: "Read schema summary for the active connection. Use schema/table filters and offset/limit to page large databases.",
+      inputSchema: schemaSummaryInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    async (input) => invoke(() => {
-      emptyInputSchema.parse(input);
-      return client.call("getSchemaSummary", {});
+    async (input, extra) => invoke(() => {
+      return client.call("getSchemaSummary", schemaSummaryInputSchema.parse(input), extra.signal);
     }),
   );
 
@@ -153,10 +178,11 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     {
       description: "Read indexes for a table in the active Omni SQL connection.",
       inputSchema: tableIndexesInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    async (input) => invoke(() => {
+    async (input, extra) => invoke(() => {
       const parsed = tableIndexesInputSchema.parse(input);
-      return client.call("getTableIndexes", parsed);
+      return client.call("getTableIndexes", parsed, extra.signal);
     }),
   );
 
@@ -165,10 +191,11 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     {
       description: "Generate a non-executing query plan using the active Omni SQL connection.",
       inputSchema: explainSqlInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    async (input) => invoke(() => {
+    async (input, extra) => invoke(() => {
       const parsed = explainSqlInputSchema.parse(input);
-      return client.call("explainSql", parsed);
+      return client.call("explainSql", parsed, extra.signal);
     }),
   );
 
@@ -177,10 +204,11 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     {
       description: "Read latest failed SQL execution error from active Omni SQL tab.",
       inputSchema: getLatestSqlExecutionErrorInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    async (input) => invoke(() => {
+    async (input, extra) => invoke(() => {
       getLatestSqlExecutionErrorInputSchema.parse(input);
-      return client.call("getLatestSqlExecutionError", {});
+      return client.call("getLatestSqlExecutionError", {}, extra.signal);
     }),
   );
 
@@ -190,13 +218,20 @@ export function createMcpServer(client: BackendMcpClient): McpServer {
     {
       description: "Propose SQL edit for explicit UI approval; never applies it automatically.",
       inputSchema: proposeSqlEditInputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async (input) => invoke(() => {
+    async (input, extra) => invoke(() => {
       const parsed = proposeSqlEditInputSchema.parse(input);
-      return client.call("proposeSqlEdit", parsed);
+      return client.call("proposeSqlEdit", parsed, extra.signal);
     }),
   );
 
+  server.registerTool("executeSql", {
+    description: `Execute SQL on the active connection after explicit approval in the desktop. Defaults to ${MCP_DEFAULT_QUERY_LIMIT} rows, at most ${MCP_MAX_QUERY_LIMIT}. Results are also byte-limited. May modify data or schema.`,
+    inputSchema: executeSqlInputSchema,
+    outputSchema: executeSqlOutputSchema,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  }, async (input, extra) => invoke(() => client.call("executeSql", executeSqlInputSchema.parse(input), extra.signal)));
   return server;
 }
 
@@ -254,7 +289,9 @@ function headerValue(value: string | string[] | undefined): string | undefined {
 
 function hasHttpAuthorization(request: IncomingMessage, authToken: string | undefined): boolean {
   if (!authToken) return false;
-  return headerValue(request.headers.authorization) === `Bearer ${authToken}`;
+  const supplied = Buffer.from(headerValue(request.headers.authorization) ?? "");
+  const expected = Buffer.from(`Bearer ${authToken}`);
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
 function isValidHostHeader(value: string): boolean {
@@ -440,6 +477,13 @@ async function handleStreamableHttpRequest(
   try {
     parseIngressUrl(request);
     validateIngressHeaders(request);
+    if (options.allowedHosts && !options.allowedHosts.map((host) => host.endsWith(":0") ? `${host.slice(0, -1)}${request.socket.localPort}` : host).includes(headerValue(request.headers.host) ?? "")) {
+      throw new HttpRequestError(403, "host not allowed");
+    }
+    const origin = headerValue(request.headers.origin);
+    if (origin && options.allowedOrigins && !options.allowedOrigins.includes(origin)) {
+      throw new HttpRequestError(403, "origin not allowed");
+    }
   } catch (error) {
     request.resume();
     if (error instanceof HttpRequestError) {
@@ -551,6 +595,9 @@ async function handleStreamableHttpRequest(
   }
 }
 
+const serverSessionCounts = new WeakMap<HttpServer, () => number>();
+export function getHttpSessionCount(server: HttpServer): number { return serverSessionCounts.get(server)?.() ?? 0; }
+
 const serverSessionClosers = new WeakMap<HttpServer, () => Promise<void>>();
 const serverClosePromises = new WeakMap<HttpServer, Promise<void>>();
 
@@ -589,6 +636,7 @@ export function createStreamableHttpServer(
   const closeSessions = async (): Promise<void> => {
     await Promise.all([...state.sessions.values()].map((session) => disposeSession(state, session)));
   };
+  serverSessionCounts.set(server, () => state.sessions.size);
   serverSessionClosers.set(server, closeSessions);
   server.once("close", () => {
     void closeSessions();
@@ -746,7 +794,7 @@ export function parseMcpCliOptions(argv: string[], env: NodeJS.ProcessEnv): McpC
   };
 }
 
-function diagnostic(error: unknown): string {
+export function diagnostic(error: unknown): string {
   const message = error instanceof Error ? error.message : "startup failed";
   return [...message]
     .map((character) => {
@@ -783,11 +831,4 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
   if (address && typeof address !== "string") {
     process.stderr.write(`[omni-sql-mcp] Streamable HTTP listening at http://${address.address}:${address.port}${MCP_HTTP_PATH}\n`);
   }
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error: unknown) => {
-    process.stderr.write(`[omni-sql-mcp] ${diagnostic(error)}\n`);
-    process.exitCode = 1;
-  });
 }

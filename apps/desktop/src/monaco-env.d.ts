@@ -1,7 +1,7 @@
 declare global {
   interface Window {
     MonacoEnvironment?: {
-      getWorker: () => Worker;
+      getWorker: (moduleId: string, label: string) => Worker;
     };
   }
 }

@@ -282,7 +282,7 @@ export async function introspectSchemas(
   const colsByTable = new Map<string, ColumnRow[]>();
   for (const c of cols) {
     if (allow && !allow.has(c.table_schema)) continue;
-    const key = `${c.table_schema}.${c.table_name}`;
+    const key = JSON.stringify([c.table_schema, c.table_name]);
     if (!colsByTable.has(key)) colsByTable.set(key, []);
     colsByTable.get(key)!.push(c);
   }
@@ -290,7 +290,7 @@ export async function introspectSchemas(
   let i = 0;
   for (const [schemaName, schemaRels] of bySchema) {
     const relations: Relation[] = schemaRels.map((r) => {
-      const rcols = colsByTable.get(`${schemaName}.${r.table_name}`) ?? [];
+      const rcols = colsByTable.get(JSON.stringify([schemaName, r.table_name])) ?? [];
       const columns: Column[] = rcols.map((c) => ({
         name: c.column_name,
         ...(c.description?.trim() ? { description: c.description.trim() } : {}),
@@ -393,8 +393,8 @@ interface SqlToken {
 /**
  * Adds a server-side cap only where appending PostgreSQL `LIMIT` is safe.
  *
- * This deliberately conservative lexer ignores strings, quoted identifiers,
- * comments, and dollar-quoted bodies. It is not a SQL parser: unsupported or
+ * This deliberately conservative lexer treats quoted values as opaque tokens
+ * and ignores comments. It is not a SQL parser: unsupported or
  * ambiguous statements stay unchanged rather than risking DML semantics.
  */
 export function applyServerRowCap(sql: string, limit: number): string {
@@ -465,6 +465,7 @@ function tokenizeSql(sql: string): SqlToken[] | null {
       continue;
     }
     if (char === "'" || char === '"') {
+      const start = i;
       const quote = char;
       i += 1;
       let closed = false;
@@ -484,6 +485,7 @@ function tokenizeSql(sql: string): SqlToken[] | null {
         }
       }
       if (!closed) return null;
+      tokens.push({ kind: "symbol", value: "", start, end: i, depth });
       continue;
     }
     if (char === "$") {
@@ -492,6 +494,7 @@ function tokenizeSql(sql: string): SqlToken[] | null {
         const bodyStart = i + delimiter.length;
         const bodyEnd = sql.indexOf(delimiter, bodyStart);
         if (bodyEnd < 0) return null;
+        tokens.push({ kind: "symbol", value: "", start: i, end: bodyEnd + delimiter.length, depth });
         i = bodyEnd + delimiter.length;
         continue;
       }
@@ -670,11 +673,18 @@ export async function updateRowViaPool(pool: Pool, spec: RowUpdateSpec): Promise
     : quoteIdentifier(postgresDescriptor, spec.table);
 
   const client = await pool.connect();
+  let discard = false;
   try {
+    await client.query("BEGIN");
     const res = await client.query(`UPDATE ${tableRef} SET ${setClause} WHERE ${whereClause}`, values);
-    return res.rowCount ?? 0;
+    const count = res.rowCount ?? 0;
+    await client.query(count === 1 ? "COMMIT" : "ROLLBACK");
+    return count;
+  } catch (error) {
+    try { await client.query("ROLLBACK"); } catch { discard = true; }
+    throw error;
   } finally {
-    client.release();
+    client.release(discard);
   }
 }
 

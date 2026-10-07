@@ -303,7 +303,9 @@ test("EXPLAIN releases the client on success and invalid SQL and produces valida
   let released = 0;
   const plan = [{ "QUERY PLAN": [{ Plan: { "Node Type": "Seq Scan" } }] }];
   const client = {
-    async query(sql: string) {
+    async query(query: string | { text: string }) {
+      if (query === "BEGIN READ ONLY" || query === "ROLLBACK") return { rows: [] };
+      const sql = typeof query === "string" ? query : query.text;
       assert.match(sql, /^EXPLAIN \(FORMAT JSON\) /);
       if (sql.includes("missing_table")) throw Object.assign(new Error('relation "missing_table" does not exist'), { code: "42P01", position: "15" });
       return { rows: plan };
@@ -385,6 +387,7 @@ test("PostgreSQL metadata helpers preserve filtered relations, overloads, defini
     { rowCount: 1 },
   ];
   const query = async (sql: string, values?: readonly unknown[]) => {
+    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
     calls.push({ sql, values });
     const response = responses.shift();
     assert.ok(response, "unexpected SQL query");
@@ -482,3 +485,32 @@ if (PG_CONN) {
     assert.ok(true);
   });
 }
+
+test("row cap follows trailing literals and quoted identifiers, preserving comments", () => {
+  for (const sql of ["SELECT 'LIMIT'", "SELECT * FROM users WHERE name = 'O''Brien'", 'SELECT * FROM "users"', "SELECT $body$LIMIT$body$"]) {
+    assert.equal(applyServerRowCap(sql, 1), `${sql} LIMIT 2`);
+  }
+  assert.equal(applyServerRowCap("SELECT 'active'; -- comment", 1), "SELECT 'active' LIMIT 2; -- comment");
+});
+
+ test("explain uses one-statement read-only planning and discards failed rollback", async () => {
+  const adapter = new PostgresAdapter(cfg());
+  const calls: unknown[] = [];
+  let rollbackFails = false;
+  let released: unknown;
+  const client = {
+    async query(query: unknown) {
+      calls.push(query);
+      if (query === "ROLLBACK" && rollbackFails) throw new Error("lost connection");
+      return { rows: [{ Plan: { Node: "Result" } }] };
+    },
+    release(error: unknown) { released = error; },
+  };
+  (adapter as unknown as { pool: Pool }).pool = { connect: async () => client } as unknown as Pool;
+  await adapter.explain("SELECT 1");
+  assert.deepEqual(calls, ["BEGIN READ ONLY", { text: "EXPLAIN (FORMAT JSON) SELECT 1", queryMode: "extended" }, "ROLLBACK"]);
+  assert.equal(released, false);
+  rollbackFails = true;
+  await adapter.explain("SELECT 1");
+  assert.equal(released, true);
+});

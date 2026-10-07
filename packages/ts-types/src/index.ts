@@ -15,6 +15,7 @@ export type DialectId =
   | "oracle"
   | "jdbc-generic"
   | "odbc"
+  | "mongodb"
   | "duckdb"
   | "s3";
 
@@ -249,7 +250,8 @@ export type McpToolName =
   | "getTableIndexes"
   | "getLatestSqlExecutionError"
   | "explainSql"
-  | "proposeSqlEdit";
+  | "proposeSqlEdit"
+  | "executeSql";
 
 export const MCP_MAX_HTTP_BODY_BYTES = 64 * 1024;
 export const MCP_MAX_ARGUMENT_BYTES = 48 * 1024;
@@ -286,9 +288,10 @@ export const MCP_LIMITS = {
 } as const;
 
 export interface McpToolArgsByName {
+  executeSql: { readonly sql: string; readonly limit?: number };
   getActiveSql: Record<string, never>;
   getActiveConnectionContext: Record<string, never>;
-  getSchemaSummary: Record<string, never>;
+  getSchemaSummary: { readonly schema?: string; readonly table?: string; readonly offset?: number; readonly limit?: number };
   getTableIndexes: {
     readonly schema: string;
     readonly table: string;
@@ -330,6 +333,7 @@ export interface McpSchemaSummarySchema {
 }
 
 export interface McpToolResultByName {
+  executeSql: QueryResult & { readonly connectionId: string; readonly truncated: boolean };
   getActiveSql: {
     readonly sql: string;
     /** Dialect of the active tab's connection; null when it has no connection. */
@@ -343,6 +347,7 @@ export interface McpToolResultByName {
   getSchemaSummary: {
     readonly connectionId: string;
     readonly schemas: readonly McpSchemaSummarySchema[];
+    readonly nextOffset?: number;
   };
   getTableIndexes: {
     readonly connectionId: string;
@@ -436,6 +441,8 @@ export interface McpStatusResult {
 }
 
 export const MCP_MAX_HISTORY_ENTRIES = 50;
+export const MCP_DEFAULT_QUERY_LIMIT = 100;
+export const MCP_MAX_QUERY_LIMIT = 1_000;
 
 export type McpHistoryStatus = "pending" | "completed" | "error";
 
@@ -447,8 +454,25 @@ export interface McpHistoryEntry {
   readonly completedAt?: number;
   readonly errorCode?: McpErrorCode;
   readonly errorMessage?: string;
-  readonly sql: string;
-  readonly rationale: string;
+  readonly sql?: string;
+  readonly rationale?: string;
+}
+
+export interface McpHttpStatus {
+  readonly endpoint: string | null;
+  readonly sessions: number;
+}
+
+export interface McpHttpStartParams {
+  readonly token: string;
+  readonly port?: number;
+  readonly allowedOrigins?: readonly string[];
+}
+
+export interface McpExecuteApproval {
+  readonly id: string;
+  readonly listenerId: string;
+  readonly connectionId: string;
 }
 
 export interface McpHistoryResult {

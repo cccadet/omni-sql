@@ -30,6 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JsonRpcResponse } from "@omni-sql/backend/protocol";
+import type { ExplainResult } from "@omni-sql/ts-types";
 
 const RUN_INTEGRATION = process.env.OMNI_SQL_RUN_INTEGRATION === "1";
 
@@ -109,7 +110,7 @@ const TARGETS: Record<string, Target> = {
   pg: {
     label: "PostgreSQL",
     dialect: "postgres",
-    endpoint: "127.0.0.1:5432/omni_test",
+    endpoint: `127.0.0.1:${process.env.OMNI_SQL_TEST_PG_PORT ?? "5432"}/omni_test`,
     user: "omni",
     password: "omni",
     schema: "public",
@@ -123,9 +124,9 @@ const TARGETS: Record<string, Target> = {
     schema: "omni_test",
   },
   mariadb: {
-    label: "MariaDB compatibility",
+    label: "MariaDB",
     dialect: "mariadb",
-    endpoint: "127.0.0.1:3306/omni_test",
+    endpoint: "127.0.0.1:3307/omni_test",
     user: "omni",
     password: "omni",
     schema: "omni_test",
@@ -307,6 +308,35 @@ describe("Integration — pipeline completo via JSON-RPC", () => {
         const idCol = customers!.columns.find((c) => c.name.toLowerCase() === "id");
         assert.ok(idCol, "id column missing");
         assert.equal(idCol!.isPrimaryKey, true, "id should be PK");
+      });
+
+      itJdbcSkip("query.explain: exposes available optimizer estimates", async () => {
+        const res = await rpc("query.explain", {
+          connectionId: connId,
+          sql: "SELECT * FROM orders WHERE customer_id = 1",
+        });
+        const plan = res.result as ExplainResult;
+        assert.ok(plan.textual.length > 0);
+        assert.ok(plan.raw !== undefined);
+        if (target.dialect === "oracle") {
+          assert.equal(plan.format, "text");
+          for (const column of ["Rows", "Bytes", "Cost (%CPU)", "Time"]) {
+            assert.ok(plan.textual.includes(column), `missing Oracle estimate: ${column}`);
+          }
+        } else if (target.dialect === "postgres") {
+          assert.equal(plan.format, "json");
+          const root = JSON.parse(plan.textual)[0]["QUERY PLAN"][0].Plan;
+          assert.equal(typeof root["Total Cost"], "number");
+          assert.equal(typeof root["Plan Rows"], "number");
+        } else if (target.dialect === "sqlserver") {
+          assert.equal(plan.format, "xml");
+          assert.match(plan.textual, /EstimatedTotalSubtreeCost="[^"]+"/);
+          assert.match(plan.textual, /EstimateRows="[^"]+"/);
+        } else {
+          assert.equal(plan.format, "json");
+          assert.match(plan.textual, /"rows(?:_examined_per_scan)?"\s*:\s*\d+/);
+          if (target.dialect === "mysql") assert.match(plan.textual, /"cost_info"\s*:/);
+        }
       });
 
       it("query.run: SELECT literal", async () => {

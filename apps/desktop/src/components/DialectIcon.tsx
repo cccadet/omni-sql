@@ -13,6 +13,8 @@ export function DialectIcon({ dialect, size = 14, className }: DialectIconProps)
   const oraGrad = `oraGrad-${uid}`;
 
   switch (dialect) {
+    case "mongodb":
+      return <svg className={className} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true"><path fill="#47A248" d="M8 0C6 3 3 5 3 8c0 3 2 5 5 6 3-1 5-3 5-6 0-3-3-5-5-8Z" /><path stroke="#235A27" d="M8 4v12" /></svg>;
     case "duckdb":
       return <DuckDbIcon size={size} />;
     case "postgres":

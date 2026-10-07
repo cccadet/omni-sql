@@ -121,10 +121,11 @@ test("StatusBar: hides unavailable update", () => {
 
 test("StatusBar: produces the VS Code GitHub Copilot MCP configuration from the safe launcher", async () => {
   const launcher = { command: "/usr/bin/node", args: ["/opt/mcp/index.js", "/run/mcp.json"] };
+  vi.mocked(backend.call).mockResolvedValue({ endpoint: null, sessions: 0 });
   vi.mocked(invoke).mockResolvedValue(launcher);
   renderWithLanguage(<StatusBar mcpState="connected" mcpStatus={{ uiConnected: true, queueSize: 1, inFlight: 0, maxQueueSize: 8, timeoutMs: 30_000 }} />);
 
-  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP connected/ }));
+  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP active/ }));
   expect(await screen.findByText("GitHub Copilot (VS Code)")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Copy GitHub Copilot configuration" })).toBeTruthy();
   assert.deepEqual(JSON.parse(createCopilotVsCodeMcpConfig(launcher)), {
@@ -139,6 +140,7 @@ test("StatusBar: produces the VS Code GitHub Copilot MCP configuration from the 
 });
 
 test("StatusBar: clears launcher config when refresh fails", async () => {
+  vi.mocked(backend.call).mockResolvedValue({ endpoint: null, sessions: 0 });
   vi.mocked(invoke).mockRejectedValue(new Error("MCP runtime unavailable"));
   renderWithLanguage(<StatusBar mcpState="listening" />);
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
@@ -147,12 +149,14 @@ test("StatusBar: clears launcher config when refresh fails", async () => {
 });
 
 test("StatusBar: shows HTTP endpoint without exposing descriptor data", async () => {
-  vi.mocked(invoke).mockResolvedValue({ command: "node", args: [], endpoint: "http://127.0.0.1:41920/mcp", token: "secret-token" });
+  vi.mocked(invoke).mockResolvedValue({ command: "node", args: [] });
+  vi.mocked(backend.call).mockResolvedValue({ endpoint: "http://127.0.0.1:41922/mcp", sessions: 1 });
   renderWithLanguage(<StatusBar mcpState="listening" />);
 
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
+  fireEvent.click(await screen.findByRole("tab", { name: "HTTP" }));
   expect(await screen.findByText("HTTP endpoint")).toBeTruthy();
-  expect(screen.getByText("http://127.0.0.1:41920/mcp")).toBeTruthy();
+  expect(screen.getByText("http://127.0.0.1:41922/mcp")).toBeTruthy();
   expect(screen.queryByText("secret-token")).toBeNull();
   assert.equal(screen.getAllByRole("button", { name: "Copy HTTP endpoint" }).length, 1);
 });
@@ -172,7 +176,7 @@ test("StatusBar: separates MCP configuration from activity and expands SQL on de
   });
   renderWithLanguage(<StatusBar mcpState="connected" mcpStatus={{ uiConnected: true, queueSize: 1, inFlight: 0, maxQueueSize: 8, timeoutMs: 30_000 }} />);
 
-  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP connected/ }));
+  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP active/ }));
   // Default tab: GitHub Copilot JSON, formatted and copyable.
   expect(await screen.findByRole("button", { name: "Copy GitHub Copilot configuration" })).toBeTruthy();
   expect(screen.queryByText("STDIO command")).toBeNull();
@@ -201,4 +205,22 @@ test("StatusBar: shows empty state when no MCP requests were recorded", async ()
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
   fireEvent.click(await screen.findByRole("tab", { name: "Activity" }));
   expect(await screen.findByText("No MCP requests received yet.")).toBeTruthy();
+});
+
+test("StatusBar: starts and stops HTTP using a separate token and the actual listener endpoint", async () => {
+  vi.mocked(invoke).mockResolvedValue({ command: "node", args: ["mcp.js", "runtime.json"] });
+  vi.mocked(backend.call).mockImplementation(async (method) => method === "mcp.http.start" ? { endpoint: "http://127.0.0.1:41922/mcp", sessions: 0 } : { endpoint: null, sessions: 0 });
+  renderWithLanguage(<StatusBar mcpState="listening" />);
+  fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
+  fireEvent.click(await screen.findByRole("tab", { name: "HTTP" }));
+  const token = screen.getByLabelText("HTTP access token");
+  expect(token.getAttribute("type")).toBe("password");
+  fireEvent.change(token, { target: { value: "a-separate-test-http-token" } });
+  fireEvent.click(screen.getByRole("button", { name: "Start HTTP" }));
+  expect(await screen.findByText("http://127.0.0.1:41922/mcp")).toBeTruthy();
+  expect(backend.call).toHaveBeenCalledWith("mcp.http.start", { token: "a-separate-test-http-token", port: 41922, allowedOrigins: [] });
+  expect(screen.queryByText("a-separate-test-http-token")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Stop HTTP" }));
+  expect(await screen.findByRole("button", { name: "Start HTTP" })).toBeTruthy();
+  expect(backend.call).toHaveBeenCalledWith("mcp.http.stop", undefined);
 });

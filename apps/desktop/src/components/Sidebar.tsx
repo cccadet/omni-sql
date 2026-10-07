@@ -66,6 +66,9 @@ export interface SidebarProps {
   schemas?: string[];
   functions?: FunctionDef[];
   loading?: boolean;
+  mongoSqlMode?: boolean;
+  onToggleMongoSql?: () => void;
+  queryRunning?: boolean;
   onInsert?: (text: string) => void;
   onAddConnection?: () => void;
   onDeleteLocalDataset?: (relationName: string) => void;
@@ -299,6 +302,9 @@ export function Sidebar({
   onDeleteConnectionGroup,
   onMoveConnection,
   onOpenInNewTab,
+  mongoSqlMode = false,
+  onToggleMongoSql,
+  queryRunning = false,
   health = "unknown",
   metadataRefreshFailed = false,
   analysisActive = false,
@@ -695,11 +701,13 @@ export function Sidebar({
   if (!open) return null;
 
   const isSearching = !!search.trim();
-  const qualified = (schema: string, name: string) => connection?.dialect === "s3" || connection?.dialect === "duckdb"
+  const qualified = (schema: string, name: string) => connection?.dialect === "s3" || connection?.dialect === "duckdb" || (connection?.dialect === "mongodb" && mongoSqlMode)
     ? `"${schema.replaceAll('"', '""')}"."${name.replaceAll('"', '""')}"`
     : `${schema}.${name}`;
   const insertQualified = (schema: string, name: string) => onInsert?.(qualified(schema, name));
-  const openTable = (schema: string, name: string) => onOpenInNewTab?.(name, `SELECT * FROM ${qualified(schema, name)} LIMIT 1000`);
+  const openTable = (schema: string, name: string) => onOpenInNewTab?.(name, connection?.dialect === "mongodb" && !mongoSqlMode
+    ? JSON.stringify({ database: schema, collection: name, operation: "find", filter: {} }, null, 2)
+    : `SELECT * FROM ${qualified(schema, name)} LIMIT 1000`);
   const metadataFreshness = getMetadataFreshness(connection?.lastSyncedAt);
   const metadataTimestamp = formatLastSyncedAt(connection?.lastSyncedAt);
   const metadataTooltip = `${metadataRefreshFailed ? `${tr("error")}: ${tr("refreshMetadata")}` : metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
@@ -914,6 +922,10 @@ export function Sidebar({
           </Text>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+          {connection?.dialect === "mongodb" && <Button size="small" appearance="outline"
+            className={`omni-mongo-sql-tag${mongoSqlMode ? " active" : ""}`} aria-pressed={mongoSqlMode}
+            style={{ borderRadius: 12, fontWeight: 700, ...(mongoSqlMode ? { backgroundColor: "#f2c94c", color: "#332600", borderColor: "#b8860b" } : {}) }}
+            aria-label={tr("mongoSqlMode")} title={tr("mongoSqlMode")} disabled={queryRunning} onClick={onToggleMongoSql}>SQL</Button>}
           {loading && <Spinner size="tiny" />}
           {connection && (
             <Tooltip content={connection.dialect === "s3" ? tr("refreshMetadata") : metadataTooltip} relationship="description">
@@ -987,16 +999,16 @@ export function Sidebar({
               icon={<DatabaseRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
               defaultExpanded={isSearching}
               forceExpanded={isSearching || undefined}
-              onContextMenu={connection?.dialect === "s3" ? undefined : (event) => openMenu(event, [
+              onContextMenu={connection?.dialect === "s3" || connection?.dialect === "mongodb" ? undefined : (event) => openMenu(event, [
                 { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
               ])}
             >
               <TreeNode
-                  label={`${tr("tables")} (${g.tables.length})`}
+                  label={`${tr(connection?.dialect === "mongodb" ? "collections" : "tables")} (${g.tables.length})`}
                   icon={<TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
-                  onContextMenu={connection?.dialect === "s3" ? undefined : (event) => openMenu(event, [
+                  onContextMenu={connection?.dialect === "s3" || connection?.dialect === "mongodb" ? undefined : (event) => openMenu(event, [
                     { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
                   ])}
                 >
@@ -1012,7 +1024,7 @@ export function Sidebar({
                           className={`obj-row${connection?.dialect === "s3" ? " omni-s3-object-row" : ""}`}
                           role="presentation"
                           onContextMenu={(e) =>
-                            openMenu(e, connection?.dialect === "s3" ? [
+                            openMenu(e, connection?.dialect === "s3" || connection?.dialect === "mongodb" ? [
                               { label: "Abrir SELECT em nova aba", action: () => openTable(g.name, t.name) },
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
                             ] : connection?.dialect === "duckdb" ? [
@@ -1092,7 +1104,7 @@ export function Sidebar({
                                 );
                               })}
                             </div>
-                            {connection?.dialect !== "s3" && connection?.dialect !== "duckdb" && <div className="indexes">
+                            {connection?.dialect !== "s3" && connection?.dialect !== "duckdb" && connection?.dialect !== "mongodb" && <div className="indexes">
                               <div className="sub-header">
                                 <span>
                                   {tr("indexes")}
@@ -1163,7 +1175,9 @@ export function Sidebar({
                           className="obj-row"
                           role="presentation"
                           onContextMenu={(e) =>
-                            openMenu(e, [
+                            openMenu(e, connection?.dialect === "mongodb" ? [
+                              { label: tr("openCollection"), action: () => openTable(g.name, v.name) },
+                            ] : [
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, v.name) },
                               { label: tr("viewDefinition"), action: () => void openDefinition("view", g.name, v.name) },
                             ])
@@ -1294,7 +1308,7 @@ export function Sidebar({
         </div>
         {analysisActive && analysisExpanded && <div ref={onAnalysisHostChange} className="omni-sidebar-analysis-content" />}
       </section>}
-      {connection && connection.dialect !== "s3" && connection.dialect !== "duckdb" && <CreateTableDialog
+      {connection && connection.dialect !== "s3" && connection.dialect !== "duckdb" && connection.dialect !== "mongodb" && <CreateTableDialog
         open={createTableSchema !== null}
         dialect={connection.dialect}
         schemas={schemas}

@@ -12,7 +12,7 @@ fs.mkdirSync(distDir, { recursive: true });
 
 await build({
   absWorkingDir: rootDir,
-  entryPoints: ["packages/mcp-server/src/index.ts"],
+  entryPoints: ["packages/mcp-server/src/cli.ts"],
   outfile: "packages/mcp-server/dist/index.js",
   bundle: true,
   format: "esm",

@@ -1633,6 +1633,13 @@ async fn analysis_import_s3(
 }
 
 #[tauri::command]
+async fn analysis_query_mongo(app: AppHandle, request: data_engine::MongoQueryRequest) -> Result<data_engine::AnalysisQueryResult, String> {
+    let token = wait_for_auth_token(&app.state::<AuthToken>())?;
+    tauri::async_runtime::spawn_blocking(move || app.state::<data_engine::DataEngine>().query_mongo(request, &token, BACKEND_PORT))
+        .await.map_err(|_| "MongoDB SQL query task failed".to_string())?
+}
+
+#[tauri::command]
 async fn analysis_query_s3(
     app: AppHandle,
     request: data_engine::S3QueryRequest,
@@ -1695,16 +1702,6 @@ pub fn run() {
     let sidecar_auth_token = generate_auth_token().expect("failed to create sidecar auth token");
     let mcp_auth_token = generate_auth_token().expect("failed to create per-run MCP auth token");
     let mcp_start_nonce = generate_auth_token().expect("failed to create MCP start nonce");
-    let local_data_dir = std::env::var_os("LOCALAPPDATA")
-        .or_else(|| std::env::var_os("XDG_DATA_HOME"))
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir())
-        .join("omni-sql");
-    let data_engine = data_engine::DataEngine::open_persistent(&local_data_dir.join("local.duckdb"))
-        .expect("failed to initialize the local analytical engine");
-    data_engine
-        .smoke_query()
-        .expect("local analytical engine smoke query failed");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1755,6 +1752,7 @@ pub fn run() {
             analysis_export_query,
             analysis_import_file,
             analysis_import_s3,
+            analysis_query_mongo,
             analysis_query_s3,
             analysis_list_s3,
             analysis_list_ducklake,
@@ -1766,7 +1764,6 @@ pub fn run() {
             ready: Condvar::new(),
         })
         .manage(McpDescriptorPath(Mutex::new(None)))
-        .manage(data_engine)
         .manage(BackendChild(Mutex::new(None)))
         .manage(SidecarChild(Mutex::new(None)))
         .manage(SidecarStatusState(Mutex::new(SidecarDiagnostics {
@@ -1776,6 +1773,18 @@ pub fn run() {
             message: None,
         })))
         .setup(move |app| {
+            let local_data_dir = app.path().app_data_dir()?.join("analysis");
+            let legacy_data_dir = std::env::var_os("LOCALAPPDATA")
+                .or_else(|| std::env::var_os("XDG_DATA_HOME"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+                .join("omni-sql");
+            let engine = data_engine::DataEngine::open_migrating(
+                &local_data_dir.join("local.duckdb"), &legacy_data_dir.join("local.duckdb"),
+            ).map_err(std::io::Error::other)?;
+            engine.smoke_query().map_err(std::io::Error::other)?;
+            app.manage(engine);
+
             // The log plugin is registered in both debug and release so that
             // release/installer builds still leave a `omni-sql.log` on disk
             // when something goes wrong. In dev the default stdout target is

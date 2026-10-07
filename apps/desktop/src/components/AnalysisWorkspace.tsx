@@ -494,7 +494,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
             {running && operationId && (
               <Button appearance="secondary" onClick={() => void cancelAnalysis(operationId)}>{t("stop")}</Button>
             )}
-            <Button appearance="secondary" onClick={() => void exportResult("csv")} disabled={!dataset || !!activeS3Source || running || !sql.trim()}>{t("analysisExportCsv")}</Button>
+            <Button title={t("analysisExportCsvSafe")} appearance="secondary" onClick={() => void exportResult("csv")} disabled={!dataset || !!activeS3Source || running || !sql.trim()}>{t("analysisExportCsv")}</Button>
             <Button appearance="secondary" onClick={() => void exportResult("parquet")} disabled={!dataset || !!activeS3Source || running || !sql.trim()}>{t("analysisExportParquet")}</Button>
             <Button appearance="primary" onClick={() => void run()} disabled={(!dataset && !activeS3Source) || running || !sql.trim()}>{t("run")}</Button>
           </footer>

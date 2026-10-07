@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
+  "exports": { ".": "./src/index.ts" },
   "types": "./src/index.ts",
   "bin": {
     "omni-sql-mcp": "./dist/index.js"

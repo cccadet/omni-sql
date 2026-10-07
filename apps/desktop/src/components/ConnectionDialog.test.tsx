@@ -270,3 +270,22 @@ test("shows failed connection test and recovers on retry", async () => {
   assert.ok(await screen.findByText("Connected in 7ms"));
   assert.equal(screen.queryByText("database offline"), null);
 });
+
+test("saves a MongoDB URI and permits local anonymous connections", async () => {
+  vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
+    ? { configs: [] } : { connectionId: "mongo-1", ok: true });
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+  fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "mongodb" } });
+  fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "MongoDB" } });
+  fireEvent.change(screen.getByPlaceholderText("mongodb://localhost:27017/test?authSource=admin"), { target: { value: "mongodb+srv://example.mongodb.net/test?authSource=admin" } });
+  assert.equal(screen.queryByRole("textbox", { name: "Host" }), null);
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  assert.ok(add);
+  const params = add[1] as { config: ConnectionConfig; password: string };
+  assert.equal(params.config.dialect, "mongodb");
+  assert.equal(params.config.endpoint, "mongodb+srv://example.mongodb.net/test?authSource=admin");
+  assert.equal(params.config.user, "");
+  assert.equal(params.password, "");
+});

@@ -1,5 +1,5 @@
 name: Installation and first analysis feedback
-description: Tell us whether you could install, open, and complete your first local join.
+description: Tell us whether you could install, open, and query your first file or complete a local join.
 title: "[First run]: "
 body:
   - type: markdown
@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: omni-sql version
-      placeholder: "For example: 0.6.0"
+      placeholder: "For example: 0.7.1"
     validations:
       required: true
   - type: dropdown
@@ -22,8 +22,8 @@ body:
         - Windows 11 x64
         - Debian/Ubuntu amd64
         - Other Linux
-        - macOS Apple Silicon (requesting an installer)
-        - macOS Intel (requesting an installer)
+        - macOS Apple Silicon
+        - macOS Intel
         - Other
     validations:
       required: true
@@ -36,6 +36,8 @@ body:
         - Downloaded but could not install
         - Installed but could not open
         - Opened but could not connect
+        - Opened but could not import a file
+        - Imported and queried a local file
         - Connected but could not import a query result
         - Imported data but could not join it with a file
         - Completed a local join
@@ -62,7 +64,7 @@ body:
         - Current installer works for me
         - WinGet
         - Scoop
-        - macOS installer
+        - Signed/notarized macOS installer
         - Another Linux package format
         - Other
   - type: checkboxes

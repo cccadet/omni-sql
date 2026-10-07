@@ -233,7 +233,7 @@ export async function introspectSchemas(
   const colsByTable = new Map<string, ColumnRow[]>();
   for (const c of cols) {
     if (allow && !allow.has(c.table_schema)) continue;
-    const key = `${c.table_schema}.${c.table_name}`;
+    const key = JSON.stringify([c.table_schema, c.table_name]);
     if (!colsByTable.has(key)) colsByTable.set(key, []);
     colsByTable.get(key)!.push(c);
   }
@@ -242,7 +242,7 @@ export async function introspectSchemas(
   const pkByTable = new Map<string, { name: string; columns: Set<string> }>();
   const fksByTable = new Map<string, ConstraintRow[]>();
   for (const c of constraints) {
-    const key = `${c.owner}.${c.table_name}`;
+    const key = JSON.stringify([c.owner, c.table_name]);
     if (c.constraint_type === "P") {
       if (!pkByTable.has(key)) pkByTable.set(key, { name: c.constraint_name, columns: new Set() });
       pkByTable.get(key)!.columns.add(c.column_name);
@@ -257,7 +257,7 @@ export async function introspectSchemas(
   let i = 0;
   for (const [schemaName, schemaRels] of bySchema) {
     const relations: Relation[] = schemaRels.map((r) => {
-      const tableKey = `${schemaName}.${r.table_name}`;
+      const tableKey = JSON.stringify([schemaName, r.table_name]);
       const rcols = colsByTable.get(tableKey) ?? [];
       const pk = pkByTable.get(tableKey);
       const pkCols = pk?.columns ?? new Set<string>();
@@ -693,12 +693,19 @@ export async function updateRowViaConnection(conn: Connection, spec: RowUpdateSp
   // `binds` é `Record<string, unknown>` (valores de coluna arbitrários) — os
   // typings do oracledb exigem um `BindParameter` mais estreito que `unknown`
   // não satisfaz estruturalmente, daí o cast no limite com o driver.
-  const result = await conn.execute(
-    `UPDATE ${tableRef} SET ${setClause} WHERE ${whereClause}`,
-    binds as Record<string, oracledb.BindParameter>,
-  );
-  await conn.commit();
-  return result.rowsAffected ?? 0;
+  try {
+    const result = await conn.execute(
+      `UPDATE ${tableRef} SET ${setClause} WHERE ${whereClause}`,
+      binds as Record<string, oracledb.BindParameter>,
+    );
+    const count = result.rowsAffected ?? 0;
+    if (count === 1) await conn.commit();
+    else await conn.rollback();
+    return count;
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  }
 }
 
 async function execRows<T>(

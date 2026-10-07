@@ -30,7 +30,7 @@ jobs:
           run_install: true
 
       - name: Verify
-        run: python3 scripts/verify-push.test.py && pnpm -r typecheck && pnpm -r lint && pnpm test:coverage
+        run: python3 scripts/verify-push.test.py && node --test scripts/*.test.mjs && pnpm -r typecheck && pnpm -r lint && pnpm test:coverage
 
       - name: Upload TypeScript coverage
         uses: actions/upload-artifact@v4
