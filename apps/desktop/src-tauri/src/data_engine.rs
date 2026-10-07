@@ -611,15 +611,24 @@ impl DataEngine {
             let source = Connection::open(legacy).map_err(|error| format!("close the previous application before analytical migration: {error}"))?;
             source.execute_batch("CHECKPOINT").map_err(|error| format!("failed to checkpoint legacy analytical data: {error}"))?;
             let temporary = path.with_extension(format!("migration-{}", random_id()?));
-            let mut input = File::open(legacy).map_err(|error| error.to_string())?;
-            let mut output = File::create_new(&temporary).map_err(|error| error.to_string())?;
             let migrate = (|| {
-                std::io::copy(&mut input, &mut output).map_err(|error| error.to_string())?;
-                output.sync_all().map_err(|error| error.to_string())?;
+                // DuckDB holds an exclusive file handle on Windows. Copy through
+                // its own connection instead of reopening the legacy file.
+                let destination = Connection::open(&temporary)
+                    .map_err(|error| format!("failed to create migration database: {error}"))?;
+                drop(destination);
+                let database: String = source.query_row("SELECT current_database()", [], |row| row.get(0))
+                    .map_err(|error| format!("failed to identify legacy database: {error}"))?;
+                let temporary_sql = temporary.to_str().ok_or("migration path is not UTF-8")?.replace("'", "''");
+                source.execute_batch(&format!(
+                    "ATTACH '{temporary_sql}' AS omni_migration; COPY FROM DATABASE {} TO omni_migration; DETACH omni_migration",
+                    quote_identifier(&database),
+                )).map_err(|error| format!("failed to migrate legacy analytical data: {error}"))?;
                 // Publishing a hard link fails if another startup already created the destination.
                 std::fs::hard_link(&temporary, path).map_err(|error| error.to_string())?;
                 std::fs::remove_file(&temporary).map_err(|error| error.to_string())
             })();
+            drop(source);
             if migrate.is_err() { let _ = std::fs::remove_file(&temporary); }
             migrate?;
         }
@@ -3975,9 +3984,9 @@ mod tests {
         assert!(csv.contains("\"a,\"\"b\n\",3"), "{csv}");
         assert_eq!(batch.schema().field(0).name(), "=header");
     }
-    #[cfg(unix)]
     #[test]
     fn persistent_data_is_private_and_migration_preserves_legacy() {
+        #[cfg(unix)]
         use std::os::unix::{fs::{MetadataExt, PermissionsExt}, fs::symlink};
         let root = create_temp_directory().unwrap();
         let legacy_dir = root.join("legacy");
@@ -3985,17 +3994,21 @@ mod tests {
         let legacy = legacy_dir.join("local.duckdb");
         {
             let connection = Connection::open(&legacy).unwrap();
-            connection.execute_batch("CREATE TABLE sentinel AS SELECT 42 AS value; CHECKPOINT").unwrap();
+            connection.execute_batch("CREATE TABLE sentinel AS SELECT 42 AS value; CREATE SCHEMA extra; CREATE TABLE extra.kept AS SELECT 7 AS value; CREATE VIEW kept_view AS SELECT * FROM extra.kept; CHECKPOINT").unwrap();
         }
+        #[cfg(unix)]
         eprintln!("original DuckDB mode: {:o}", std::fs::metadata(&legacy).unwrap().mode() & 0o777);
         let path = root.join("private/local.duckdb");
         std::fs::create_dir(path.parent().unwrap()).unwrap();
         let abandoned = path.with_extension("migration");
         std::fs::write(&abandoned, "previous interrupted migration").unwrap();
         let engine = DataEngine::open_migrating(&path, &legacy).unwrap();
+        #[cfg(unix)]
         assert_eq!(std::fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+        #[cfg(unix)]
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(engine.lock().unwrap().connection.query_row("SELECT value FROM sentinel", [], |row| row.get::<_, i32>(0)).unwrap(), 42);
+        assert_eq!(engine.lock().unwrap().connection.query_row("SELECT value FROM kept_view", [], |row| row.get::<_, i32>(0)).unwrap(), 7);
         assert!(legacy.exists());
         assert_eq!(std::fs::read_to_string(&abandoned).unwrap(), "previous interrupted migration");
         drop(engine);
@@ -4006,9 +4019,11 @@ mod tests {
         let engine = DataEngine::open_migrating(&path, &legacy).unwrap();
         assert_eq!(engine.lock().unwrap().connection.query_row("SELECT value FROM sentinel", [], |row| row.get::<_, i32>(0)).unwrap(), 42);
         drop(engine);
+        #[cfg(unix)] {
         let link = root.join("link");
         symlink(&legacy_dir, &link).unwrap();
         assert!(DataEngine::open_migrating(&root.join("other/local.duckdb"), &link.join("local.duckdb")).is_err());
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
