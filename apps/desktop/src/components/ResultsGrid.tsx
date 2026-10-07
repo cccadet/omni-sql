@@ -122,6 +122,7 @@ function compareValues(a: unknown, b: unknown): number {
 
 function columnTypeLabel(dataType: string): string {
   const type = dataType.toLowerCase();
+  if (type.endsWith("[]")) return "{}";
   if (
     type.includes("int") ||
     type.includes("serial") ||
