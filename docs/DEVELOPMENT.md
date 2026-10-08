@@ -47,8 +47,17 @@ environment with `uv tool install -p 3.13 serena-agent`. Initialize the LSP back
 with `serena init --language-backend LSP` and configure the Codex MCP connection as
 described in the [Serena client guide](https://oraios.github.io/serena/02-usage/030_clients.html).
 Configure TypeScript, Kotlin and/or Rust for the paths you need. Rust requires
-`rustup component add rust-analyzer`. Validate the setup with
-`serena project health-check .`. Local configuration, downloads and indexes stay
+`rustup component add rust-analyzer`. In this monorepo, include
+`apps/desktop/src-tauri` and `services/jvm-sidecar` as LSP workspace folders.
+Keep Rust navigation lightweight by disabling automatic Cargo checks/build scripts
+in local LSP settings; run the project Rust checks explicitly for compilation and
+macro-dependent validation. Keep Kotlin's index storage in the project cache and
+use a current Kotlin LSP build if the bundled build has expired.
+For concurrent agent sessions, use a Serena version with the
+[Kotlin index isolation fix](https://github.com/oraios/serena/pull/1982).
+Validate symbols and known references in all three languages; a health-check exit
+code alone does not establish that navigation works. Local configuration,
+downloads and indexes stay
 ignored under `.serena`; its checked-in memories retain project knowledge.
 
 Desktop MCP processes may not inherit shell initialization from Node version
