@@ -4,6 +4,27 @@ import { BSON, MongoClient } from "mongodb";
 import { MongoAdapter, mongoResult, parseMongoQuery } from "./mongo-adapter.ts";
 import { analyzeExecutionRisk } from "@omni-sql/autocomplete-engine";
 
+test("Mongo result types describe returned scalars, lists and missing fields without changing BSON values", () => {
+  const document = {
+    _id: new BSON.ObjectId(), date: new Date("2026-10-08T00:00:00Z"), name: "test", flag: true,
+    int: new BSON.Int32(1), long: BSON.Long.fromString("9223372036854775807"), double: new BSON.Double(1.5),
+    decimal: BSON.Decimal128.fromString("12345678901234567890.123"), binary: new BSON.Binary(Buffer.from([1, 2])),
+    strings: ["one", "two"], nested: [[1]], objects: [{ value: 1 }], empty: [], missing: null,
+  };
+  const result = mongoResult([document, { name: "other", strings: [], nested: [[]] }, { strings: null }], 3, 1);
+  const column = (name: string) => result.columns.find((column) => column.name === name)!;
+  for (const [name, type] of Object.entries({ _id: "OBJECTID", date: "TIMESTAMP", name: "VARCHAR", flag: "BOOLEAN", int: "INTEGER", long: "BIGINT", double: "DOUBLE", decimal: "DECIMAL128", binary: "BINARY", strings: "VARCHAR[]", nested: "INTEGER[][]", objects: "JSON[]", empty: "JSON[]", missing: "JSON" })) {
+    assert.equal(column(name).dataType, type, name);
+  }
+  assert.equal(column("name").nullable, true);
+  assert.equal(mongoResult([document], 1, 1).columns[0]!.nullable, false);
+  assert.deepEqual(result.rows[0]![5], { $numberLong: "9223372036854775807" });
+  assert.deepEqual(result.rows[0]![7], { $numberDecimal: "12345678901234567890.123" });
+  assert.equal(mongoResult([{ value: 1 }, { value: "1" }], 2, 1).columns[0]!.dataType, "JSON");
+  assert.equal(mongoResult([{ value: 1 }, { value: 1.5 }], 2, 1).columns[0]!.dataType, "NUMERIC");
+  assert.equal(mongoResult([{ value: 1 }, { value: "outside preview" }], 1, 1).columns[0]!.dataType, "INTEGER");
+});
+
 test("MongoDB Extended JSON preserves BSON, bounds rows and rejects implicit writes", () => {
   const query = parseMongoQuery('{"collection":"items","operation":"find","filter":{"_id":{"$oid":"507f1f77bcf86cd799439011"}}}');
   assert.ok(query.filter._id instanceof BSON.ObjectId);
@@ -68,6 +89,8 @@ test("MongoDB adapter bounds cursors, preserves document fields and sanitizes dr
     await adapter.introspect();
     assert.deepEqual(adapter.listTables("test").map(({ kind }) => kind), ["table", "view"]);
     assert.ok(adapter.listColumns("test", "items").some(({ name, isPrimaryKey }) => name === "_id" && isPrimaryKey));
+    assert.equal(adapter.listColumns("test", "items").find(({ name }) => name === "_id")?.dataType, "OBJECTID");
+    assert.equal(adapter.listColumns("test", "items").find(({ name }) => name === "name")?.dataType, "VARCHAR");
     assert.deepEqual(adapter.listFunctions("test"), []);
     assert.equal(adapter.dialectDescriptor().dialect, "mongodb");
     const result = await adapter.runQuery(query("find", { projection: { name: 1 }, sort: { name: 1 } }), 1);

@@ -145,7 +145,7 @@ function columnTypeLabel(dataType: string): string {
   if (type.includes("json") || type.includes("xml") || type.includes("array") || type.includes("struct") || type.includes("list") || type.includes("map")) {
     return "{}";
   }
-  if (type.includes("uuid")) return "id";
+  if (type.includes("uuid") || type.includes("objectid")) return "id";
   if (type.includes("enum")) return "abc";
   if (type.includes("binary") || type.includes("blob") || type.includes("bytea")) return "bin";
   if (type.includes("char") || type.includes("text") || type.includes("varchar") || type.includes("clob") || type.includes("string")) {
