@@ -13,6 +13,8 @@ No modo nativo, as consultas usam Extended JSON. Banco e coleção são campos s
 
 O autocomplete sugere operações, bancos, coleções, campos, operadores e estágios comuns de agregação. Os campos vêm dos metadados carregados, que amostram até 100 documentos por coleção.
 
+A tabela mostra ObjectIds como texto e datas BSON em ISO 8601 UTC (`Z`), sem os envelopes `$oid` e `$date`. Números BSON também aparecem sem envelopes, preservando todos os dígitos, inclusive dentro de arrays e objetos. O filtro e a ordenação usam os valores exibidos. Ao passar o mouse sobre uma célula estruturada, o valor original aparece; a edição e a exportação CSV preservam o Extended JSON original.
+
 ## `/mongo`: converter SELECT para JSON nativo
 
 No editor de uma conexão MongoDB em modo nativo, escreva:

@@ -124,6 +124,34 @@ test("exports through the native save flow", async () => {
   expect(openExportedFile).toHaveBeenCalledWith("C:\\exports\\resultados.csv");
 });
 
+test("displays BSON values without envelopes while retaining exact raw values", () => {
+  const values = { id: { $oid: "6ac4e4f54dee13476cf0fbd0" }, date: { $date: { $numberLong: "0" } }, items: [{ count: { $numberLong: "9007199254740993" }, price: { $numberDecimal: "12345678901234567890.123456789" } }] };
+  expect(serializeCellValue(values, true)).toBe('{"id":"6ac4e4f54dee13476cf0fbd0","date":"1970-01-01T00:00:00.000Z","items":[{"count":"9007199254740993","price":"12345678901234567890.123456789"}]}');
+  expect(serializeCellValue(values)).toBe(JSON.stringify(values));
+  expect(serializeCellValue({ $date: "2024-01-02T03:04:05+03:00" }, true)).toBe("2024-01-02T00:04:05.000Z");
+  for (const value of [{ $oid: "invalid" }, { $date: { $numberLong: "999999999999999999" } }, { $date: "invalid" }, { $numberLong: "abc" }, { $oid: "6ac4e4f54dee13476cf0fbd0", other: 1 }]) {
+    expect(serializeCellValue(value, true)).toBe(JSON.stringify(value));
+  }
+  const circular: { self?: unknown } = {};
+  circular.self = circular;
+  expect(serializeCellValue(circular, true)).toBe('{"self":"[Circular]"}');
+});
+
+test("Mongo result cells show readable IDs and dates, filter by them and export original BSON", () => {
+  const mongo: QueryResult = {
+    columns: [{ name: "_id", dataType: "JSON", nullable: false }, { name: "data_evento", dataType: "JSON", nullable: false }],
+    rows: [[{ $oid: "6ac4e4f54dee13476cf0fbd0" }, { $date: { $numberLong: "0" } }]],
+    rowsMoreAvailable: false, elapsedMs: 1,
+  };
+  render(<LanguageProvider><ResultsGrid result={mongo} /></LanguageProvider>);
+  expect(screen.getByText("6ac4e4f54dee13476cf0fbd0").getAttribute("title")).toBe('{"$oid":"6ac4e4f54dee13476cf0fbd0"}');
+  expect(screen.getByText("1970-01-01T00:00:00.000Z")).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter data…" }), { target: { value: "1970-01-01" } });
+  expect(screen.getByText("6ac4e4f54dee13476cf0fbd0")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+  expect(exportCsvFile).toHaveBeenLastCalledWith('_id,data_evento\n"{""$oid"":""6ac4e4f54dee13476cf0fbd0""}","{""$date"":{""$numberLong"":""0""}}"');
+});
+
 test("exports formula-like headers and cells as spreadsheet text", async () => {
   vi.mocked(exportCsvFile).mockResolvedValueOnce("/tmp/resultados.csv");
   const formulaResult: QueryResult = {
