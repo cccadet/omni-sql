@@ -11,6 +11,7 @@ import { MysqlAdapter } from "@omni-sql/adapters-mysql";
 import { MssqlAdapter } from "@omni-sql/adapters-mssql";
 import { JdbcAdapter } from "@omni-sql/adapters-jdbc";
 import { mongoSqlToNative } from "./mongo-sql.ts";
+import { mongoSqlSourcePlan } from "./mongo-sql-source.ts";
 import { MongoAdapter } from "./mongo-adapter.ts";
 import { OdbcAdapter } from "@omni-sql/adapters-odbc";
 import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
@@ -117,6 +118,10 @@ const sessions = new Map<string, Session>();
 const activeQueries = new Set<string>();
 
 async function runCancellableQuery(session: Session, sql: string, limit: number, signal?: AbortSignal): Promise<RunQueryResult> {
+  return withCancellableSession(session, signal, () => session.adapter.runQuery(sql, limit));
+}
+
+async function withCancellableSession<T>(session: Session, signal: AbortSignal | undefined, execute: () => Promise<T>): Promise<T> {
   const id = session.config.id;
   if (activeQueries.has(id)) throw new RpcValidationError("A query is already running on this connection");
   activeQueries.add(id);
@@ -131,7 +136,7 @@ async function runCancellableQuery(session: Session, sql: string, limit: number,
     await session.adapter.connect();
     signal?.throwIfAborted();
     started = true;
-    return await session.adapter.runQuery(sql, limit);
+    return await execute();
   } finally {
     signal?.removeEventListener("abort", cancel);
     await cancellation;
@@ -928,6 +933,21 @@ export const handlers: BackendRpcRouter = {
       if (error instanceof RpcValidationError) return { query: null };
       throw error;
     }
+  },
+
+  async "query.mongoSqlSource"({ connectionId, sql, explain }, signal?: AbortSignal) {
+    await connectionsRestored;
+    const session = requireSession(connectionId);
+    if (!(session.adapter instanceof MongoAdapter)) throw new RpcValidationError("MongoDB connection required");
+    const adapter = session.adapter;
+    const database = /^mongodb(?:\+srv)?:\/\/[^/]+\/([^?]*)/i.exec(session.config.endpoint)?.[1];
+    const plan = mongoSqlSourcePlan(sql, database ? decodeURIComponent(database) : undefined);
+    if (!plan) return { source: null };
+    return withCancellableSession(session, signal, async () => {
+      const nativePlan = explain ? (await adapter.explain(plan.query)).textual : undefined;
+      const snapshot = await adapter.readSqlSource(plan.query, plan.fields);
+      return { source: { ...snapshot, sql: plan.sql, ...(nativePlan ? { nativePlan } : {}) } };
+    });
   },
 
   async "query.explain"({ connectionId, sql }: ExplainQueryParams): Promise<ExplainQueryResult> {

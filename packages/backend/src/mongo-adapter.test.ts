@@ -99,6 +99,11 @@ test("MongoDB adapter bounds cursors, preserves document fields and sanitizes dr
     assert.equal(limits.at(-1), 2);
     assert.equal(queryOptions.maxTimeMS, 60_000);
     assert.ok(queryOptions.signal instanceof AbortSignal);
+    const source = await adapter.readSqlSource(query("find", { filter: { name: "first" } }), ["name"]);
+    assert.equal(source.rowCount, 2, "the source snapshot is independent of a one-row preview");
+    assert.equal(limits.at(-1), 100_001);
+    assert.equal(source.documents.length, 2);
+    await assert.rejects(adapter.readSqlSource(query("deleteMany"), []), /unsorted find/);
     const heterogeneous = await adapter.runQuery(query("find"), 2);
     assert.equal(heterogeneous.rows[1]![0], null);
     assert.equal((await adapter.runQuery(query("aggregate", { pipeline: [{ $match: {} }] }), 1)).rows.length, 1);
@@ -130,5 +135,38 @@ test("MongoDB adapter bounds cursors, preserves document fields and sanitizes dr
     assert.ok(closed >= 7);
     assert.throws(() => new MongoAdapter(config, "password"), /user is required/);
     assert.throws(() => new MongoAdapter({ ...config, endpoint: "mongodb://" }), /Invalid MongoDB URI/);
+  } finally { await adapter.close(); }
+});
+
+test("Mongo SQL refuses oversized or cancelled sources instead of returning partial analytics", async (t) => {
+  let mode = "bytes";
+  let release: (() => void) | undefined;
+  let entered: (() => void) | undefined;
+  let closed = 0;
+  const cursor = () => ({
+    limit() { return this; },
+    async close() { closed++; release?.(); },
+    async *[Symbol.asyncIterator]() {
+      if (mode === "bytes") yield { payload: "x".repeat(16 * 1024 * 1024) };
+      else if (mode === "rows") { for (let index = 0; index <= 100_000; index++) yield { n: index }; }
+      else { entered?.(); await new Promise<void>((resolve) => { release = resolve; }); }
+    },
+  });
+  t.mock.method(MongoClient.prototype, "db", () => ({ databaseName: "test", collection: () => ({ find: cursor }) }) as unknown as ReturnType<MongoClient["db"]>);
+  t.mock.method(MongoClient.prototype, "close", async () => {});
+  const adapter = new MongoAdapter({ id: "source-budget", label: "Mongo", dialect: "mongodb", endpoint: "mongodb://localhost/test", user: "" });
+  const query = JSON.stringify({ collection: "items", operation: "find", filter: { id_guia: "guide" } });
+  try {
+    await assert.rejects(adapter.readSqlSource(query, []), /No partial result/);
+    mode = "rows";
+    await assert.rejects(adapter.readSqlSource(query, []), /No partial result/);
+    mode = "cancel";
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const running = adapter.readSqlSource(query, []);
+    const rejected = assert.rejects(running);
+    await started;
+    await adapter.cancelRunning();
+    await rejected;
+    assert.ok(closed >= 3);
   } finally { await adapter.close(); }
 });

@@ -74,6 +74,14 @@ Outros joins e CTEs, subconsultas, funções escalares, janelas, `DISTINCT`, `OF
 
 O modo **SQL** executa SELECTs suportados diretamente no MongoDB, sem exigir conversão manual para JSON. Consultas mais complexas usam DuckDB. O plano de execução acompanha o motor escolhido.
 
+Consultas com uma única coleção, um filtro de igualdade ou `list_contains` na leitura da coleção e uma sequência linear de CTEs podem combinar os dois motores. O driver nativo filtra no MongoDB e busca os campos necessários; o DuckDB recebe um snapshot tipado e executa `UNNEST`, funções, filtros restantes, ordenação e agregações. `exames` mantém o tipo de lista de estruturas e `codigos` mantém o tipo de lista de textos, permitindo `exame.codigos[1]` e `unnest(exame.codigos)`. ObjectId vira texto, datas viram TIMESTAMP em UTC e Int64 mantém a precisão. Decimal128 e dados binários ficam como texto para evitar perda de precisão (binários em base64).
+
+O limite de prévia é aplicado ao resultado final, depois da expansão e da análise. A fonte filtrada tem limites independentes de 100.000 documentos, 16 MiB e 60 segundos de execução no MongoDB. Ao exceder o limite de documentos ou bytes, a consulta falha explicitamente; não retorna uma contagem ou agregação parcial. Uma guia inexistente retorna zero linhas usando uma amostra de até 100 documentos para definir as colunas. Uma coleção vazia ou valores sem informação suficiente para inferir a estrutura podem continuar exigindo ajuste do esquema.
+
+O planejador só antecipa predicados seguros na leitura da coleção. Ele preserva filtros residuais e não extrai apenas uma parte de um `OR`. Não move filtros externos através de `LIMIT`, agregações ou janelas. Consultas com outras topologias, como múltiplas leituras, joins e subconsultas, continuam nos caminhos existentes. No caminho combinado, Explain mostra o plano nativo, a quantidade de documentos transferidos e o plano DuckDB; essa explicação também lê a fonte filtrada para resolver os tipos.
+
+Veja [consultas de teste com exames](examples/mongodb-exames.sql) para primeiro código, todos os códigos, descrição, filtro por código, contagem e limite final.
+
 Nesse modo, a igualdade usa a busca nativa do MongoDB: encontra tanto um valor escalar quanto um elemento de array e pode aproveitar o índice do campo.
 
 ```sql
@@ -83,7 +91,7 @@ WHERE id_guia = '52712827';
 
 `list_contains(id_guia, '52712827')` também é enviado ao MongoDB, com `$elemMatch`, para buscar especificamente em arrays. Os limites de resultados e o cancelamento continuam disponíveis em ambos os caminhos.
 
-Nas consultas que precisam do fallback DuckDB, um campo inferido como array não pode ser comparado diretamente a um texto com `=`. Para buscar um elemento, use `list_contains`:
+Nas consultas que continuam usando diretamente a extensão Mongo do DuckDB (fora do caminho combinado acima), um campo inferido como array não pode ser comparado diretamente a um texto com `=`. Para buscar um elemento, use `list_contains`:
 
 ```sql
 SELECT * FROM base_laudos.padronizacao
@@ -91,5 +99,7 @@ WHERE list_contains(id_guia, '52712827');
 ```
 
 Essa consulta serve para `id_guia` inferido como uma lista de textos (`VARCHAR[]`). Os tipos dos valores devem corresponder aos tipos dos elementos da lista.
+
+Na extensão, `list_contains` pode permanecer como filtro local e ler muitos documentos. Use Explain para verificar o filtro na leitura Mongo; uma CTE não garante que o filtro seja enviado ao servidor.
 
 Os metadados do resultado preservam o tipo dos elementos das listas, inclusive listas aninhadas. Quando o DuckDB informa os tipos de uma conversão inválida, a mensagem mostra o tipo fornecido e o tipo esperado, por exemplo `VARCHAR` e `VARCHAR[]`. Esses tipos vêm da inferência da extensão sobre documentos amostrados.
