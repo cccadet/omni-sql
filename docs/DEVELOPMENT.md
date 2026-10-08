@@ -46,16 +46,16 @@ Serena is an agent tool, not an application dependency. Manage its isolated Pyth
 environment with `uv tool install -p 3.13 serena-agent`. Initialize the LSP backend
 with `serena init --language-backend LSP` and configure the Codex MCP connection as
 described in the [Serena client guide](https://oraios.github.io/serena/02-usage/030_clients.html).
-Configure TypeScript, Kotlin and/or Rust for the paths you need. Rust requires
-`rustup component add rust-analyzer`. In this monorepo, include
-`apps/desktop/src-tauri` and `services/jvm-sidecar` as LSP workspace folders.
-Keep Rust navigation lightweight by disabling automatic Cargo checks/build scripts
-in local LSP settings; run the project Rust checks explicitly for compilation and
-macro-dependent validation. Keep Kotlin's index storage in the project cache and
+The current local setup enables TypeScript and Kotlin, with
+`services/jvm-sidecar` as an additional LSP workspace folder. Rust navigation is
+temporarily disabled: symbol listing worked, but known references returned empty
+results. Continue running the normal Rust checks explicitly.
+Keep Kotlin's index storage in the project cache and
 use a current Kotlin LSP build if the bundled build has expired.
-For concurrent agent sessions, use a Serena version with the
+For concurrent agent sessions, share one loopback HTTP Serena instance as described
+in the [Serena workflow guide](https://oraios.github.io/serena/02-usage/040_workflow.html#multiple-agents-accessing-a-single-serena-instance), using a version with the
 [Kotlin index isolation fix](https://github.com/oraios/serena/pull/1982).
-Validate symbols and known references in all three languages; a health-check exit
+Validate symbols and known references in each enabled language; a health-check exit
 code alone does not establish that navigation works. Local configuration,
 downloads and indexes stay
 ignored under `.serena`; its checked-in memories retain project knowledge.
