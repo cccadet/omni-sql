@@ -1,9 +1,13 @@
 .git
 .cache
+artifacts
 **/node_modules
 **/dist
 **/coverage
 **/target
+**/build
+**/.gradle
+.codex
 apps/desktop/src-tauri/resources/backend
 apps/desktop/src-tauri/resources/mcp-server
 apps/desktop/src-tauri/resources/runtime

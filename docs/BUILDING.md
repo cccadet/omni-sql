@@ -53,11 +53,23 @@ installer formats such as `nsis`).
 
 ## Release flow
 
-The release workflow accepts tags matching exactly `vX.Y.Z`. It verifies the
-repository, prepares and validates native resources, and builds separately on
-Windows x64 and Linux x64. Published assets are Windows `.exe`, Linux `.deb`,
-the updater signature and `latest.json`, and `SHA256SUMS`; AppImage and macOS
-are not part of the current release.
+The release workflow accepts tags matching exactly `vX.Y.Z`. It requires
+successful CI (including SonarCloud) for the exact tagged commit on the default
+branch, verifies the repository and runs real database integration before
+building native resources. Builds run on Windows x64, Linux x64 and macOS
+arm64/x64. Published assets include Windows `.exe`, Linux `.deb`, macOS `.dmg`
+and updater archives/signatures, `latest.json`, and `SHA256SUMS`.
+
+Run `pnpm verify:release` locally before a release tag. It reuses successful
+coverage and integration checkpoints when the relevant files and baseline are
+unchanged. To run only database integration without regenerating coverage, use
+`bash scripts/integration-release.sh` with Java 21, Node 22, pnpm, Rust and Docker
+available. On Linux, install the Tauri build dependencies above and
+`unixodbc-dev`; the MongoDB SQL integration also compiles Rust code. Evidence
+(TAP results, logs, commit/working-tree state and tool/fixture versions) is saved
+under `artifacts/release-integration` and uploaded by the release workflow even
+on failure. Required suites reject missing fixtures and unexpected skips;
+the RPC suite permits only its six existing unsupported JDBC scenarios.
 
 The Windows build requires the `TAURI_SIGNING_PRIVATE_KEY` repository secret.
 Set it to the complete contents of the updater private key. If that key has a
