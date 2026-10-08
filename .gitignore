@@ -68,3 +68,6 @@ security-scan-results/
 
 # Python validation scripts
 __pycache__/
+
+# Local publication metrics
+/docs/metrics/
