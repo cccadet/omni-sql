@@ -18,6 +18,8 @@ flowchart LR
   API --> Keyring[OS keyring]
   API --> Native[Native adapters\npg / mysql2 / mssql / oracledb / ODBC]
   API --> JDBC[Generic JDBC adapter]
+  API --> Mongo[Native MongoDB driver]
+  Mongo --> DB
   JDBC -->|HTTP loopback| JVM[Kotlin JVM sidecar\n127.0.0.1:41921]
   JVM --> DB[(Database)]
   Native --> DB
@@ -42,6 +44,9 @@ flowchart LR
 - **Native adapters:** PostgreSQL (`pg`), MySQL/MariaDB (`mysql2/promise`),
   SQL Server (`mssql`/Tedious), Oracle (`oracledb` thin mode), and experimental
   ODBC (`odbc`, requiring a compatible system driver).
+- **MongoDB:** The backend uses the native `mongodb` driver for Extended JSON
+  operations and metadata. SQL conversion and read-only DuckDB scans are described
+  in [MongoDB usage](MONGODB.md).
 - **JVM sidecar:** Kotlin/JDK HTTP service on `127.0.0.1:41921`. Apache
   Calcite resolves CTE output column names for tier-2 autocomplete. It also
   loads user-supplied JDBC drivers.

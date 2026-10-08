@@ -26,7 +26,8 @@ artifacts/
 .tokensave/
 .mimocode/
 .cursorrules
-.slim/deepwork/
+.codex/
+.impeccable/
 node
 .cache/omni-sql-runtimes/
 apps/desktop/src-tauri/resources/backend/

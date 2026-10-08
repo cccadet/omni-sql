@@ -1,102 +1,57 @@
 # Development
 
-## Prerequisites
+Install the prerequisites in [Building](BUILDING.md), then run `pnpm install`
+from the repository root. Package scripts are the command reference.
 
-- Node.js **>= 22** (`node:sqlite` is built in).
-- pnpm **11.17.0**, pinned by the root `package.json` as
-  `pnpm@11.17.0+sha512.cca3cea332ad254bb84145f966d19f4879615210346fc92c79a047f23a0d7b3cca3c3792f0076ba1f1831d277efbcf0a9119b31a9a60eca7fb3d6231f331ef72`.
-  Use Corepack or install that exact version.
-- Rust stable.
-- Tauri CLI 2.x (`cargo install tauri-cli --version "^2.0" --locked`).
-- JDK 21 or newer for the JVM sidecar.
-- Gradle 8 or newer, or the checked-in Gradle wrapper. `bootstrap.sh` creates
-  the wrapper when needed.
-
-On Ubuntu 22.04, install Tauri dependencies:
-
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libfuse2 xdg-utils file libayatana-appindicator3-dev
-```
-
-On Windows, install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-and the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-
-## Install and commands
-
-From repository root:
-
-```bash
-pnpm install
-pnpm verify
-cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
-```
-
-Root scripts:
+## Choose a workflow
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm typecheck` | Recursive TypeScript typecheck |
-| `pnpm lint` | Recursive ESLint |
-| `pnpm test` | Recursive package tests |
-| `pnpm verify` | Typecheck, lint, and tests |
-| `pnpm build` | Build packages |
-| `pnpm dev:frontend` | Vite frontend at `http://localhost:1420` |
-| `pnpm dev:backend` | Node backend at `http://localhost:41920/rpc` |
-| `pnpm dev:tauri` | Full native desktop development |
-| `pnpm build:tauri` | Tauri bundle build |
-| `pnpm prepare:resources` | Prepare portable runtime resources |
-| `pnpm validate:resources` | Validate prepared resources |
+| `pnpm dev:frontend` | React/Vite in a browser, port 1420 |
+| `pnpm dev:backend` | Authenticated Node HTTP JSON-RPC, port 41920 |
+| `pnpm dev:tauri` | Native desktop; starts frontend and sidecars |
 
-## Development workflows
+Run frontend and backend separately for browser development. Limit local Rust
+builds to two jobs: `CARGO_BUILD_JOBS=2 pnpm dev:tauri` in Bash, or set
+`$env:CARGO_BUILD_JOBS='2'` before running `pnpm dev:tauri` in PowerShell.
 
-### Frontend only
+## JVM sidecar
 
-Run `pnpm dev:frontend`. This opens the React/Vite app in a browser for fast
-iteration; it is not the production runtime. Run `pnpm dev:backend` separately
-when backend requests are needed.
-
-### Backend only
-
-Run `pnpm dev:backend`. The Node service exposes authenticated HTTP JSON-RPC on
-loopback port `41920`. Package tests can run independently with `pnpm test` or
-from the relevant package directory.
-
-### Full desktop
-
-Run `pnpm dev:tauri`. Tauri starts Vite and the Node backend, then opens the
-native window. The JVM sidecar is optional: without its JAR, autocomplete uses
-tier 1 and continues to work.
-
-### JVM sidecar
-
-Build it before full desktop development when tier-2 CTE autocomplete or JDBC
-features are needed:
+Build the JAR when CTE column resolution or JDBC is needed:
 
 ```bash
 cd services/jvm-sidecar
-chmod +x bootstrap.sh gradlew
-./bootstrap.sh       # first time, if the wrapper is absent
+./bootstrap.sh             # first time, if the wrapper is absent
 ./gradlew jar
 ```
 
-Windows PowerShell:
+On Windows, use `gradlew.bat jar` after bootstrap. The output is
+`services/jvm-sidecar/build/libs/omni-sql-sidecar.jar`. Rebuild it after JVM
+changes and restart Tauri. The shell runs the JAR directly; `gradlew run` can
+leave a daemon holding port 41921. Without the JAR, basic autocomplete continues,
+but CTE resolution and JDBC are unavailable. See the [sidecar guide](../services/jvm-sidecar/README.md)
+and [Troubleshooting](TROUBLESHOOTING.md).
 
-```powershell
-cd services\jvm-sidecar
-.\gradlew.bat jar
-```
+## Validation
 
-The JAR is `services/jvm-sidecar/build/libs/omni-sql-sidecar.jar`. Tauri runs
-that JAR directly; do not use `gradlew run` for the app, because its Gradle
-daemon can outlive the Tauri process and retain port `41921`.
+Run affected package checks once after a coherent change, as described in
+[Contributing](../CONTRIBUTING.md). `pnpm verify` checks all TypeScript packages.
+For Rust changes, run `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`
+with `CARGO_BUILD_JOBS=2`; for JVM changes, run the wrapper's `test` task.
+[Testing](TESTING.md) covers integration evidence, coverage and push/release gates.
 
-## Testing and checks
+## Optional Serena/LSP tooling
 
-Use `pnpm verify` for all TypeScript packages and frontend tests. Use:
+Serena is an agent tool, not an application dependency. Manage its isolated Python
+environment with `uv tool install -p 3.13 serena-agent`. Initialize the LSP backend
+with `serena init --language-backend LSP` and configure the Codex MCP connection as
+described in the [Serena client guide](https://oraios.github.io/serena/02-usage/030_clients.html).
+Configure TypeScript, Kotlin and/or Rust for the paths you need. Rust requires
+`rustup component add rust-analyzer`. Validate the setup with
+`serena project health-check .`. Local configuration, downloads and indexes stay
+ignored under `.serena`; its checked-in memories retain project knowledge.
 
-```bash
-cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
-```
-
-For sidecar changes, run `services/jvm-sidecar/gradlew test` (or
-`gradlew.bat test` on Windows) and rebuild the JAR before testing Tauri.
+Desktop MCP processes may not inherit shell initialization from Node version
+managers such as fnm. Ensure both Node and npm are reachable through the MCP
+server's `env.PATH`, using a stable installation directory rather than a temporary
+`fnm_multishells` path. Restart the client after changing its MCP environment.

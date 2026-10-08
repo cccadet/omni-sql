@@ -27,6 +27,13 @@ dados fictícios.
 > Oracle XE requer aceitação da Oracle License Agreement. O `gvenzl/oracle-xe:21-slim`
 > é a imagem mais leve (~2GB). Ao usar, você aceita os termos da Oracle.
 
+## Validação completa
+
+Na raiz do repositório, execute `bash scripts/integration-release.sh`. O runner
+sobe fixtures, inicia o sidecar autenticado, executa as suítes e salva evidências.
+Veja [Testing](../../docs/TESTING.md) para pré-requisitos e gates. Os comandos
+abaixo são úteis para investigação manual de um caminho específico.
+
 ## Quick start
 
 Os testes são arquivos TypeScript executados pelo `tsx`. Isso é necessário
@@ -190,16 +197,17 @@ cd services/jvm-sidecar && ./gradlew jar
 OMNI_SQL_AUTH_TOKEN=integration-auth-token java -jar build/libs/omni-sql-sidecar.jar
 ```
 
-O H2 roda o **mesmo teste de integração** dos demais bancos, com quatro
+O H2 roda o **mesmo teste de integração** dos demais bancos, com seis
 exceções puladas por design do `JdbcAdapter` (`DatabaseMetaData` não é
-confiável entre drivers JDBC arbitrários): `metadata.listFunctions`,
+confiável entre drivers JDBC arbitrários): `query.explain`, CREATE TABLE nativo,
+`metadata.listFunctions`,
 `metadata.listIndexes` e os dois `metadata.getDefinition`. Pelo mesmo motivo
 o seed `init/05-h2.sql` não cria a função `get_customer_total` (H2 2.x não tem
 funções SQL-bodied).
 
 ## Cadastrar conexões no Tauri
 
-Com o Tauri/backend já rodando, cadastre as quatro conexões de teste no
+Com o Tauri/backend já rodando, cadastre as conexões de teste no
 backend persistente:
 
 ```bash
@@ -270,42 +278,6 @@ docker compose up -d
 ```
 
 As portas `5432`, `3306`, `3307`, `1433`, `1521` e `9092` precisam estar livres no host.
-
-<!--
-# Comandos antigos, mantidos apenas como referência:
-# node --test --import ./smoke-test.ts não registra os testes; --import trata
-# o arquivo como preload. No Node 22, node --test ./smoke-test.ts também não
-# carrega TypeScript sem suporte adicional.
-#
-# Pipeline completo:
-# OMNI_SQL_RUN_INTEGRATION=1 node --test --import ./integration-test.ts
-#
-# Derrubar tudo:
-# docker compose down -v
--->
-
-<!--
-# O conteúdo abaixo era o quick start original e fica substituído pelos
-# comandos acima.
-
-# Aguardar healthcheck (~30-60s para Oracle)
-docker compose ps
-
-# Rodar smoke test em todos os bancos
-node --test --import ./smoke-test.ts
-
-# Rodar em banco específico
-node --test --test-name-pattern=PostgreSQL --import ./smoke-test.ts
-node --test --test-name-pattern=MySQL --import ./smoke-test.ts
-node --test --test-name-pattern='SQL Server' --import ./smoke-test.ts
-node --test --test-name-pattern='Oracle XE' --import ./smoke-test.ts
-
-# Pipeline completo
-OMNI_SQL_RUN_INTEGRATION=1 node --test --import ./integration-test.ts
-
-# Derrubar tudo
-docker compose down -v
--->
 
 ## Schema de teste
 

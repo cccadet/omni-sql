@@ -4,7 +4,7 @@
 
 Confirm Node `>=22`, pnpm `11.17.0`, Rust stable, Tauri 2, and JDK 21. On
 Ubuntu install the exact Tauri packages from
-[`DEVELOPMENT.md`](DEVELOPMENT.md). On Windows install Visual Studio Build
+[`BUILDING.md`](BUILDING.md). On Windows install Visual Studio Build
 Tools and WebView2. Re-run `pnpm install --frozen-lockfile` after changing
 checkout state.
 
@@ -34,7 +34,9 @@ The desktop app can start without
 `services/jvm-sidecar/build/libs/omni-sql-sidecar.jar`. Autocomplete then uses
 tier 1 and omits CTE column resolution. For tier 2, run the wrapper `jar`
 task, then restart Tauri. Check that `127.0.0.1:41921` is free. Use
-`curl http://127.0.0.1:41921/health` for a manual health check.
+an authenticated health request to `http://127.0.0.1:41921/health` with
+`Authorization: Bearer <per-run token>`. Standalone sidecar startup requires
+`OMNI_SQL_AUTH_TOKEN`; Tauri supplies it automatically. Keep tokens out of logs.
 
 Do not start the sidecar with `gradlew run` while using Tauri. Build the JAR and
 let Tauri run `java -jar`; this avoids an orphan Gradle daemon holding the
@@ -53,8 +55,8 @@ to the desktop shell.
 - Verify host, port, database, username, password, and TLS settings with the
   database vendor's client first.
 - Native adapters require their database server to be reachable and use their
-  documented driver behavior; inspect backend logs for the original driver
-  error.
+  documented driver behavior; inspect the UI error and sanitized backend logs.
+  Diagnostic output intentionally omits sensitive driver details.
 - JDBC requires a readable driver JAR, exact driver class name, compatible
   JDBC URL, and a running sidecar. `driver-missing`, credentials, network, and
   SQL-state errors identify common failure classes.

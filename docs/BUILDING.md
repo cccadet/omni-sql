@@ -29,11 +29,16 @@ with `services/jvm-sidecar/gradlew jar` (or `gradlew.bat jar`) when needed.
 
 ## Host build dependencies
 
+All platforms require Node 22+, pnpm 11.17.0 (pinned in `package.json`),
+Rust stable, Java 21+ and the Cargo Tauri CLI 2.x
+(`cargo install tauri-cli --version "^2.0" --locked`). Use pnpm scripts to run
+the desktop. `services/jvm-sidecar/bootstrap.sh` supplies the Gradle wrapper if absent.
+
 Ubuntu 22.04:
 
 ```bash
 sudo apt-get update
-sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libfuse2 xdg-utils file libayatana-appindicator3-dev
+sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libfuse2 xdg-utils file libayatana-appindicator3-dev unixodbc-dev
 ```
 
 Windows requires [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
@@ -41,6 +46,12 @@ and [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
 plus Node 22, pnpm 11.17.0, Rust stable, and JDK 21.
 
 ## Tauri build
+
+Backend-only packaging uses `pnpm --filter @omni-sql/backend build`, producing
+`packages/backend/dist/index.mjs`. Its `external-layout.json` lists resources
+copied beside the bundle: `@napi-rs/keyring`, `oracledb`, `odbc` and
+`@polyglot-sql/sdk` (including its WASM). Pure JavaScript drivers are bundled;
+Node, Java and database servers remain separate runtime dependencies.
 
 ```bash
 pnpm build:tauri

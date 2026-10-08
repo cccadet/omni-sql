@@ -12,8 +12,10 @@ real workflow quickly and consistently without exposing credentials or productio
 - **Cursor:** move deliberately; pause briefly on autocomplete and the result grid.
 - **Output:** optimized GIF for README plus MP4/WebM for social and the website.
 
-The current `docs/images/feature_example.gif` is the working primary demo. Replace it
-in place when an updated capture is ready so existing links remain valid.
+README currently uses `docs/images/release-visuals/omni-sql-demo.gif` and
+`docs/images/release-visuals/local-analysis-demo.gif`. Keep captions and links in
+sync when refreshing them; see `scripts/generate_release_visuals.py` for release
+visuals and [Publication plan](PUBLICATION-PLAN.md) for current channel status.
 
 ## Screenshot set
 
@@ -24,5 +26,5 @@ short, benefit-led captions. Avoid empty areas, debug UI, unrelated errors, and 
 ## Social preview
 
 Create a dedicated 1280×640 image with the logo, product name, hero statement, five
-supported databases, and a clean UI crop. Upload it in **Repository settings → General
+supported connection types, and a clean UI crop. Upload it in **Repository settings → General
 → Social preview**; repository files cannot configure that GitHub setting by themselves.
