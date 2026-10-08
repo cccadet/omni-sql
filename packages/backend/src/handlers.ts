@@ -917,6 +917,19 @@ export const handlers: BackendRpcRouter = {
     return { query: mongoSqlToNative(sql, database ? decodeURIComponent(database) : undefined) };
   },
 
+  async "query.mongoSqlPlan"({ connectionId, sql }) {
+    await connectionsRestored;
+    const session = requireSession(connectionId);
+    if (session.config.dialect !== "mongodb") throw new RpcValidationError("MongoDB connection required");
+    const database = /^mongodb(?:\+srv)?:\/\/[^/]+\/([^?]*)/i.exec(session.config.endpoint)?.[1];
+    try {
+      return { query: mongoSqlToNative(sql, database ? decodeURIComponent(database) : undefined, true) };
+    } catch (error) {
+      if (error instanceof RpcValidationError) return { query: null };
+      throw error;
+    }
+  },
+
   async "query.explain"({ connectionId, sql }: ExplainQueryParams): Promise<ExplainQueryResult> {
     await connectionsRestored;
     const s = requireSession(connectionId);

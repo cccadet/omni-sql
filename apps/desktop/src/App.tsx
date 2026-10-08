@@ -1061,7 +1061,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           }
           if (activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode) {
             activeQuery.engineOperationId = `mongo-query-${crypto.randomUUID()}`;
-            lastResult = await runMongoSql(activeConnectionId, sql, activeTab.queryLimit, activeQuery.engineOperationId);
+            lastResult = await runMongoSql(activeConnectionId, sql, activeTab.queryLimit, activeQuery.engineOperationId, false, activeQuery.abortController.signal);
             continue;
           }
           if (activeDialect === "duckdb") {
@@ -1135,7 +1135,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const activeQuery = activeQueryRef.current;
     if (!activeQuery || activeQuery.finished || activeQuery.cancelPromise) return;
     activeQuery.cancelPromise = (activeQuery.engineOperationId
-      ? cancelAnalysis(activeQuery.engineOperationId)
+      ? activeQuery.engineOperationId.startsWith("mongo-query-")
+        ? Promise.allSettled([cancelAnalysis(activeQuery.engineOperationId), backend.call("query.cancel", { connectionId: activeQuery.connectionId })])
+        : cancelAnalysis(activeQuery.engineOperationId)
       : backend
       .call("query.cancel", { connectionId: activeQuery.connectionId })
     )
@@ -1607,7 +1609,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
               </span>
               <span className="omni-header-detail">
                 <DialectIcon dialect={activeConnection.dialect} size={14} />
-                {activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode ? "SQL · DuckDB · " + t("readOnly") : DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect}
+                {activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode ? "SQL · " + t("readOnly") : DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect}
               </span>
               {activeDatabase && <span className="omni-header-detail"><span>{t("headerDatabase")}</span><strong>{activeDatabase}</strong></span>}
               <span className={`omni-header-state omni-header-state-${connectionHealth}`}>

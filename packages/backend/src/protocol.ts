@@ -311,6 +311,7 @@ export interface RpcRouter {
   "query.run": (p: RunQueryParams, signal?: AbortSignal) => Promise<RunQueryResult>;
   "query.cancel": (p: CancelQueryParams) => Promise<CancelQueryResult>;
   "query.mongoConvert": (p: { connectionId: string; sql: string }) => Promise<{ query: string }>;
+  "query.mongoSqlPlan": (p: { connectionId: string; sql: string }) => Promise<{ query: string | null }>;
   "query.explain": (p: ExplainQueryParams) => Promise<ExplainQueryResult>;
   "query.diagnose": (p: DiagnoseQueryParams) => Promise<DiagnoseQueryResult>;
   "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;

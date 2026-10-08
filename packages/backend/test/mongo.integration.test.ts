@@ -48,6 +48,21 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
     const metadata = await rpc("metadata.listRelations", { connectionId, includeColumns: true });
     assert.ok((metadata.result?.relations as { name: string }[]).some((relation) => relation.name === "items"));
     const query = (operation: string, rest = {}) => JSON.stringify({ database: db.databaseName, collection: "items", operation, ...rest });
+    await db.collection("items").createIndex({ id_guia: 1 });
+    for (const where of ["id_guia = '456'", "list_contains(id_guia, '456')"]) {
+      const planned = await rpc("query.mongoSqlPlan", { connectionId, sql: `SELECT * FROM items WHERE ${where}` });
+      assert.equal(planned.error, undefined);
+      assert.ok(planned.result?.query);
+      const found = await rpc("query.run", { connectionId, sql: planned.result.query, limit: 1 });
+      assert.equal(found.error, undefined, found.error?.message);
+      assert.equal((found.result?.rows as unknown[][]).length, 1);
+      assert.ok(JSON.stringify(found.result?.rows).includes("first"));
+      assert.equal(found.result?.rowsMoreAvailable, false);
+      const explanation = await rpc("query.explain", { connectionId, sql: planned.result.query });
+      assert.equal(explanation.error, undefined, explanation.error?.message);
+      assert.ok(JSON.stringify(explanation.result).includes("IXSCAN"), "array filter must have an index scan in its explain plan");
+    }
+    assert.equal((await rpc("query.mongoSqlPlan", { connectionId, sql: "SELECT 1" })).result?.query, null);
     const result = await rpc("query.run", { connectionId, sql: query("find", { sort: { name: 1 } }), limit: 1 });
     assert.equal(result.error, undefined); assert.equal(result.result?.rowsMoreAvailable, true);
     const rows = result.result?.rows as unknown[][]; assert.equal(rows.length, 1);

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { backend } from "./backend";
 import type { DuckLakeCatalog } from "./s3-sources";
 import type { QueryResult } from "@omni-sql/ts-types";
 
@@ -195,8 +196,17 @@ export async function dropStableAnalysis(workspaceId: string, handleId: string):
   return invoke<boolean>("analysis_query_drop", { workspaceId, handleId });
 }
 
-export async function runMongoSql(connectionId: string, sql: string, limit: number, operationId: string, explain = false): Promise<QueryResult> {
+export async function runMongoSql(connectionId: string, sql: string, limit: number, operationId: string, explain = false, signal?: AbortSignal): Promise<QueryResult> {
   const started = performance.now();
+  const plan = await backend.call<{ query: string | null }>("query.mongoSqlPlan", { connectionId, sql }, signal);
+  signal?.throwIfAborted();
+  if (plan.query !== null) {
+    if (explain) {
+      const result = await backend.call<{ textual: string }>("query.explain", { connectionId, sql: plan.query }, signal);
+      return { columns: [{ name: "plan", dataType: "VARCHAR", nullable: false }], rows: [[result.textual]], rowsMoreAvailable: false, elapsedMs: performance.now() - started };
+    }
+    return backend.call<QueryResult>("query.run", { connectionId, sql: plan.query, limit }, signal);
+  }
   const result = await invoke<Omit<QueryResult, "elapsedMs">>("analysis_query_mongo", { request: { connectionId, sql, limit, operationId, explain } });
   return { ...result, elapsedMs: performance.now() - started };
 }

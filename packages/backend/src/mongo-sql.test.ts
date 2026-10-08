@@ -5,6 +5,18 @@ import { parseMongoQuery } from "./mongo-adapter.ts";
 
 const convert = (sql: string, database?: string) => JSON.parse(mongoSqlToNative(sql, database)) as Record<string, unknown>;
 
+test("Mongo SQL pushes equality and explicit list membership into native filters", () => {
+  const plan = (where: string) => JSON.parse(mongoSqlToNative(`SELECT * FROM base_laudos.padronizacao WHERE ${where}`, undefined, true));
+  assert.deepEqual(plan("id_guia = '52712827'").filter, { id_guia: { $eq: "52712827" } });
+  assert.deepEqual(plan("'52712827' = id_guia").filter, { id_guia: { $eq: "52712827" } });
+  assert.deepEqual(plan("list_contains(id_guia, '52712827')").filter, { id_guia: { $elemMatch: { $eq: "52712827" } } });
+  assert.deepEqual(plan("(id_guia = '52712827' OR id_guia = '789') AND status = 'ok'").filter, {
+    $and: [{ $or: [{ id_guia: { $eq: "52712827" } }, { id_guia: { $eq: "789" } }] }, { status: { $eq: "ok" } }],
+  });
+  assert.deepEqual(plan("id_guia = NULL").filter, { $expr: { $and: [{ $ne: [{ $ifNull: ["$id_guia", null] }, null] }, { $ne: [{ $ifNull: [{ $literal: null }, null] }, null] }, { $eq: ["$id_guia", { $literal: null }] }] } });
+  assert.throws(() => plan("list_contains(id_guia, other_field)"), /literais/);
+});
+
 test("SQL SELECT converts to the native adapter contract with separate database and collection", () => {
   const query = convert("SELECT id_guia, status FROM base_laudos.padronizacao WHERE id_guia = '52712827' ORDER BY status DESC");
   assert.equal(query.database, "base_laudos");
