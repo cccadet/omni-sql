@@ -1,37 +1,13 @@
 # Contributing
 
-## Workflow
+1. Follow [Development](docs/DEVELOPMENT.md) to install and run the project.
+2. Follow package boundaries and conventions in [AGENTS.md](AGENTS.md).
+   Preserve validation, error handling and accessibility.
+3. At completion, run typecheck, lint and tests for affected packages. Shared
+   contracts require consumer checks; Rust/JVM changes require native checks.
+   Driver, persistence and protocol changes need affected-path integration.
+4. Follow [Testing](docs/TESTING.md) before pushing completed code or releasing.
 
-1. Install the prerequisites in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
-2. Install dependencies with `pnpm install`.
-3. Make the smallest change that matches existing package boundaries and
-   conventions.
-4. Run the validation commands below before sharing a change.
-
-No branch naming or commit-message policy is imposed by this repository.
-
-## Validation
-
-```bash
-pnpm verify
-cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
-```
-
-`pnpm verify` runs recursive TypeScript typechecks, lint, and tests. Package
-specific commands and desktop workflows are documented in
-[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
-
-## Code conventions
-
-- TypeScript is strict, targets ES2022, and uses ESM imports with `.ts`
-  extensions for workspace packages.
-- Keep React code functional and use React 19 APIs with Fluent UI React v9.
-- Keep adapter behavior behind the shared adapter contracts.
-- Keep backend communication on the typed HTTP JSON-RPC protocol.
-- Prefer existing utilities and package patterns; avoid speculative
-  abstractions.
-- Preserve input validation, error handling, and accessibility basics.
-- Rust changes must pass `cargo check`.
-
-Do not commit generated build output, credentials, database data, or local
-runtime resources.
+Optional hooks (`git config core.hooksPath .githooks`) check staged whitespace
+and TS/JS lint at commit. They do not replace completion checks.
+Do not commit credentials, database data, local tool state or generated output.

@@ -205,6 +205,7 @@ verification steps, limits, and the complete security model.
 - [MCP integration](docs/MCP.md)
 - [Development](docs/DEVELOPMENT.md)
 - [Building](docs/BUILDING.md)
+- [Testing and release gates](docs/TESTING.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Local analysis implementation and remaining work](docs/RUST_DATA_ENGINE_TODO.md)
 
