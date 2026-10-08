@@ -21,7 +21,7 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
   await client.connect();
   const db = client.db();
   await db.collection("items").deleteMany({});
-  await db.collection("items").insertMany([{ name: "first", nested: { city: "SP" }, tags: ["a", "b"], id_guia: ["123", "456"] }, { name: "second", price: 10, id_guia: ["789"] }]);
+  await db.collection("items").insertMany([{ name: "first", data_evento: new Date("2026-10-08T00:00:00Z"), nested: { city: "SP" }, tags: ["a", "b"], id_guia: ["123", "456"] }, { name: "second", price: 10, id_guia: ["789"] }]);
   const user = "omni_mongo_test";
   const password = "p:'/?@";
   await client.db("admin").command({ dropUser: user }).catch(() => undefined);
@@ -55,6 +55,10 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
       assert.ok(planned.result?.query);
       const found = await rpc("query.run", { connectionId, sql: planned.result.query, limit: 1 });
       assert.equal(found.error, undefined, found.error?.message);
+      const columns = found.result?.columns as { name: string; dataType: string }[];
+      assert.equal(columns.find(({ name }) => name === "_id")?.dataType, "OBJECTID");
+      assert.equal(columns.find(({ name }) => name === "data_evento")?.dataType, "TIMESTAMP");
+      assert.equal(columns.find(({ name }) => name === "id_guia")?.dataType, "VARCHAR[]");
       assert.equal((found.result?.rows as unknown[][]).length, 1);
       assert.ok(JSON.stringify(found.result?.rows).includes("first"));
       assert.equal(found.result?.rowsMoreAvailable, false);

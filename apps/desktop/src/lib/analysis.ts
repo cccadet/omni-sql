@@ -141,7 +141,11 @@ export async function importQueryResult(input: {
       operationId: `import-${crypto.randomUUID()}`,
       workspaceId: input.workspaceId,
       name: input.name,
-      columns: input.result.columns,
+      // Snapshot bindings accept JSON documents, not BSON envelopes as scalar SQL values.
+      columns: input.result.columns.map((column, index) => input.result.rows.some((row) => {
+        const value = row[index];
+        return value != null && typeof value === "object" && !(value instanceof Date) && !(value instanceof Uint8Array);
+      }) ? { ...column, dataType: "JSON" } : column),
       rows: input.result.rows.map((row) => row.map(transportValue)),
       rowsMoreAvailable: input.result.rowsMoreAvailable,
       sourceConnectionId: input.sourceConnectionId,

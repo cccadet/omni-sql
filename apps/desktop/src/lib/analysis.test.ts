@@ -82,6 +82,20 @@ test("serializes nested database values without losing bigint, binary or timesta
   }) });
 });
 
+test("imports typed BSON and lists as lossless JSON snapshots instead of scalar SQL bindings", async () => {
+  const columns = [
+    { name: "value", dataType: "BIGINT", nullable: false },
+    { name: "list", dataType: "INTEGER[]", nullable: false },
+    { name: "price", dataType: "DOUBLE", nullable: false },
+  ];
+  const rows = [[{ $numberLong: "9223372036854775807" }, [{ $numberInt: "1" }], 1.5]];
+  await importQueryResult({ workspaceId: "tab-1", name: "Mongo values", result: { columns, rows, rowsMoreAvailable: false, elapsedMs: 1 } });
+  expect(invoke).toHaveBeenCalledWith("analysis_import_result", { request: expect.objectContaining({
+    columns: [{ ...columns[0], dataType: "JSON" }, { ...columns[1], dataType: "JSON" }, columns[2]], rows,
+  }) });
+  expect(columns[0]!.dataType).toBe("BIGINT");
+});
+
 test("rejects unsupported values before invoking the native import", async () => {
   await expect(importQueryResult({
     workspaceId: "tab-1", name: "Invalid",

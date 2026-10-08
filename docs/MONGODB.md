@@ -15,6 +15,10 @@ O autocomplete sugere operações, bancos, coleções, campos, operadores e est�
 
 A tabela mostra ObjectIds como texto e datas BSON em ISO 8601 UTC (`Z`), sem os envelopes `$oid` e `$date`. Números BSON também aparecem sem envelopes, preservando todos os dígitos, inclusive dentro de arrays e objetos. O filtro e a ordenação usam os valores exibidos. Ao passar o mouse sobre uma célula estruturada, o valor original aparece; a edição e a exportação CSV preservam o Extended JSON original.
 
+No caminho nativo, os tipos das colunas são inferidos dos documentos retornados; a barra lateral usa a amostra de até 100 documentos já carregada. ObjectId, datas, textos, booleanos, números e binários têm tipos próprios. Listas mostram o tipo dos elementos (`VARCHAR[]`, por exemplo). Nulos e listas vazias não substituem um tipo conhecido; tipos numéricos diferentes são indicados como `NUMERIC`, e tipos incompatíveis ou desconhecidos como `JSON`. Essa inferência descreve os valores observados, não impõe um esquema à coleção. No caminho DuckDB, os tipos continuam vindo dos metadados da consulta executada.
+
+Atualize os metadados para recarregar tipos que já estavam em cache na barra lateral. A importação de resultados estruturados em “Analisar localmente” mantém o snapshot em JSON, preservando os envelopes BSON e a precisão numérica.
+
 ## `/mongo`: converter SELECT para JSON nativo
 
 No editor de uma conexão MongoDB em modo nativo, escreva:

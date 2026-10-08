@@ -77,11 +77,44 @@ function safeMongoError(error: unknown): RpcDatabaseError | RpcValidationError {
     : "MongoDB operation failed. Check the query and connection settings."));
 }
 
+function mongoValueType(value: unknown): string {
+  if (value instanceof BSON.ObjectId) return "OBJECTID";
+  if (value instanceof Date) return "TIMESTAMP";
+  if (value instanceof BSON.Timestamp) return "JSON";
+  if (value instanceof BSON.Long || typeof value === "bigint") return "BIGINT";
+  if (value instanceof BSON.Int32) return "INTEGER";
+  if (value instanceof BSON.Double) return "DOUBLE";
+  if (value instanceof BSON.Decimal128) return "DECIMAL128";
+  if (value instanceof BSON.Binary || value instanceof Uint8Array) return "BINARY";
+  if (typeof value === "string") return "VARCHAR";
+  if (typeof value === "boolean") return "BOOLEAN";
+  if (typeof value === "number") return Number.isSafeInteger(value) ? value >= -2147483648 && value <= 2147483647 ? "INTEGER" : "BIGINT" : "DOUBLE";
+  return "JSON";
+}
+
+function mongoValuesType(values: unknown[], depth = 0): string {
+  const present = values.filter((value) => value != null);
+  if (!present.length || depth >= 16) return "JSON";
+  if (present.every(Array.isArray)) return `${mongoValuesType(present.flat(), depth + 1)}[]`;
+  const types = new Set(present.map(mongoValueType));
+  if (types.size === 1) return [...types][0]!;
+  if ([...types].every((type) => ["INTEGER", "BIGINT", "DOUBLE", "DECIMAL128"].includes(type))) return "NUMERIC";
+  return "JSON";
+}
+
+function mongoColumns(documents: Document[], names: string[]) {
+  return names.map((name) => {
+    const values = documents.map((doc) => Object.hasOwn(doc, name) ? doc[name] : null);
+    return { name, dataType: mongoValuesType(values), nullable: values.some((value) => value == null) };
+  });
+}
+
 export function mongoResult(documents: Document[], limit: number, elapsedMs: number): QueryResult {
-  const names = [...new Set(documents.slice(0, limit).flatMap((doc) => Object.keys(doc)))];
+  const preview = documents.slice(0, limit);
+  const names = [...new Set(preview.flatMap((doc) => Object.keys(doc)))];
   return {
-    columns: names.map((name) => ({ name, dataType: "JSON", nullable: true })),
-    rows: documents.slice(0, limit).map((doc) => {
+    columns: mongoColumns(preview, names),
+    rows: preview.map((doc) => {
       const json = BSON.EJSON.serialize(doc, { relaxed: false }) as Document;
       return names.map((name) => Object.hasOwn(json, name) ? json[name] : null);
     }),
@@ -144,11 +177,12 @@ export class MongoAdapter extends CachedAdapter {
         const relations: Relation[] = [];
         for (const collection of collections) {
           const fields = new Set(["_id"]);
+          const samples: Document[] = [];
           const cursor = db.collection(collection.name).find({}, { maxTimeMS: 10_000 }).limit(100);
-          try { for await (const document of cursor) { for (const name of Object.keys(document)) fields.add(name); } }
+          try { for await (const document of cursor) { samples.push(document); for (const name of Object.keys(document)) fields.add(name); } }
           finally { await cursor.close(); }
           relations.push({ schema: database, name: collection.name, kind: collection.type === "view" ? "view" : "table",
-            constraints: [], columns: [...fields].map((name, ordinalPosition) => ({ name, dataType: "JSON", nullable: name !== "_id", isPrimaryKey: name === "_id", ordinalPosition })) });
+            constraints: [], columns: mongoColumns(samples, [...fields]).map((column, ordinalPosition) => ({ ...column, isPrimaryKey: column.name === "_id", ordinalPosition })) });
         }
         result.push([null, database, relations]);
       }
