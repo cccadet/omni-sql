@@ -31,6 +31,16 @@ struct MongoCredentials {
     password: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MongoSqlSource {
+    sql: String,
+    documents: Vec<JsonValue>,
+    structure: JsonValue,
+    row_count: usize,
+    native_plan: Option<String>,
+}
+
 const DEFAULT_MEMORY_LIMIT: &str = "512MB";
 const DEFAULT_THREADS: u8 = 2;
 const MAX_SNAPSHOT_ROWS: usize = 10_000;
@@ -526,6 +536,16 @@ struct SourceCancellation {
     connection_id: String,
     backend_token: String,
     backend_port: u16,
+}
+
+struct SourceCancellationGuard<'a> {
+    slot: &'a Mutex<Option<SourceCancellation>>,
+}
+
+impl Drop for SourceCancellationGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = self.slot.lock() { *slot = None; }
+    }
 }
 
 struct RemoteInterruptGuard<'a> {
@@ -1188,6 +1208,38 @@ impl DataEngine {
             let sql = validate_mongo_sql(&request.sql)?;
             if request.limit == 0 || request.limit > MAX_PREVIEW_ROWS {
                 return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
+            }
+            *self.source_cancellation.lock().map_err(|_| "source cancellation lock is poisoned")? = Some(SourceCancellation {
+                operation_id: request.operation_id.clone(), connection_id: request.connection_id.clone(),
+                backend_token: token.to_string(), backend_port,
+            });
+            let _source_guard = SourceCancellationGuard { slot: &self.source_cancellation };
+            let mut source_response = reqwest::blocking::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(70)).build()
+                .map_err(|_| "Failed to create MongoDB SQL source client")?
+                .post(format!("http://127.0.0.1:{backend_port}/rpc"))
+                .bearer_auth(token)
+                .json(&serde_json::json!({ "jsonrpc": "2.0", "id": request.operation_id,
+                    "method": "query.mongoSqlSource", "params": { "connectionId": request.connection_id, "sql": sql, "explain": request.explain } }))
+                .send().and_then(|response| response.error_for_status())
+                .map_err(|_| "Unable to read filtered MongoDB SQL source")?;
+            let mut body = Vec::new();
+            (&mut source_response).take((MAX_SNAPSHOT_BYTES + 1) as u64).read_to_end(&mut body)
+                .map_err(|_| "Unable to read filtered MongoDB SQL source")?;
+            if body.len() > MAX_SNAPSHOT_BYTES { return Err("MongoDB SQL source response exceeds 32 MiB".into()); }
+            let response: JsonValue = serde_json::from_slice(&body).map_err(|_| "Invalid MongoDB SQL source response")?;
+            if let Some(error) = response.get("error") {
+                return Err(error.get("message").and_then(JsonValue::as_str).unwrap_or("MongoDB SQL source failed").to_string());
+            }
+            if self.cancel_requested.load(Ordering::Acquire) { return Err("analytical operation cancelled".into()); }
+            let source = response.get("result").and_then(|result| result.get("source"))
+                .ok_or("MongoDB SQL source response is unavailable")?;
+            if !source.is_null() {
+                let source: MongoSqlSource = serde_json::from_value(source.clone()).map_err(|_| "Invalid MongoDB SQL source")?;
+                let remote = Connection::open_in_memory().map_err(|_| "Unable to open MongoDB SQL engine")?;
+                let _guard = self.arm_remote_interrupt(&remote)?;
+                return query_mongo_snapshot(&remote, source, request.limit, request.explain);
             }
             let response: JsonValue = reqwest::blocking::Client::builder()
                 .timeout(std::time::Duration::from_secs(10)).build()
@@ -2850,6 +2902,31 @@ fn validate_mongo_sql(sql: &str) -> Result<&str, String> {
     Ok(sql)
 }
 
+fn query_mongo_snapshot(connection: &Connection, source: MongoSqlSource, limit: usize, explain: bool) -> Result<AnalysisQueryResult, String> {
+    let sql = validate_mongo_sql(&source.sql)?;
+    if source.row_count != source.documents.len() { return Err("MongoDB SQL source row count mismatch".into()); }
+    connection.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS};"))
+        .map_err(|error| format!("failed to configure MongoDB SQL engine: {error}"))?;
+    // Bound parameters plus an explicit recursive schema avoid sampling arrays as VARCHAR.
+    connection.execute(
+        "CREATE TABLE __omni_mongo_source AS SELECT document.* FROM (SELECT UNNEST(from_json_strict(?::JSON, ?::JSON)) AS document)",
+        duckdb::params![serde_json::to_string(&source.documents).map_err(|_| "Invalid MongoDB SQL documents")?,
+            serde_json::to_string(&source.structure).map_err(|_| "Invalid MongoDB SQL structure")?],
+    ).map_err(|error| format!("failed to import typed MongoDB SQL source: {error}"))?;
+    connection.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
+        .map_err(|_| "Unable to enforce MongoDB SQL read-only restrictions")?;
+    if explain {
+        let mut statement = connection.prepare(&format!("EXPLAIN {sql}")).map_err(|error| error.to_string())?;
+        let mapped = statement.query_map([], |row| Ok(vec![JsonValue::String(row.get::<_, String>(0)?), JsonValue::String(row.get::<_, String>(1)?)]))
+            .map_err(|error| error.to_string())?;
+        let mut rows = vec![vec![JsonValue::String("mongo_source_documents".into()), JsonValue::String(source.row_count.to_string())]];
+        if let Some(native) = source.native_plan { rows.push(vec![JsonValue::String("mongo_native".into()), JsonValue::String(native)]); }
+        rows.extend(mapped.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?);
+        return Ok(AnalysisQueryResult { columns: vec![QueryColumn { name: "key".into(), data_type: "VARCHAR".into(), nullable: false }, QueryColumn { name: "plan".into(), data_type: "VARCHAR".into(), nullable: false }], rows, rows_more_available: false });
+    }
+    DataEngine::query_preview(connection, sql, limit)
+}
+
 fn mongo_connection_uri(credentials: &MongoCredentials) -> Result<String, String> {
     let (scheme, rest) = credentials.endpoint.split_once("://").ok_or("Invalid MongoDB URI")?;
     if !matches!(scheme, "mongodb" | "mongodb+srv") || rest.split(['/', '?']).next().unwrap_or("").contains('@') {
@@ -4139,6 +4216,87 @@ mod mongo_tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires a live backend RPC fixture connected to MongoDB"]
+    fn mongo_native_source_real_driver_and_duckdb() {
+        let port: u16 = std::env::var("OMNI_SQL_TEST_MONGO_SQL_PORT").expect("live backend port").parse().unwrap();
+        let token = std::env::var("OMNI_SQL_TEST_MONGO_SQL_TOKEN").expect("live backend token");
+        let database = std::env::var("OMNI_SQL_TEST_MONGO_SQL_DATABASE").expect("fixture database");
+        let engine = DataEngine::open_in_memory().unwrap();
+        let run = |sql: String, limit, explain| engine.query_mongo(MongoQueryRequest {
+            operation_id: "mongo-source-live".into(), connection_id: "mongo-source-live".into(), sql, limit, explain,
+        }, &token, port).unwrap();
+        let sql = format!("WITH itens AS (SELECT _id, data_evento, unnest(exames) AS exame FROM {database}.padronizacao WHERE list_contains(id_guia, '52712827')) SELECT _id, data_evento, exame.codigos[1] AS codigo, exame.nome_padronizado AS descricao FROM itens ORDER BY codigo");
+        let result = run(sql.clone(), 1, false);
+        assert_eq!(result.rows.len(), 1);
+        assert!(result.rows_more_available);
+        assert_eq!(result.rows[0][2], "40301605");
+        assert_eq!(result.rows[0][3], "colesterol");
+        assert!(result.rows[0][1].as_str().unwrap().contains("12:34:56.123"));
+        let equality = run(sql.replace("list_contains(id_guia, '52712827')", "id_guia = '52712827'"), 10, false);
+        assert_eq!(equality.rows.len(), 2);
+        assert_eq!(equality.rows[1][2], "40302040");
+        let empty = run(sql.replace("52712827", "absent"), 10, false);
+        assert!(empty.rows.is_empty());
+        let all_codes = run(format!("WITH itens AS (SELECT unnest(exames) AS exame FROM {database}.padronizacao WHERE id_guia = '52712827') SELECT unnest(exame.codigos) AS codigo FROM itens"), 10, false);
+        assert_eq!(all_codes.rows.len(), 3);
+        assert_eq!(all_codes.rows[1][0], "extra");
+        let count = run(format!("WITH itens AS (SELECT unnest(exames) AS exame FROM {database}.padronizacao WHERE id_guia = '52712827') SELECT count(*) AS total FROM itens"), 1, false);
+        assert_eq!(count.rows[0][0], 2);
+        let residual = run(format!("WITH itens AS (SELECT unnest(exames) AS exame FROM {database}.padronizacao WHERE id_guia = '52712827' AND length(etapa) > 3) SELECT exame.codigos[1] FROM itens WHERE list_contains(exame.codigos, '40302040')"), 10, false);
+        assert_eq!(residual.rows, vec![vec![serde_json::json!("40302040")]]);
+        let explained = run(sql, 10, true);
+        assert!(explained.rows.iter().any(|row| row[0] == "mongo_source_documents" && row[1] == "1"));
+        assert!(explained.rows.iter().any(|row| row[0] == "mongo_native" && row[1].as_str().unwrap().contains("IXSCAN")));
+    }
+
+    fn exam_source(documents: JsonValue) -> MongoSqlSource {
+        MongoSqlSource {
+            sql: "WITH itens AS (SELECT _id, data_evento, unnest(exames) AS exame FROM __omni_mongo_source) SELECT _id, data_evento, exame.codigos[1] AS codigo, exame.nome_padronizado AS descricao FROM itens ORDER BY codigo".into(),
+            row_count: documents.as_array().unwrap().len(),
+            documents: serde_json::from_value(documents).unwrap(),
+            structure: serde_json::json!([{ "_id": "VARCHAR", "data_evento": "TIMESTAMP", "exames": [{ "codigos": ["VARCHAR"], "nome_padronizado": "VARCHAR" }] }]),
+            native_plan: Some("IXSCAN".into()),
+        }
+    }
+
+    #[test]
+    fn native_mongo_snapshot_expands_typed_codes_and_limits_only_the_final_result() {
+        let documents = serde_json::json!([{ "_id": "0123456789abcdef01234567", "data_evento": "2026-10-08T12:34:56.123Z", "exames": [
+            { "codigos": ["40302040", "extra"], "nome_padronizado": "glicose" },
+            { "codigos": ["40301605"], "nome_padronizado": "colesterol" }
+        ] }]);
+        let connection = Connection::open_in_memory().unwrap();
+        let result = query_mongo_snapshot(&connection, exam_source(documents.clone()), 1, false).unwrap();
+        assert_eq!(result.rows.len(), 1);
+        assert!(result.rows_more_available);
+        assert_eq!(result.rows[0][2], "40301605");
+        assert_eq!(result.rows[0][3], "colesterol");
+        assert!(result.rows[0][1].as_str().unwrap().contains("12:34:56.123"));
+        assert_eq!(result.columns[1].data_type, "Timestamp");
+        let connection = Connection::open_in_memory().unwrap();
+        let empty = query_mongo_snapshot(&connection, exam_source(serde_json::json!([])), 10, false).unwrap();
+        assert!(empty.rows.is_empty());
+        assert_eq!(empty.columns.len(), 4);
+        let connection = Connection::open_in_memory().unwrap();
+        let explained = query_mongo_snapshot(&connection, exam_source(documents), 10, true).unwrap();
+        assert!(explained.rows.iter().any(|row| row[0] == "mongo_native" && row[1] == "IXSCAN"));
+    }
+
+    #[test]
+    fn native_mongo_snapshot_preserves_int64_and_all_codes() {
+        let connection = Connection::open_in_memory().unwrap();
+        let source = MongoSqlSource { sql: "SELECT inteiro, unnest(exames[1].codigos) AS codigo FROM __omni_mongo_source".into(),
+            documents: vec![serde_json::json!({ "inteiro": "9223372036854775807", "exames": [{ "codigos": ["40302040", "40301605"] }] })],
+            structure: serde_json::json!([{ "inteiro": "BIGINT", "exames": [{ "codigos": ["VARCHAR"] }] }]), row_count: 1, native_plan: None };
+        let result = query_mongo_snapshot(&connection, source, 10, false).unwrap();
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(result.rows[0][0], "9223372036854775807");
+        assert_eq!(result.columns[0].data_type, "Bigint");
+        assert_eq!(result.rows[0][1], "40302040");
+        assert_eq!(result.rows[1][1], "40301605");
+    }
+
+    #[test]
     fn mongo_sql_array_filters_explain_membership() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE items (id_guia VARCHAR[]); INSERT INTO items VALUES (['123', '456']), (['789']), ([]), (NULL);").unwrap();
@@ -4226,13 +4384,16 @@ mod mongo_tests {
         let server_user = credentials.user;
         let server_password = credentials.password;
         let server = std::thread::spawn(move || {
-            for _ in 0..6 {
+            for _ in 0..12 {
                 let (mut socket, _) = listener.accept().unwrap();
                 socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
                 let mut request = [0; 8192];
                 let length = socket.read(&mut request).unwrap();
                 assert!(String::from_utf8_lossy(&request[..length]).contains("Bearer test-token"));
-                let payload = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": { "endpoint": server_uri, "user": server_user, "password": server_password } }).to_string();
+                let result = if String::from_utf8_lossy(&request[..length]).contains("query.mongoSqlSource") {
+                    serde_json::json!({ "source": null })
+                } else { serde_json::json!({ "endpoint": server_uri, "user": server_user, "password": server_password }) };
+                let payload = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": result }).to_string();
                 write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", payload.len(), payload).unwrap();
             }
         });

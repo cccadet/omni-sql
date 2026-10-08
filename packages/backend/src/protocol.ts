@@ -312,6 +312,9 @@ export interface RpcRouter {
   "query.cancel": (p: CancelQueryParams) => Promise<CancelQueryResult>;
   "query.mongoConvert": (p: { connectionId: string; sql: string }) => Promise<{ query: string }>;
   "query.mongoSqlPlan": (p: { connectionId: string; sql: string }) => Promise<{ query: string | null }>;
+  "query.mongoSqlSource": (p: { connectionId: string; sql: string; explain?: boolean }, signal?: AbortSignal) => Promise<{
+    source: { sql: string; documents: unknown[]; structure: unknown; rowCount: number; nativePlan?: string } | null;
+  }>;
   "query.explain": (p: ExplainQueryParams) => Promise<ExplainQueryResult>;
   "query.diagnose": (p: DiagnoseQueryParams) => Promise<DiagnoseQueryResult>;
   "query.analyzeEditability": (p: AnalyzeEditabilityParams) => Promise<AnalyzeEditabilityResult>;

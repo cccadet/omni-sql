@@ -67,6 +67,33 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
       assert.ok(JSON.stringify(explanation.result).includes("IXSCAN"), "array filter must have an index scan in its explain plan");
     }
     assert.equal((await rpc("query.mongoSqlPlan", { connectionId, sql: "SELECT 1" })).result?.query, null);
+    const sourceCollection = db.collection("sql_source_cases");
+    await sourceCollection.deleteMany({});
+    await sourceCollection.insertMany(Array.from({ length: 2000 }, (_, index) => ({
+      id_guia: [index === 777 ? "52712827" : String(index)], data_evento: new Date("2026-10-08T12:34:56.123Z"),
+      inteiro: BSON.Long.fromString("9223372036854775807"),
+      exames: [{ codigos: ["40302040", "extra"], nome_padronizado: "glicose" }, { codigos: ["40301605"], nome_padronizado: "colesterol" }],
+    })));
+    await sourceCollection.createIndex({ id_guia: 1 });
+    const sourceSql = `WITH itens AS (SELECT _id, data_evento, inteiro, unnest(exames) AS exame
+      FROM ${db.databaseName}.sql_source_cases WHERE list_contains(id_guia, '52712827'))
+      SELECT _id, data_evento, inteiro, exame.codigos[1] AS codigo, exame.nome_padronizado AS descricao FROM itens LIMIT 1`;
+    assert.equal((await rpc("query.mongoSqlPlan", { connectionId, sql: sourceSql })).result?.query, null);
+    const sourceResult = await rpc("query.mongoSqlSource", { connectionId, sql: sourceSql, explain: true });
+    assert.equal(sourceResult.error, undefined, sourceResult.error?.message);
+    const source = sourceResult.result?.source as { sql: string; documents: Record<string, unknown>[]; structure: unknown; rowCount: number; nativePlan: string };
+    assert.equal(source.rowCount, 1, "the native scan must return only the indexed guide, independent of the final LIMIT");
+    assert.match(source.nativePlan, /IXSCAN/);
+    assert.match(source.sql, /codigos\[1\]/);
+    assert.equal(source.documents[0]?.inteiro, "9223372036854775807");
+    assert.equal(source.documents[0]?.data_evento, "2026-10-08T12:34:56.123Z");
+    assert.equal(source.documents[0]?.id_guia, undefined, "projection excludes the filter field after server filtering");
+    assert.deepEqual(source.structure, [{ _id: "VARCHAR", data_evento: "TIMESTAMP", inteiro: "BIGINT", exames: [{ codigos: ["VARCHAR"], nome_padronizado: "VARCHAR" }] }]);
+    const emptySource = await rpc("query.mongoSqlSource", { connectionId, sql: sourceSql.replace("52712827", "absent") });
+    assert.equal(emptySource.error, undefined, emptySource.error?.message);
+    assert.equal((emptySource.result?.source as { rowCount: number }).rowCount, 0);
+    assert.deepEqual((emptySource.result?.source as { structure: unknown }).structure, source.structure);
+    assert.equal((await rpc("query.mongoSqlSource", { connectionId, sql: "SELECT 1" })).result?.source, null);
     const result = await rpc("query.run", { connectionId, sql: query("find", { sort: { name: 1 } }), limit: 1 });
     assert.equal(result.error, undefined); assert.equal(result.result?.rowsMoreAvailable, true);
     const rows = result.result?.rows as unknown[][]; assert.equal(rows.length, 1);

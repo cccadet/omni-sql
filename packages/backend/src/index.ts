@@ -224,6 +224,8 @@ async function dispatch(method: string, params: unknown, context?: { readonly si
       return handlers["query.mongoConvert"](params as never);
     case "query.mongoSqlPlan":
       return handlers["query.mongoSqlPlan"](params as never);
+    case "query.mongoSqlSource":
+      return handlers["query.mongoSqlSource"](params as never, context?.signal);
     case "query.explain":
       return handlers["query.explain"](params as never);
     case "query.diagnose":

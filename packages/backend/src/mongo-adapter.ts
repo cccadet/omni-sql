@@ -4,6 +4,7 @@ import { dialectDescriptor } from "@omni-sql/dialect-descriptors";
 import type { ConnectionConfig, Relation, QueryResult, ExplainResult } from "@omni-sql/ts-types";
 import { RpcDatabaseError, RpcValidationError } from "./rpc-errors.ts";
 import { assertEndpointHasNoEmbeddedCredentials } from "./security-policy.ts";
+import { mongoSqlNeedsSchemaSample, mongoSqlSnapshot, mongoSqlValue } from "./mongo-sql-snapshot.ts";
 
 const OPERATIONS = ["find", "aggregate", "insertOne", "updateOne", "updateMany", "deleteOne", "deleteMany"] as const;
 type Operation = typeof OPERATIONS[number];
@@ -202,6 +203,38 @@ export class MongoAdapter extends CachedAdapter {
   async updateRow(_spec: RowUpdateSpec): Promise<number> { throw new RpcValidationError("Use a native MongoDB update operation"); }
   async insertRow(_spec: RowInsertSpec): Promise<number> { throw new RpcValidationError("Use a native MongoDB insertOne operation"); }
   async cancelRunning(): Promise<void> { this.abort?.abort(); await this.cursor?.close(); }
+  async readSqlSource(text: string, fields: string[]) {
+    const query = parseMongoQuery(text);
+    if (query.operation !== "find" || query.sort) throw new RpcValidationError("MongoDB SQL source requires an unsorted find");
+    const collection = this.client.db(query.database ?? this.database).collection(query.collection);
+    const abort = this.abort = new AbortController();
+    const options = { signal: abort.signal, maxTimeMS: 60_000, projection: query.projection, promoteLongs: false };
+    const cursor = this.cursor = collection.find(query.filter, options).limit(100_001);
+    try {
+      const documents: Document[] = [];
+      let bytes = 0;
+      for await (const document of cursor) {
+        bytes += Buffer.byteLength(JSON.stringify(mongoSqlValue(document)));
+        if (documents.length === 100_000 || bytes > 16 * 1024 * 1024) {
+          throw new RpcValidationError("MongoDB SQL filtered source exceeds 100,000 documents or 16 MiB; narrow the WHERE or select fewer fields. No partial result was returned.");
+        }
+        documents.push(document);
+      }
+      abort.signal.throwIfAborted();
+      const samples: Document[] = [];
+      if (mongoSqlNeedsSchemaSample(documents, fields)) {
+        this.cursor = collection.find({}, options).limit(100);
+        for await (const document of this.cursor) {
+          bytes += Buffer.byteLength(JSON.stringify(mongoSqlValue(document)));
+          if (bytes > 16 * 1024 * 1024) throw new RpcValidationError("MongoDB SQL schema sample exceeds 16 MiB");
+          samples.push(document);
+        }
+      }
+      abort.signal.throwIfAborted();
+      return mongoSqlSnapshot(documents, samples, fields);
+    } catch (error) { throw safeMongoError(error); }
+    finally { await cursor.close(); await this.cursor?.close(); this.cursor = null; this.abort = null; }
+  }
   async runQuery(text: string, limit: number): Promise<QueryResult> {
     const query = parseMongoQuery(text);
     const started = Date.now();
