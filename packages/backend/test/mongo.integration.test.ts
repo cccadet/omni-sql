@@ -112,6 +112,20 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
     assert.match((await rpc("query.mongoConvert", { connectionId, sql: "SELECT * FROM conversion_cases JOIN items ON true" })).error!.message, /não suportada/);
     assert.deepEqual(await convertAndRun("SELECT category FROM conversion_cases GROUP BY category HAVING COUNT(*) >= 2 ORDER BY SUM(value) DESC"), [{ category: "A" }, { category: "B" }]);
     assert.deepEqual(await convertAndRun("SELECT category FROM conversion_cases WHERE NOT (value = 10 OR value IS NULL) ORDER BY value"), [{ category: "C" }, { category: "A" }]);
+    await conversionCollection.deleteMany({});
+    await conversionCollection.insertMany([
+      { id_guia: "old", data_evento: 1, exames: "old", status: "ok" },
+      { id_guia: "latest", data_evento: 2, exames: "a", status: "ok" },
+      { id_guia: "latest", data_evento: 2, exames: "b", status: "other" },
+    ]);
+    const latest = "WITH bu AS (SELECT id_guia, data_evento FROM conversion_cases ORDER BY data_evento DESC LIMIT 1) SELECT p.exames FROM conversion_cases p JOIN bu ON p.id_guia = bu.id_guia AND p.data_evento = bu.data_evento";
+    assert.deepEqual(await convertAndRun(`${latest} ORDER BY p.exames`), [{ exames: "a" }, { exames: "b" }]);
+    assert.deepEqual(await convertAndRun(`${latest} WHERE p.status = 'ok'`), [{ exames: "a" }]);
+    assert.deepEqual(await convertAndRun(`${latest} WHERE p.id_guia = 'old'`), []);
+    await conversionCollection.insertOne({ id_guia: null, data_evento: 3, exames: "null" });
+    assert.deepEqual(await convertAndRun(latest), [], "NULL keys do not join, even to themselves");
+    await conversionCollection.deleteMany({});
+    assert.deepEqual(await convertAndRun(latest), []);
     await conversionCollection.drop();
     const rejected = await rpc("connection.add", { config: { ...config, endpoint: "mongodb://secret:password@localhost/test" } });
     assert.match(rejected.error!.message, /embedded credentials/);

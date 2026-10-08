@@ -36,7 +36,13 @@ export function mongoSqlToNative(sql: string, defaultDatabase?: string, mongoMat
   const result = parse(sql, Dialect.Generic);
   const ast: Expression[] | undefined = result.ast;
   if (!result.success || !Array.isArray(ast) || ast.length !== 1 || !ast[0] || !isSelect(ast[0])) fail("informe um único SELECT válido");
-  const select = ast[0].select;
+  return translateSelect(ast[0], defaultDatabase, mongoMatch);
+}
+
+function translateSelect(ast: Expression, defaultDatabase?: string, mongoMatch = false): string {
+  if (!isSelect(ast)) fail("CTE deve conter um SELECT");
+  const select = ast.select;
+  if (select.with && select.joins.length) return translateLatestJoin(ast, defaultDatabase, mongoMatch);
   const allowed = new Set(["expressions", "from", "where_clause", "group_by", "having", "order_by", "limit", "leading_comments", "post_select_comments"]);
   for (const [key, value] of Object.entries(select)) {
     if (!allowed.has(key) && value !== null && value !== undefined && value !== false && !(Array.isArray(value) && value.length === 0)) fail(`cláusula ${key} não suportada`);
@@ -236,4 +242,66 @@ export function mongoSqlToNative(sql: string, defaultDatabase?: string, mongoMat
     return JSON.stringify({ ...target, operation: "find", filter, ...(fields ? { projection: fields } : {}), ...(Object.keys(sort).length ? { sort } : {}) }, null, 2);
   }
   return JSON.stringify({ ...target, operation: "aggregate", pipeline }, null, 2);
+}
+
+/** Select the latest keys first, then recover every matching document from the collection. */
+function translateLatestJoin(ast: Expression, defaultDatabase?: string, mongoMatch = false): string {
+  if (!isSelect(ast)) return fail("informe um SELECT");
+  const select = ast.select;
+  const cte = select.with?.ctes[0];
+  const join = select.joins[0];
+  const source = select.from?.expressions[0];
+  if (select.with?.recursive || select.with?.ctes.length !== 1 || !cte || cte.columns.length || cte.materialized !== null
+    || select.joins.length !== 1 || !join || join.kind !== "Inner" || join.using.length || !join.on
+    || join.directed || join.deferred_condition || join.nesting_group
+    || !source || !("table" in source) || !("table" in join.this)) fail("use uma CTE não recursiva e um INNER JOIN por igualdade");
+  const joined = join.this.table;
+  if (joined.name.name !== cte.alias.name || joined.schema || joined.catalog || joined.column_aliases.length
+    || joined.hints.length || joined.when || joined.only || joined.final_) fail("JOIN deve referenciar a CTE");
+  if (!isSelect(cte.this) || !cte.this.select.limit || literal(cte.this.select.limit.this) !== 1
+    || !cte.this.select.order_by?.expressions.length) fail("CTE do JOIN requer ORDER BY e LIMIT 1");
+  const inner = JSON.parse(translateSelect(cte.this, defaultDatabase, mongoMatch)) as { database: string; collection: string; pipeline: Document[] };
+  const outer = JSON.parse(translateSelect({ select: { ...select, with: null, joins: [] } }, defaultDatabase, mongoMatch)) as {
+    database: string; collection: string; operation: string; pipeline?: Document[]; filter?: Document; sort?: Document; projection?: Document;
+  };
+  if (inner.database !== outer.database || inner.collection !== outer.collection) fail("CTE e JOIN devem usar a mesma coleção e banco");
+  const baseAlias = source.table.alias?.name ?? source.table.name.name;
+  const cteAlias = joined.alias?.name ?? joined.name.name;
+  if (baseAlias === cteAlias) fail("aliases da coleção e CTE devem ser diferentes");
+  const available = cte.this.select.expressions.map((expression) => "alias" in expression ? expression.alias.alias.name
+    : "column" in expression ? expression.column.name.name : "*");
+  const variables: Document = {};
+  const conditions: Document[] = [];
+  const equality = (expression: Expression): void => {
+    if ("paren" in expression) return equality(expression.paren.this);
+    if ("and" in expression) { equality(expression.and.left); equality(expression.and.right); return; }
+    if (!("eq" in expression)) fail("ON deve conter igualdades entre campos da coleção e CTE, combinadas com AND");
+    let { left, right } = expression.eq;
+    if ("column" in left && left.column.table?.name === cteAlias) [left, right] = [right, left];
+    if (!("column" in left) || !("column" in right) || left.column.table?.name !== baseAlias
+      || right.column.table?.name !== cteAlias || left.column.join_mark || right.column.join_mark) fail("qualifique os campos do ON com os aliases da coleção e CTE");
+    const field = identifier(left.column.name.name);
+    const key = identifier(right.column.name.name);
+    if (!available.includes("*") && !available.includes(key)) fail("campo do JOIN não selecionado pela CTE");
+    const variable = `k${conditions.length}`;
+    variables[variable] = { $ifNull: [`$${key}`, null] };
+    conditions.push({ $and: [
+      { $ne: [{ $ifNull: [`$${field}`, null] }, null] },
+      { $ne: [`$$${variable}`, null] },
+      { $eq: [`$${field}`, `$$${variable}`] },
+    ] });
+  };
+  equality(join.on);
+  const tail = outer.pipeline ?? [
+    ...(outer.filter && Object.keys(outer.filter).length ? [{ $match: outer.filter }] : []),
+    ...(outer.sort && Object.keys(outer.sort).length ? [{ $sort: outer.sort }] : []),
+    ...(outer.projection ? [{ $project: outer.projection }] : []),
+  ];
+  return JSON.stringify({ database: inner.database, collection: inner.collection, operation: "aggregate", pipeline: [
+    ...inner.pipeline,
+    { $lookup: { from: inner.collection, let: variables, pipeline: [{ $match: { $expr: { $and: conditions } } }], as: "__omni_join" } },
+    { $unwind: "$__omni_join" },
+    { $replaceRoot: { newRoot: "$__omni_join" } },
+    ...tail,
+  ] }, null, 2);
 }

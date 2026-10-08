@@ -5,6 +5,30 @@ import { parseMongoQuery } from "./mongo-adapter.ts";
 
 const convert = (sql: string, database?: string) => JSON.parse(mongoSqlToNative(sql, database)) as Record<string, unknown>;
 
+test("latest CTE self join selects keys before joining and applying outer filters", () => {
+  const sql = "WITH busca_ultima AS (SELECT id_guia, data_evento FROM base_laudos.padronizacao ORDER BY data_evento DESC LIMIT 1) SELECT id_guia, data_evento, exames FROM base_laudos.padronizacao p JOIN busca_ultima bu ON p.id_guia = bu.id_guia AND p.data_evento = bu.data_evento WHERE p.status = 'ok'";
+  const query = convert(sql);
+  assert.equal(parseMongoQuery(JSON.stringify(query)).operation, "aggregate");
+  const pipeline = query.pipeline as Record<string, unknown>[];
+  assert.deepEqual(pipeline.slice(0, 2), [{ $sort: { data_evento: -1 } }, { $limit: 1 }]);
+  const lookup = pipeline[3]!.$lookup as { from: string; let: unknown; pipeline: unknown[] };
+  assert.equal(lookup.from, "padronizacao");
+  assert.deepEqual(lookup.let, { k0: { $ifNull: ["$id_guia", null] }, k1: { $ifNull: ["$data_evento", null] } });
+  assert.deepEqual(lookup.pipeline, [{ $match: { $expr: { $and: ["id_guia", "data_evento"].map((field, i) => ({ $and: [
+    { $ne: [{ $ifNull: [`$${field}`, null] }, null] }, { $ne: [`$$k${i}`, null] }, { $eq: [`$${field}`, `$$k${i}`] },
+  ] })) } } }]);
+  assert.deepEqual(pipeline.slice(4, 6), [{ $unwind: "$__omni_join" }, { $replaceRoot: { newRoot: "$__omni_join" } }]);
+  assert.ok(pipeline[6]!.$match);
+  assert.deepEqual(pipeline.at(-1), { $project: { id_guia: 1, data_evento: 1, exames: 1, _id: 0 } });
+  for (const unsupported of [
+    sql.replace("LIMIT 1", "LIMIT 2"), sql.replace("JOIN busca_ultima", "LEFT JOIN busca_ultima"),
+    sql.replace("bu.id_guia", "bu.missing"), sql.replace("AND p.data_evento", "OR p.data_evento"),
+    sql.replace("SELECT id_guia, data_evento, exames FROM", "SELECT bu.id_guia FROM"),
+    sql.replace("FROM base_laudos.padronizacao ORDER", "FROM other.padronizacao ORDER"),
+  ]) assert.throws(() => convert(unsupported), /SQL → MongoDB/);
+  assert.equal(convert(sql.replace("p.id_guia = bu.id_guia", "bu.id_guia = p.id_guia")).operation, "aggregate");
+});
+
 test("Mongo SQL pushes equality and explicit list membership into native filters", () => {
   const plan = (where: string) => JSON.parse(mongoSqlToNative(`SELECT * FROM base_laudos.padronizacao WHERE ${where}`, undefined, true));
   assert.deepEqual(plan("id_guia = '52712827'").filter, { id_guia: { $eq: "52712827" } });

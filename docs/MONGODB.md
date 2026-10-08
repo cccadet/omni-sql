@@ -51,7 +51,26 @@ Valores ausentes são tratados como nulos em filtros e agrupamentos. `COUNT(camp
 
 A conversão destina-se a campos escalares com tipos compatíveis; não expande arrays nem faz coerção de tipos. Comparações e ordenação seguem os tipos e a ordenação nativa do MongoDB. Strings que representam números continuam sendo strings. Números inteiros fora da precisão segura de JavaScript são rejeitados.
 
-Joins, subconsultas, CTEs, funções escalares, janelas, `DISTINCT`, `OFFSET`, `LIKE`, modificadores de agregação e `NULLS FIRST/LAST` explícitos não são suportados. A conversão mostra o motivo e preserva o SQL original. Se o editor, a conexão ou o modo mudar durante a conversão, o resultado não sobrescreve a edição atual.
+Uma CTE não recursiva com `ORDER BY` e `LIMIT 1` pode ser ligada à mesma coleção com um `INNER JOIN`. O `ON` deve usar igualdades entre campos qualificados pelos aliases, combinadas com `AND`; as chaves devem estar selecionadas na CTE. A consulta externa seleciona e filtra os campos da coleção original:
+
+```sql
+/mongo
+WITH busca_ultima AS (
+  SELECT id_guia, data_evento
+  FROM base_laudos.padronizacao
+  ORDER BY data_evento DESC
+  LIMIT 1
+)
+SELECT id_guia, data_evento, exames
+FROM base_laudos.padronizacao p
+JOIN busca_ultima bu
+  ON p.id_guia = bu.id_guia AND p.data_evento = bu.data_evento
+WHERE p.status = 'ok';
+```
+
+A tradução escolhe as chaves da última linha antes do join e do filtro externo. Todos os documentos com essas chaves são recuperados, inclusive duplicados; chaves nulas ou ausentes não correspondem. Empates no `ORDER BY` seguem a ordenação do MongoDB; adicione `_id` como segundo campo para desempatar quando necessário.
+
+Outros joins e CTEs, subconsultas, funções escalares, janelas, `DISTINCT`, `OFFSET`, `LIKE`, modificadores de agregação e `NULLS FIRST/LAST` explícitos não são suportados. A conversão mostra o motivo e preserva o SQL original. Se o editor, a conexão ou o modo mudar durante a conversão, o resultado não sobrescreve a edição atual.
 
 O modo **SQL** executa SELECTs suportados diretamente no MongoDB, sem exigir conversão manual para JSON. Consultas mais complexas usam DuckDB. O plano de execução acompanha o motor escolhido.
 
