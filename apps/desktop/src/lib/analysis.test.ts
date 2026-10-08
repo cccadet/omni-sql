@@ -1,11 +1,41 @@
 // @vitest-environment node
 import { beforeEach, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { backend } from "./backend";
+import { runMongoSql } from "./analysis";
 import { importAnalysisS3, runS3CatalogQuery, startStableAnalysis, readStableAnalysisPage, dropStableAnalysis, cancelAnalysis, getAnalysisOperationStatus, runAnalysisS3, clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, suggestAnalysisDatasetName } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("./backend", () => ({ backend: { call: vi.fn() } }));
 
 beforeEach(() => vi.mocked(invoke).mockReset());
+
+test("Mongo SQL executes the native plan with its preview limit and cancellation signal", async () => {
+  const signal = new AbortController().signal;
+  const query = JSON.stringify({ database: "db", collection: "items", operation: "find", filter: { id_guia: "52712827" } });
+  vi.mocked(backend.call).mockReset().mockResolvedValueOnce({ query }).mockResolvedValueOnce({ columns: [], rows: [["found"]], rowsMoreAvailable: true, elapsedMs: 1 });
+  const result = await runMongoSql("mongo", "SELECT * FROM db.items WHERE id_guia = '52712827'", 1, "op", false, signal);
+  expect(result.rows).toEqual([["found"]]);
+  expect(result.rowsMoreAvailable).toBe(true);
+  expect(backend.call).toHaveBeenLastCalledWith("query.run", { connectionId: "mongo", sql: query, limit: 1 }, signal);
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+test("Mongo SQL falls back only when planning is unsupported, never after a database failure", async () => {
+  vi.mocked(backend.call).mockReset().mockResolvedValueOnce({ query: null });
+  vi.mocked(invoke).mockResolvedValueOnce({ columns: [], rows: [[1]], rowsMoreAvailable: false });
+  expect((await runMongoSql("mongo", "SELECT 1", 100, "op")).rows).toEqual([[1]]);
+  vi.mocked(invoke).mockClear();
+  vi.mocked(backend.call).mockResolvedValueOnce({ query: "{}" }).mockRejectedValueOnce(new Error("database unavailable"));
+  await expect(runMongoSql("mongo", "SELECT * FROM db.items", 100, "op")).rejects.toThrow("database unavailable");
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+test("Mongo SQL explains the same native plan used for execution", async () => {
+  vi.mocked(backend.call).mockReset().mockResolvedValueOnce({ query: "{}" }).mockResolvedValueOnce({ textual: "IXSCAN" });
+  expect((await runMongoSql("mongo", "SELECT * FROM db.items", 100, "op", true)).rows).toEqual([["IXSCAN"]]);
+  expect(invoke).not.toHaveBeenCalled();
+});
 
 test("imports a full S3 catalog query instead of its preview", async () => {
   vi.mocked(invoke).mockResolvedValueOnce({ id: "dataset-1" });

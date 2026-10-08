@@ -129,6 +129,8 @@ beforeEach(() => {
   vi.mocked(writeSqlFile).mockResolvedValue();
   call.mockImplementation(async (method, _params, signal) => {
     switch (method) {
+      case "query.mongoSqlPlan":
+        return { query: null };
       case "mcp.ui.next":
         throw new Error("MCP UI polling disabled in test");
       case "mcp.status":
@@ -683,7 +685,7 @@ it("MCP execution shows connection and SQL and requires approval before the exec
   } finally { start.mockRestore(); }
 });
 
-it("keeps MongoDB native/SQL text per tab and executes SQL only through read-only DuckDB", async () => {
+it("keeps MongoDB native/SQL text per tab and falls back to DuckDB for unsupported SQL", async () => {
   const native = '{"collection":"items","operation":"find","filter":{"name":"a;b"}}';
   seedSession(native, 100, "mongo-1");
   const defaultCall = call.getMockImplementation()!;
@@ -693,7 +695,7 @@ it("keeps MongoDB native/SQL text per tab and executes SQL only through read-onl
   vi.mocked(invoke).mockImplementation(async (command) => command === "analysis_query_mongo"
     ? { columns: [{ name: "n", dataType: "BIGINT", nullable: false }], rows: [[1]], rowsMoreAvailable: false } : undefined);
   renderApp();
-  const tag = await screen.findByRole("button", { name: "SQL via DuckDB (read-only)" });
+  const tag = await screen.findByRole("button", { name: "SQL (read-only)" });
   expect(tag.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", expect.objectContaining({ connectionId: "mongo-1", sql: native }), expect.any(AbortSignal)));
@@ -715,6 +717,27 @@ it("keeps MongoDB native/SQL text per tab and executes SQL only through read-onl
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual(expect.stringContaining('"operation": "find"'));
   fireEvent.click(screen.getByRole("tab", { name: /Query 1/ }));
   expect(tag.getAttribute("aria-pressed")).toBe("true");
+});
+
+it("runs a Mongo SQL WHERE through the native driver without changing the editor", async () => {
+  const sql = "SELECT * FROM base_laudos.padronizacao WHERE id_guia = '52712827'";
+  seedSession(sql, 100, "mongo-1");
+  const session = JSON.parse(localStorage.getItem("omni-sql:session")!);
+  session.tabs[0].mongoSqlMode = true;
+  localStorage.setItem("omni-sql:session", JSON.stringify(session));
+  const native = JSON.stringify({ database: "base_laudos", collection: "padronizacao", operation: "find", filter: { id_guia: { $eq: "52712827" } } });
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "mongo-1", label: "MongoDB test", dialect: "mongodb", endpoint: "mongodb://localhost/base_laudos", user: "" }] })
+    : method === "query.mongoSqlPlan" ? Promise.resolve({ query: native }) : defaultCall(method, params, signal));
+  renderApp();
+  await screen.findByRole("button", { name: "SQL (read-only)" });
+  const editor = screen.getByRole("textbox", { name: "SQL editor" });
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", { connectionId: "mongo-1", sql: native, limit: 100 }, expect.any(AbortSignal)));
+  expect(call).toHaveBeenCalledWith("query.mongoSqlPlan", { connectionId: "mongo-1", sql }, expect.any(AbortSignal));
+  expect((editor as HTMLTextAreaElement).value).toBe(sql);
+  expect(vi.mocked(invoke).mock.calls.some(([command]) => command === "analysis_query_mongo")).toBe(false);
 });
 
 it.each(["Editor run current", "Editor run all", "Convert SQL to MongoDB"])("converts /mongo with %s without executing", async (action) => {
@@ -760,9 +783,9 @@ it("does not overwrite the editor if the query mode changes during conversion", 
   renderApp();
   fireEvent.click(await screen.findByRole("button", { name: "Convert SQL to MongoDB" }));
   await waitFor(() => expect(call.mock.calls.some(([method]) => method === "query.mongoConvert")).toBe(true));
-  fireEvent.click(screen.getByRole("button", { name: "SQL via DuckDB (read-only)" }));
+  fireEvent.click(screen.getByRole("button", { name: "SQL (read-only)" }));
   await act(async () => { resolveConversion({ query: '{"operation":"find","collection":"items"}' }); await pending; });
   expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe("SELECT 1");
-  fireEvent.click(screen.getByRole("button", { name: "SQL via DuckDB (read-only)" }));
+  fireEvent.click(screen.getByRole("button", { name: "SQL (read-only)" }));
   expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe(original);
 });

@@ -449,7 +449,7 @@ const english = {
   analysisMoreRows: " (more available at the source)",
   allFormats: "All formats",
   resizeResultsPanel: "Resize editor and results panels",
-  mongoSqlMode: "SQL via DuckDB (read-only)",
+  mongoSqlMode: "SQL (read-only)",
   mongoNativeMode: "MongoDB native · Extended JSON",
   mongoUriHint: "URI without credentials. Use the separate user/password fields; mongodb+srv:// is supported.",
   readOnly: "Read-only",
@@ -523,7 +523,7 @@ const portugueseBrazil = [
   "Catálogos DuckLake (opcional)", "Associe o bucket inteiro ou um prefixo de tabela a um catálogo. O prefixo mais específico prevalece.", "Bucket ou prefixo da tabela", "Catálogo", "Tipo do catálogo DuckLake {index}", "Conexão PostgreSQL do catálogo", "Conexão PostgreSQL DuckLake {index}", "Selecione uma conexão", "Caminho do arquivo {kind}", "Remover catálogo", "Adicionar catálogo DuckLake",
   "jdbc:exemplo://host:porta/db", "/caminho/para/driver.jar", "com.exemplo.Driver", "MeuDSN ou DRIVER={Driver};SERVER=host;DATABASE=db", "C:\\dados\\catalog.sqlite", "C:\\dados\\catalog.ducklake",
   "Origem dos dados", "Linhas para importar", "Prévia exibida: {count} linhas{more}", " (há mais linhas na origem)", "Todos os formatos", "Redimensionar painéis do editor e resultados",
-  "SQL via DuckDB (somente leitura)", "MongoDB nativo · Extended JSON", "URI sem credenciais. Use os campos de usuário e senha; mongodb+srv:// é aceito.", "Somente leitura", "Atualização nativa MongoDB modifica documentos", "Exclusão nativa MongoDB remove documentos", "Abrir coleção", "Coleções",
+  "SQL (somente leitura)", "MongoDB nativo · Extended JSON", "URI sem credenciais. Use os campos de usuário e senha; mongodb+srv:// é aceito.", "Somente leitura", "Atualização nativa MongoDB modifica documentos", "Exclusão nativa MongoDB remove documentos", "Abrir coleção", "Coleções",
   "Converter SQL para MongoDB", "Escreva /mongo seguido de SELECT e converta. A consulta não será executada.", "O editor mudou durante a conversão. Converta novamente.",
 ] as const satisfies readonly string[];
 

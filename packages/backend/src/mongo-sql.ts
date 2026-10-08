@@ -31,7 +31,7 @@ function literal(expression: Expression): string | number | boolean | null {
 }
 
 /** Convert a bounded SELECT subset using the installed SQL parser; never execute SQL. */
-export function mongoSqlToNative(sql: string, defaultDatabase?: string): string {
+export function mongoSqlToNative(sql: string, defaultDatabase?: string, mongoMatch = false): string {
   if (typeof sql !== "string" || !sql.trim() || sql.length > 100_000) fail("informe um SELECT de até 100 KB");
   const result = parse(sql, Dialect.Generic);
   const ast: Expression[] | undefined = result.ast;
@@ -160,7 +160,35 @@ export function mongoSqlToNative(sql: string, defaultDatabase?: string): string 
     }
     return fail("predicado não suportado; use comparações, AND/OR/NOT, IN ou IS NULL");
   };
-  const filter = select.where_clause ? { $expr: predicate(select.where_clause.this) } : {};
+  // Mongo SQL equality follows MongoDB array membership semantics and remains indexable.
+  const match = (expression: Expression): Document => {
+    if ("paren" in expression) return match(expression.paren.this);
+    for (const kind of ["and", "or"] as const) {
+      if (kind in expression) {
+        const node = Reflect.get(expression, kind) as { left: Expression; right: Expression };
+        return { [`$${kind}`]: [match(node.left), match(node.right)] };
+      }
+    }
+    if ("eq" in expression) {
+      const { left, right } = expression.eq;
+      const field = "column" in left ? left : "column" in right ? right : null;
+      const constant = field === left ? right : left;
+      if (field && !("column" in constant)) {
+        const item = literal(constant);
+        if (item !== null) return { [column(field)]: { $eq: item } };
+      }
+    }
+    if ("function" in expression && expression.function.name.toLowerCase() === "list_contains") {
+      const node = expression.function;
+      if (node.args.length !== 2 || node.distinct) fail("list_contains requer um campo e um literal");
+      const field = column(node.args[0]!);
+      const item = literal(node.args[1]!);
+      if (item === null) return { $expr: false };
+      return { [field]: { $elemMatch: { $eq: item } } };
+    }
+    return { $expr: predicate(expression) };
+  };
+  const filter = select.where_clause ? mongoMatch ? match(select.where_clause.this) : { $expr: predicate(select.where_clause.this) } : {};
   if (select.where_clause) pipeline.push({ $match: filter });
   const projection: Document = Object.assign(Object.create(null) as Document, { _id: 0 });
   if (!star) for (const output of outputs) {

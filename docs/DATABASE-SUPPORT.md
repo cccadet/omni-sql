@@ -9,7 +9,7 @@
 | Oracle | Supported | Native `oracledb` thin-mode adapter; Oracle metadata and `EXPLAIN PLAN` with available row, byte, cost, time estimates, and predicates. No Oracle Instant Client is required for thin mode. |
 | Generic JDBC | Experimental | JVM sidecar loads a user-provided driver JAR and `java.sql.Driver` class, then connects through the supplied JDBC URL. |
 | ODBC | Experimental | Generic ODBC adapter with bounded query and stream support. Requires a separately installed 64-bit driver compatible with the target database. |
-| MongoDB | Native + read-only SQL | Extended JSON `find`/`aggregate`, explicit writes, metadata, autocomplete, and `/mongo` SELECT conversion. SQL mode uses DuckDB. See [MongoDB usage](MONGODB.md). |
+| MongoDB | Native + read-only SQL | Extended JSON `find`/`aggregate`, explicit writes, metadata, autocomplete, and `/mongo` SELECT conversion. SQL mode executes supported SELECTs natively, with DuckDB for complex queries. See [MongoDB usage](MONGODB.md). |
 
 ## Generic JDBC
 
