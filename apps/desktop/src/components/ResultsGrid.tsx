@@ -41,6 +41,7 @@ import type { RelationInfo } from "../lib/backend";
 import { useLanguage } from "../i18n";
 import { exportCsvFile, openExportedFile, revealExportedFile } from "../lib/file-io";
 import { formatDuration } from "../lib/format-duration";
+import { readableBsonValue } from "../lib/bson-value";
 
 export interface ResultsGridProps {
   result?: QueryResult | null;
@@ -74,7 +75,8 @@ export interface StagedCellEdit {
 
 const PAGE_SIZE = 100;
 
-export function serializeCellValue(value: unknown): string {
+export function serializeCellValue(value: unknown, readableBson = false): string {
+  if (readableBson) value = readableBsonValue(value);
   if (value == null) return "";
   if (value instanceof Date) {
     try {
@@ -91,6 +93,7 @@ export function serializeCellValue(value: unknown): string {
   const seen = new WeakSet<object>();
   try {
     return JSON.stringify(value, (_key, nested: unknown) => {
+      if (readableBson && _key !== "$date") nested = readableBsonValue(nested);
       if (typeof nested === "bigint") return `${nested}n`;
       if (nested && typeof nested === "object") {
         if (seen.has(nested)) return "[Circular]";
@@ -118,7 +121,7 @@ function compareValues(a: unknown, b: unknown): number {
   if (a === b) return 0;
   if (a == null) return 1;
   if (b == null) return -1;
-  return serializeCellValue(a).localeCompare(serializeCellValue(b), undefined, { numeric: true });
+  return serializeCellValue(a, true).localeCompare(serializeCellValue(b, true), undefined, { numeric: true });
 }
 
 function columnTypeLabel(dataType: string): string {
@@ -273,7 +276,7 @@ export function ResultsGrid({
     if (term) {
       list = list.filter(({ row, rowIndex }) =>
         row.some((cell, colIndex) =>
-          serializeCellValue(changeByCell.get(`${rowIndex}:${colIndex}`) ?? cell).toLowerCase().includes(term),
+          serializeCellValue(changeByCell.get(`${rowIndex}:${colIndex}`) ?? cell, true).toLowerCase().includes(term),
         ),
       );
     }
@@ -914,7 +917,7 @@ export function ResultsGrid({
                                   borderRadius: 2,
                                 }}
                               >
-                                <span>{serializeCellValue(cellValue)}</span>
+                                <span title={cellValue != null && typeof cellValue === "object" ? serializeCellValue(cellValue) : undefined} style={{ fontVariantNumeric: "tabular-nums" }}>{serializeCellValue(cellValue, true)}</span>
                                 {cellValue != null && foreignKeyColumns[col.index] && onLookupRelated && (typeof cellValue === "string" || typeof cellValue === "number" || typeof cellValue === "boolean") && (
                                   <Button size="small" appearance="subtle" icon={<OpenRegular fontSize={12} />}
                                     aria-label={`${t("openRelated")}: ${serializeCellValue(cellValue)}`}
@@ -946,7 +949,7 @@ export function ResultsGrid({
                 <table key={rowIndex} style={{ borderCollapse: "collapse", width: "100%", marginBottom: 12 }}><tbody>
                   {related.result?.columns.map((column, columnIndex) => (
                     <tr key={columnIndex}><th style={{ textAlign: "left", padding: 6, borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>{column.name}</th>
-                      <td style={{ padding: 6, borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>{serializeCellValue(row[columnIndex])}</td></tr>
+                      <td style={{ padding: 6, borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>{serializeCellValue(row[columnIndex], true)}</td></tr>
                   ))}
                 </tbody></table>
               )) : <Text>{t("relatedNotFound")}</Text>}
