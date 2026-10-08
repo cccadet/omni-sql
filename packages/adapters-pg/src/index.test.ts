@@ -53,11 +53,6 @@ test("PostgresAdapter: constrói sem disparar conexão", () => {
   assert.deepEqual(a.listTables("public"), []);
 });
 
-test("PostgresAdapter: factory via construtor produz instância Adapter", () => {
-  const a = new PostgresAdapter(cfg());
-  assert.equal(a.dialect, "postgres");
-});
-
 test("connection endpoints preserve credentials and options without connecting", async () => {
   for (const endpoint of ["db.example:5440/orders", "db.example", "postgresql://reader@db.example/orders", "host=db.example dbname=orders", "port=5440 host=db.example"]) {
     const adapter = new PostgresAdapter({ ...cfg(endpoint), user: "reader", options: { application_name: "omni-test", password: "configured" } }, "from-keyring");

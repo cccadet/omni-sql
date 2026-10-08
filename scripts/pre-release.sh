@@ -3,44 +3,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 pnpm verify:push
-if cmp -s .cache/coverage-checkpoint.json .cache/release-checkpoint.json; then
+artifact_dir="${OMNI_SQL_INTEGRATION_ARTIFACT_DIR:-$PWD/artifacts/release-integration}"
+evidence_complete=1
+for file in run.txt smoke.tap rpc.tap mongo.tap security.tap mongo-sql.log odbc.tap; do
+  if [[ ! -s "$artifact_dir/$file" ]]; then evidence_complete=0; fi
+done
+if [[ "$evidence_complete" -eq 1 ]] && grep -q '^exit_status=0$' "$artifact_dir/run.txt" && cmp -s .cache/coverage-checkpoint.json .cache/release-checkpoint.json; then
   echo "Release integration checkpoint already passed for these files; not repeated."
   exit 0
 fi
-docker compose version > /dev/null
-./services/jvm-sidecar/gradlew -p services/jvm-sidecar jar
-
-compose=(docker compose -p "omni-sql-prerelease-$$" -f docker/test-dbs/docker-compose.yml)
-cleanup() {
-  local status=$?
-  if [[ "$status" -ne 0 ]]; then "${compose[@]}" logs --tail 80 || true; fi
-  if [[ -n "${sidecar_pid:-}" ]]; then kill "$sidecar_pid" || true; fi
-  "${compose[@]}" down -v || true
-  return "$status"
-}
-trap cleanup EXIT
-
-# Let Docker allocate a PostgreSQL port instead of using a development database.
-export OMNI_SQL_TEST_PG_PORT=0
-"${compose[@]}" up -d --build --wait postgres mysql mariadb mssql oracle h2 mongo
-export OMNI_SQL_TEST_PG_PORT
-OMNI_SQL_TEST_PG_PORT=$("${compose[@]}" port postgres 5432 | sed 's/.*://')
-"${compose[@]}" run --rm mssql-init
-"${compose[@]}" run --rm h2-init
-
-export OMNI_SIDE_CAR_PORT="${OMNI_SIDE_CAR_PORT:-41922}"
-export OMNI_SQL_SIDECAR_URL="http://127.0.0.1:${OMNI_SIDE_CAR_PORT}"
-OMNI_SQL_AUTH_TOKEN=integration-auth-token java -jar services/jvm-sidecar/build/libs/omni-sql-sidecar.jar > sidecar-integration.log 2>&1 &
-sidecar_pid=$!
-for attempt in {1..60}; do
-  if curl --silent --fail --header 'Authorization: Bearer integration-auth-token' "$OMNI_SQL_SIDECAR_URL/health" > /dev/null; then break; fi
-  sleep 1
-done
-curl --silent --fail --header 'Authorization: Bearer integration-auth-token' "$OMNI_SQL_SIDECAR_URL/health" > /dev/null
-(
-  cd docker/test-dbs
-  OMNI_SQL_RUN_INTEGRATION=1 node --test ./smoke-test.ts
-  pnpm test:integration
-)
+bash scripts/integration-release.sh
 
 cp .cache/coverage-checkpoint.json .cache/release-checkpoint.json
