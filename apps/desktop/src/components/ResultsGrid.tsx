@@ -40,6 +40,7 @@ import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
 import type { RelationInfo } from "../lib/backend";
 import { useLanguage } from "../i18n";
 import { exportCsvFile, openExportedFile, revealExportedFile } from "../lib/file-io";
+import { formatDuration } from "../lib/format-duration";
 
 export interface ResultsGridProps {
   result?: QueryResult | null;
@@ -964,7 +965,7 @@ export function ResultsGrid({
                     : `${t("returnedRows")}: ${result.rows.length}`}
                 </Text>
                 <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                  {t("elapsed")}: {result.elapsedMs} ms
+                  {t("elapsed")}: {formatDuration(result.elapsedMs)}
                 </Text>
                 {result.rowsMoreAvailable && (
                   <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>

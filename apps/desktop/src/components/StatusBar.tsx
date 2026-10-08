@@ -15,6 +15,7 @@ import type { McpStatusResult } from "@omni-sql/ts-types";
 import { DialectIcon } from "./DialectIcon";
 import { useLanguage } from "../i18n";
 import { McpStatusDialog } from "./McpStatusDialog";
+import { formatDuration } from "../lib/format-duration";
 export { createCopilotVsCodeMcpConfig } from "./McpStatusDialog";
 
 export type ConnectionHealth = "unknown" | "verifying" | "online" | "offline";
@@ -171,7 +172,7 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, databas
       {result && (
         <Text size={200} style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <DocumentRegular fontSize={12} />
-          {result.rows.length} {t("rowCount")} · {result.columns.length} {t("columnCount")} · {result.elapsedMs}ms
+          {result.rows.length} {t("rowCount")} · {result.columns.length} {t("columnCount")} · {formatDuration(result.elapsedMs)}
         </Text>
       )}
       {cursorPosition && (

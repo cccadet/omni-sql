@@ -43,7 +43,7 @@ test("StatusBar: shows connection and result info", () => {
   assert.ok(screen.getByText("PostgreSQL"));
   assert.ok(screen.getByText(/2 row\(s\)/));
   assert.ok(screen.getByText(/1 column\(s\)/));
-  assert.ok(screen.getByText(/12ms/));
+  assert.ok(screen.getByText(/12 ms/));
   assert.ok(screen.getByText("Ln 3, Col 10"));
 });
 
