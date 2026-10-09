@@ -40,6 +40,96 @@ const renderGrid = () => render(
   </LanguageProvider>,
 );
 
+test("sorts duplicate column names independently through focusable headers", () => {
+  render(<LanguageProvider><ResultsGrid result={{ ...result,
+    columns: [result.columns[0]!, result.columns[0]!], rows: [[2, 30], [10, 1]],
+  }} /></LanguageProvider>);
+  const buttons = screen.getAllByRole("button", { name: "Sort by id" });
+  buttons[1]!.focus();
+  fireEvent.click(buttons[1]!);
+  expect(buttons[1]!.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+  expect(within(screen.getAllByRole("row")[1]!).getByText("10")).toBeTruthy();
+  fireEvent.click(buttons[1]!);
+  expect(buttons[1]!.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+  expect(within(screen.getAllByRole("row")[1]!).getByText("2")).toBeTruthy();
+});
+
+test("navigates read-only cells without intercepting filter keys or starting an editor", () => {
+  renderGrid();
+  const cells = screen.getAllByRole("cell");
+  cells[0]!.focus();
+  fireEvent.keyDown(cells[0]!, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(cells[1]);
+  fireEvent.keyDown(cells[1]!, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(cells[3]);
+  fireEvent.keyDown(cells[3]!, { key: "Home", ctrlKey: true });
+  expect(document.activeElement).toBe(cells[0]);
+  fireEvent.keyDown(cells[0]!, { key: "F2" });
+  expect(screen.queryByRole("textbox", { name: "Edit id, row 1" })).toBeNull();
+  const filter = screen.getByRole("textbox", { name: "Filter data…" });
+  filter.focus();
+  expect(fireEvent.keyDown(filter, { key: "ArrowDown" })).toBe(true);
+  expect(document.activeElement).toBe(filter);
+});
+
+test("keeps a cell reachable after pagination, filtering and hiding the active column", () => {
+  render(<LanguageProvider><ResultsGrid result={{ ...result,
+    rows: Array.from({ length: 101 }, (_, index) => [index, `item-${index}`]),
+  }} /></LanguageProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  let cell = screen.getByText("100").closest("td")!;
+  expect(cell.tabIndex).toBe(0);
+  cell.focus();
+  fireEvent.keyDown(cell, { key: "ArrowRight" });
+  expect(document.activeElement?.textContent).toBe("item-100");
+  fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Columns: payload" }));
+  expect(cell.tabIndex).toBe(0);
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter data…" }), { target: { value: "item-50" } });
+  cell = screen.getByText("50").closest("td")!;
+  expect(cell.tabIndex).toBe(0);
+  cell.focus();
+  fireEvent.keyDown(cell, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(cell);
+});
+
+test("edits sorted rows by keyboard, restores focus and applies only explicitly", async () => {
+  const apply = vi.fn().mockResolvedValue(undefined);
+  render(<LanguageProvider><ResultsGrid result={result}
+    editability={{ editable: true, reason: null, table: { schema: "public", name: "orders" }, pkColumns: ["id"], selectStar: true, columns: [] }}
+    onCommitChanges={apply} /></LanguageProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Sort by id" }));
+  fireEvent.click(screen.getByRole("button", { name: "Sort by id" }));
+  const cell = screen.getByText("10").closest("td")!;
+  cell.focus();
+  fireEvent.keyDown(cell, { key: "Enter" });
+  let input = screen.getByRole("textbox", { name: "Edit id, row 2" });
+  fireEvent.change(input, { target: { value: "99" } });
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(document.activeElement).toBe(cell);
+  expect(screen.queryByRole("button", { name: "Apply 1" })).toBeNull();
+  fireEvent.keyDown(cell, { key: "F2" });
+  input = screen.getByRole("textbox", { name: "Edit id, row 2" });
+  fireEvent.change(input, { target: { value: "99" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(document.activeElement).toBe(cell);
+  expect(screen.getByText("Pending changes: 1").getAttribute("role")).toBe("status");
+  expect(apply).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Apply 1" }));
+  expect(apply).toHaveBeenCalledWith([{ rowIndex: 1, colIndex: 0, value: "99" }]);
+  await screen.findByText("Pending changes: 0");
+  expect(document.activeElement).toBe(cell);
+  fireEvent.keyDown(cell, { key: "F2" });
+  input = screen.getByRole("textbox", { name: "Edit id, row 2" });
+  fireEvent.change(input, { target: { value: "88" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  const discard = screen.getByRole("button", { name: "Discard changes" });
+  discard.focus();
+  fireEvent.click(discard);
+  expect(document.activeElement).toBe(cell);
+  expect(apply).toHaveBeenCalledTimes(1);
+});
+
 test("offers full analytical CSV export separately from the grid export", () => {
   const onExportFullCsv = vi.fn();
   render(<LanguageProvider><ResultsGrid result={result} onExportFullCsv={onExportFullCsv} /></LanguageProvider>);

@@ -183,7 +183,7 @@ export function ResultsGrid({
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFinder, setColumnFinder] = useState("");
   const [hiddenColumnIndexes, setHiddenColumnIndexes] = useState<ReadonlySet<number>>(() => new Set());
-  const [sortColumn, setSortColumn] = useState<string | undefined>(undefined);
+  const [sortColumn, setSortColumn] = useState<number | undefined>(undefined);
   const [sortDirection, setSortDirection] = useState<"ascending" | "descending">("ascending");
   const [page, setPage] = useState(0);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number; value: string } | null>(null);
@@ -192,7 +192,9 @@ export function ResultsGrid({
   const [focusedColumnIndex, setFocusedColumnIndex] = useState<number | null>(null);
   const [addingRow, setAddingRow] = useState(false);
   const [newRowValues, setNewRowValues] = useState<Record<number, string>>({});
-  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [activeCell, setActiveCell] = useState<{ row: number; col: number } | null>(null);
+  const restoreCellFocusRef = useRef(false);
+  const keyboardHintId = useId();
   const gridScrollRef = useRef<HTMLDivElement | null>(null);
   const columnFocusTimerRef = useRef<number | null>(null);
   const previousResultRef = useRef<QueryResult | null | undefined>(result);
@@ -284,9 +286,8 @@ export function ResultsGrid({
   }, [indexedRows, globalFilter, changeByCell]);
 
   const sortedRows = useMemo(() => {
-    if (!sortColumn || !result) return filteredRows;
-    const colIndex = result.columns.findIndex((c) => c.name === sortColumn);
-    if (colIndex < 0) return filteredRows;
+    if (sortColumn === undefined || !result) return filteredRows;
+    const colIndex = sortColumn;
     const dir = sortDirection === "ascending" ? 1 : -1;
     return [...filteredRows].sort((a, b) =>
       compareValues(
@@ -312,7 +313,7 @@ export function ResultsGrid({
   }, [onStageCellEdit]);
 
   const handleSort = useCallback(
-    (col: string) => {
+    (col: number) => {
       if (sortColumn === col) {
         setSortDirection((d) => (d === "ascending" ? "descending" : "ascending"));
       } else {
@@ -411,14 +412,14 @@ export function ResultsGrid({
   const startEdit = useCallback(
     (rowIndex: number, colIndex: number) => {
       const col = result?.columns[colIndex];
-      if (!col || !isColumnEditable(colIndex)) return;
+      if (!col || !isColumnEditable(colIndex) || committing || running) return;
       const originalRowIndex = pageRows[rowIndex]?.rowIndex;
       if (originalRowIndex === undefined) return;
       const value = changeByCell.get(`${originalRowIndex}:${colIndex}`) ?? pageRows[rowIndex]?.row[colIndex];
       editFinalizedRef.current = false;
       setEditingCell({ row: originalRowIndex, col: colIndex, value: serializeCellValue(value) });
     },
-    [isColumnEditable, pageRows, result?.columns, changeByCell],
+    [isColumnEditable, pageRows, result?.columns, changeByCell, committing, running],
   );
 
   const commitEdit = useCallback(async () => {
@@ -436,6 +437,7 @@ export function ResultsGrid({
   const applyChanges = useCallback(async () => {
     if (changes.length === 0 || committing || applyingChangesRef.current) return;
     applyingChangesRef.current = true;
+    restoreCellFocusRef.current = true;
     try {
       if (onCommitChanges) {
         await onCommitChanges(changes);
@@ -455,12 +457,16 @@ export function ResultsGrid({
         }
       }
       if (onCommitChanges || commitPending) setLocalChanges([]);
+    } catch (error) {
+      restoreCellFocusRef.current = false;
+      throw error;
     } finally {
       applyingChangesRef.current = false;
     }
   }, [changes, committing, onCommitChanges, commitPending, onCellEdit]);
 
   const discardChanges = useCallback(async () => {
+    restoreCellFocusRef.current = true;
     setLocalChanges([]);
     await onDiscardChanges?.();
   }, [onDiscardChanges]);
@@ -499,6 +505,17 @@ export function ResultsGrid({
     () => columns.filter((column) => !hiddenColumnIndexes.has(column.index)),
     [columns, hiddenColumnIndexes],
   );
+  const focusableCell = activeCell && pageRows.some(({ rowIndex }) => rowIndex === activeCell.row)
+    && visibleColumns.some(({ index }) => index === activeCell.col)
+    ? activeCell : { row: pageRows[0]?.rowIndex, col: visibleColumns[0]?.index };
+
+  useEffect(() => {
+    if (editingCell || !restoreCellFocusRef.current) return;
+    restoreCellFocusRef.current = false;
+    gridScrollRef.current?.querySelector<HTMLTableCellElement>(
+      `td[data-row-index="${focusableCell.row}"][data-column-index="${focusableCell.col}"]`,
+    )?.focus();
+  }, [editingCell, focusableCell.row, focusableCell.col, changes.length]);
 
   const filteredColumnOptions = useMemo(() => {
     const term = columnFinder.trim().toLocaleLowerCase();
@@ -542,28 +559,6 @@ export function ResultsGrid({
     if (columnFocusTimerRef.current !== null) window.clearTimeout(columnFocusTimerRef.current);
   }, []);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && addingRow) {
-        e.preventDefault();
-        setAddingRow(false);
-        setNewRowValues({});
-        return;
-      }
-      if (activeTab !== "data" || pageRows.length === 0) return;
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedRow((r) => (r == null ? 0 : Math.min(pageRows.length - 1, r + 1)));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedRow((r) => (r == null ? 0 : Math.max(0, r - 1)));
-      }
-    }
-    const el = gridRef.current;
-    el?.addEventListener("keydown", onKey);
-    return () => el?.removeEventListener("keydown", onKey);
-  }, [activeTab, addingRow, pageRows.length]);
-
   return (
     <Card
       className="omni-results-grid"
@@ -575,8 +570,6 @@ export function ResultsGrid({
         flexDirection: "column",
         padding: 0,
       }}
-      tabIndex={0}
-      ref={gridRef}
     >
       <div className="omni-results-header">
         <TabList
@@ -732,6 +725,12 @@ export function ResultsGrid({
         )}
 
       <Toaster toasterId={toasterId} position="bottom-end" />
+      {activeTab === "data" && result && !running && <div className="omni-results-keyboard-hint">
+        <Text id={keyboardHintId} size={200}>{t("gridKeyboardHint")}</Text>
+        <Text role="status" aria-live="polite" size={200}>
+          {t("pendingChanges").replace("{count}", String(changes.length))}
+        </Text>
+      </div>}
 
       <div ref={gridScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {activeTab === "data" && (
@@ -778,8 +777,9 @@ export function ResultsGrid({
                             key={`${col.key}:${col.index}`}
                             data-column-index={col.index}
                             data-column-focused={focusedColumnIndex === col.index || undefined}
-                            onClick={() => handleSort(col.name)}
-                            title={`Tipo: ${col.dataType}`}
+                            onClick={() => handleSort(col.index)}
+                            aria-sort={sortColumn === col.index ? sortDirection : "none"}
+                            title={`${t("connectionType")}: ${col.dataType}`}
                             style={{
                               padding: "8px 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
@@ -794,7 +794,8 @@ export function ResultsGrid({
                               verticalAlign: "middle",
                             }}
                           >
-                            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Button appearance="transparent" size="small" className="omni-result-sort"
+                              aria-label={t("sortByColumn").replace("{column}", col.name)}>
                               <span
                                 aria-hidden="true"
                                 style={{
@@ -813,8 +814,8 @@ export function ResultsGrid({
                               {col.editable && (
                                 <EditRegular style={{ fontSize: 12, color: tokens.colorNeutralForeground2 }} />
                               )}
-                              {sortColumn === col.name && (sortDirection === "ascending" ? " ▲" : " ▼")}
-                            </span>
+                              {sortColumn === col.index && <span aria-hidden="true">{sortDirection === "ascending" ? " ▲" : " ▼"}</span>}
+                            </Button>
                           </th>
                         );
                       })()
@@ -866,6 +867,39 @@ export function ResultsGrid({
                         return (
                           <td
                             key={`${col.key}:${col.index}`}
+                            data-row-index={originalRowIndex}
+                            data-column-index={col.index}
+                            tabIndex={!isEditing && focusableCell.row === originalRowIndex && focusableCell.col === col.index ? 0 : -1}
+                            aria-describedby={keyboardHintId}
+                            onFocus={() => {
+                              setActiveCell({ row: originalRowIndex, col: col.index });
+                              setSelectedRow(displayRowIndex);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.target !== event.currentTarget) return;
+                              if (event.key === "Enter" || event.key === "F2") {
+                                event.preventDefault();
+                                startEdit(displayRowIndex, col.index);
+                                return;
+                              }
+                              let nextRow = displayRowIndex;
+                              let nextCol = visibleColumns.findIndex((item) => item.index === col.index);
+                              switch (event.key) {
+                                case "ArrowDown": nextRow++; break;
+                                case "ArrowUp": nextRow--; break;
+                                case "ArrowRight": nextCol++; break;
+                                case "ArrowLeft": nextCol--; break;
+                                case "Home": nextCol = 0; if (event.ctrlKey) nextRow = 0; break;
+                                case "End": nextCol = visibleColumns.length - 1; if (event.ctrlKey) nextRow = pageRows.length - 1; break;
+                                default: return;
+                              }
+                              event.preventDefault();
+                              nextRow = Math.max(0, Math.min(pageRows.length - 1, nextRow));
+                              nextCol = Math.max(0, Math.min(visibleColumns.length - 1, nextCol));
+                              gridScrollRef.current?.querySelector<HTMLTableCellElement>(
+                                `td[data-row-index="${pageRows[nextRow]?.rowIndex}"][data-column-index="${visibleColumns[nextCol]?.index}"]`,
+                              )?.focus();
+                            }}
                             data-column-focused={focusedColumnIndex === col.index || undefined}
                             style={{
                               padding: "4px 10px",
@@ -888,19 +922,26 @@ export function ResultsGrid({
                               if ((e.target as HTMLElement).closest("input")) return;
                               e.stopPropagation();
                               setSelectedRow(displayRowIndex);
+                              setActiveCell({ row: originalRowIndex, col: col.index });
+                              e.currentTarget.focus();
                               if (col.editable) startEdit(displayRowIndex, col.index);
                             }}
                           >
                             {isEditing ? (
                               <Input
                                 autoFocus
+                                aria-label={t("editCellValue").replace("{column}", col.name).replace("{row}", String(originalRowIndex + 1))}
                                 value={editingCell.value}
                                 onChange={(_, data) => setEditingCell({ ...editingCell, value: data.value })}
                                 onBlur={commitEdit}
                                 onKeyDown={(e) => {
                                   e.stopPropagation();
-                                  if (e.key === "Enter") void commitEdit();
-                                  if (e.key === "Escape") cancelEdit();
+                                  if (e.key === "Enter" || e.key === "Escape") {
+                                    e.preventDefault();
+                                    restoreCellFocusRef.current = true;
+                                    if (e.key === "Enter") void commitEdit();
+                                    else cancelEdit();
+                                  }
                                 }}
                                 style={{ minWidth: 60 }}
                               />
@@ -1020,6 +1061,7 @@ export function ResultsGrid({
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Button
               icon={<ChevronLeftRegular />}
+              aria-label={t("previousPage")}
               appearance="subtle"
               disabled={page <= 0}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
@@ -1029,6 +1071,7 @@ export function ResultsGrid({
             </Text>
             <Button
               icon={<ChevronRightRegular />}
+              aria-label={t("nextPage")}
               appearance="subtle"
               disabled={page >= totalPages - 1}
               onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
