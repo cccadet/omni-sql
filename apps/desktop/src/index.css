@@ -857,7 +857,9 @@ select option {
 .omni-connection-dialog.omni-connection-dialog { width: min(560px, calc(100vw - 24px)); }
 .omni-connection-dialog .omni-dialog-form > .fui-DialogTitle { padding: 16px 20px 0; }
 .omni-connection-dialog .omni-dialog-body.omni-dialog-body { gap: 10px; padding: 20px; }
-.omni-connection-dialog .omni-dialog-actions.omni-dialog-actions { padding: 12px 20px 16px; }
+.omni-connection-dialog .omni-dialog-actions.omni-dialog-actions { justify-content: flex-end; padding: 12px 20px 16px; }
+.omni-connection-feedback { flex: 0 0 auto; padding: 0 20px; overflow-wrap: anywhere; }
+.omni-connection-feedback:empty { display: none; }
 .omni-connection-dialog .omni-dialog-body > .fui-Label,
 .omni-connection-host-row > .fui-Label,
 .omni-connection-dialog .omni-dialog-body > .fui-Field,

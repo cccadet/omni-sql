@@ -98,7 +98,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [port, setPort] = useState("5432");
   const [database, setDatabase] = useState("postgres");
   const [user, setUser] = useState("");
-  const [password, setPassword] = useState("");
+  const [sqlPassword, setPassword] = useState("");
+  const [s3AccessKey, setS3AccessKey] = useState("");
+  const [s3SecretKey, setS3SecretKey] = useState("");
+  const password = mode === "s3" ? s3SecretKey : sqlPassword;
   const [ssl, setSsl] = useState(false);
   const [jdbcUrl, setJdbcUrl] = useState("");
   const [mongoUri, setMongoUri] = useState("mongodb://localhost:27017/test");
@@ -130,7 +133,9 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setMongoUri(editingDialect === "mongodb" ? editing!.endpoint : "mongodb://localhost:27017/test");
     setLabel(editing?.label ?? "");
     setId(duplicating ? generateId() : editing?.id ?? "");
-    setUser(editing?.user ?? "");
+    setUser(isS3 ? "" : editing?.user ?? "");
+    setS3AccessKey(isS3 ? editing?.user ?? "" : "");
+    setS3SecretKey("");
     setPassword("");
     setSsl(editing?.options?.ssl === true || editing?.options?.ssl === "require");
     if (isKnown) {
@@ -232,11 +237,11 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
       label: label || defaultLabel(),
       dialect: mode,
       endpoint: buildEndpoint(),
-      user: mode === "s3" ? user.trim() : user,
+      user: mode === "s3" ? s3AccessKey.trim() : user,
       options: buildOptions(),
       schemas: selectedSchemas.size > 0 ? [...selectedSchemas] : undefined,
     };
-  }, [mode, id, label, defaultLabel, buildEndpoint, user, buildOptions, selectedSchemas]);
+  }, [mode, id, label, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
 
   const onTest = async () => {
     if (mode === "demo") return;
@@ -253,7 +258,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
             ? await backend.call<{ secretAccessKey?: string }>("connection.s3Credentials", { connectionId: editing.id })
             : null;
           await listAnalysisS3({ uri: buildEndpoint(), region: s3Region.trim(),
-            endpoint: s3Endpoint.trim() || undefined, accessKeyId: user.trim() || undefined,
+            endpoint: s3Endpoint.trim() || undefined, accessKeyId: s3AccessKey.trim() || undefined,
             secretAccessKey: password || stored?.secretAccessKey, prefix: "" });
         }
         setTestResult({ ok: true, latencyMs: Math.round(performance.now() - startedAt) });
@@ -360,7 +365,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   return (
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
       <DialogSurface className="omni-standard-dialog omni-connection-dialog">
-        <form className="omni-dialog-form" onSubmit={onSave}>
+        <form className="omni-dialog-form" onSubmit={onSave} onChange={() => { setTestResult(null); setError(null); }}>
           <DialogTitle>{duplicating ? t("duplicateConnection") : editing ? t("editConnection") : t("newConnection")}</DialogTitle>
           <DialogBody className="omni-dialog-body">
             <Label>
@@ -430,10 +435,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                   <Input value={s3Endpoint} onChange={(_, data) => setS3Endpoint(data.value)} placeholder={t("s3EndpointPlaceholder")} disabled={busy} style={{ marginTop: 4 }} />
                 </Field>
                 <Field label="Access Key ID">
-                  <Input value={user} onChange={(_, data) => setUser(data.value)} placeholder={t("s3AccessKeyPlaceholder")} disabled={busy} style={{ marginTop: 4 }} />
+                  <Input value={s3AccessKey} onChange={(_, data) => setS3AccessKey(data.value)} placeholder={t("s3AccessKeyPlaceholder")} disabled={busy} style={{ marginTop: 4 }} />
                 </Field>
                 <Field label="Secret Access Key">
-                  <Input type="password" value={password} onChange={(_, data) => setPassword(data.value)} placeholder={editing && !duplicating ? t("s3KeepSecret") : t("s3SecretKeyPlaceholder")} disabled={busy} style={{ marginTop: 4 }} />
+                  <Input type="password" value={s3SecretKey} onChange={(_, data) => setS3SecretKey(data.value)} placeholder={editing?.dialect === "s3" && !duplicating ? t("s3KeepSecret") : t("s3SecretKeyPlaceholder")} disabled={busy} style={{ marginTop: 4 }} />
                 </Field>
                 <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("s3CredentialsHint")}</Text>
                 <section className="connection-schema-picker">
@@ -565,25 +570,24 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </>
             )}
 
-            {error && (
-              <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{error}</Text>
-            )}
+          </DialogBody>
+          <div className="omni-connection-feedback">
+            {error && <Text role="alert" style={{ color: tokens.colorPaletteRedForeground1 }}>{error}</Text>}
             {testResult && (
-              <Text style={{ color: testResult.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
-                {testResult.ok ? `${t("connectedIn")} ${testResult.latencyMs}ms` : `${t("failure")}: ${testResult.message ?? t("unknownFailure")}`}
+              <Text role={testResult.ok ? "status" : "alert"} style={{ color: testResult.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
+                {testResult.ok ? `${t("connectionTestSucceeded")} ${testResult.latencyMs}ms` : `${t("failure")}: ${testResult.message ?? t("unknownFailure")}`}
               </Text>
             )}
-          </DialogBody>
+          </div>
           <DialogActions className="omni-dialog-actions">
-            {mode !== "demo" && (
-              <Button type="button" onClick={onTest} disabled={busy || !canConnect()}>
-                {busy ? t("loading") : t("connect")}
-              </Button>
-            )}
-            <div style={{ flex: 1 }} />
             <Button type="button" onClick={onClose} disabled={busy}>
               {t("cancel")}
             </Button>
+            {mode !== "demo" && (
+              <Button type="button" onClick={onTest} disabled={busy || !canConnect()}>
+                {busy ? t("loading") : t("testConnection")}
+              </Button>
+            )}
             <Button type="submit" appearance="primary" disabled={busy || (mode !== "demo" && !canConnect())}>
               {busy ? t("loading") : t("saveConnection")}
             </Button>

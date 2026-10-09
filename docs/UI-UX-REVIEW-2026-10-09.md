@@ -80,6 +80,7 @@ Nenhum overlay foi injetado: evaluate disponível é somente leitura. Evidência
 - [ ] UX-10 · P3 · Acabamento: revisar textos pequenos, título Objects repetido e categoria inicial de Settings. Aceite: leitura em zoom/escala alta sem perda funcional e ordem inicial previsível.
 - [ ] UX-11 · Validação pendente · App nativo: árvores SQL com muitos objetos e S3 com buckets/prefixos/erros; grid preenchida, colunas largas, NULL/vazio, paginação/filtro/exportação/edição. Aceite: registrar evidência UI → Tauri → sidecars → fixtures sem dados/segredos de produção; medir contraste e verificar teclado/NVDA.
 - [ ] UX-12 · P3 · Passe final impeccable polish após os ajustes escolhidos, com verificação visual limitada e sem redesenho fora do escopo.
+- [ ] UX-20 · P2 · Metadados: ao cadastrar ou editar a conexão, parece ocorrer uma atualização dos metadados, mas o ícone de metadados não reflete o estado atualizado. Relatado pelo usuário em 2026-10-09; confirmar a atualização efetiva antes de corrigir. Aceite: após cadastrar/editar e concluir a atualização, o ícone reflete o estado real; verificar também atualização em andamento e falha.
 
 Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entregar o que mudou e um roteiro curto de teste; aguardar a validação do usuário antes do próximo. Para cada mudança, selecionar o menor nível de teste que detecte o comportamento, rodar typecheck/lint/testes afetados uma vez e integração quando o caminho exigir, conforme AGENTS.md.
 
@@ -97,8 +98,8 @@ Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entreg
 
 | Lote | Escopo | Estado |
 |---|---|---|
-| 1 | Toolbar e barra de resultados: UX-13/14, remoção do More inerte de UX-09 | Implementado; aguardando teste do usuário |
-| 2 | Cadastro SQL/S3: UX-02/03/18 | Aguardando validação do lote 1 |
+| 1 | Toolbar e barra de resultados: UX-13/14, remoção do More inerte de UX-09 | Commit a91584b; avanço autorizado pelo usuário |
+| 2 | Cadastro SQL/S3: UX-02/03/18 | Implementado; aguardando teste do usuário |
 | 3 | Configurações: UX-06/17 e categoria inicial de UX-10 | Pendente |
 | 4 | Entrada, sidebar SQL/S3 e contexto: UX-04/05/07/08/15/16 | Pendente |
 | 5 | Grid por teclado: UX-01 | Pendente |
@@ -127,7 +128,22 @@ Roteiro para o usuário no app em desenvolvimento:
 4. Em tabela editável de teste, alterar uma célula e finalizar edição: Aplicar/Descartar aparecem juntos. Descartar deve remover a pendência; aplicar somente em dados de teste.
 5. Conferir execução/cancelamento e acesso a salvar/abrir, histórico, biblioteca e configurações. Exportação nativa e análise local precisam teste real.
 
-Após o retorno do usuário, corrigir ajustes deste lote antes de iniciar o lote 2.
+O usuário autorizou avançar para o lote 2 em 2026-10-09.
+
+### Entrega do lote 2
+
+Credenciais SQL e S3 agora têm estados separados, preservados ao alternar o tipo. Abrir ou duplicar uma conexão continua sem preencher o segredo salvo. O rodapé reúne Cancelar, Testar conexão e Salvar conexão, alinhados à direita, com Salvar como ação principal. O retorno do teste fica acima dos botões, com status/alerta acessível; editar um campo remove o retorno anterior. Testar continua sem persistir a conexão.
+
+Verificação em Node v22.23.3 / pnpm 11.17.0: typecheck passou; lint passou com os mesmos 7 warnings fora do lote; ConnectionDialog.test.tsx e i18n.test.tsx passaram (16 testes). Testes cobrem troca SQL/S3/SQL, credenciais enviadas ao salvar, teste sem persistência, remoção de resultado antigo, falha/retry e os fluxos existentes de S3, duplicação e MongoDB. Navegador: formulário SQL em 1280×720 e S3 em 900×720, sem corte dos botões; campos S3 vazios após usuário SQL preenchido. Backend não iniciado nesta inspeção; nenhuma conexão cadastrada ou consultada. Isso não valida Tauri/keyring/AWS reais.
+
+Roteiro para teste no app:
+
+1. Digitar usuário/senha SQL, alternar para S3: as chaves devem estar vazias. Preencher chaves de teste e voltar para SQL: os valores SQL devem permanecer.
+2. Testar uma conexão de desenvolvimento: conferir sucesso/falha junto ao rodapé, sem salvar automaticamente. Editar Host ou outro campo deve remover o retorno antigo.
+3. Salvar uma conexão de teste, reabrir e duplicar: conferir usuário correto, segredo vazio e preservação do segredo salvo conforme fluxo existente.
+4. Conferir SQL e S3 em janela menor, com o conteúdo rolável e Cancelar/Testar/Salvar acessíveis.
+
+Aguardar o retorno do usuário antes do lote 3. Nenhum commit automático feito para este lote.
 
 ## Decisões registradas
 
