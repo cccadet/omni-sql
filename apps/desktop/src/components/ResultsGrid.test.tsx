@@ -47,6 +47,25 @@ test("shows query progress instead of the empty state while running", () => {
   expect(screen.queryByText("No results")).toBeNull();
 });
 
+test("offers result tools only after execution and apply only for pending edits", () => {
+  const { rerender } = render(<LanguageProvider><ResultsGrid /></LanguageProvider>);
+  expect(screen.getByText("No results")).toBeTruthy();
+  expect(screen.queryByRole("textbox", { name: "Filter data…" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Columns" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+
+  rerender(<LanguageProvider><ResultsGrid result={result} /></LanguageProvider>);
+  expect(screen.getByRole("textbox", { name: "Filter data…" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Columns" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Export CSV" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+
+  rerender(<LanguageProvider><ResultsGrid result={result} stagedChanges={[{ rowIndex: 0, colIndex: 0, value: 7 }]} /></LanguageProvider>);
+  expect(screen.getByRole("button", { name: "Apply 1" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Discard changes" })).toBeTruthy();
+});
+
 test("serializes nested values without object coercion", () => {
   expect(serializeCellValue(firstPayload)).toBe('{"nested":{"label":"needle"},"values":["x",2]}');
   expect(serializeCellValue(null)).toBe("");

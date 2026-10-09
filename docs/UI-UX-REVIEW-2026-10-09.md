@@ -1,0 +1,135 @@
+Método: dual-agent (A: /root/design_review · B: /root/technical_evidence).
+Data: 2026-10-09. Alvo: apps/desktop/src. Modo: Operate.
+
+# Avaliação da interface e TODO
+
+A estrutura de IDE é adequada: editor dominante, objetos à esquerda e resultados abaixo. Preservar a identidade grafite/amarelo, a densidade técnica e os componentes Fluent. A oportunidade principal é melhorar previsibilidade, descoberta e acesso por teclado.
+
+## Evidência e limites
+
+Revisão independente de UX e evidências técnicas, com código e inspeção em navegador local, viewport 1280×720. Superfícies: shell inicial, conexões restauradas, árvores SQL/S3, cadastro Demo/PostgreSQL/S3, configurações e resultados vazios. Não foram executadas consultas nem criadas/alteradas conexões. Grid preenchida e ações nativas foram avaliadas pelo código; requerem confirmação no app com dados de teste.
+
+Backend e frontend iniciados temporariamente para revisão e encerrados. O 401 inicial foi configuração de autenticação do preview, resolvida; erros de invoke sem Tauri e competição MCP entre abas não são achados do produto. Sem validação NVDA, contraste medido, zoom 200% ou E2E UI → Tauri → banco.
+
+## Saúde de design
+
+Notas heurísticas, não métricas automatizadas de acessibilidade.
+
+| Heurística | Nota /4 | Principal observação |
+|---|---:|---|
+| Visibilidade de estado | 3 | Estado de conexão/execução claro; teste de conexão sem anúncio adequado |
+| Correspondência com o mundo real | 3 | Vocabulário SQL apropriado; Connect significa testar |
+| Controle e liberdade | 3 | Cancelamento/descarte presentes; grid depende de clique |
+| Consistência e padrões | 2 | Idiomas misturados e campos desalinhados |
+| Prevenção de erros | 3 | Limites, análise de risco e aplicação explícita de edições |
+| Reconhecimento em vez de lembrança | 2 | Primeiro passo pouco visível |
+| Flexibilidade e eficiência | 3 | Atalhos, histórico e busca; lacunas de teclado na grid |
+| Estética e minimalismo | 3 | Shell enxuto; ferramentas prematuras no vazio |
+| Diagnóstico e recuperação | 2 | Mensagens preservam formulário, mas nem sempre orientam recuperação |
+| Ajuda e documentação | 2 | Tooltips/hints presentes; entrada sem condução |
+| **Total** | **26/40** | **Aceitável, com melhorias operacionais relevantes** |
+
+## O que funciona
+
+- Hierarquia espacial familiar a usuários de SQL, com conexão/dialeto visíveis.
+- Run textual, limite explícito, cancelamento e avisos de risco acompanhados de texto.
+- Formulários agrupados, Cancel e Save visíveis; árvore com Enter/Espaço e estado expanded.
+- Grid separa alterações pendentes da aplicação no banco e anuncia execução em andamento.
+
+## Cinco prioridades
+
+1. **P1 — Grid por teclado.** Cabeçalhos ordenáveis e células editáveis dependem de clique; ausência de aria-sort e nome contextual do editor. Evidência de código em ResultsGrid.tsx:761–816 e 883–903. Impacto: fluxo parcial para teclado/leitor de tela. Corrigir interação e semântica; confirmar com resultado preenchido antes de declarar bloqueio total. Comando sugerido: impeccable harden.
+2. **P2 — Primeiro uso sem próximo passo.** Vazio inicial mostra No connections configured/No objects available/No results e muitos comandos; criar conexão está num + pequeno. Expor CTA Criar conexão e caminho secundário Demo/importação; reduzir controles de resultado sem dados. Sidebar.tsx:807, ResultsGrid.tsx:758. Comandos: impeccable onboard e distill.
+3. **P2 — Cadastro de conexão ambíguo.** Connect executa connection.test, mas sucesso ainda exige Save connection. Ao trocar PostgreSQL → S3, Access Key ID recebe postgres; foi reproduzido sem salvar. Renomear teste/sucesso, anunciar feedback e separar estados de autenticação. ConnectionDialog.tsx:241, 301–306, 432–434, 568–579. Comandos: impeccable clarify e harden.
+4. **P2 — Configurações desalinhadas.** Chevrons dos Select fora da borda visível; rótulos/inputs perdem associação em 1280×720. Revisar Field, sizing e colunas sem trocar o sistema visual. FormatSettings.tsx:153–198. Comando: impeccable layout.
+5. **P2 — Consistência e descoberta.** S3 mostra português em locale inglês; More options não faz nada; pesquisas de Objects sem nome acessível específico. Traduzir, retirar/implementar controle vazio e rotular buscas. Sidebar.tsx:949–956, FormatSettings.tsx:230, Toolbar.tsx:166. Comandos: impeccable clarify e harden.
+
+## Carga cognitiva e jornada
+
+No vazio, a toolbar oferece pelo menos 13 ações antes da primeira conexão; o agrupamento ajuda o usuário experiente, mas falta direção ao iniciante. A grid mantém controles que não ajudam enquanto não existem dados. Não impor um teto artificial de quatro objetos à árvore SQL: sua densidade é parte do trabalho.
+
+A entrada parece profissional, mas o iniciante pode hesitar no primeiro passo. Cadastro ganha confiança com defaults e hints; Connect → Save quebra a expectativa de conclusão. A execução oferece um ciclo claro; a grid precisa equivalência de teclado. Configurações têm footer previsível, mas desalinhamento reduz confiança.
+
+## Personas
+
+- Alex, usuário experiente: bons atalhos e organização; perde tempo com More options vazio e Connect ambíguo.
+- Jordan, iniciante: precisa localizar qual + cria conexão; Demo fica entre dez tipos, sem condução no vazio.
+- Sam, teclado/leitor de tela: árvore e toolbar têm bons recursos; ordenação/entrada na edição da grid e anúncios de teste precisam melhoria.
+
+## Observações menores
+
+Metadados da sidebar em 9–11px merecem teste de zoom. Objects repetido ocupa altura no vazio. Configurações abrem em SQL formatting embora Editor venha primeiro. Abertura de tabela por double-click/contexto merece revisão de descoberta; não foi demonstrado bloqueio integral.
+
+## Detector
+
+Uma ocorrência: regra side-tab, warning/slop, ExecutionRiskDialog.tsx:43. Falso positivo contextual: a borda semântica reforça risco de SQL destrutivo junto de título e SQL. Não remover essa indicação apenas para satisfazer o detector.
+
+Nenhum overlay foi injetado: evaluate disponível é somente leitura. Evidências alternativas: screenshot/árvore de acessibilidade e inspeção de código. O resultado limpo ou quase limpo do detector não estabelece qualidade UX.
+
+## TODO priorizado
+
+- [ ] UX-01 · P1 · Grid: cabeçalho com botão focável e aria-sort; navegação/entrada na edição por teclado, foco recuperável e editor nomeado por coluna. Aceite: ordenar e editar/aplicar/descartar numa fixture por teclado, com estado anunciado. Verificar SQL editável e resultado somente leitura.
+- [ ] UX-02 · P2 · Cadastro: separar/resetar autenticação entre SQL/S3. Aceite: PostgreSQL → S3 não preenche Access Key ID com usuário SQL; campos compatíveis têm política explícita e credenciais não migram indevidamente.
+- [ ] UX-03 · P2 · Cadastro: Test connection/Test successful e status/alert acessível. Aceite: testar não comunica que salvou/ativou; salvar tem conclusão distinta; falha preserva campos e orienta recuperação.
+- [ ] UX-04 · P2 · Inicial: CTA Criar conexão e opção Demo/importar coerente com o produto. Aceite: primeira ação fica clara no vazio, sem depender de distinguir dois +; tarefas existentes seguem disponíveis.
+- [ ] UX-05 · P2 · Resultados vazios: distinguir ainda não executado, consulta sem linhas, carregamento e erro. Aceite: cada estado informa próximo passo; ações impossíveis ficam desabilitadas/ocultas com critério consistente.
+- [ ] UX-06 · P2 · Configurações: corrigir alinhamento de Select/Field e rótulos. Aceite: setas dentro dos controles e relação campo/rótulo clara em 1280×720 e janela menor; preview e footer acessíveis com scroll.
+- [ ] UX-07 · P2 · SQL/S3: mover textos para i18n, incluindo nomes acessíveis. Aceite: inglês e pt-BR coerentes nas árvores, diálogos e configurações.
+- [ ] UX-08 · P2 · Sidebar: nome acessível para cada pesquisa; ação de abrir objeto descobrível por teclado. Aceite: busca anuncia propósito e navegação SQL/S3 pode ser concluída sem mouse.
+- [x] UX-09 · P2 · Toolbar: retirar ou implementar More options. More inerte removido no lote 1; validação do usuário pendente.
+- [ ] UX-10 · P3 · Acabamento: revisar textos pequenos, título Objects repetido e categoria inicial de Settings. Aceite: leitura em zoom/escala alta sem perda funcional e ordem inicial previsível.
+- [ ] UX-11 · Validação pendente · App nativo: árvores SQL com muitos objetos e S3 com buckets/prefixos/erros; grid preenchida, colunas largas, NULL/vazio, paginação/filtro/exportação/edição. Aceite: registrar evidência UI → Tauri → sidecars → fixtures sem dados/segredos de produção; medir contraste e verificar teclado/NVDA.
+- [ ] UX-12 · P3 · Passe final impeccable polish após os ajustes escolhidos, com verificação visual limitada e sem redesenho fora do escopo.
+
+Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entregar o que mudou e um roteiro curto de teste; aguardar a validação do usuário antes do próximo. Para cada mudança, selecionar o menor nível de teste que detecte o comportamento, rodar typecheck/lint/testes afetados uma vez e integração quando o caminho exigir, conforme AGENTS.md.
+
+## Layout e organização dos botões
+
+- [x] UX-13 · P2 · Toolbar: agrupar Run/Cancel, EXPLAIN e limite; separar arquivos de análise local; manter ações globais no extremo direito. Implementado no lote 1; reflow em 900 px verificado, zoom/validação nativa do usuário pendentes.
+- [x] UX-14 · P2 · Resultados: tabs acima das ações; filtro/Columns à esquerda, inclusão/Aplicar/Descartar juntos e análise/exportação à direita. Implementado no lote 1; vazio, pendências, descarte e reflow verificados com fixture sintética. Validação nativa do usuário pendente.
+- [ ] UX-15 · P2 · Contexto de execução: avaliar aproximação visual da conexão/dialeto ao grupo Run. Aceite: destino da execução evidente e sem duplicar controles desnecessariamente; preservar seleção e estado atuais.
+- [ ] UX-16 · P2 · Sidebar: reduzir cabeçalhos repetidos, manter busca junto dos objetos e ações específicas junto da conexão/objeto. Aceite: mais altura útil para árvore, contexto SQL/S3 claro e ações descobríveis.
+- [ ] UX-17 · P2 · Configurações: menos colunas estreitas, larguras coerentes e prévia próxima das opções que demonstra. Aceite: agrupamento compreensível e sem controles desalinhados.
+- [ ] UX-18 · P2 · Cadastro: footer Cancelar/Testar conexão/Salvar conexão, com Salvar primário e feedback de teste próximo. Aceite: testar e persistir têm sequência visual inequívoca.
+- [ ] UX-19 · P3 · Hierarquia de ações: reservar destaque para Run, Salvar e Aplicar pendências nos respectivos contextos. Aceite: grupos secundários discretos, mas acessíveis; preservar grafite/amarelo e densidade de IDE.
+
+## Lotes de implementação e validação
+
+| Lote | Escopo | Estado |
+|---|---|---|
+| 1 | Toolbar e barra de resultados: UX-13/14, remoção do More inerte de UX-09 | Implementado; aguardando teste do usuário |
+| 2 | Cadastro SQL/S3: UX-02/03/18 | Aguardando validação do lote 1 |
+| 3 | Configurações: UX-06/17 e categoria inicial de UX-10 | Pendente |
+| 4 | Entrada, sidebar SQL/S3 e contexto: UX-04/05/07/08/15/16 | Pendente |
+| 5 | Grid por teclado: UX-01 | Pendente |
+| 6 | Acabamento e validação nativa: UX-10/11/12/19 | Pendente |
+
+Lote 1 preserva callbacks/contratos de execução, edição e exportação. Estados vazios mais explicativos de UX-05 e comportamento por teclado de UX-01 seguem para seus lotes.
+
+### Entrega do lote 1
+
+Alterados Toolbar.tsx, ResultsGrid.tsx, index.css e teste de ResultsGrid. Nenhum contrato de backend/nativo alterado e nenhuma dependência adicionada.
+
+Verificação local em 2026-10-09, Node v22.23.3 e pnpm 11.17.0 (fnm exec --using v22.23.3; primeira rodada usou Node 26 e foi repetida no runtime requerido):
+
+- Typecheck: pnpm --filter desktop typecheck, passou.
+- Lint: pnpm --filter desktop lint, passou com 7 warnings em AnalysisWorkspace.tsx, Editor.tsx e useSession.ts, fora do lote.
+- Testes: pnpm --filter desktop exec vitest run src/components/Toolbar.test.tsx src/components/ResultsGrid.test.tsx src/App.test.tsx src/components/AnalysisWorkspace.test.tsx; Vitest 4.1.10, 4 arquivos/64 testes passaram.
+- Detector layout antes/depois: zero achados nos dois componentes; avaliação independente de layout e mecânica antes da edição.
+- Navegador: shell vazio e componentes reais com fixture sintética em 1280×720 e 900×720; verificados agrupamento, pendência/descarte, vazio e Run/Cancel. Em 900 px, scrollWidth/clientWidth = 900/900 na toolbar e 640/640 nas ações de resultados. Fixture temporária removida, viewport restaurado, aba e servidor temporários encerrados.
+- Isso não constitui E2E Tauri/banco, exportação nativa nem validação NVDA. Nenhuma consulta em banco cadastrado foi executada.
+
+Roteiro para o usuário no app em desenvolvimento:
+
+1. Conferir toolbar em janela ampla e reduzida: execução/limite, arquivos, análise local e globais; nenhuma ação cortada.
+2. Sem resultado, conferir que tabs permanecem e filtro/colunas/exportação/Aplicar não aparecem.
+3. Executar consulta numa fixture: filtrar, abrir Columns e conferir grupo de exportação/análise.
+4. Em tabela editável de teste, alterar uma célula e finalizar edição: Aplicar/Descartar aparecem juntos. Descartar deve remover a pendência; aplicar somente em dados de teste.
+5. Conferir execução/cancelamento e acesso a salvar/abrir, histórico, biblioteca e configurações. Exportação nativa e análise local precisam teste real.
+
+Após o retorno do usuário, corrigir ajustes deste lote antes de iniciar o lote 2.
+
+## Decisões registradas
+
+- Começar pela organização da toolbar e resultados, em lotes testados pelo usuário.
+- Na entrada, manter Criar conexão como ação principal proposta e Demo/importação como secundárias; confirmar o resultado ao testar o lote 4.
