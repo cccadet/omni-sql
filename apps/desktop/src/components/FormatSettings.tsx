@@ -7,8 +7,8 @@ import {
   DialogTitle,
   DialogBody,
   DialogActions,
+  Field,
   Input,
-  Label,
   Select,
   Tab,
   TabList,
@@ -51,13 +51,13 @@ const logicalOperatorOptions = [
   { value: "after", label: "After" },
 ];
 
-const PREVIEW_SQL = `GRANT SELECT, UPDATE, DELETE, INSERT ON BIDW.LAUDOS_ESTATISTICA TO DREMIO;\n\nSELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
+const PREVIEW_SQL = `GRANT SELECT, UPDATE, DELETE, INSERT ON DW.TEST_TABLE TO DREMIO;\n\nSELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
 
 export function FormatSettings({ open, dialect, settings, onClose, onSave }: FormatSettingsProps) {
   const { t, language, setLanguage } = useLanguage();
   const [draft, setDraft] = useState<FormatterSettings>(() => ({ ...settings }));
   const [previewSql, setPreviewSql] = useState(PREVIEW_SQL);
-  const [section, setSection] = useState<"editor" | "formatting" | "language">("formatting");
+  const [section, setSection] = useState<"editor" | "formatting" | "language">("editor");
 
   const keybindingError = useMemo(
     () => (isValidKeybinding(draft.keybinding) ? null : t("invalidShortcut")),
@@ -100,8 +100,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
           <DialogBody className="omni-settings-body">
             {section === "language" ? (
               <div className="omni-settings-section omni-settings-language">
-              <Label className="omni-settings-language-field">
-                {t("language")}
+              <Field label={t("language")} className="omni-settings-language-field">
                 <Select
                   aria-label={t("language")}
                   value={language}
@@ -110,7 +109,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   <option value="en">{t("english")}</option>
                   <option value="pt-BR">{t("portugueseBrazil")}</option>
                 </Select>
-              </Label>
+              </Field>
               </div>
             ) : section === "editor" ? (
               <div className="omni-settings-section">
@@ -126,9 +125,10 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                 </section>
               </div>
             ) : (
+              <div className="omni-settings-formatting">
               <div className="omni-settings-section">
             <section className="omni-settings-card">
-              <Label>{t("shortcut")}</Label>
+              <Field label={t("shortcut")} validationState={keybindingError ? "error" : "none"} validationMessage={keybindingError ?? undefined}>
               <Input
                 aria-label={t("shortcut")}
                 value={draft.keybinding}
@@ -136,9 +136,8 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                 placeholder="Ctrl+Alt+L"
                 style={{ borderColor: keybindingError ? tokens.colorPaletteRedBorder1 : undefined }}
               />
-              {keybindingError ? (
-                <Text style={{ color: tokens.colorPaletteRedForeground1, fontSize: 12 }}>{keybindingError}</Text>
-              ) : (
+              </Field>
+              {!keybindingError && (
                 <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
                   {t("examples")}: Ctrl+Alt+L, Cmd+Shift+F, Ctrl+Shift+I
                 </Text>
@@ -150,16 +149,14 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
 
             <section className="omni-settings-card">
               <Text weight="semibold">{t("capitalization")}</Text>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+              <div className="omni-settings-fields">
                 {[
                   ["keywordCase", t("keywords")], ["identifierCase", t("identifiers")], ["dataTypeCase", t("dataTypes")], ["functionCase", t("functionNames")],
                 ].map(([key, label]) => (
-                  <Label key={key}>
-                    {label}
+                  <Field key={key} label={label}>
                     <Select
                       value={String(draft[key as keyof FormatterSettings])}
                       onChange={(_, data) => update(key as keyof FormatterSettings, data.value as never)}
-                      style={{ display: "block", marginTop: 4 }}
                     >
                       {keywordCaseOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -167,73 +164,63 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                         </option>
                       ))}
                     </Select>
-                  </Label>
+                  </Field>
                 ))}
               </div>
             </section>
 
             <section className="omni-settings-card">
               <Text weight="semibold">{t("layout")}</Text>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
-                <Label>
-                  {t("indentationStyle")}
-                  <Select value={draft.indentStyle} onChange={(_, data) => update("indentStyle", data.value as FormatterSettings["indentStyle"])} style={{ display: "block", marginTop: 4 }}>
+              <div className="omni-settings-fields">
+                <Field label={t("indentationStyle")}>
+                  <Select value={draft.indentStyle} onChange={(_, data) => update("indentStyle", data.value as FormatterSettings["indentStyle"])}>
                     {indentStyleOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
                       </option>
                     ))}
                   </Select>
-                </Label>
-                <Label>
-                  {t("expressionWidth")}
-                  <Input type="number" min={20} max={200} value={String(draft.expressionWidth)} onChange={(_, data) => update("expressionWidth", Number(data.value))} style={{ marginTop: 4 }} />
-                </Label>
-                <Label>
-                  {t("linesBetweenQueries")}
-                  <Input type="number" min={0} max={10} value={String(draft.linesBetweenQueries)} onChange={(_, data) => update("linesBetweenQueries", Number(data.value))} style={{ marginTop: 4 }} />
-                </Label>
-                <Label>
-                  {t("andOrBreak")}
-                  <Select value={draft.logicalOperatorNewline} onChange={(_, data) => update("logicalOperatorNewline", data.value as FormatterSettings["logicalOperatorNewline"])} style={{ display: "block", marginTop: 4 }}>
+                </Field>
+                <Field label={t("expressionWidth")}>
+                  <Input type="number" min={20} max={200} value={String(draft.expressionWidth)} onChange={(_, data) => update("expressionWidth", Number(data.value))} />
+                </Field>
+                <Field label={t("linesBetweenQueries")}>
+                  <Input type="number" min={0} max={10} value={String(draft.linesBetweenQueries)} onChange={(_, data) => update("linesBetweenQueries", Number(data.value))} />
+                </Field>
+                <Field label={t("andOrBreak")}>
+                  <Select value={draft.logicalOperatorNewline} onChange={(_, data) => update("logicalOperatorNewline", data.value as FormatterSettings["logicalOperatorNewline"])}>
                     {logicalOperatorOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
                       </option>
                     ))}
                   </Select>
-                </Label>
+                </Field>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
-                <Label>
-                  {t("tabWidth")}
+                <Field label={t("tabWidth")}>
                   <Input type="number" min={1} max={8} value={String(draft.tabWidth)} onChange={(_, data) => update("tabWidth", Number(data.value))} style={{ width: 80, marginTop: 4 }} />
-                </Label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <input type="checkbox" checked={draft.useTabs} onChange={(e) => update("useTabs", e.target.checked)} />
-                  {t("useTabs")}
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <input type="checkbox" checked={draft.denseOperators} onChange={(e) => update("denseOperators", e.target.checked)} />
-                  {t("denseOperators")}
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <input type="checkbox" checked={draft.newlineBeforeSemicolon} onChange={(e) => update("newlineBeforeSemicolon", e.target.checked)} />
-                  {t("newlineBeforeSemicolon")}
-                </label>
+                </Field>
+                <Checkbox label={t("useTabs")} checked={draft.useTabs} onChange={(_, data) => update("useTabs", data.checked === true)} />
+                <Checkbox label={t("denseOperators")} checked={draft.denseOperators} onChange={(_, data) => update("denseOperators", data.checked === true)} />
+                <Checkbox label={t("newlineBeforeSemicolon")} checked={draft.newlineBeforeSemicolon} onChange={(_, data) => update("newlineBeforeSemicolon", data.checked === true)} />
               </div>
             </section>
+              </div>
 
-            <section className="omni-settings-card">
+            <section className="omni-settings-card omni-settings-preview">
               <Text weight="semibold">{t("preview")} ({dialect})</Text>
+              <Field label={t("previewInputSql")}>
               <Textarea
-                aria-label="SQL da prévia"
                 value={previewSql}
                 onChange={(_, data) => setPreviewSql(data.value)}
                 resize="vertical"
                 style={{ marginTop: 8, minHeight: 90, fontFamily: "ui-monospace, monospace" }}
               />
+              </Field>
+              <Text weight="semibold">{t("previewFormattedSql")}</Text>
               <pre
+                aria-label={t("previewFormattedSql")}
                 style={{
                   background: tokens.colorNeutralBackground1,
                   border: `1px solid ${tokens.colorNeutralStroke1}`,

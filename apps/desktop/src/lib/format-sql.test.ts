@@ -18,22 +18,22 @@ describe("safe SQL formatting", () => {
     "formats GRANT conservatively for %s",
     (dialect) => {
       expect(formatSql(
-        "GRANT SELECT, UPDATE, DELETE, INSERT ON BIDW.LAUDOS_ESTATISTICA TO DREMIO;",
+        "GRANT SELECT, UPDATE, DELETE, INSERT ON DW.TEST_TABLE TO DREMIO;",
         dialect,
         DEFAULT_FORMATTER_SETTINGS,
-      )).toBe("GRANT SELECT, UPDATE, DELETE, INSERT\nON BIDW.LAUDOS_ESTATISTICA\nTO DREMIO;");
+      )).toBe("GRANT SELECT, UPDATE, DELETE, INSERT\nON DW.TEST_TABLE\nTO DREMIO;");
     },
   );
 
   test("formats REVOKE without treating SELECT as a query", () => {
-    expect(formatSql("REVOKE SELECT, UPDATE ON BIDW.T FROM DREMIO;", "postgres", DEFAULT_FORMATTER_SETTINGS))
-      .toBe("REVOKE SELECT, UPDATE\nON BIDW.T\nFROM DREMIO;");
+    expect(formatSql("REVOKE SELECT, UPDATE ON DW.T FROM DREMIO;", "postgres", DEFAULT_FORMATTER_SETTINGS))
+      .toBe("REVOKE SELECT, UPDATE\nON DW.T\nFROM DREMIO;");
   });
 
   test.each([
-    "VACUUM (ANALYZE, VERBOSE) BIDW.T;",
-    "SET search_path TO bidw, public;",
-    "COPY BIDW.T (a, b) FROM STDIN;",
+    "VACUUM (ANALYZE, VERBOSE) DW.T;",
+    "SET search_path TO DW, public;",
+    "COPY DW.T (a, b) FROM STDIN;",
     "SHOW ALL;",
     "BEGIN EXECUTE IMMEDIATE 'GRANT SELECT ON t TO u'; END;",
   ])("preserves unsupported or administrative syntax: %s", (sql) => {
@@ -41,10 +41,10 @@ describe("safe SQL formatting", () => {
   });
 
   test("formats mixed documents statement by statement", () => {
-    const sql = "GRANT SELECT, UPDATE ON BIDW.T TO DREMIO;\nSELECT a,b FROM BIDW.T;";
+    const sql = "GRANT SELECT, UPDATE ON DW.T TO DREMIO;\nSELECT a,b FROM DW.T;";
     const formatted = formatSql(sql, "postgres", DEFAULT_FORMATTER_SETTINGS);
-    expect(formatted).toContain("GRANT SELECT, UPDATE\nON BIDW.T\nTO DREMIO;");
-    expect(formatted).toContain("SELECT\n  a,\n  b\nFROM\n  BIDW.T;");
+    expect(formatted).toContain("GRANT SELECT, UPDATE\nON DW.T\nTO DREMIO;");
+    expect(formatted).toContain("SELECT\n  a,\n  b\nFROM\n  DW.T;");
   });
 
   test("is idempotent", () => {

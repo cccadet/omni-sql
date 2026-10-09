@@ -17,6 +17,9 @@ test("uses context-specific save label", () => {
     </LanguageProvider>,
   );
 
+  expect(screen.getByRole("tab", { name: "Editor" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("button", { name: "Save settings" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "SQL formatting" }));
   expect(screen.getByRole("button", { name: "Save formatting settings" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Save connection" })).toBeNull();
   expect(screen.getByRole("dialog").classList.contains("omni-settings-dialog")).toBe(true);
@@ -63,6 +66,10 @@ test("switches settings tabs without losing formatting controls", () => {
     </LanguageProvider>,
   );
 
+  fireEvent.click(screen.getByRole("tab", { name: "SQL formatting" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Keywords" }), { target: { value: "lower" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Input SQL" }), { target: { value: "SELECT id FROM users" } });
+  expect(screen.getByLabelText("Formatted SQL").textContent).toMatch(/select/);
   fireEvent.click(screen.getByRole("tab", { name: "Language" }));
   const languageSelect = screen.getByRole("combobox", { name: "Language" });
   expect(languageSelect).toBeTruthy();
@@ -72,5 +79,7 @@ test("switches settings tabs without losing formatting controls", () => {
 
   fireEvent.click(screen.getByRole("tab", { name: "SQL formatting" }));
   expect(screen.getByRole("textbox", { name: "Shortcut" })).toBeTruthy();
+  expect((screen.getByRole("combobox", { name: "Keywords" }) as HTMLSelectElement).value).toBe("lower");
+  expect((screen.getByRole("textbox", { name: "Input SQL" }) as HTMLTextAreaElement).value).toBe("SELECT id FROM users");
   expect(screen.queryByRole("combobox", { name: "Language" })).toBeNull();
 });

@@ -822,7 +822,8 @@ select option {
 .omni-theme-toggle:hover { background: var(--colorNeutralBackground3); color: var(--colorBrandForeground1); }
 
 .omni-settings-dialog.omni-settings-dialog {
-  width: min(680px, calc(100vw - 32px));
+  width: min(1040px, calc(100vw - 32px));
+  max-width: none;
   height: min(680px, calc(100vh - 32px));
   max-height: calc(100vh - 32px);
   box-sizing: border-box;
@@ -914,11 +915,26 @@ select option {
 .omni-settings-tabs { flex-shrink: 0; overflow-x: auto; padding: 0 24px; border-bottom: 1px solid var(--colorNeutralStroke1); }
 .omni-settings-body.omni-settings-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-top: 14px; }
 .omni-settings-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.omni-settings-formatting { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; min-height: 0; }
+.omni-settings-formatting > .omni-settings-section { overflow-y: auto; padding-right: 4px; }
+.omni-settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.omni-settings-fields > .fui-Field { min-width: 0; }
+.omni-settings-fields .fui-Select, .omni-settings-fields .fui-Input { width: 100%; min-width: 0; box-sizing: border-box; }
+.omni-settings-fields .fui-Label { display: flex; align-items: flex-end; min-height: 40px; }
+.omni-settings-preview { min-width: 0; align-self: start; }
+.omni-settings-preview pre { margin: 0; }
 .omni-settings-language { max-width: 320px; }
 .omni-settings-language-field { display: grid; width: min(240px, 100%); gap: 4px; }
 .omni-settings-language-field > .fui-Select { width: 100%; }
 .omni-settings-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--colorNeutralStroke2); border-radius: 8px; background: var(--colorNeutralBackground2); }
-.omni-settings-actions { flex-shrink: 0; flex-wrap: wrap; border-top: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground1); }
+.omni-settings-actions.omni-settings-actions { flex-shrink: 0; flex-wrap: wrap; gap: 8px; padding: 12px 0 0; border-top: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground1); }
+@media (max-width: 900px) {
+  .omni-settings-formatting { grid-template-columns: minmax(0, 1fr); }
+  .omni-settings-formatting > .omni-settings-section { overflow-y: visible; padding-right: 0; }
+}
+@media (max-width: 520px) {
+  .omni-settings-fields { grid-template-columns: minmax(0, 1fr); }
+}
 .omni-new-row-actions { display: flex; align-items: center; gap: 4px; }
 .omni-toolbar-progress { display: inline-flex; width: 24px; min-width: 24px; align-items: center; justify-content: center; }
 .omni-table-dialog.omni-table-dialog { box-sizing: border-box; display: flex; flex-direction: column; height: min(720px, calc(100vh - 24px)); max-height: calc(100vh - 24px); overflow: hidden; }
@@ -937,7 +953,7 @@ select option {
   .omni-settings-tabs { padding-inline: 12px; }
   .omni-settings-body { padding: 10px 12px; }
   .omni-settings-card { padding: 10px; }
-  .omni-settings-actions { padding: 8px 12px; }
+  .omni-settings-actions.omni-settings-actions { padding: 12px; }
   .omni-command-library-dialog.omni-command-library-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
   .omni-command-library-filters { flex-wrap: wrap; }
   .omni-command-library-filters > :first-child { flex-basis: 100%; }
