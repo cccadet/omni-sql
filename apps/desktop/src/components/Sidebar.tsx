@@ -31,6 +31,7 @@ import {
   FilterRegular,
   DismissRegular,
   ArrowEnterRegular,
+  OpenRegular,
   LinkRegular,
   DatabaseRegular,
   TableRegular,
@@ -711,7 +712,7 @@ export function Sidebar({
   const metadataFreshness = getMetadataFreshness(connection?.lastSyncedAt);
   const metadataTimestamp = formatLastSyncedAt(connection?.lastSyncedAt);
   const metadataTooltip = `${metadataRefreshFailed ? `${tr("error")}: ${tr("refreshMetadata")}` : metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
-  const healthLabel = health === "online" ? "Online" : health === "offline" ? "Offline" : health === "verifying" ? "Verifying…" : "Unknown";
+  const healthLabel = health === "online" ? tr("headerConnected") : health === "offline" ? tr("headerOffline") : health === "verifying" ? tr("headerVerifying") : tr("statusUnknown");
 
   return (
     <Card
@@ -772,7 +773,8 @@ export function Sidebar({
               <div className="omni-folder-create">
                 <Input
                   value={newGroupName}
-                  placeholder="Folder name"
+                  placeholder={tr("folderName")}
+                  aria-label={tr("folderName")}
                   onChange={(_, data) => setNewGroupName(data.value)}
                   autoFocus
                 />
@@ -788,7 +790,7 @@ export function Sidebar({
                     setNewGroupOpen(false);
                   }}
                 >
-                  Create
+                  {tr("createFolder")}
                 </Button>
               </div>
             )}
@@ -804,7 +806,11 @@ export function Sidebar({
             >
             <div className="omni-connection-list" role="listbox" aria-label={tr("connections")}>
               {connections.length === 0 ? (
-                <Text size={200} style={{ color: tokens.colorNeutralForeground2, padding: "4px 8px" }}>{tr("toolbar.noConnections")}</Text>
+                <div className="omni-connections-empty">
+                  <Text size={200}>{tr("toolbar.noConnections")}</Text>
+                  <Button appearance="primary" size="small" icon={<AddRegular />} onClick={onAddConnection}>{tr("newConnection")}</Button>
+                  <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{tr("firstConnectionHint")}</Text>
+                </div>
               ) : (
                 <>
                   {connectionGroups.map((group) => {
@@ -855,7 +861,7 @@ export function Sidebar({
                     id={ROOT_CONNECTIONS_DROP_ID}
                     className={`omni-root-connections${draggedConnectionId ? " drop-ready" : ""}`}
                   >
-                    <div className="omni-root-label">Root connections</div>
+                    <div className="omni-root-label">{tr("rootConnections")}</div>
                     {rootConnections.map(renderConnection)}
                   </ConnectionDropZone>
                 </>
@@ -894,6 +900,7 @@ export function Sidebar({
         </div>
       {objectsExpanded && <>
       <div
+        className={connection ? "omni-objects-context" : "omni-objects-context is-empty"}
         style={{
           padding: "10px 12px",
           borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
@@ -917,9 +924,7 @@ export function Sidebar({
             </div>
           </div>
         ) : (
-          <Text weight="semibold" truncate>
-            {tr("objects")}
-          </Text>
+          null
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
           {connection?.dialect === "mongodb" && <Button size="small" appearance="outline"
@@ -946,17 +951,18 @@ export function Sidebar({
         {connection?.dialect === "s3" && <div className="omni-s3-objects-prefix">
           <Input size="small" value={s3PrefixDraft} onChange={(_, data) => setS3PrefixDraft(data.value)}
             onKeyDown={(event) => { if (event.key === "Enter") onS3PrefixChange?.(s3PrefixDraft); }}
-            placeholder="Prefixo em cada bucket" aria-label="Prefixo S3" />
-          <Button size="small" onClick={() => onS3PrefixChange?.(s3PrefixDraft)}>Listar</Button>
+            placeholder={tr("s3PrefixPlaceholder")} aria-label={tr("s3PrefixLabel")} />
+          <Button size="small" onClick={() => onS3PrefixChange?.(s3PrefixDraft)}>{tr("s3ListPrefix")}</Button>
         </div>}
         {connection?.dialect === "s3" && duckLakeCandidates.length > 0 && <div className="omni-s3-limit">
-          Possível DuckLake em {duckLakeCandidates.join(", ")}. Configure o catálogo para identificar as tabelas.
-          <Button size="small" appearance="subtle" onClick={() => connectionId && onEditConnection?.(connectionId)}>Configurar catálogo</Button>
+          {tr("ducklakeDetectedHint").replace("{buckets}", duckLakeCandidates.join(", "))}
+          <Button size="small" appearance="subtle" onClick={() => connectionId && onEditConnection?.(connectionId)}>{tr("configureCatalog")}</Button>
         </div>}
-        {connection?.dialect === "s3" && <Button size="small" appearance="outline" icon={<LinkRegular fontSize={14} />} style={{ width: "100%", marginBottom: 10 }} onClick={onImportDatabaseTable}>Adicionar tabela de outro banco ao JOIN</Button>}
+        {connection?.dialect === "s3" && <Button size="small" appearance="outline" icon={<LinkRegular fontSize={14} />} style={{ width: "100%", marginBottom: 10 }} onClick={onImportDatabaseTable}>{tr("addTableToJoin")}</Button>}
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <Input
           placeholder={tr("searchObjects")}
+          aria-label={tr("searchObjects")}
           value={search}
           onChange={(_, data) => setSearch(data.value)}
           contentBefore={<SearchRegular fontSize={12} />}
@@ -989,7 +995,7 @@ export function Sidebar({
       <div className="omni-sidebar-tree" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "auto", padding: "0 8px 8px" }}>
         {groups.length === 0 ? (
           <Text className="omni-empty-state" size={200}>
-            {loading ? tr("loading") : search || formatFilter ? tr("noResults") : tr("noObjects")}
+            {loading ? tr("loading") : !connection ? tr("selectConnectionHint") : search || formatFilter ? tr("objectSearchEmpty") : tr("objectsEmptyHint")}
           </Text>
         ) : (
           groups.map((g) => (
@@ -1025,7 +1031,7 @@ export function Sidebar({
                           role="presentation"
                           onContextMenu={(e) =>
                             openMenu(e, connection?.dialect === "s3" || connection?.dialect === "mongodb" ? [
-                              { label: "Abrir SELECT em nova aba", action: () => openTable(g.name, t.name) },
+                              { label: tr("openSelectTab"), action: () => openTable(g.name, t.name) },
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
                             ] : connection?.dialect === "duckdb" ? [
                               { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
@@ -1055,7 +1061,11 @@ export function Sidebar({
                                 if (connection?.dialect !== "s3" && connection?.dialect !== "duckdb") void ensureIndexes(g.name, t.name);
                               }
                             }}
-                            actions={connection?.dialect === "duckdb" ? <Tooltip content={tr("analysisDeleteDataset")} relationship="label">
+                            actions={<>
+                              <Tooltip content={tr("openObjectTab").replace("{object}", `${g.name}.${t.name}`)} relationship="label">
+                                <Button appearance="transparent" size="small" icon={<OpenRegular fontSize={13} />} aria-label={tr("openObjectTab").replace("{object}", `${g.name}.${t.name}`)} onClick={() => openTable(g.name, t.name)} />
+                              </Tooltip>
+                              {connection?.dialect === "duckdb" ? <Tooltip content={tr("analysisDeleteDataset")} relationship="label">
                               <Button appearance="transparent" size="small" icon={<DeleteRegular fontSize={13} />} onClick={(e) => { e.stopPropagation(); onDeleteLocalDataset?.(t.name); }} aria-label={`${tr("analysisDeleteDataset")}: ${t.name}`} />
                             </Tooltip> :
                               <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)} relationship="label">
@@ -1071,7 +1081,8 @@ export function Sidebar({
                                   aria-label={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)}
                                 />
                               </Tooltip>
-                            }
+                              }
+                            </>}
                           >
                             <div className="columns">
                               <div className="sub-header"><span>{tr("columns")}{(columnState && !columnState.loading && !columnState.error) || t.columns !== undefined ? ` (${columns.length})` : ""}</span></div>
@@ -1197,7 +1208,10 @@ export function Sidebar({
                             onExpandedChange={(nextExpanded) => {
                               if (nextExpanded) void ensureColumns(g.name, v.name);
                             }}
-                            actions={
+                            actions={<>
+                              <Tooltip content={tr("openObjectTab").replace("{object}", `${g.name}.${v.name}`)} relationship="label">
+                                <Button appearance="transparent" size="small" icon={<OpenRegular fontSize={13} />} aria-label={tr("openObjectTab").replace("{object}", `${g.name}.${v.name}`)} onClick={() => openTable(g.name, v.name)} />
+                              </Tooltip>
                               <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)} relationship="label">
                                 <Button
                                   appearance="transparent"
@@ -1211,7 +1225,7 @@ export function Sidebar({
                                   aria-label={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)}
                                 />
                               </Tooltip>
-                            }
+                            </>}
                           >
                             <div className="columns">
                               {(columnState?.loading ?? v.columns === undefined) && <p className="sub-hint">{tr("loading")}</p>}

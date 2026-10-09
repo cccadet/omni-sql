@@ -57,6 +57,42 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
 }
 
 describe("Sidebar", () => {
+  it("offers connection setup and names the object search in the empty state", () => {
+    const onAddConnection = vi.fn();
+    renderSidebar({ connections: [], connection: null, connectionId: null, relations: [], functions: [], onAddConnection });
+    expect(screen.getByText("Connect a database or choose Demo in the connection form to explore without a server.")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "New connection" }).at(-1)!);
+    expect(onAddConnection).toHaveBeenCalledOnce();
+    expect(screen.getByRole("textbox", { name: "Search tables, columns…" })).toBeTruthy();
+  });
+
+  it("opens a table from its focusable action without executing SQL", () => {
+    const onOpenInNewTab = vi.fn();
+    renderSidebar({ onOpenInNewTab });
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (1)" }));
+    const open = screen.getByRole("button", { name: "Open public.orders in a new tab" });
+    open.focus();
+    expect(document.activeElement).toBe(open);
+    fireEvent.click(open);
+    expect(onOpenInNewTab).toHaveBeenCalledWith("orders", "SELECT * FROM public.orders LIMIT 1000");
+    expect(call.mock.calls.some(([method]) => method === "query.execute")).toBe(false);
+  });
+
+  it("localizes S3 prefix controls and creates a quoted S3 query", () => {
+    localStorage.setItem("omni-sql:language", "pt-BR");
+    const s3 = { ...connection, dialect: "s3" as const };
+    const onOpenInNewTab = vi.fn();
+    const onS3PrefixChange = vi.fn();
+    renderSidebar({ connection: s3, connections: [s3], relations: [{ schema: "bucket", name: "sales", kind: "table" }], functions: [], onOpenInNewTab, onS3PrefixChange });
+    fireEvent.change(screen.getByRole("textbox", { name: "Prefixo S3" }), { target: { value: "data/" } });
+    fireEvent.click(screen.getByRole("button", { name: "Listar" }));
+    expect(onS3PrefixChange).toHaveBeenCalledWith("data/");
+    fireEvent.click(screen.getByRole("button", { name: "bucket" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tabelas (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir bucket.sales em nova aba" }));
+    expect(onOpenInNewTab).toHaveBeenCalledWith("sales", 'SELECT * FROM "bucket"."sales" LIMIT 1000');
+  });
   it("shows S3 formats and filters tables from the icon menu", async () => {
     const s3 = { ...connection, dialect: "s3" as const };
     renderSidebar({ connection: s3, connections: [s3], relations: [
@@ -159,7 +195,7 @@ describe("Sidebar", () => {
 
     fireEvent.click(screen.getByLabelText("New folder"));
     fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "Analytics" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
     expect(onCreateConnectionGroup).toHaveBeenCalledWith("Analytics");
 
     fireEvent.click(screen.getByLabelText("Production Edit connection"));

@@ -1600,24 +1600,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             <span className="subtitle">One IDE for every database</span>
           </div>
         </div>
-        <div className="omni-header-context" aria-label={t("activeConnection")}>
-          {activeConnection ? (
-            <>
-              <span className={`omni-header-health omni-header-health-${connectionHealth}`} title={headerHealthLabel}>
-                {connectionHealth === "online" ? <PlugConnectedRegular /> : <PlugDisconnectedRegular />}
-                <span>{activeConnection.label}</span>
-              </span>
-              <span className="omni-header-detail">
-                <DialectIcon dialect={activeConnection.dialect} size={14} />
-                {activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode ? "SQL · " + t("readOnly") : DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect}
-              </span>
-              {activeDatabase && <span className="omni-header-detail"><span>{t("headerDatabase")}</span><strong>{activeDatabase}</strong></span>}
-              <span className={`omni-header-state omni-header-state-${connectionHealth}`}>
-                <span aria-hidden className="omni-header-state-dot" />{headerHealthLabel}
-              </span>
-            </>
-          ) : <span className="omni-header-empty"><PlugDisconnectedRegular />{t("headerNoConnection")}</span>}
-        </div>
         <button
           type="button"
           onClick={toggle}
@@ -1631,6 +1613,26 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
         <Toolbar
+          executionContext={<div className="omni-header-context" aria-label={t("activeConnection")}>
+          {activeConnection ? (
+            <>
+              <span className={`omni-header-health omni-header-health-${connectionHealth}`} title={`${activeConnection.label} · ${headerHealthLabel}`}>
+                {connectionHealth === "online" ? <PlugConnectedRegular /> : <PlugDisconnectedRegular />}
+                <span>{activeConnection.label}</span>
+              </span>
+              <div className="omni-execution-details" title={`${DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect} · ${activeDatabase ?? ""} · ${headerHealthLabel}`}>
+              <span className="omni-header-detail">
+                <DialectIcon dialect={activeConnection.dialect} size={14} />
+                {activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode ? "SQL · " + t("readOnly") : DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect}
+              </span>
+              {activeDatabase && <span className="omni-header-detail"><span>{t("headerDatabase")}</span><strong>{activeDatabase}</strong></span>}
+              <span className={`omni-header-state omni-header-state-${connectionHealth}`}>
+                <span aria-hidden className="omni-header-state-dot" />{headerHealthLabel}
+              </span>
+              </div>
+            </>
+          ) : <span className="omni-header-empty"><PlugDisconnectedRegular />{t("headerNoConnection")}</span>}
+        </div>}
           activeConnectionId={activeConnectionId}
           busyMsg={busyMsg}
           running={running}
@@ -1811,34 +1813,34 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       <Dialog open={crossSourceOpen} onOpenChange={(_, data) => { if (!crossSourceBusy) setCrossSourceOpen(data.open); }}>
         <DialogSurface className="omni-standard-dialog">
           <DialogBody className="omni-dialog-body">
-            <DialogTitle>Adicionar tabela de outro banco ao JOIN</DialogTitle>
+            <DialogTitle>{t("addTableToJoin")}</DialogTitle>
             <DialogContent style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div>Selecione uma conexão e uma tabela, ou escreva uma consulta para importar somente os dados necessários.</div>
-              <select className="omni-cross-source-select" aria-label="Banco de origem" value={crossSourceConnectionId} onChange={(event) => { setCrossSourceConnectionId(event.target.value); setCrossSourceSql(""); setCrossSourceError(null); }}>
-                <option value="">Selecione uma conexão</option>
+              <div>{t("crossSourceHint")}</div>
+              <select className="omni-cross-source-select" aria-label={t("sourceDatabase")} value={crossSourceConnectionId} onChange={(event) => { setCrossSourceConnectionId(event.target.value); setCrossSourceSql(""); setCrossSourceError(null); }}>
+                <option value="">{t("ducklakeSelectConnection")}</option>
                 {connections.filter((connection) => connection.dialect !== "s3" && connection.dialect !== "duckdb" && connection.dialect !== "mongodb")
                   .map((connection) => <option key={connection.id} value={connection.id}>{connection.label} ({DIALECT_LABELS[connection.dialect] ?? connection.dialect})</option>)}
               </select>
               {crossSourceConnectionId && <>
-                <Input aria-label="Buscar tabela" placeholder="Buscar tabela ou schema" value={crossSourceSearch} onChange={(_, data) => setCrossSourceSearch(data.value)} />
-                <select className="omni-cross-source-select" aria-label="Tabelas disponíveis" size={Math.min(6, Math.max(2, crossSourceRelations.length))} value="" onChange={(event) => {
+                <Input aria-label={t("searchSourceTable")} placeholder={t("searchSourceTable")} value={crossSourceSearch} onChange={(_, data) => setCrossSourceSearch(data.value)} />
+                <select className="omni-cross-source-select" aria-label={t("availableTables")} size={Math.min(6, Math.max(2, crossSourceRelations.length))} value="" onChange={(event) => {
                   const relation = crossSourceRelations.find((item) => `${item.schema}.${item.name}` === event.target.value);
                   if (relation) selectCrossSourceRelation(relation);
                 }}>
-                  <option value="" disabled>Escolha uma tabela</option>
+                  <option value="" disabled>{t("chooseTable")}</option>
                   {crossSourceRelations.filter((relation) => `${relation.schema}.${relation.name}`.toLowerCase().includes(crossSourceSearch.toLowerCase()))
                     .map((relation) => <option key={`${relation.schema}.${relation.name}`} value={`${relation.schema}.${relation.name}`}>{relation.schema}.{relation.name}</option>)}
                 </select>
-                <textarea className="omni-cross-source-sql" aria-label="SQL de origem" value={crossSourceSql} onChange={(event) => setCrossSourceSql(event.target.value)} rows={4} placeholder="SELECT * FROM schema.tabela WHERE ..." />
-                <label><input type="checkbox" checked={crossSourceAllRows} onChange={(event) => setCrossSourceAllRows(event.target.checked)} /> Importar todas as linhas</label>
-                {!crossSourceAllRows && <Input type="number" min={1} max={1000000} aria-label="Limite de linhas" value={String(crossSourceLimit)} onChange={(_, data) => setCrossSourceLimit(Math.max(1, Math.min(1000000, Number(data.value) || 1)))} />}
-                <div>A tabela ficará disponível no S3 como <code>local."nome_da_tabela"</code>. Os dados são copiados para o DuckDB local.</div>
+                <textarea className="omni-cross-source-sql" aria-label={t("sourceSql")} value={crossSourceSql} onChange={(event) => setCrossSourceSql(event.target.value)} rows={4} placeholder="SELECT * FROM schema.table WHERE ..." />
+                <label><input type="checkbox" checked={crossSourceAllRows} onChange={(event) => setCrossSourceAllRows(event.target.checked)} /> {t("importAllRows")}</label>
+                {!crossSourceAllRows && <Input type="number" min={1} max={1000000} aria-label={t("rowLimit")} value={String(crossSourceLimit)} onChange={(_, data) => setCrossSourceLimit(Math.max(1, Math.min(1000000, Number(data.value) || 1)))} />}
+                <div>{t("crossSourceLocalHint")}</div>
               </>}
               {crossSourceError && <MessageBar intent="error"><MessageBarBody>{crossSourceError}</MessageBarBody></MessageBar>}
             </DialogContent>
             <DialogActions className="omni-dialog-actions">
               <Button appearance="secondary" disabled={crossSourceBusy} onClick={() => setCrossSourceOpen(false)}>{t("cancel")}</Button>
-              <Button appearance="primary" disabled={crossSourceBusy || !crossSourceConnectionId || !crossSourceSql.trim()} onClick={() => void importCrossSource()}>{crossSourceBusy ? "Importando..." : "Adicionar ao JOIN"}</Button>
+              <Button appearance="primary" disabled={crossSourceBusy || !crossSourceConnectionId || !crossSourceSql.trim()} onClick={() => void importCrossSource()}>{crossSourceBusy ? t("importing") : t("addToJoin")}</Button>
             </DialogActions>
           </DialogBody>
         </DialogSurface>
