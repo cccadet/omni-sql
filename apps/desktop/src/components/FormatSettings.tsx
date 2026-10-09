@@ -35,21 +35,21 @@ export interface FormatSettingsProps {
 }
 
 const keywordCaseOptions = [
-  { value: "preserve", label: "Preserve" },
-  { value: "upper", label: "UPPERCASE" },
-  { value: "lower", label: "lowercase" },
-];
+  { value: "preserve", label: "formatPreserve" },
+  { value: "upper", label: "formatUpper" },
+  { value: "lower", label: "formatLower" },
+] as const;
 
 const indentStyleOptions = [
-  { value: "standard", label: "Standard" },
-  { value: "tabularLeft", label: "Tabular left" },
-  { value: "tabularRight", label: "Tabular right" },
-];
+  { value: "standard", label: "formatStandard" },
+  { value: "tabularLeft", label: "formatTabularLeft" },
+  { value: "tabularRight", label: "formatTabularRight" },
+] as const;
 
 const logicalOperatorOptions = [
-  { value: "before", label: "Before" },
-  { value: "after", label: "After" },
-];
+  { value: "before", label: "formatBefore" },
+  { value: "after", label: "formatAfter" },
+] as const;
 
 const PREVIEW_SQL = `GRANT SELECT, UPDATE, DELETE, INSERT ON DW.TEST_TABLE TO DREMIO;\n\nSELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
 
@@ -160,7 +160,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                     >
                       {keywordCaseOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>
-                          {opt.label}
+                          {t(opt.label)}
                         </option>
                       ))}
                     </Select>
@@ -176,7 +176,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   <Select value={draft.indentStyle} onChange={(_, data) => update("indentStyle", data.value as FormatterSettings["indentStyle"])}>
                     {indentStyleOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
-                        {opt.label}
+                        {t(opt.label)}
                       </option>
                     ))}
                   </Select>
@@ -191,7 +191,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   <Select value={draft.logicalOperatorNewline} onChange={(_, data) => update("logicalOperatorNewline", data.value as FormatterSettings["logicalOperatorNewline"])}>
                     {logicalOperatorOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
-                        {opt.label}
+                        {t(opt.label)}
                       </option>
                     ))}
                   </Select>

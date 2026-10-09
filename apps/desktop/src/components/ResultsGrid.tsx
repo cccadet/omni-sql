@@ -569,6 +569,9 @@ export function ResultsGrid({
         display: "flex",
         flexDirection: "column",
         padding: 0,
+        gap: 0,
+        minHeight: 0,
+        overflow: "auto",
       }}
     >
       <div className="omni-results-header">
@@ -732,7 +735,7 @@ export function ResultsGrid({
         </Text>
       </div>}
 
-      <div ref={gridScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+      <div ref={gridScrollRef} style={{ flex: "1 0 80px", minHeight: 80, overflow: "auto" }}>
         {activeTab === "data" && (
           <>
             {running ? (
@@ -953,9 +956,9 @@ export function ResultsGrid({
                                   gap: 4,
                                   whiteSpace: "nowrap",
                                   padding: "2px 0",
-                                  background: changeByCell.has(cellKey) ? tokens.colorPaletteYellowBackground2 : undefined,
+                                  background: changeByCell.has(cellKey) ? tokens.colorPaletteYellowBackground1 : undefined,
                                   color: changeByCell.has(cellKey)
-                                    ? tokens.colorNeutralForeground1
+                                    ? tokens.colorPaletteYellowForeground2
                                     : undefined,
                                   borderRadius: 2,
                                 }}
@@ -1048,6 +1051,7 @@ export function ResultsGrid({
         <div
           style={{
             display: "flex",
+            flexShrink: 0,
             alignItems: "center",
             justifyContent: "space-between",
             padding: "6px 12px",

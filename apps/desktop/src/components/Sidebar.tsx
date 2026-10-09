@@ -918,7 +918,7 @@ export function Sidebar({
             <DialectIcon dialect={connection.dialect} size={14} />
             <div style={{ minWidth: 0 }}>
               <div className="connection-label" style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{connection.label}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, color: health === "online" ? tokens.colorPaletteGreenForeground1 : health === "offline" ? tokens.colorPaletteRedForeground1 : tokens.colorNeutralForeground2, fontSize: 11 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, color: health === "online" ? tokens.colorPaletteGreenForeground1 : health === "offline" ? tokens.colorPaletteRedForeground1 : tokens.colorNeutralForeground2, fontSize: 12 }}>
                 {healthLabel}
               </div>
             </div>

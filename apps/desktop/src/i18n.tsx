@@ -499,6 +499,14 @@ const english = {
   pendingChanges: "Pending changes: {count}",
   previousPage: "Previous page",
   nextPage: "Next page",
+  formatPreserve: "Preserve",
+  formatUpper: "UPPERCASE",
+  formatLower: "lowercase",
+  formatStandard: "Standard",
+  formatTabularLeft: "Tabular left",
+  formatTabularRight: "Tabular right",
+  formatBefore: "Before",
+  formatAfter: "After",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -587,6 +595,7 @@ const portugueseBrazil = [
   "Células: setas para navegar; Enter ou F2 para editar; Escape para cancelar.",
   "Alterações pendentes: {count}",
   "Página anterior", "Próxima página",
+  "Preservar", "MAIÚSCULAS", "minúsculas", "Padrão", "Tabular à esquerda", "Tabular à direita", "Antes", "Depois",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

@@ -77,10 +77,11 @@ Nenhum overlay foi injetado: evaluate disponível é somente leitura. Evidência
 - [x] UX-07 · P2 · SQL/S3: mover textos para i18n, incluindo nomes acessíveis. Aceite: inglês e pt-BR coerentes nas árvores, diálogos e configurações.
 - [x] UX-08 · P2 · Sidebar: nome acessível para cada pesquisa; ação de abrir objeto descobrível por teclado. Aceite: busca anuncia propósito e navegação SQL/S3 pode ser concluída sem mouse.
 - [x] UX-09 · P2 · Toolbar: retirar ou implementar More options. More inerte removido no lote 1; validação do usuário pendente.
-- [ ] UX-10 · P3 · Acabamento: revisar textos pequenos, título Objects repetido e categoria inicial de Settings (concluída no lote 3). Aceite: leitura em zoom/escala alta sem perda funcional e ordem inicial previsível.
+- [ ] UX-10 · P3 · Acabamento: textos pequenos da sidebar/contexto ajustados no lote 6; título Objects repetido e categoria inicial de Settings concluídos nos lotes anteriores. Janela reduzida verificada; zoom 200%/escala do app nativo ainda pendentes. Aceite: leitura em zoom/escala alta sem perda funcional e ordem inicial previsível.
 - [ ] UX-11 · Validação pendente · App nativo: árvores SQL com muitos objetos e S3 com buckets/prefixos/erros; grid preenchida, colunas largas, NULL/vazio, paginação/filtro/exportação/edição. Aceite: registrar evidência UI → Tauri → sidecars → fixtures sem dados/segredos de produção; medir contraste e verificar teclado/NVDA.
-- [ ] UX-12 · P3 · Passe final impeccable polish após os ajustes escolhidos, com verificação visual limitada e sem redesenho fora do escopo.
+- [x] UX-12 · P3 · Passe impeccable polish dos ajustes escolhidos, com verificação visual limitada e sem redesenho fora do escopo. Passe no navegador concluído no lote 6; validação nativa permanece em UX-11.
 - [ ] UX-20 · P2 · Metadados: ao cadastrar ou editar a conexão, parece ocorrer uma atualização dos metadados, mas o ícone de metadados não reflete o estado atualizado. Relatado pelo usuário em 2026-10-09; confirmar a atualização efetiva antes de corrigir. Aceite: após cadastrar/editar e concluir a atualização, o ícone reflete o estado real; verificar também atualização em andamento e falha.
+- [x] UX-21 · P1 · Grid: área de dados praticamente invisível em painel baixo após executar. Reproduzido e corrigido no lote 6: removido gap padrão do Card e garantida área mínima com rolagem de fallback. Detalhes da conexão também quebram em linhas sem sobreposição. Validação nativa do usuário pendente.
 
 Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entregar o que mudou e um roteiro curto de teste; aguardar a validação do usuário antes do próximo. Para cada mudança, selecionar o menor nível de teste que detecte o comportamento, rodar typecheck/lint/testes afetados uma vez e integração quando o caminho exigir, conforme AGENTS.md.
 
@@ -92,7 +93,7 @@ Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entreg
 - [x] UX-16 · P2 · Sidebar: reduzir cabeçalhos repetidos, manter busca junto dos objetos e ações específicas junto da conexão/objeto. Aceite: mais altura útil para árvore, contexto SQL/S3 claro e ações descobríveis.
 - [x] UX-17 · P2 · Configurações: menos colunas estreitas, larguras coerentes e prévia próxima das opções que demonstra. Aceite: agrupamento compreensível e sem controles desalinhados.
 - [x] UX-18 · P2 · Cadastro: footer Cancelar/Testar conexão/Salvar conexão, com Salvar primário e feedback de teste próximo. Aceite: testar e persistir têm sequência visual inequívoca.
-- [ ] UX-19 · P3 · Hierarquia de ações: reservar destaque para Run, Salvar e Aplicar pendências nos respectivos contextos. Aceite: grupos secundários discretos, mas acessíveis; preservar grafite/amarelo e densidade de IDE.
+- [x] UX-19 · P3 · Hierarquia de ações: Run, Salvar e Aplicar pendências destacados nos respectivos contextos; ações secundárias discretas e acessíveis. Conferido no lote 6, preservando grafite/amarelo e densidade de IDE.
 
 ## Lotes de implementação e validação
 
@@ -102,8 +103,8 @@ Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entreg
 | 2 | Cadastro SQL/S3: UX-02/03/18 | Commit f2bf7ec; avanço autorizado pelo usuário |
 | 3 | Configurações: UX-06/17 e categoria inicial de UX-10 | Commit c0955cb; avanço autorizado pelo usuário |
 | 4 | Entrada, sidebar SQL/S3 e contexto: UX-04/05/07/08/15/16 | Commit 0583c5b; avanço autorizado pelo usuário |
-| 5 | Grid por teclado: UX-01 | Commit autorizado; avanço ao lote 6 autorizado |
-| 6 | Acabamento e validação nativa: UX-10/11/12/19 | Pendente |
+| 5 | Grid por teclado: UX-01 | Commit 0f452e4; avanço autorizado pelo usuário |
+| 6 | Acabamento e validação nativa: UX-10/11/12/19 | Acabamento implementado; teste do usuário e validação nativa pendentes |
 
 Lote 1 preserva callbacks/contratos de execução, edição e exportação. Estados vazios mais explicativos de UX-05 e comportamento por teclado de UX-01 seguem para seus lotes.
 
@@ -209,6 +210,32 @@ Roteiro para teste no app com dados de desenvolvimento:
 5. Em resultado somente leitura, Enter/F2 não deve abrir editor; conferir instruções e nomes dos controles em EN/PT-BR.
 
 Usuário autorizou commit do lote 5 e avanço ao lote 6. UX-20 segue pendente.
+
+### Entrega do lote 6
+
+Revisão solicitada pelo usuário: removido o contexto de conexão ao lado de Run, pois já aparece em Objetos e no rodapé. Removidos também a prop executionContext e os estilos exclusivos desse bloco. Run passa a iniciar a toolbar; ações e callbacks permanecem. Esta decisão substitui a posição do contexto proposta no lote 4 e os ajustes intermediários abaixo. Typecheck, lint de App/Toolbar e whitespace passaram; App.test.tsx e Toolbar.test.tsx passaram (38 testes, Vitest 4.1.10, Node v22.23.3 / pnpm 11.17.0). Sem commit; teste visual nativo do usuário pendente.
+
+Ajuste após o segundo print: contexto junto de Run organizado em duas linhas, com conexão/estado acima e dialeto/banco abaixo; banco extenso mantém truncamento e tooltip. Ações globais têm espaço reservado à direita e os grupos secundários passam a ícones até 1400 px, evitando a linha quase vazia de utilitários. Preview com componentes reais e fixture sintética em 1280×720 e 900×720: toolbar sem overflow (clientWidth/scrollWidth 1280/1280 e 900/900); altura de aproximadamente 53 e 89 px. Typecheck e lint de App/Toolbar passaram; App.test.tsx e Toolbar.test.tsx passaram (38 testes, Vitest 4.1.10, Node v22.23.3 / pnpm 11.17.0). Fixture removida, viewport restaurado e preview encerrado. Sem consulta real ou validação da escala nativa; ajuste permanece no lote 6 sem commit para teste do usuário.
+
+Correção após o print do usuário: UX-21 · Grid sem altura útil após executar. Reproduzido com cinco linhas sintéticas em painel de 224 px: Card Fluent tinha gap computado de 12 px e área da tabela com apenas 6 px. Card agora usa gap 0, controles sem compressão, área de dados mínima de 80 px e rolagem externa de fallback quando toda a interface não cabe. Confirmados 80 px para dados e navegação por Ctrl+End até a última célula visível. Detalhes de conexão passam a quebrar em linhas, evitando sobreposição de banco/status. Validação final desta correção: typecheck passou; lint passou com os mesmos 7 warnings fora do lote; ResultsGrid.test.tsx e Toolbar.test.tsx passaram (2 arquivos / 26 testes, Vitest 4.1.10, Node v22.23.3 / pnpm 11.17.0); detector layout sem achados e whitespace passou. Fixture removida e frontend/aba temporários encerrados; nenhuma consulta real executada. Ajuste incorporado ao lote 6 ainda sem commit, aguardando teste nativo do usuário.
+
+Rótulos de seções, pastas, ativação, saúde da conexão, limite/contexto de execução e subseções/avisos de metadados ganharam tamanhos mais legíveis (principalmente 12 px). Badges PK/FK e formatos S3 passaram de 9 para 11 px; preservadas densidade, truncamento e estrutura da sidebar. Opções de capitalização, indentação e posição do AND/OR agora usam EN/PT-BR, mantendo os mesmos valores do formatter.
+
+Pendências na grid usam colorPaletteYellowForeground2 sobre colorPaletteYellowBackground1. Medição das cores computadas: contraste anterior no tema escuro 4,35:1; após o ajuste 8,98:1 no escuro (#fef7b2 / #4c4400) e 4,68:1 no claro (#817400 / #fffef5). Essa medição cobre o texto de pendências, não certifica toda a interface. Mantidos o amarelo semântico, contagem de pendências e aplicação explícita. Nenhum contrato, callback de persistência ou dependência alterado.
+
+Passe visual Impeccable em componentes reais com fixture sintética, temas do app, EN/PT-BR e 1280×720, 900×720 e 640×360. Hierarquia Run/Aplicar/Salvar e ações secundárias conferida. Cabeçalhos da sidebar mediram 12 px e badges 11 px. Toolbar sem overflow em 1280 px. Configurações em 640×360: diálogo 608×328 dentro da viewport; rodapé clientWidth/scrollWidth 559/559 e todas as ações acessíveis. A viewport reduzida verifica reflow; não substitui zoom 200% nem escala do Windows. Erros de backend/sidecar no preview e recarregamento de contexto durante HMR da fixture não foram classificados como defeitos do app. Fixture removida, viewport restaurado, aba e frontend temporários encerrados; nenhuma consulta ou conexão real criada.
+
+Validação final em Node v22.23.3 / pnpm 11.17.0: pnpm --filter desktop typecheck passou; pnpm --filter desktop lint passou com os 7 warnings anteriores fora do lote. pnpm --filter desktop exec vitest run src/components/Sidebar.test.tsx src/components/ResultsGrid.test.tsx src/components/FormatSettings.test.tsx src/components/ConnectionDialog.test.tsx src/components/Toolbar.test.tsx src/i18n.test.tsx: Vitest 4.1.10, 6 arquivos / 65 testes passaram. Detector layout de Sidebar, ResultsGrid e FormatSettings sem achados; whitespace passou. Alterações visuais/localização não receberam testes que apenas espelham CSS; cobertura comportamental existente executada. Estado: lote 5 no commit 0f452e4; lote 6 no working tree, sem push. Hook do commit do lote 5 passou.
+
+Roteiro para teste no app:
+
+1. Conferir rótulos de Conexões/Objetos, pastas, PK/FK e formatos S3 com muitos objetos; verificar nomes longos e estado da conexão.
+2. Em ambos os temas, criar uma pendência numa tabela de desenvolvimento e conferir legibilidade, foco e Aplicar/Descartar.
+3. Trocar EN/PT-BR e conferir opções de Formatação SQL; alterar uma opção e conferir prévia/salvamento.
+4. Reduzir a janela e testar escala/zoom 200% no ambiente nativo: toolbar, sidebar, configurações e cadastro precisam continuar operáveis.
+5. Para concluir UX-11, ainda executar fixtures reais SQL/S3 via Tauri/sidecars e verificar NVDA, exportação, edição, falhas e muitos objetos.
+
+Lote 6 sem commit, aguardando teste do usuário. UX-10 permanece parcialmente pendente por zoom/escala nativa; UX-11 permanece pendente. UX-12/19 concluídos no passe web. UX-20 (indicador de metadados após cadastro/edição) continua pendente e não foi alterado neste acabamento.
 
 ## Decisões registradas
 

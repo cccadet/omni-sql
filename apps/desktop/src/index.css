@@ -94,7 +94,7 @@ body {
 .omni-s3-browser { display: flex; flex-direction: column; min-height: 100%; padding: 14px 12px 12px; box-sizing: border-box; }
 .omni-s3-browser-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--colorNeutralForeground1); font-size: 13px; font-weight: 650; }
 .omni-s3-browser-heading svg { color: var(--colorBrandForeground1); }
-.omni-s3-field-label { margin-bottom: 5px; color: var(--colorNeutralForeground2); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.omni-s3-field-label { margin-bottom: 5px; color: var(--colorNeutralForeground2); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .omni-s3-connection-select { box-sizing: border-box; width: 100%; min-height: 32px; padding: 4px 8px; border: 1px solid var(--colorNeutralStroke1); border-radius: 5px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; }
 .omni-cross-source-select, .omni-cross-source-sql { box-sizing: border-box; width: 100%; padding: 7px 9px; border: 1px solid var(--colorNeutralStroke1); border-radius: 5px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; }
 .omni-cross-source-sql { resize: vertical; min-height: 86px; font-family: Consolas, monospace; }
@@ -104,16 +104,16 @@ body {
 .omni-s3-browser-search .fui-Input { flex: 1; min-width: 0; }
 .omni-s3-browser-search .fui-Button { flex: 0 0 34px; min-width: 34px; }
 .omni-s3-browser-results { display: flex; flex: 1; flex-direction: column; gap: 3px; min-height: 0; margin-top: 14px; overflow-y: auto; }
-.omni-s3-results-count { padding: 0 4px 7px; color: var(--colorNeutralForeground3); font-size: 11px; }
+.omni-s3-results-count { padding: 0 4px 7px; color: var(--colorNeutralForeground3); font-size: 12px; }
 .omni-s3-table { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 36px; padding: 6px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--colorNeutralForeground1); cursor: pointer; text-align: left; }
 .omni-s3-table:hover { background: var(--colorNeutralBackground3); }
 .omni-s3-table.is-active { border-color: var(--colorBrandStroke1); background: var(--colorNeutralBackground3); }
 .omni-s3-table-name { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.omni-s3-format { padding: 2px 5px; border-radius: 3px; background: var(--colorNeutralBackground3); color: var(--colorNeutralForeground2); font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.omni-s3-format { padding: 2px 5px; border-radius: 3px; background: var(--colorNeutralBackground3); color: var(--colorNeutralForeground2); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .omni-s3-format.is-delta { color: var(--colorPaletteBlueForeground2); }
 .omni-s3-format.is-iceberg { color: var(--colorPaletteTealForeground2); }
 .omni-s3-empty { display: flex; align-items: center; gap: 8px; padding: 12px 8px; color: var(--colorNeutralForeground3); font-size: 12px; line-height: 1.5; }
-.omni-s3-limit { padding: 8px; color: var(--colorNeutralForeground2); font-size: 11px; line-height: 1.4; }
+.omni-s3-limit { padding: 8px; color: var(--colorNeutralForeground2); font-size: 12px; line-height: 1.4; }
 
 @media (max-width: 820px) {
   .omni-analysis-body { grid-template-columns: 190px minmax(0, 1fr); }
@@ -232,10 +232,12 @@ select option {
 }
 
 .omni-toolbar-limit { display: flex; align-items: center; gap: 4px; margin-left: 8px; }
-.omni-toolbar-utilities { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.omni-toolbar.omni-toolbar { flex-wrap: nowrap; }
+.omni-toolbar-main { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 4px 0; min-width: 0; }
+.omni-toolbar-utilities { display: flex; flex-shrink: 0; align-items: center; align-self: flex-start; gap: 8px; margin-left: auto; padding-top: 4px; }
 
 .omni-toolbar-inline-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--colorNeutralForeground3);
   margin-right: 3px;
 }
@@ -243,7 +245,7 @@ select option {
 .omni-toolbar-group-primary { padding-left: 0; }
 .omni-toolbar-analysis-context { display: flex; align-items: center; gap: 8px; padding-right: 12px; }
 .omni-toolbar-analysis-context > span { display: flex; flex-direction: column; line-height: 1.1; }
-.omni-toolbar-analysis-context small { color: var(--colorNeutralForeground3); font-size: 10px; }
+.omni-toolbar-analysis-context small { color: var(--colorNeutralForeground3); font-size: 12px; }
 
 /* Sidebar tree polish */
 .omni-connections-section {
@@ -308,7 +310,7 @@ select option {
 }
 
 .omni-sidebar-section-title {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -367,7 +369,7 @@ select option {
   background: transparent;
   color: var(--colorNeutralForeground2);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
@@ -381,7 +383,7 @@ select option {
 .omni-folder-count,
 .omni-root-label {
   color: var(--colorNeutralForeground3);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .omni-folder-actions {
@@ -444,7 +446,7 @@ select option {
   border-radius: 4px;
   background: var(--colorPaletteGreenBackground1);
   color: var(--colorPaletteGreenForeground1);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -582,7 +584,7 @@ select option {
 }
 
 .omni-sidebar-tree .badge {
-  font-size: 9px;
+  font-size: 11px;
   padding: 0 3px;
   border-radius: 3px;
   margin-left: 2px;
@@ -772,26 +774,8 @@ select option {
   background: var(--colorNeutralBackground1);
 }
 
-.omni-header-context {
-  display: flex;
-  justify-content: flex-start;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-  width: 200px;
-  margin-inline: 0 8px;
-  color: var(--colorNeutralForeground2);
-  font-size: 12px;
-}
 
-.omni-header-context > span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .omni-toolbar-execution { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.omni-execution-details { display: flex; gap: 4px; width: 100%; min-width: 0; font-size: 11px; }
-.omni-execution-details > span { min-width: 0; white-space: nowrap; }
-.omni-execution-details .omni-header-detail { padding-left: 4px; }
-.omni-execution-details .omni-header-detail:first-child { border-left: 0; padding-left: 0; flex-shrink: 0; }
-.omni-execution-details .omni-header-state { flex-shrink: 0; padding-left: 4px; }
 .omni-connections-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 8px; }
 .omni-objects-context.is-empty { padding: 4px 12px !important; justify-content: flex-end !important; }
 .omni-header-health, .omni-header-detail, .omni-header-state, .omni-header-empty { display: inline-flex; align-items: center; gap: 5px; }
@@ -808,7 +792,6 @@ select option {
 
 @media (max-width: 560px) {
   .omni-logo .subtitle, .omni-header-state { display: none; }
-  .omni-header-context { margin-left: 8px; }
   .omni-header-health { max-width: 36vw; }
 }
 
@@ -986,7 +969,7 @@ select option {
   .omni-mcp-edit-grid { grid-template-columns: 1fr; min-height: 0; }
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1400px) {
   .omni-toolbar-tab-actions .fui-Button, .omni-toolbar-analysis-actions .fui-Button { min-width: 32px; padding-inline: 7px; font-size: 0; }
 }
 
@@ -1080,7 +1063,7 @@ select option {
   align-items: center;
   padding: 3px 4px 2px 4px;
   color: var(--colorNeutralForeground3);
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -1089,7 +1072,7 @@ select option {
   margin: 0;
   padding: 2px 4px;
   color: var(--colorNeutralForeground3);
-  font-size: 10.5px;
+  font-size: 12px;
   font-style: italic;
 }
 
@@ -1136,6 +1119,12 @@ select option {
   gap: 4px 16px;
   padding: 4px 12px;
   color: var(--colorNeutralForeground2);
+}
+
+.omni-results-header,
+.omni-results-actions,
+.omni-results-keyboard-hint {
+  flex-shrink: 0;
 }
 
 .omni-results-grid .omni-result-sort {
