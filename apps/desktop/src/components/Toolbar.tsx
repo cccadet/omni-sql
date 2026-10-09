@@ -15,8 +15,10 @@ import {
 } from "@fluentui/react-icons";
 import { useLanguage } from "../i18n";
 import { DuckDbIcon } from "./DuckDbIcon";
+import type { ReactNode } from "react";
 
 export interface ToolbarProps {
+  mongoControls?: ReactNode;
   activeConnectionId: string | null;
   busyMsg?: string | null;
   running?: boolean;
@@ -47,6 +49,7 @@ export interface ToolbarProps {
 const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
 
 export function Toolbar({
+  mongoControls,
   activeConnectionId,
   busyMsg,
   running = false,
@@ -150,6 +153,7 @@ export function Toolbar({
         <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onImportLocalFile}
           aria-label={t("analysisImportFile")} title={t("analysisImportFile")}>{t("analysisImportFile")}</ToolbarButton>
       </div>}
+      {!globalOnly && mongoControls}
 
       </div>
       <div className="omni-toolbar-utilities">

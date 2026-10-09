@@ -68,8 +68,6 @@ export interface SidebarProps {
   functions?: FunctionDef[];
   loading?: boolean;
   mongoSqlMode?: boolean;
-  onToggleMongoSql?: () => void;
-  queryRunning?: boolean;
   onInsert?: (text: string) => void;
   onAddConnection?: () => void;
   onDeleteLocalDataset?: (relationName: string) => void;
@@ -305,8 +303,6 @@ export function Sidebar({
   onMoveConnection,
   onOpenInNewTab,
   mongoSqlMode = false,
-  onToggleMongoSql,
-  queryRunning = false,
   health = "unknown",
   metadataRefreshFailed = false,
   metadataRefreshing = false,
@@ -929,10 +925,6 @@ export function Sidebar({
           null
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-          {connection?.dialect === "mongodb" && <Button size="small" appearance="outline"
-            className={`omni-mongo-sql-tag${mongoSqlMode ? " active" : ""}`} aria-pressed={mongoSqlMode}
-            style={{ borderRadius: 12, fontWeight: 700, ...(mongoSqlMode ? { backgroundColor: "#f2c94c", color: "#332600", borderColor: "#b8860b" } : {}) }}
-            aria-label={tr("mongoSqlMode")} title={tr("mongoSqlMode")} disabled={queryRunning} onClick={onToggleMongoSql}>SQL</Button>}
           {loading && <Spinner size="tiny" />}
           {connection && (
             <Tooltip content={metadataRefreshing ? tr("refreshMetadata") : connection.dialect === "s3" ? tr("refreshMetadata") : metadataTooltip} relationship="description">

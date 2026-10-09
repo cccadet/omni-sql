@@ -106,6 +106,7 @@ Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entreg
 | 5 | Grid por teclado: UX-01 | Commit 0f452e4; avanço autorizado pelo usuário |
 | 6 | Acabamento e validação nativa: UX-10/11/12/19 | Commit 58d0b20; avanço autorizado pelo usuário; validação nativa pendente |
 | 7 | Estado do indicador de metadados: UX-20 | Andamento explícito e descrição acessível implementados; confirmação do relato no app nativo pendente |
+| 8 | Controles MongoDB: modo nativo/SQL e conversão | Implementado; commit autorizado pelo usuário; confirmação nativa dos fluxos pendente |
 
 Lote 1 preserva callbacks/contratos de execução, edição e exportação. Estados vazios mais explicativos de UX-05 e comportamento por teclado de UX-01 seguem para seus lotes.
 
@@ -247,6 +248,24 @@ Teste de regressão antes da correção falhou por descrição ausente. Teste do
 Roteiro do lote 7: cadastrar ou editar conexão SQL de desenvolvimento; durante atualização conferir spinner e botão indisponível; ao concluir conferir indicador verde e data no tooltip. Repetir com falha de acesso e conferir erro, sem representar a sincronização anterior como sucesso atual. Trocar a conexão durante a atualização para conferir que o estado fica associado à conexão correta. Lote 7 sem commit para teste do usuário; lote 6 commitado em 58d0b20, hook aprovado, sem push.
 
 Verificação final: Node v22.23.3 / pnpm 11.17.0; typecheck e lint dos quatro arquivos alterados passaram; Vitest 4.1.10, App.test.tsx e Sidebar.test.tsx, 57 testes aprovados. Whitespace passou. UX-10/11 ainda requerem validação nativa.
+
+### Entrega do lote 8
+
+Usuário autorizou commit após refinamentos de cor e posição. Teste final de Toolbar.test.tsx após mover o grupo para depois de DuckDB/importar: 4 testes aprovados; whitespace passou. Sem push.
+
+Posição final solicitada pelo usuário: grupo MongoDB depois de DuckDB/importar e antes das ações globais. Run, limite, arquivos e análise local preservam a mesma ordem com ou sem MongoDB; ordem de teclado acompanha o DOM. Sem commit.
+
+Após os prints do usuário, substituído o verde saturado por mistura de 8% do verde com o fundo neutro, reduzidos cantos a 4 px e aplicado fundo neutro ao botão em repouso. O verde fica somente no entorno dos controles; hover/pressionado continuam Fluent. Dimensões preservadas. Conferência visual nativa pendente.
+
+Refinamento solicitado: fundo verde discreto no grupo MongoDB usando colorPaletteGreenBackground1, cantos de 6 px e padding vertical de 2 px. Preview sintético com Toolbar/controles Fluent nos temas escuro e claro: em 1280×720, altura permaneceu aproximadamente 51 px e clientWidth/scrollWidth 1280/1280 em ambos; DuckDB/importar na mesma linha. Fixture removida, viewport restaurado e preview encerrado. Mudança somente CSS, sem novos testes comportamentais; sem commit, aguardando conferência nativa do usuário.
+
+Lote 7 commitado em 04cf8bf, hook aprovado, sem push. MongoDB: removido o toggle SQL da sidebar, que comprimia o nome da conexão; escolha de Extended JSON / SQL (somente leitura) e conversão reunidas na toolbar do Run. Botão de conversão agora tem borda e texto visível, mantendo o hint existente e a conversão sem execução. Removida a faixa de modo abaixo das abas para devolver altura ao editor. Textos separados de cada modo, modo por aba, bloqueio durante execução, erros e proteção contra conversão tardia preservados.
+
+O primeiro ajuste ocupava duas linhas em 1280 px e deixava DuckDB/importar sozinhos. Conforme feedback do usuário, removido rótulo MongoDB duplicado e usado Extended JSON como opção compacta; nome acessível do seletor mantido. Preview do App real com backend sintético em 1280×720: toolbar em uma linha, altura aproximada 51 px e clientWidth/scrollWidth 1280/1280. Em 900×720, altura aproximada 77 px e 900/900, sem faixa abaixo das abas. Apenas dados demo no preview; não foram usados os nomes/dados dos prints do usuário. Fixture removida, viewport restaurado, aba/frontend encerrados. Isso não valida MongoDB/Tauri reais.
+
+Roteiro: alternar Extended JSON/SQL por teclado e conferir recuperação dos textos; trocar de aba e conferir modo independente; escrever /mongo seguido de SELECT em fixture e usar Converter SQL para MongoDB, conferindo que não executa; testar janela/escala usuais e confirmar DuckDB/importar na mesma linha quando houver espaço. Lote 8 permanece sem commit para teste do usuário.
+
+Verificação final em Node v22.23.3 / pnpm 11.17.0: typecheck e lint dos arquivos alterados passaram; App.test.tsx e Toolbar.test.tsx passaram, 38 testes (Vitest 4.1.10). A rodada anterior de App/Sidebar também passou, 57 testes. Detector layout antes/depois sem achados; whitespace passou. Testes existentes de modo por aba, preservação dos textos, conversão sem executar, falha e conversão tardia foram adaptados ao seletor. Validação Tauri/MongoDB real, NVDA e escala nativa continua pendente.
 
 ## Decisões registradas
 
