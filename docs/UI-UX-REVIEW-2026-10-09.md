@@ -251,6 +251,10 @@ Verificação final: Node v22.23.3 / pnpm 11.17.0; typecheck e lint dos quatro a
 
 ### Entrega do lote 8
 
+Refinamento após o commit be82182: seletor substituído por Switch Fluent com label SQL, ligado para SQL somente leitura e desligado para Extended JSON nativo. Tooltip mantém a indicação de somente leitura. Posição após DuckDB/importar, fundo discreto, preservação dos textos por modo/aba e bloqueio durante execução mantidos. Testes comportamentais adaptados ao switch; mudança sem commit para conferência do usuário.
+
+Verificação do switch: typecheck, lint de App/App.test e whitespace passaram; App.test.tsx, 34 testes aprovados (Vitest 4.1.10, Node v22.23.3 / pnpm 11.17.0). Conferência visual nativa pendente.
+
 Usuário autorizou commit após refinamentos de cor e posição. Teste final de Toolbar.test.tsx após mover o grupo para depois de DuckDB/importar: 4 testes aprovados; whitespace passou. Sem push.
 
 Posição final solicitada pelo usuário: grupo MongoDB depois de DuckDB/importar e antes das ações globais. Run, limite, arquivos e análise local preservam a mesma ordem com ou sem MongoDB; ordem de teclado acompanha o DOM. Sem commit.
@@ -266,6 +270,24 @@ O primeiro ajuste ocupava duas linhas em 1280 px e deixava DuckDB/importar sozin
 Roteiro: alternar Extended JSON/SQL por teclado e conferir recuperação dos textos; trocar de aba e conferir modo independente; escrever /mongo seguido de SELECT em fixture e usar Converter SQL para MongoDB, conferindo que não executa; testar janela/escala usuais e confirmar DuckDB/importar na mesma linha quando houver espaço. Lote 8 permanece sem commit para teste do usuário.
 
 Verificação final em Node v22.23.3 / pnpm 11.17.0: typecheck e lint dos arquivos alterados passaram; App.test.tsx e Toolbar.test.tsx passaram, 38 testes (Vitest 4.1.10). A rodada anterior de App/Sidebar também passou, 57 testes. Detector layout antes/depois sem achados; whitespace passou. Testes existentes de modo por aba, preservação dos textos, conversão sem executar, falha e conversão tardia foram adaptados ao seletor. Validação Tauri/MongoDB real, NVDA e escala nativa continua pendente.
+
+### Validação nativa parcial — 2026-10-09
+
+Executada no app Tauri de desenvolvimento aberto, frontend localhost:1420, árvore Windows UI Automation via Computer Use. Estado: HEAD be8218240126b81023c540bc3299085b25527e65 com o refinamento do switch SQL ainda não commitado. Não foram usados mocks de backend nesta rodada. Nenhum push/commit ou ajuste de UI feito nesta validação.
+
+- SQL/PostgreSQL 16: criada fixture exclusiva `public.ux_review_test_table` com duas linhas, NULL e texto vazio. Consulta via Run retornou duas linhas/três colunas. Após introspecção, edição ficou disponível; célula alterada pela UI, Apply executado e valor `UI fixture edited` confirmado com psql no container. Exportação pelo diálogo nativo gerou CSV conferido. Objetos: schema/tabelas expandidos, busca pela fixture e abertura em nova aba geraram SQL. Consulta a tabela inexistente mostrou 42P01 em Messages, com Run disponível novamente.
+- S3/Moto: bucket `omni-extra`, prefixo `csv/`, objeto `csv/customers.csv`; abertura pela árvore gerou consulta, Run retornou três linhas/duas colunas via Tauri/DuckDB; exportação nativa gerou CSV conferido. Listagem com serviço local parado mostrou erro de conexão. O catálogo anterior permaneceu visível. O erro usa mensagem global que desaparece após seis segundos (`loadSidebarData`); registrar como melhoria pendente de feedback persistente, não como falha silenciosa confirmada.
+- Recuperação S3: reiniciar Moto removeu seus buckets em memória. Gerador oficial `docker compose -p test-dbs -f docker/test-dbs/docker-compose.yml -f docker/test-dbs/docker-compose.s3-moto.yml run --rm minio-fixtures` repovoou CSV, Parquet, Delta, Iceberg e segundo bucket. Não parar novamente Moto para injetar falhas sem preservar as fixtures. Recuperação de dados conferida por CLI; reteste pela UI após repovoamento interrompido.
+- Metadados/UX-20: cadastrada conexão local `UX review PostgreSQL`, depois renomeada para `UX review PostgreSQL edited`. Após ambos os salvamentos, indicador verde e schemas public/ux_review presentes. Relato original não reproduzido no caminho de sucesso. Estado ocupado e falha após cadastro/edição ainda não confirmados visualmente; UX-20 permanece parcialmente pendente.
+- Zoom/UX-10: janela normal e maximizada observadas. View oferece sidebar/history/settings; não há comando de zoom. Ctrl+mais e Ctrl+numpadmais não ampliaram a interface nesta tentativa. Escala Windows/200% não validada. NVDA ausente da lista de apps e dos caminhos padrão; foi solicitado ao usuário o caminho, caso exista instalação portátil. Inspeção UIA não equivale a teste NVDA.
+- Acessibilidade: controles, abas, editor e tabela expostos na árvore; F2 abriu editor de célula com nome de coluna/linha. Geometria de alguns cliques por índice UIA estava incorreta; ações conferidas visualmente foram feitas com coordenadas da captura. Não atribuir erros do helper ao produto.
+
+Evidências locais sem dados de produção: `native-sql-fixture.csv` e `native-s3-fixture.csv` em `C:/Users/ccsantos/.codex/visualizations/2026/10/09/01a1206d-9487-74e3-bf22-bb711516c929/`. SQL exportado antes da edição: duas linhas; S3: Ada/Lin/Sam. Fixture SQL e conexão de validação mantidas, sem alterações pendentes na grid. Foram abertas abas de teste e redimensionada a sidebar; nenhuma aba preexistente foi fechada.
+
+Computer Use interrompido pelo usuário com Escape e retomado após autorização. Na retomada, listagem S3 pela UI confirmou a recuperação das fixtures e a presença de csv__customers, sem erro de conexão. UX-10/11/20 não marcados integralmente concluídos. Restam escala/NVDA, muitos objetos, colunas largas/paginação, demais formatos S3 e falha/andamento de metadados após salvar. O aviso genérico de edição por F2 também aparece no resultado S3 sem ação de edição; avaliar copy contextual em lote posterior.
+
+Usuário autorizou explicitamente testar escala Windows em 200% e restaurar. O helper não conseguiu abrir janela controlável de Configurações, tanto pelo id do app quanto pelo executável SystemSettings.exe; list_windows não retornou janela correspondente. Nenhuma configuração de escala foi alterada. Solicitada abertura manual de Sistema → Tela para prosseguir. NVDA também não encontrado nos atalhos padrão do menu Iniciar; instalação não realizada.
+
 
 ## Decisões registradas
 

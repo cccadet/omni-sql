@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, MessageBar, MessageBarBody, Radio, RadioGroup, Select, Title1, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, MessageBar, MessageBarBody, Radio, RadioGroup, Switch, Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -1617,19 +1617,16 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
         <Toolbar
           mongoControls={activeConnection?.dialect === "mongodb" && <div className="omni-toolbar-mongo-controls">
-            <Select aria-label="MongoDB" value={activeTab.mongoSqlMode ? "sql" : "native"} disabled={running} onChange={(_event, data) => {
+            <Switch label="SQL" title={t("mongoSqlMode")} checked={activeTab.mongoSqlMode === true} disabled={running} onChange={(_event, data) => {
             if (running || activeConnection?.dialect !== "mongodb") return;
-            const enabled = data.value === "sql";
+            const enabled = data.checked;
             if (enabled === (activeTab.mongoSqlMode === true)) return;
             updateTab(activeTab.id, { mongoSqlMode: enabled,
               ...(enabled ? { mongoNativeText: activeTab.sql, sql: activeTab.mongoSqlText ?? "SELECT 1" }
                 : { mongoSqlText: activeTab.sql, sql: activeTab.mongoNativeText ?? initialMongoQuery(activeConnection.endpoint, sidebarCache[activeConnection.id]?.relations) }),
               error: null, latestSqlExecutionError: null });
             setResult(null); setEditability(null); setPlanText(null); setDiagnostics([]);
-            }}>
-              <option value="native">Extended JSON</option>
-              <option value="sql">{t("mongoSqlMode")}</option>
-            </Select>
+            }} />
             {!activeTab.mongoSqlMode && <Button size="small" appearance="outline" disabled={running} onClick={() => void handleConvertMongo()} title={t("mongoConvertHint")}>
               {t("mongoConvert")}
             </Button>}
