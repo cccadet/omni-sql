@@ -10,7 +10,6 @@ import {
   PanelLeftExpandRegular,
   HistoryRegular,
   WrenchRegular,
-  MoreVerticalRegular,
   BookRegular,
   ArrowLeftRegular,
 } from "@fluentui/react-icons";
@@ -81,7 +80,7 @@ export function Toolbar({
         <DuckDbIcon size={24} />
         <span><strong>{t("analyzeLocally")}</strong><small>DuckDB</small></span>
       </div>}
-      {!globalOnly && <div className="omni-toolbar-group omni-toolbar-group-primary">
+      {!globalOnly && <div className="omni-toolbar-group omni-toolbar-group-primary" role="group" aria-label={t("run")}>
             {running ? (
               <ToolbarButton
                 className="omni-cancel-run"
@@ -108,9 +107,7 @@ export function Toolbar({
             <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running || !explainAvailable} aria-label={t("explainQuery")} title={t("explainQuery")}>
               EXPLAIN
             </ToolbarButton>
-      </div>}
-
-      {!globalOnly && <div className="omni-toolbar-group">
+        <div className="omni-toolbar-limit">
           <span className="omni-toolbar-inline-label">{t("rowLimit")}</span>
           <select
             aria-label={t("rowLimit")}
@@ -131,6 +128,7 @@ export function Toolbar({
               </option>
             ))}
           </select>
+        </div>
       </div>}
 
       {!globalOnly && <div className="omni-toolbar-group omni-toolbar-tab-actions" role="group" aria-label={t("tabActions")}>
@@ -143,15 +141,14 @@ export function Toolbar({
             </ToolbarButton>
       </div>}
 
-      {!globalOnly && <div className="omni-toolbar-group" role="group" aria-label="DuckDB">
+      {!globalOnly && <div className="omni-toolbar-group omni-toolbar-analysis-actions" role="group" aria-label={t("analyzeLocally")}>
         <ToolbarButton icon={<DuckDbIcon size={15} />} onClick={onSendToAnalysis} disabled={!activeConnectionId || !onSendToAnalysis}
           aria-label={t("analysisSendToLocal")} title={t("analysisSendToLocal")}>DuckDB</ToolbarButton>
         <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onImportLocalFile}
           aria-label={t("analysisImportFile")} title={t("analysisImportFile")}>{t("analysisImportFile")}</ToolbarButton>
       </div>}
 
-      <div style={{ flex: 1 }} />
-
+      <div className="omni-toolbar-utilities">
       <span className="omni-toolbar-progress" aria-live="polite">
         {busyMsg && <Tooltip content={busyMsg} relationship="description"><Spinner size="tiny" aria-label={busyMsg} /></Tooltip>}
       </span>
@@ -163,7 +160,7 @@ export function Toolbar({
         <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} title={t("toggleSidebar")} />
         <ToolbarButton icon={<BookRegular fontSize={14} />} onClick={onOpenCommandLibrary} aria-label={t("commandLibrary")} title={t("commandLibrary")} />
         <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} title={t("history")} />
-        <ToolbarButton icon={<MoreVerticalRegular fontSize={14} />} aria-label={t("moreOptions")} title={t("moreOptions")} />
+      </div>
       </div>
       {pendingRunCount && (
         <Dialog open onOpenChange={(_, data) => !data.open && onRunChoiceCancel?.()}>

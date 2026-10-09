@@ -209,25 +209,30 @@ select option {
 .omni-toolbar {
   display: flex;
   align-items: center;
-  gap: 0;
+  flex-wrap: wrap;
+  gap: 4px 0;
   padding: 5px 12px;
   min-height: 42px;
   background: var(--colorNeutralBackground2);
   border-bottom: 1px solid var(--colorNeutralStroke1);
-  overflow: hidden;
 }
 
 .omni-toolbar-group {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 3px;
   padding: 0 10px;
   border-right: 1px solid var(--colorNeutralStroke2);
 }
 
-.omni-toolbar-group:last-of-type {
+.omni-toolbar-global-actions {
   border-right: none;
+  padding-right: 0;
 }
+
+.omni-toolbar-limit { display: flex; align-items: center; gap: 4px; margin-left: 8px; }
+.omni-toolbar-utilities { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 .omni-toolbar-inline-label {
   font-size: 11px;
@@ -703,7 +708,13 @@ select option {
   background-color: var(--colorBrandBackground1);
 }
 
-.omni-results-actions { display: flex; align-items: center; justify-content: flex-end; flex: 1 1 360px; gap: 8px; min-width: 0; }
+.omni-results-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--colorNeutralStroke1); }
+.omni-results-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 8px 12px; border-bottom: 1px solid var(--colorNeutralStroke1); min-width: 0; }
+.omni-results-inspect-actions { display: flex; align-items: center; flex: 1 1 260px; gap: 8px; min-width: 0; }
+.omni-results-edit-actions, .omni-results-pending-actions, .omni-results-export-actions { display: flex; align-items: center; gap: 8px; }
+.omni-results-edit-actions { flex-wrap: wrap; }
+.omni-results-edit-actions:empty { display: none; }
+.omni-results-export-actions { flex-wrap: wrap; margin-left: auto; }
 .omni-results-filter { flex: 1 1 180px; min-width: 140px; max-width: 240px; }
 
 /* Status bar */
@@ -952,7 +963,7 @@ select option {
 }
 
 @media (max-width: 1000px) {
-  .omni-toolbar-tab-actions .fui-Button { min-width: 32px; padding-inline: 7px; font-size: 0; }
+  .omni-toolbar-tab-actions .fui-Button, .omni-toolbar-analysis-actions .fui-Button { min-width: 32px; padding-inline: 7px; font-size: 0; }
 }
 
 @media (max-width: 760px) {
@@ -961,8 +972,8 @@ select option {
   .omni-toolbar-inline-label { display: none; }
   .omni-toolbar-group-primary .fui-Button:not(:first-child) { min-width: 32px; padding-inline: 7px; font-size: 0; }
   .omni-status-bar { gap: 8px; padding-inline: 8px; }
-  .omni-results-actions { flex-basis: 100%; justify-content: stretch; }
-  .omni-results-filter { max-width: none; }
+  .omni-results-inspect-actions { flex-basis: 100%; }
+  .omni-results-filter { min-width: 0; max-width: none; }
 }
 
 @media (max-width: 480px) {

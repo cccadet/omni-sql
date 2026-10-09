@@ -578,17 +578,7 @@ export function ResultsGrid({
       tabIndex={0}
       ref={gridRef}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 12px",
-          borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
-          gap: 8,
-          flexWrap: "wrap",
-        }}
-      >
+      <div className="omni-results-header">
         <TabList
           selectedValue={activeTab}
           onTabSelect={(_, data) => setActiveTab(data.value as "data" | "messages" | "plan" | "related")}
@@ -598,13 +588,15 @@ export function ResultsGrid({
           {related && <Tab value="related" icon={<OpenRegular fontSize={12} />}>{t("related")}</Tab>}
           {planText && <Tab value="plan" icon={<WrenchRegular fontSize={12} />}>{t("plan")}</Tab>}
         </TabList>
-        {activeTab === "data" && (
-          <div className="omni-results-actions">
-            {result && editability && !editability.editable && (
+        {activeTab === "data" && result && editability && !editability.editable && (
               <Text role="status" aria-live="polite" size={200} style={{ color: tokens.colorNeutralForeground2, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4, padding: "4px 8px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={editability.reason ?? t("inlineEditingUnavailable")}>
                 {t("inlineEditingUnavailableText")}{editability.reason ? `: ${editability.reason}` : "."}
               </Text>
-            )}
+        )}
+      </div>
+        {activeTab === "data" && result && (
+          <div className="omni-results-actions">
+            <div className="omni-results-inspect-actions" role="group" aria-label={t("filterData")}>
             <Input
               aria-label={t("filterData")}
               placeholder={t("filterData")}
@@ -676,16 +668,8 @@ export function ResultsGrid({
                 </Text>
               </PopoverSurface>
             </Popover>
-            {changes.length > 0 && (
-              <Button
-                appearance="subtle"
-                aria-label={t("discardChanges")}
-                onClick={() => void discardChanges()}
-                disabled={committing}
-              >
-                {t("discard")}
-              </Button>
-            )}
+            </div>
+            <div className="omni-results-edit-actions">
             {editability?.editable && onInsertRow && (
               addingRow ? (
                 <div className="omni-new-row-actions">
@@ -704,13 +688,27 @@ export function ResultsGrid({
                 </Button>
               )
             )}
-            <Button
-              appearance="primary"
-              onClick={() => void applyChanges()}
-              disabled={changes.length === 0 || committing}
-            >
-              {committing ? t("applying") : `${t("apply")}${changes.length ? ` ${changes.length}` : ""}`}
-            </Button>
+            {(changes.length > 0 || committing) && (
+              <div className="omni-results-pending-actions" role="group" aria-label={t("apply")}>
+                <Button
+                  appearance="subtle"
+                  aria-label={t("discardChanges")}
+                  onClick={() => void discardChanges()}
+                  disabled={committing}
+                >
+                  {t("discard")}
+                </Button>
+                <Button
+                  appearance="primary"
+                  onClick={() => void applyChanges()}
+                  disabled={changes.length === 0 || committing}
+                >
+                  {committing ? t("applying") : `${t("apply")}${changes.length ? ` ${changes.length}` : ""}`}
+                </Button>
+              </div>
+            )}
+            </div>
+            <div className="omni-results-export-actions" role="group" aria-label={t("export")}>
             {onAnalyzeLocally && (
               <Button
                 appearance="outline"
@@ -729,9 +727,9 @@ export function ResultsGrid({
             {onExportFullCsv && <Button title={t("analysisExportCsvSafe")} appearance="outline" onClick={() => void onExportFullCsv()} disabled={!result || running}>
               {t("analysisExportCsv")}
             </Button>}
+            </div>
           </div>
         )}
-      </div>
 
       <Toaster toasterId={toasterId} position="bottom-end" />
 
