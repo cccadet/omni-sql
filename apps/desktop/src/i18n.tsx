@@ -460,6 +460,8 @@ const english = {
   mongoConvert: "Convert SQL to MongoDB",
   mongoConvertHint: "Write /mongo followed by SELECT, then convert. The query is not executed.",
   mongoConversionStale: "The editor changed during conversion. Convert again.",
+  testConnection: "Test connection",
+  connectionTestSucceeded: "Test succeeded in",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -525,6 +527,7 @@ const portugueseBrazil = [
   "Origem dos dados", "Linhas para importar", "Prévia exibida: {count} linhas{more}", " (há mais linhas na origem)", "Todos os formatos", "Redimensionar painéis do editor e resultados",
   "SQL (somente leitura)", "MongoDB nativo · Extended JSON", "URI sem credenciais. Use os campos de usuário e senha; mongodb+srv:// é aceito.", "Somente leitura", "Atualização nativa MongoDB modifica documentos", "Exclusão nativa MongoDB remove documentos", "Abrir coleção", "Coleções",
   "Converter SQL para MongoDB", "Escreva /mongo seguido de SELECT e converta. A consulta não será executada.", "O editor mudou durante a conversão. Converta novamente.",
+  "Testar conexão", "Teste concluído em",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

@@ -24,6 +24,32 @@ beforeEach(() => {
   vi.mocked(listAnalysisS3).mockReset();
 });
 
+test("keeps SQL and S3 credentials separate when switching types", async () => {
+  vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
+    ? { configs: [] } : { connectionId: "s3-new" });
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+  const type = screen.getByRole("combobox", { name: "Type" });
+  fireEvent.change(type, { target: { value: "postgres" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "User" }), { target: { value: "reporter" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "sql-secret" } });
+  fireEvent.change(type, { target: { value: "s3" } });
+  assert.equal((screen.getByLabelText("Access Key ID") as HTMLInputElement).value, "");
+  assert.equal((screen.getByLabelText("Secret Access Key") as HTMLInputElement).value, "");
+  fireEvent.change(screen.getByLabelText("Access Key ID"), { target: { value: "s3-key" } });
+  fireEvent.change(screen.getByLabelText("Secret Access Key"), { target: { value: "s3-secret" } });
+  fireEvent.change(type, { target: { value: "postgres" } });
+  assert.equal((screen.getByLabelText("User") as HTMLInputElement).value, "reporter");
+  assert.equal((screen.getByLabelText("Password") as HTMLInputElement).value, "sql-secret");
+  fireEvent.change(type, { target: { value: "s3" } });
+  fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Lake" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  const params = add![1] as { config: ConnectionConfig; password: string };
+  assert.equal(params.config.user, "s3-key");
+  assert.equal(params.password, "s3-secret");
+});
+
 test("registers multiple S3 buckets without choosing a format", async () => {
   vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
     ? { configs: [] } : method === "connection.listBuckets"
@@ -41,7 +67,7 @@ test("registers multiple S3 buckets without choosing a format", async () => {
   fireEvent.change(screen.getByPlaceholderText("https://host:9000 (optional)"), { target: { value: "http://127.0.0.1:9000" } });
   fireEvent.change(screen.getByPlaceholderText("Access Key ID (optional)"), { target: { value: "omni_test" } });
   fireEvent.change(screen.getByPlaceholderText("Secret Access Key (optional)"), { target: { value: "omni_test_secret" } });
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
   await waitFor(() => assert.equal(vi.mocked(listAnalysisS3).mock.calls.length, 1));
   fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
   await waitFor(() => assert.equal(saved.mock.calls.length, 1));
@@ -232,8 +258,12 @@ test("tests and saves a new connection", async () => {
   fireEvent.change(within(dialog).getAllByPlaceholderText("postgres")[1]!, { target: { value: "reporter" } });
   fireEvent.change(screen.getByPlaceholderText("••••••"), { target: { value: "secret" } });
 
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-  assert.ok(await screen.findByText("Connected in 12ms"));
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  assert.match((await screen.findByRole("status")).textContent!, /Test succeeded in 12ms/);
+  assert.equal(call.mock.calls.some(([method]) => method === "connection.add"), false);
+  fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "other.example" } });
+  assert.equal(screen.queryByRole("status"), null);
+  fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "db.example" } });
 
   const testCall = call.mock.calls.find(([method]) => method === "connection.test");
   assert.ok(testCall);
@@ -263,11 +293,11 @@ test("shows failed connection test and recovers on retry", async () => {
   fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "postgres" } });
   fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "db.example" } });
   fireEvent.change(within(dialog).getAllByPlaceholderText("postgres")[1]!, { target: { value: "reporter" } });
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-  assert.ok(await screen.findByText("database offline"));
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  assert.equal((await screen.findByRole("alert")).textContent, "database offline");
 
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-  assert.ok(await screen.findByText("Connected in 7ms"));
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  assert.ok(await screen.findByText("Test succeeded in 7ms"));
   assert.equal(screen.queryByText("database offline"), null);
 });
 
