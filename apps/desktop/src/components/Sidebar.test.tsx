@@ -57,6 +57,27 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
 }
 
 describe("Sidebar", () => {
+  it("describes metadata freshness on the refresh control", () => {
+    renderSidebar();
+    expect(screen.getByRole("button", { name: "Refresh metadata" }).getAttribute("aria-description")).toContain("Metadata updated today");
+  });
+
+  it("shows failure even with a previous successful synchronization", () => {
+    renderSidebar({ metadataRefreshFailed: true });
+    const refresh = screen.getByRole("button", { name: "Refresh metadata" });
+    expect(refresh.getAttribute("aria-description")).toContain("Error: Refresh metadata");
+    expect(refresh.getAttribute("aria-description")).not.toContain("Metadata updated today");
+    expect((refresh as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("blocks refresh while metadata is updating", () => {
+    renderSidebar({ metadataRefreshing: true, metadataRefreshFailed: true });
+    const refresh = screen.getByRole("button", { name: "Refresh metadata" });
+    expect(refresh.getAttribute("aria-busy")).toBe("true");
+    expect((refresh as HTMLButtonElement).disabled).toBe(true);
+    expect(refresh.getAttribute("aria-description")).toBe("Refresh metadata");
+  });
+
   it("offers connection setup and names the object search in the empty state", () => {
     const onAddConnection = vi.fn();
     renderSidebar({ connections: [], connection: null, connectionId: null, relations: [], functions: [], onAddConnection });

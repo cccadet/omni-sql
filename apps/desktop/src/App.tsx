@@ -266,6 +266,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [busyMsg, setBusyMsg] = useState<string | null>(null);
   const [metadataRefreshConfirmOpen, setMetadataRefreshConfirmOpen] = useState(false);
   const [metadataRefreshFailures, setMetadataRefreshFailures] = useState<Record<string, true>>({});
+  const [metadataRefreshing, setMetadataRefreshing] = useState<Record<string, true>>({});
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [editability, setEditability] = useState<RowEditability | null>(null);
@@ -783,6 +784,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   }, [activeConnectionId, activeConnection, loadSidebarData, sidebarCache]);
 
   const introspectConnection = useCallback(async (connectionId: string, tabId: string) => {
+    setMetadataRefreshing((previous) => ({ ...previous, [connectionId]: true }));
     setBusyMsg(t("refreshMetadata"));
     try {
       await backend.call("metadata.introspect", { connectionId });
@@ -800,6 +802,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       setMetadataRefreshFailures((previous) => ({ ...previous, [connectionId]: true }));
       updateTab(tabId, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
     } finally {
+      setMetadataRefreshing((previous) => {
+        const remaining = { ...previous };
+        delete remaining[connectionId];
+        return remaining;
+      });
       setBusyMsg(null);
     }
   }, [loadConnections, loadSidebarData, updateTab, t]);
@@ -1660,6 +1667,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           functions={sidebarData?.functions ?? []}
           loading={sidebarLoading}
           metadataRefreshFailed={activeConnectionId !== null && metadataRefreshFailures[activeConnectionId] === true}
+          metadataRefreshing={activeConnectionId !== null && metadataRefreshing[activeConnectionId] === true}
           onInsert={(text) => editorRef.current?.insertAtCursor(text)}
           onAddConnection={onAddConnection}
           onDeleteLocalDataset={(relationName) => void onDeleteLocalDataset(relationName)}
