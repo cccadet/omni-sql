@@ -90,6 +90,7 @@ export interface SidebarProps {
   onOpenInNewTab?: (title: string, sql: string) => void;
   health?: ConnectionHealth;
   metadataRefreshFailed?: boolean;
+  metadataRefreshing?: boolean;
   analysisActive?: boolean;
   analysisConnectionId?: string | null;
   onOpenAnalysis?: () => void;
@@ -308,6 +309,7 @@ export function Sidebar({
   queryRunning = false,
   health = "unknown",
   metadataRefreshFailed = false,
+  metadataRefreshing = false,
   analysisActive = false,
   analysisConnectionId = null,
   onOpenAnalysis,
@@ -933,14 +935,16 @@ export function Sidebar({
             aria-label={tr("mongoSqlMode")} title={tr("mongoSqlMode")} disabled={queryRunning} onClick={onToggleMongoSql}>SQL</Button>}
           {loading && <Spinner size="tiny" />}
           {connection && (
-            <Tooltip content={connection.dialect === "s3" ? tr("refreshMetadata") : metadataTooltip} relationship="description">
+            <Tooltip content={metadataRefreshing ? tr("refreshMetadata") : connection.dialect === "s3" ? tr("refreshMetadata") : metadataTooltip} relationship="description">
               <Button
-                icon={metadataRefreshFailed ? <ErrorCircleRegular fontSize={14} style={{ color: tokens.colorPaletteRedForeground1 }} /> : metadataFreshness === "today" ? <CheckmarkCircleRegular fontSize={14} style={{ color: tokens.colorPaletteGreenForeground1 }} /> : metadataFreshness === "stale" ? <WarningRegular fontSize={14} style={{ color: tokens.colorPaletteYellowForeground1 }} /> : <CircleRegular fontSize={13} style={{ color: tokens.colorNeutralForeground3 }} />}
+                icon={metadataRefreshing ? <Spinner size="tiny" /> : metadataRefreshFailed ? <ErrorCircleRegular fontSize={14} style={{ color: tokens.colorPaletteRedForeground1 }} /> : metadataFreshness === "today" ? <CheckmarkCircleRegular fontSize={14} style={{ color: tokens.colorPaletteGreenForeground1 }} /> : metadataFreshness === "stale" ? <WarningRegular fontSize={14} style={{ color: tokens.colorPaletteYellowForeground1 }} /> : <CircleRegular fontSize={13} style={{ color: tokens.colorNeutralForeground3 }} />}
                 appearance="transparent"
                 size="small"
                 onClick={onRefreshMetadata}
-                disabled={!connectionId || loading}
+                disabled={!connectionId || loading || metadataRefreshing}
                 aria-label={tr("refreshMetadata")}
+                aria-busy={metadataRefreshing}
+                aria-description={metadataRefreshing || connection.dialect === "s3" ? tr("refreshMetadata") : metadataTooltip}
               />
             </Tooltip>
           )}

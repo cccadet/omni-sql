@@ -104,7 +104,8 @@ Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entreg
 | 3 | Configurações: UX-06/17 e categoria inicial de UX-10 | Commit c0955cb; avanço autorizado pelo usuário |
 | 4 | Entrada, sidebar SQL/S3 e contexto: UX-04/05/07/08/15/16 | Commit 0583c5b; avanço autorizado pelo usuário |
 | 5 | Grid por teclado: UX-01 | Commit 0f452e4; avanço autorizado pelo usuário |
-| 6 | Acabamento e validação nativa: UX-10/11/12/19 | Acabamento implementado; teste do usuário e validação nativa pendentes |
+| 6 | Acabamento e validação nativa: UX-10/11/12/19 | Commit 58d0b20; avanço autorizado pelo usuário; validação nativa pendente |
+| 7 | Estado do indicador de metadados: UX-20 | Andamento explícito e descrição acessível implementados; confirmação do relato no app nativo pendente |
 
 Lote 1 preserva callbacks/contratos de execução, edição e exportação. Estados vazios mais explicativos de UX-05 e comportamento por teclado de UX-01 seguem para seus lotes.
 
@@ -236,6 +237,16 @@ Roteiro para teste no app:
 5. Para concluir UX-11, ainda executar fixtures reais SQL/S3 via Tauri/sidecars e verificar NVDA, exportação, edição, falhas e muitos objetos.
 
 Lote 6 sem commit, aguardando teste do usuário. UX-10 permanece parcialmente pendente por zoom/escala nativa; UX-11 permanece pendente. UX-12/19 concluídos no passe web. UX-20 (indicador de metadados após cadastro/edição) continua pendente e não foi alterado neste acabamento.
+
+### Entrega do lote 7
+
+Inspeção do fluxo: salvar SQL chama metadata.introspect, o backend grava lastSyncedAt ao concluir e o frontend recarrega connection.list. Não foi demonstrada perda da data nesse fluxo. Lacuna reproduzida: o controle não expõe a descrição de atualidade ao leitor de tela; durante introspecção mantém o ícone anterior e permite nova solicitação. Agora o estado em andamento é mantido por conexão até concluir introspecção e recarregamento, com spinner, aria-busy e bloqueio do botão. Sucesso usa a data devolvida pelo backend; falha prevalece sobre sincronização anterior. Sem mudança em backend, cache, protocolos ou credenciais.
+
+Teste de regressão antes da correção falhou por descrição ausente. Teste do primeiro cadastro aguarda uma introspecção sintética, confere o controle ocupado/desabilitado e depois a data atualizada e liberação. Sidebar cobre sucesso, andamento e falha com sincronização anterior. Preview dos três estados com componentes reais em 1280×720; fixture removida, viewport restaurado e frontend/aba encerrados. Não equivale a Tauri/banco ou NVDA; UX-20 permanece pendente para confirmar o relato original no ambiente nativo.
+
+Roteiro do lote 7: cadastrar ou editar conexão SQL de desenvolvimento; durante atualização conferir spinner e botão indisponível; ao concluir conferir indicador verde e data no tooltip. Repetir com falha de acesso e conferir erro, sem representar a sincronização anterior como sucesso atual. Trocar a conexão durante a atualização para conferir que o estado fica associado à conexão correta. Lote 7 sem commit para teste do usuário; lote 6 commitado em 58d0b20, hook aprovado, sem push.
+
+Verificação final: Node v22.23.3 / pnpm 11.17.0; typecheck e lint dos quatro arquivos alterados passaram; Vitest 4.1.10, App.test.tsx e Sidebar.test.tsx, 57 testes aprovados. Whitespace passou. UX-10/11 ainda requerem validação nativa.
 
 ## Decisões registradas
 

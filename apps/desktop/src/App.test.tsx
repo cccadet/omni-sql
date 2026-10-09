@@ -470,11 +470,19 @@ describe("App execution flow", () => {
   it("introspects and loads metadata for the first saved connection", async () => {
     const defaultImplementation = call.getMockImplementation();
     let saved = false;
+    let synced = false;
+    let finishRefresh!: () => void;
+    const pendingRefresh = new Promise<void>((resolve) => { finishRefresh = resolve; });
     call.mockImplementation(async (method, params, signal) => {
       if (method === "connection.list") {
         return { configs: saved
-          ? [{ id: "conn-new", label: "First database", dialect: "postgres", endpoint: "localhost:5432/postgres", user: "postgres" }]
+          ? [{ id: "conn-new", label: "First database", dialect: "postgres", endpoint: "localhost:5432/postgres", user: "postgres", lastSyncedAt: synced ? Date.now() : undefined }]
           : [] };
+      }
+      if (method === "metadata.introspect") {
+        await pendingRefresh;
+        synced = true;
+        return {};
       }
       if (method === "connection.add") {
         saved = true;
@@ -489,6 +497,11 @@ describe("App execution flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
 
     await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.introspect", { connectionId: "conn-new" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh metadata" }).getAttribute("aria-busy")).toBe("true"));
+    expect((screen.getByRole("button", { name: "Refresh metadata" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { finishRefresh(); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh metadata" }).getAttribute("aria-description")).toContain("Metadata updated today"));
+    expect(screen.getByRole("button", { name: "Refresh metadata" }).getAttribute("aria-busy")).toBe("false");
     await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.listRelations", { connectionId: "conn-new", includeColumns: true }));
     expect(call).toHaveBeenCalledWith("metadata.listFunctions", { connectionId: "conn-new" });
   });
