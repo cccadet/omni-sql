@@ -708,28 +708,28 @@ it("keeps MongoDB native/SQL text per tab and falls back to DuckDB for unsupport
   vi.mocked(invoke).mockImplementation(async (command) => command === "analysis_query_mongo"
     ? { columns: [{ name: "n", dataType: "BIGINT", nullable: false }], rows: [[1]], rowsMoreAvailable: false } : undefined);
   renderApp();
-  const tag = await screen.findByRole("button", { name: "SQL (read-only)" });
-  expect(tag.getAttribute("aria-pressed")).toBe("false");
+  const tag = await screen.findByRole("combobox", { name: "MongoDB" });
+  expect((tag as HTMLSelectElement).value).toBe("native");
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", expect.objectContaining({ connectionId: "mongo-1", sql: native }), expect.any(AbortSignal)));
-  await waitFor(() => expect((tag as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(tag);
-  expect(tag.getAttribute("aria-pressed")).toBe("true");
-  expect(tag.classList.contains("active")).toBe(true);
+  await waitFor(() => expect((tag as HTMLSelectElement).disabled).toBe(false));
+  fireEvent.change(tag, { target: { value: (tag as HTMLSelectElement).value === "native" ? "sql" : "native" } });
+  expect((tag as HTMLSelectElement).value).toBe("sql");
+
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual("SELECT 1");
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("analysis_query_mongo", { request: expect.objectContaining({ connectionId: "mongo-1", sql: "SELECT 1", limit: 100, explain: false }) }));
   expect(call.mock.calls.filter(([method]) => method === "query.run")).toHaveLength(1);
-  await waitFor(() => expect((tag as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(tag);
+  await waitFor(() => expect((tag as HTMLSelectElement).disabled).toBe(false));
+  fireEvent.change(tag, { target: { value: (tag as HTMLSelectElement).value === "native" ? "sql" : "native" } });
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual(native);
-  fireEvent.click(tag);
+  fireEvent.change(tag, { target: { value: (tag as HTMLSelectElement).value === "native" ? "sql" : "native" } });
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual("SELECT 1");
   fireEvent.click(screen.getByRole("button", { name: "New tab" }));
-  await waitFor(() => expect(tag.getAttribute("aria-pressed")).toBe("false"));
+  await waitFor(() => expect((tag as HTMLSelectElement).value).toBe("native"));
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual(expect.stringContaining('"operation": "find"'));
   fireEvent.click(screen.getByRole("tab", { name: /Query 1/ }));
-  expect(tag.getAttribute("aria-pressed")).toBe("true");
+  expect((tag as HTMLSelectElement).value).toBe("sql");
 });
 
 it("runs a Mongo SQL WHERE through the native driver without changing the editor", async () => {
@@ -744,7 +744,7 @@ it("runs a Mongo SQL WHERE through the native driver without changing the editor
     ? Promise.resolve({ configs: [{ id: "mongo-1", label: "MongoDB test", dialect: "mongodb", endpoint: "mongodb://localhost/base_laudos", user: "" }] })
     : method === "query.mongoSqlPlan" ? Promise.resolve({ query: native }) : defaultCall(method, params, signal));
   renderApp();
-  await screen.findByRole("button", { name: "SQL (read-only)" });
+  await screen.findByRole("combobox", { name: "MongoDB" });
   const editor = screen.getByRole("textbox", { name: "SQL editor" });
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", { connectionId: "mongo-1", sql: native, limit: 100 }, expect.any(AbortSignal)));
@@ -796,9 +796,9 @@ it("does not overwrite the editor if the query mode changes during conversion", 
   renderApp();
   fireEvent.click(await screen.findByRole("button", { name: "Convert SQL to MongoDB" }));
   await waitFor(() => expect(call.mock.calls.some(([method]) => method === "query.mongoConvert")).toBe(true));
-  fireEvent.click(screen.getByRole("button", { name: "SQL (read-only)" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "MongoDB" }), { target: { value: (screen.getByRole("combobox", { name: "MongoDB" }) as HTMLSelectElement).value === "native" ? "sql" : "native" } });
   await act(async () => { resolveConversion({ query: '{"operation":"find","collection":"items"}' }); await pending; });
   expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe("SELECT 1");
-  fireEvent.click(screen.getByRole("button", { name: "SQL (read-only)" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "MongoDB" }), { target: { value: (screen.getByRole("combobox", { name: "MongoDB" }) as HTMLSelectElement).value === "native" ? "sql" : "native" } });
   expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe(original);
 });

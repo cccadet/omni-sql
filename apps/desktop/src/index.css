@@ -1111,7 +1111,9 @@ select option {
 .omni-standard-dialog.omni-analysis-import-dialog { width: min(500px, calc(100vw - 24px)); }
 .omni-analysis-import-dialog .omni-dialog-actions { width: 100%; box-sizing: border-box; justify-content: flex-end; }
 
-.omni-mongo-mode-label { padding: 4px 12px; font-size: 12px; color: var(--colorNeutralForeground2); }
+.omni-toolbar-mongo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 12px; font-size: 12px; border-left: 1px solid transparent; border-radius: 4px; background: color-mix(in srgb, var(--colorPaletteGreenForeground1) 8%, var(--colorNeutralBackground2)); }
+.omni-toolbar-mongo-controls .fui-Select { width: 180px; max-width: 100%; }
+.omni-toolbar-mongo-controls .fui-Button:not(:hover):not(:active) { background: var(--colorNeutralBackground1); }
 .omni-results-keyboard-hint {
   display: flex;
   flex-wrap: wrap;
