@@ -493,6 +493,12 @@ const english = {
   crossSourceLocalHint: "The table will be available in S3 queries as local.\"table_name\". Data is copied to local DuckDB.",
   importing: "Importing…",
   addToJoin: "Add to JOIN",
+  sortByColumn: "Sort by {column}",
+  editCellValue: "Edit {column}, row {row}",
+  gridKeyboardHint: "Cells: arrow keys to move; Enter or F2 to edit; Escape to cancel.",
+  pendingChanges: "Pending changes: {count}",
+  previousPage: "Previous page",
+  nextPage: "Next page",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -577,6 +583,10 @@ const portugueseBrazil = [
   "Buscar tabela ou schema", "Tabelas disponíveis", "Escolha uma tabela", "SQL de origem",
   "Importar todas as linhas", "A tabela ficará disponível nas consultas S3 como local.\"nome_da_tabela\". Os dados são copiados para o DuckDB local.",
   "Importando…", "Adicionar ao JOIN",
+  "Ordenar por {column}", "Editar {column}, linha {row}",
+  "Células: setas para navegar; Enter ou F2 para editar; Escape para cancelar.",
+  "Alterações pendentes: {count}",
+  "Página anterior", "Próxima página",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

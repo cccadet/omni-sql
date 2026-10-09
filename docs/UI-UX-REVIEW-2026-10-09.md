@@ -68,7 +68,7 @@ Nenhum overlay foi injetado: evaluate disponível é somente leitura. Evidência
 
 ## TODO priorizado
 
-- [ ] UX-01 · P1 · Grid: cabeçalho com botão focável e aria-sort; navegação/entrada na edição por teclado, foco recuperável e editor nomeado por coluna. Aceite: ordenar e editar/aplicar/descartar numa fixture por teclado, com estado anunciado. Verificar SQL editável e resultado somente leitura.
+- [x] UX-01 · P1 · Grid: cabeçalho com botão focável e aria-sort; navegação/entrada na edição por teclado, foco recuperável e editor nomeado por coluna. Implementado no lote 5; fixture sintética editável/somente leitura verificada. Validação SQL nativa/NVDA permanece em UX-11.
 - [x] UX-02 · P2 · Cadastro: separar/resetar autenticação entre SQL/S3. Aceite: PostgreSQL → S3 não preenche Access Key ID com usuário SQL; campos compatíveis têm política explícita e credenciais não migram indevidamente.
 - [x] UX-03 · P2 · Cadastro: Test connection/Test successful e status/alert acessível. Aceite: testar não comunica que salvou/ativou; salvar tem conclusão distinta; falha preserva campos e orienta recuperação.
 - [x] UX-04 · P2 · Inicial: CTA Criar conexão e opção Demo/importar coerente com o produto. Aceite: primeira ação fica clara no vazio, sem depender de distinguir dois +; tarefas existentes seguem disponíveis.
@@ -101,8 +101,8 @@ Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entreg
 | 1 | Toolbar e barra de resultados: UX-13/14, remoção do More inerte de UX-09 | Commit a91584b; avanço autorizado pelo usuário |
 | 2 | Cadastro SQL/S3: UX-02/03/18 | Commit f2bf7ec; avanço autorizado pelo usuário |
 | 3 | Configurações: UX-06/17 e categoria inicial de UX-10 | Commit c0955cb; avanço autorizado pelo usuário |
-| 4 | Entrada, sidebar SQL/S3 e contexto: UX-04/05/07/08/15/16 | Commit autorizado; avanço ao lote 5 autorizado |
-| 5 | Grid por teclado: UX-01 | Pendente |
+| 4 | Entrada, sidebar SQL/S3 e contexto: UX-04/05/07/08/15/16 | Commit 0583c5b; avanço autorizado pelo usuário |
+| 5 | Grid por teclado: UX-01 | Commit autorizado; avanço ao lote 6 autorizado |
 | 6 | Acabamento e validação nativa: UX-10/11/12/19 | Pendente |
 
 Lote 1 preserva callbacks/contratos de execução, edição e exportação. Estados vazios mais explicativos de UX-05 e comportamento por teclado de UX-01 seguem para seus lotes.
@@ -189,6 +189,26 @@ Roteiro para o usuário:
 5. Testar resultado sem linhas, filtro sem correspondência, execução/falha e tabs Mensagens.
 
 Itens UX-04/05/07/08/15/16 marcados como implementados; validação nativa do usuário continua pendente em UX-11. UX-10 ainda cobre tipografia/zoom; apenas categoria inicial e título duplicado já concluídos. UX-20 permanece pendente, sem alteração no indicador de metadados nesta entrega. Usuário autorizou commit do lote 4 e avanço ao lote 5 em 2026-10-09.
+
+### Entrega do lote 5
+
+Cabeçalhos de resultados têm botão focável para ordenar com Enter/Espaço e aria-sort indicando a direção. Ordenação identifica a coluna por índice, permitindo colunas com nomes repetidos. A tabela mantém HTML semântico; um único ponto de entrada por Tab nas células evita centenas de paradas. Setas navegam na página entre colunas visíveis; Home/End vão ao início/fim da linha e Ctrl+Home/End à primeira/última célula da página. Filtro e controles não têm suas setas interceptadas.
+
+Enter/F2 abre edição somente quando permitida, com nome acessível contendo coluna e linha original. Enter finaliza a edição como pendência; Escape cancela. Ambos devolvem o foco à célula, assim como Aplicar/Descartar após remover as ações de pendência. Indicador de foco usa dois tons dos tokens Fluent para continuar visível na seleção amarela. Instruções, contagem de pendências anunciada por status e nomes dos botões de paginação têm EN/PT-BR. Aplicar continua explícito; contratos e persistência não mudaram, nem foram adicionadas dependências.
+
+Verificação local: Node v22.23.3 / pnpm 11.17.0. Typecheck final passou; lint geral passou com os 7 warnings anteriores fora do lote e lint final dos arquivos alterados passou sem warnings. Vitest 4.1.10: ResultsGrid.test.tsx e i18n.test.tsx, 2 arquivos / 25 testes passaram, incluindo ordenação com nomes repetidos, edição de linha ordenada, cancelamento/aplicação/descarte, retorno de foco, somente leitura e navegação após paginação/filtro/ocultação de coluna. Detector layout de ResultsGrid sem achados; whitespace passou. Hook do commit 0583c5b passou, sem push.
+
+Navegador com componentes reais, tema do app e dados sintéticos, em 1280×720 e 900×720: ordenar por Enter/Espaço, entrar nas células por Tab, navegar, editar, cancelar, criar pendência, aplicar e descartar por teclado. Aplicação chamou somente o callback sintético; retorno de foco confirmado. Resultado somente leitura não abriu editor por F2. Orientação/contagem cabem em 900 px (clientWidth/scrollWidth 868/868); EN/PT-BR conferidos. Fixture removida, viewport restaurado, aba e frontend temporários encerrados. Sem backend/consulta a banco cadastrado, E2E Tauri, NVDA, alto contraste ou zoom 200%.
+
+Roteiro para teste no app com dados de desenvolvimento:
+
+1. Ordenar cabeçalho usando Tab + Enter/Espaço; conferir crescente/decrescente, inclusive colunas com nomes repetidos.
+2. Entrar nas células por Tab e usar setas, Home/End; filtrar, ocultar uma coluna e trocar de página, mantendo acesso às células visíveis.
+3. Em resultado editável, usar Enter/F2, alterar valor e Escape: não deve criar pendência. Repetir com Enter: deve criar pendência sem gravar no banco, com foco na célula.
+4. Descartar por teclado e conferir retorno à célula. Aplicar somente em dados de teste; conferir gravação e retorno do foco.
+5. Em resultado somente leitura, Enter/F2 não deve abrir editor; conferir instruções e nomes dos controles em EN/PT-BR.
+
+Usuário autorizou commit do lote 5 e avanço ao lote 6. UX-20 segue pendente.
 
 ## Decisões registradas
 
