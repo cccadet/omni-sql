@@ -40,7 +40,7 @@ test("OracleAdapter: constrói sem disparar conexão", () => {
   assert.equal(a.dialect, "oracle");
   assert.equal(a.dialectDescriptor().dialect, "oracle");
   assert.deepEqual(a.listSchemas(), []);
-  assert.deepEqual(a.listTables("BIDW"), []);
+  assert.deepEqual(a.listTables("DW"), []);
 });
 
 test("OracleAdapter: factory via construtor produz instância Adapter", () => {
@@ -57,17 +57,17 @@ test("OracleAdapter: diagnóstico não tenta EXPLAIN PLAN em GRANT", async () =>
   };
 
   assert.deepEqual(
-    await adapter.validateQuery("GRANT SELECT ON BIDW.DIM_ORIGEM TO DREMIO;"),
+    await adapter.validateQuery("GRANT SELECT ON DW.DIM_ORIGEM TO DREMIO;"),
     [],
   );
   assert.equal(explainCalls, 0);
 });
 
 test("classificação Oracle envia apenas statements explicáveis ao EXPLAIN PLAN", () => {
-  assert.equal(isOracleExplainableStatement("SELECT * FROM BIDW.DIM_ORIGEM;"), true);
-  assert.equal(isOracleExplainableStatement("UPDATE BIDW.DIM_ORIGEM SET ID = 1;"), true);
-  assert.equal(isOracleExplainableStatement("/* segurança */ GRANT SELECT ON BIDW.DIM_ORIGEM TO DREMIO;"), false);
-  assert.equal(isOracleExplainableStatement("REVOKE SELECT ON BIDW.DIM_ORIGEM FROM DREMIO;"), false);
+  assert.equal(isOracleExplainableStatement("SELECT * FROM DW.DIM_ORIGEM;"), true);
+  assert.equal(isOracleExplainableStatement("UPDATE DW.DIM_ORIGEM SET ID = 1;"), true);
+  assert.equal(isOracleExplainableStatement("/* segurança */ GRANT SELECT ON DW.DIM_ORIGEM TO DREMIO;"), false);
+  assert.equal(isOracleExplainableStatement("REVOKE SELECT ON DW.DIM_ORIGEM FROM DREMIO;"), false);
 });
 
 test("EXPLAIN PLAN fornece binds neutros e ignora falsos placeholders", () => {
@@ -229,7 +229,7 @@ test("runQuery aplica cap Oracle server-side com bind e mantém cap client-side"
 test("prepareOracleQuery não envolve DML, DCL, CTE mutante ou SELECT FOR UPDATE", () => {
   const statements = [
     "UPDATE users SET name = 'x';",
-    "GRANT SELECT, INSERT, DELETE ON BIDW.LAUDOS_ESTATISTICA TO DREMIO;",
+    "GRANT SELECT, INSERT, DELETE ON DW.TEST_TABLE TO DREMIO;",
     "WITH changed AS (SELECT 1 FROM DUAL) UPDATE users SET name = 'x'",
     "SELECT id FROM users FOR UPDATE",
   ];
