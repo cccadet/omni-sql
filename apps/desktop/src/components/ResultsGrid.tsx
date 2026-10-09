@@ -753,9 +753,13 @@ export function ResultsGrid({
               </div>
             ) : !result ? (
               <Text className="omni-empty-state" size={200}>
-                {t("noResults")}
+                {error ? t("queryFailedHint") : t("queryReadyHint")}
               </Text>
             ) : (
+              <>
+              {filteredRows.length === 0 && <Text className="omni-empty-state" size={200}>
+                {result.rows.length > 0 ? t("resultFilterEmpty") : result.rowsAffected !== undefined ? `${t("affectedRows")}: ${result.rowsAffected}` : t("queryEmptyHint")}
+              </Text>}
               <table
                 style={{
                   borderCollapse: "collapse",
@@ -932,6 +936,7 @@ export function ResultsGrid({
                   ))}
                 </tbody>
               </table>
+              </>
             )}
           </>
         )}
@@ -957,7 +962,7 @@ export function ResultsGrid({
         {activeTab === "messages" && (
           <div style={{ padding: 16 }}>
             {error ? (
-              <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{error}</Text>
+              <Text role="alert" style={{ color: tokens.colorPaletteRedForeground1 }}>{error}</Text>
             ) : result ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <Text>

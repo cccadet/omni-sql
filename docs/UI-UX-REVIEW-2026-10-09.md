@@ -71,11 +71,11 @@ Nenhum overlay foi injetado: evaluate disponível é somente leitura. Evidência
 - [ ] UX-01 · P1 · Grid: cabeçalho com botão focável e aria-sort; navegação/entrada na edição por teclado, foco recuperável e editor nomeado por coluna. Aceite: ordenar e editar/aplicar/descartar numa fixture por teclado, com estado anunciado. Verificar SQL editável e resultado somente leitura.
 - [x] UX-02 · P2 · Cadastro: separar/resetar autenticação entre SQL/S3. Aceite: PostgreSQL → S3 não preenche Access Key ID com usuário SQL; campos compatíveis têm política explícita e credenciais não migram indevidamente.
 - [x] UX-03 · P2 · Cadastro: Test connection/Test successful e status/alert acessível. Aceite: testar não comunica que salvou/ativou; salvar tem conclusão distinta; falha preserva campos e orienta recuperação.
-- [ ] UX-04 · P2 · Inicial: CTA Criar conexão e opção Demo/importar coerente com o produto. Aceite: primeira ação fica clara no vazio, sem depender de distinguir dois +; tarefas existentes seguem disponíveis.
-- [ ] UX-05 · P2 · Resultados vazios: distinguir ainda não executado, consulta sem linhas, carregamento e erro. Aceite: cada estado informa próximo passo; ações impossíveis ficam desabilitadas/ocultas com critério consistente.
+- [x] UX-04 · P2 · Inicial: CTA Criar conexão e opção Demo/importar coerente com o produto. Aceite: primeira ação fica clara no vazio, sem depender de distinguir dois +; tarefas existentes seguem disponíveis.
+- [x] UX-05 · P2 · Resultados vazios: distinguir ainda não executado, consulta sem linhas, carregamento e erro. Aceite: cada estado informa próximo passo; ações impossíveis ficam desabilitadas/ocultas com critério consistente.
 - [x] UX-06 · P2 · Configurações: corrigir alinhamento de Select/Field e rótulos. Aceite: setas dentro dos controles e relação campo/rótulo clara em 1280×720 e janela menor; preview e footer acessíveis com scroll.
-- [ ] UX-07 · P2 · SQL/S3: mover textos para i18n, incluindo nomes acessíveis. Aceite: inglês e pt-BR coerentes nas árvores, diálogos e configurações.
-- [ ] UX-08 · P2 · Sidebar: nome acessível para cada pesquisa; ação de abrir objeto descobrível por teclado. Aceite: busca anuncia propósito e navegação SQL/S3 pode ser concluída sem mouse.
+- [x] UX-07 · P2 · SQL/S3: mover textos para i18n, incluindo nomes acessíveis. Aceite: inglês e pt-BR coerentes nas árvores, diálogos e configurações.
+- [x] UX-08 · P2 · Sidebar: nome acessível para cada pesquisa; ação de abrir objeto descobrível por teclado. Aceite: busca anuncia propósito e navegação SQL/S3 pode ser concluída sem mouse.
 - [x] UX-09 · P2 · Toolbar: retirar ou implementar More options. More inerte removido no lote 1; validação do usuário pendente.
 - [ ] UX-10 · P3 · Acabamento: revisar textos pequenos, título Objects repetido e categoria inicial de Settings (concluída no lote 3). Aceite: leitura em zoom/escala alta sem perda funcional e ordem inicial previsível.
 - [ ] UX-11 · Validação pendente · App nativo: árvores SQL com muitos objetos e S3 com buckets/prefixos/erros; grid preenchida, colunas largas, NULL/vazio, paginação/filtro/exportação/edição. Aceite: registrar evidência UI → Tauri → sidecars → fixtures sem dados/segredos de produção; medir contraste e verificar teclado/NVDA.
@@ -88,8 +88,8 @@ Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entreg
 
 - [x] UX-13 · P2 · Toolbar: agrupar Run/Cancel, EXPLAIN e limite; separar arquivos de análise local; manter ações globais no extremo direito. Implementado no lote 1; reflow em 900 px verificado, zoom/validação nativa do usuário pendentes.
 - [x] UX-14 · P2 · Resultados: tabs acima das ações; filtro/Columns à esquerda, inclusão/Aplicar/Descartar juntos e análise/exportação à direita. Implementado no lote 1; vazio, pendências, descarte e reflow verificados com fixture sintética. Validação nativa do usuário pendente.
-- [ ] UX-15 · P2 · Contexto de execução: avaliar aproximação visual da conexão/dialeto ao grupo Run. Aceite: destino da execução evidente e sem duplicar controles desnecessariamente; preservar seleção e estado atuais.
-- [ ] UX-16 · P2 · Sidebar: reduzir cabeçalhos repetidos, manter busca junto dos objetos e ações específicas junto da conexão/objeto. Aceite: mais altura útil para árvore, contexto SQL/S3 claro e ações descobríveis.
+- [x] UX-15 · P2 · Contexto de execução: avaliar aproximação visual da conexão/dialeto ao grupo Run. Aceite: destino da execução evidente e sem duplicar controles desnecessariamente; preservar seleção e estado atuais.
+- [x] UX-16 · P2 · Sidebar: reduzir cabeçalhos repetidos, manter busca junto dos objetos e ações específicas junto da conexão/objeto. Aceite: mais altura útil para árvore, contexto SQL/S3 claro e ações descobríveis.
 - [x] UX-17 · P2 · Configurações: menos colunas estreitas, larguras coerentes e prévia próxima das opções que demonstra. Aceite: agrupamento compreensível e sem controles desalinhados.
 - [x] UX-18 · P2 · Cadastro: footer Cancelar/Testar conexão/Salvar conexão, com Salvar primário e feedback de teste próximo. Aceite: testar e persistir têm sequência visual inequívoca.
 - [ ] UX-19 · P3 · Hierarquia de ações: reservar destaque para Run, Salvar e Aplicar pendências nos respectivos contextos. Aceite: grupos secundários discretos, mas acessíveis; preservar grafite/amarelo e densidade de IDE.
@@ -100,8 +100,8 @@ Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entreg
 |---|---|---|
 | 1 | Toolbar e barra de resultados: UX-13/14, remoção do More inerte de UX-09 | Commit a91584b; avanço autorizado pelo usuário |
 | 2 | Cadastro SQL/S3: UX-02/03/18 | Commit f2bf7ec; avanço autorizado pelo usuário |
-| 3 | Configurações: UX-06/17 e categoria inicial de UX-10 | Concluído; commit e avanço autorizados pelo usuário |
-| 4 | Entrada, sidebar SQL/S3 e contexto: UX-04/05/07/08/15/16 | Pendente |
+| 3 | Configurações: UX-06/17 e categoria inicial de UX-10 | Commit c0955cb; avanço autorizado pelo usuário |
+| 4 | Entrada, sidebar SQL/S3 e contexto: UX-04/05/07/08/15/16 | Commit autorizado; avanço ao lote 5 autorizado |
 | 5 | Grid por teclado: UX-01 | Pendente |
 | 6 | Acabamento e validação nativa: UX-10/11/12/19 | Pendente |
 
@@ -167,6 +167,28 @@ Usuário autorizou commit do lote 3 e avanço ao lote 4 em 2026-10-09.
 Ajuste solicitado no rodapé: padding superior de 12 px entre divisor e botões, com gap de 8 px entre ações e especificidade suficiente para o Fluent. Conferido no navegador em 1280×720 e 800×720: padding computado 12 px em ambos; rodapé estreito sem overflow (clientWidth/scrollWidth 719/719). Alteração apenas CSS; não repetidos testes de comportamento já aprovados.
 
 Após a entrega, o usuário pediu anonimização do exemplo SQL. A prévia usa DW.TEST_TABLE; fixtures do formatador e Oracle foram anonimizadas também. A captura anterior do lote 3 foi removida por conter o identificador. Testes afetados: 19 desktop passaram; Oracle 20 passaram e 1 integração opcional foi ignorada por falta de fixture. Isso altera arquivos atuais, sem reescrever histórico Git.
+
+### Entrega do lote 4
+
+Nova conexão textual no vazio, com orientação para Demo no cadastro; importação local permanece na toolbar. Removido o título Objects repetido no vazio e compactada a linha de ferramentas. Busca de objetos/pastas/S3 com nomes acessíveis; textos de prefixo, catálogo, JOIN, pasta e estado da conexão passam pelo i18n EN/PT-BR, incluindo o diálogo de importação de outro banco.
+
+Tabelas e views oferecem botão focável para abrir consulta em nova aba, preservando expansão e inserção separados; MongoDB usa a operação nativa existente e DuckDB mantém excluir dataset. Abrir usa o callback existente e não executa automaticamente. Contexto da conexão movido do header para antes de Executar, sem nova seleção nem cópia no header; nome e detalhes extensos têm tooltip e truncamento. A toolbar pode ocupar duas linhas conforme espaço disponível.
+
+Resultados distinguem primeira execução, consulta sem linhas, filtro sem correspondência e falha; DML sem linhas exibe contagem afetada. Loading e escolha automática de Mensagens em erro preservados; erro anunciado com role alert. Não alterados protocolos, drivers, persistência ou dados.
+
+Verificação visual em 1280×720 e 900×720, com componentes reais e fixture sintética temporária, além do shell real vazio. Enter expandiu árvores SQL/S3 e abriu consultas de tabela; CTA inicial abriu o cadastro sem salvar. Em 900 px, clientWidth/scrollWidth da toolbar 900/900, contexto 44 px de altura. Detector layout antes/depois sem achados. Fixture removida, viewport restaurado, aba e frontend temporários encerrados. Backend não iniciado; erro de conexão do preview não foi interpretado como falha do produto. Sem validação Tauri/AWS/banco/NVDA/zoom 200%.
+
+Validação local em Node v22.23.3 / pnpm 11.17.0: typecheck final passou; lint passou com os 7 warnings anteriores fora do lote; lint específico de App e testes ajustados passou sem warnings. Vitest 4.1.10: Sidebar, ResultsGrid, Toolbar e i18n passaram; App repetido após ajustar a seleção do novo CTA passou (34 testes). Total final: 5 arquivos / 79 testes aprovados. A primeira rodada teve uma falha por seleção ambígua entre o ícone e CTA Nova conexão; corrigida sem remover nenhum dos acessos. Whitespace passou.
+
+Roteiro para o usuário:
+
+1. No vazio, abrir cadastro pelo botão Nova conexão; conferir orientação Demo e acesso à importação local.
+2. Selecionar conexões com nomes longos: conferir nome/dialeto/banco junto de Executar, tooltip e reflow da toolbar.
+3. Expandir SQL/S3 por teclado, focar Abrir objeto e usar Enter: nova aba deve conter a consulta, sem executá-la. Conferir também views e manter inserir/excluir dataset.
+4. Conferir EN/PT-BR: busca, prefixo/Listar, DuckLake e diálogo de adicionar tabela ao JOIN.
+5. Testar resultado sem linhas, filtro sem correspondência, execução/falha e tabs Mensagens.
+
+Itens UX-04/05/07/08/15/16 marcados como implementados; validação nativa do usuário continua pendente em UX-11. UX-10 ainda cobre tipografia/zoom; apenas categoria inicial e título duplicado já concluídos. UX-20 permanece pendente, sem alteração no indicador de metadados nesta entrega. Usuário autorizou commit do lote 4 e avanço ao lote 5 em 2026-10-09.
 
 ## Decisões registradas
 

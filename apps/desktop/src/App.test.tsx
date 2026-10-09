@@ -462,7 +462,7 @@ describe("App execution flow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "New folder" }));
     fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "Reporting" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("connectionGroup.create", { name: "Reporting" }));
     expect(call).toHaveBeenCalledWith("connectionGroup.list", {});
   });
@@ -484,7 +484,7 @@ describe("App execution flow", () => {
     });
 
     renderApp();
-    fireEvent.click(await screen.findByRole("button", { name: "New connection" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "New connection" })).at(-1)!);
     fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "First database" } });
     fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
 

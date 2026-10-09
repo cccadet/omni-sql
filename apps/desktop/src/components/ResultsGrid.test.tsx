@@ -22,6 +22,18 @@ const result: QueryResult = {
 
 const firstPayload = result.rows[0]![1];
 
+test("distinguishes empty queries, unmatched filters, and execution failures", () => {
+  const { rerender } = render(<LanguageProvider><ResultsGrid result={{ ...result, rows: [] }} /></LanguageProvider>);
+  expect(screen.getByText("The query returned no rows. Review its filters and run it again.")).toBeTruthy();
+  rerender(<LanguageProvider><ResultsGrid result={result} /></LanguageProvider>);
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter data…" }), { target: { value: "absent-value" } });
+  expect(screen.getByText("No rows match this filter. Clear or change the filter.")).toBeTruthy();
+  rerender(<LanguageProvider><ResultsGrid error="Synthetic query error" /></LanguageProvider>);
+  expect(screen.getByRole("alert").textContent).toBe("Synthetic query error");
+  fireEvent.click(screen.getByRole("tab", { name: "Data" }));
+  expect(screen.getByText("Execution failed. Check Messages, adjust the statement, and try again.")).toBeTruthy();
+});
+
 const renderGrid = () => render(
   <LanguageProvider>
     <ResultsGrid result={result} />
@@ -49,7 +61,7 @@ test("shows query progress instead of the empty state while running", () => {
 
 test("offers result tools only after execution and apply only for pending edits", () => {
   const { rerender } = render(<LanguageProvider><ResultsGrid /></LanguageProvider>);
-  expect(screen.getByText("No results")).toBeTruthy();
+  expect(screen.getByText("Run a statement to view its results here.")).toBeTruthy();
   expect(screen.queryByRole("textbox", { name: "Filter data…" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Columns" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
