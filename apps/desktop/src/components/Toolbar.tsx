@@ -15,11 +15,9 @@ import {
 } from "@fluentui/react-icons";
 import { useLanguage } from "../i18n";
 import { DuckDbIcon } from "./DuckDbIcon";
-import type { ReactNode } from "react";
 
 export interface ToolbarProps {
   activeConnectionId: string | null;
-  executionContext?: ReactNode;
   busyMsg?: string | null;
   running?: boolean;
   limit?: number;
@@ -50,7 +48,6 @@ const LIMIT_OPTIONS = [10, 100, 500, 1000, 5000, 10000];
 
 export function Toolbar({
   activeConnectionId,
-  executionContext,
   busyMsg,
   running = false,
   limit = 1000,
@@ -79,12 +76,12 @@ export function Toolbar({
   const { t } = useLanguage();
   return (
     <FluentToolbar className="omni-toolbar">
+      <div className="omni-toolbar-main">
       {analysisMode && <div className="omni-toolbar-analysis-context">
         <DuckDbIcon size={24} />
         <span><strong>{t("analyzeLocally")}</strong><small>DuckDB</small></span>
       </div>}
       {!globalOnly && <div className="omni-toolbar-execution">
-      {executionContext}
       <div className="omni-toolbar-group omni-toolbar-group-primary" role="group" aria-label={t("run")}>
             {running ? (
               <ToolbarButton
@@ -154,6 +151,7 @@ export function Toolbar({
           aria-label={t("analysisImportFile")} title={t("analysisImportFile")}>{t("analysisImportFile")}</ToolbarButton>
       </div>}
 
+      </div>
       <div className="omni-toolbar-utilities">
       <span className="omni-toolbar-progress" aria-live="polite">
         {busyMsg && <Tooltip content={busyMsg} relationship="description"><Spinner size="tiny" aria-label={busyMsg} /></Tooltip>}

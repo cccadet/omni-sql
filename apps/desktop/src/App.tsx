@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, MessageBar, MessageBarBody, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
-import { PlugConnectedRegular, PlugDisconnectedRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
+import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -23,7 +23,6 @@ import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
 import { VariablesDialog } from "./components/VariablesDialog";
 import { SqlCommandLibrary } from "./components/SqlCommandLibrary";
 import { ExecutionRiskDialog } from "./components/ExecutionRiskDialog";
-import { DialectIcon } from "./components/DialectIcon";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationColumn, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
@@ -1576,9 +1575,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const sidebarData = activeConnectionId ? sidebarCache[activeConnectionId] : undefined;
   const activeDatabase = connectionDatabase(activeConnection);
-  const headerHealthLabel = connectionHealth === "online" ? t("headerConnected")
-    : connectionHealth === "verifying" ? t("headerVerifying")
-      : connectionHealth === "offline" ? t("headerOffline") : t("statusUnknown");
 
   return (
     <div
@@ -1613,26 +1609,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
         <Toolbar
-          executionContext={<div className="omni-header-context" aria-label={t("activeConnection")}>
-          {activeConnection ? (
-            <>
-              <span className={`omni-header-health omni-header-health-${connectionHealth}`} title={`${activeConnection.label} · ${headerHealthLabel}`}>
-                {connectionHealth === "online" ? <PlugConnectedRegular /> : <PlugDisconnectedRegular />}
-                <span>{activeConnection.label}</span>
-              </span>
-              <div className="omni-execution-details" title={`${DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect} · ${activeDatabase ?? ""} · ${headerHealthLabel}`}>
-              <span className="omni-header-detail">
-                <DialectIcon dialect={activeConnection.dialect} size={14} />
-                {activeConnection.dialect === "mongodb" && activeTab.mongoSqlMode ? "SQL · " + t("readOnly") : DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect}
-              </span>
-              {activeDatabase && <span className="omni-header-detail"><span>{t("headerDatabase")}</span><strong>{activeDatabase}</strong></span>}
-              <span className={`omni-header-state omni-header-state-${connectionHealth}`}>
-                <span aria-hidden className="omni-header-state-dot" />{headerHealthLabel}
-              </span>
-              </div>
-            </>
-          ) : <span className="omni-header-empty"><PlugDisconnectedRegular />{t("headerNoConnection")}</span>}
-        </div>}
           activeConnectionId={activeConnectionId}
           busyMsg={busyMsg}
           running={running}
