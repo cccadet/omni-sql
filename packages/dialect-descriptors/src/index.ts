@@ -204,3 +204,4 @@ export function formatIdentifier(
 ): string {
   return identifierNeedsQuote(descriptor, name, metadataIdentifier) ? quoteIdentifier(descriptor, name) : name;
 }
+export { duckdbFunctions } from "./duckdb-functions.ts";

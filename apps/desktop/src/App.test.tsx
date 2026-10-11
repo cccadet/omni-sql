@@ -46,8 +46,9 @@ vi.mock("./components/Editor", async () => {
     value: string;
     onRun?: () => void;
     onRunAll?: () => void;
+    onAutocomplete?: (cursor: number, sql: string) => Promise<{ label: string }[]>;
     diagnostics?: readonly { message: string }[];
-  }>(({ value, onRun, onRunAll, diagnostics }, ref) => {
+  }>(({ value, onRun, onRunAll, onAutocomplete, diagnostics }, ref) => {
     useImperativeHandle(ref, () => ({
       insertAtCursor: () => undefined,
       getRunTarget: () => ({ selectionText: null, cursorOffset: value.length, currentStatement: null }),
@@ -64,6 +65,11 @@ vi.mock("./components/Editor", async () => {
       createElement("textarea", { "aria-label": "SQL editor", readOnly: true, value }),
       createElement("button", { type: "button", "aria-label": "Editor run current", onClick: onRun }, "Editor run current"),
       createElement("button", { type: "button", "aria-label": "Editor run all", onClick: onRunAll }, "Editor run all"),
+      createElement("button", { type: "button", "aria-label": "Editor autocomplete", onClick: async (event: { currentTarget: HTMLButtonElement }) => {
+        const button = event.currentTarget;
+        const suggestions = await onAutocomplete?.(value.length, value);
+        button.textContent = suggestions?.map((item) => item.label).join(",") ?? "";
+      } }, "Editor autocomplete"),
       diagnostics?.map((diagnostic) => createElement("div", { key: diagnostic.message }, diagnostic.message)),
     );
   });
@@ -730,6 +736,27 @@ it("keeps MongoDB native/SQL text per tab and falls back to DuckDB for unsupport
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual(expect.stringContaining('"operation": "find"'));
   fireEvent.click(screen.getByRole("tab", { name: /Query 1/ }));
   expect((tag as HTMLInputElement).checked).toBe(true);
+});
+
+it.each([false, true])("resolves MongoDB CTE completion from SQL mode or /mongo (command=%s)", async (command) => {
+  const sql = "WITH x AS (SELECT name FROM items) SELECT x.";
+  seedSession(command ? `/mongo\n${sql}` : sql, 100, "mongo-1");
+  if (!command) {
+    const session = JSON.parse(localStorage.getItem("omni-sql:session")!);
+    session.tabs[0].mongoSqlMode = true;
+    localStorage.setItem("omni-sql:session", JSON.stringify(session));
+  }
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "mongo-1", label: "MongoDB test", dialect: "mongodb", endpoint: "mongodb://localhost/test", user: "" }] })
+    : method === "completion.get" ? Promise.resolve({ suggestions: [{ label: "name", kind: "column", relevance: 100 }] })
+    : defaultCall(method, params, signal));
+  renderApp();
+  await screen.findByRole("switch", { name: "SQL" });
+  const button = screen.getByRole("button", { name: "Editor autocomplete" });
+  fireEvent.click(button);
+  await waitFor(() => expect(button.textContent).toBe("name"));
+  expect(call).toHaveBeenCalledWith("completion.get", { connectionId: "mongo-1", sql, cursor: sql.length }, undefined);
 });
 
 it("runs a Mongo SQL WHERE through the native driver without changing the editor", async () => {

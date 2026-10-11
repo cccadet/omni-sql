@@ -23,6 +23,8 @@ export type DialectId =
 
 export interface Column {
   readonly name: string;
+  /** Sampled document fields; array columns describe their element fields. */
+  readonly fields?: readonly Column[];
   readonly description?: string;
   readonly dataType: string;
   readonly nullable: boolean;

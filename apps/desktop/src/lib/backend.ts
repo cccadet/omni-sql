@@ -25,6 +25,7 @@ export interface ConnectionGroup {
 
 export interface RelationColumn {
   name: string;
+  fields?: readonly RelationColumn[];
   description?: string;
   dataType: string;
   nullable: boolean;
