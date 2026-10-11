@@ -86,8 +86,9 @@ export function mongoSuggestions(text: string, cursor: number, relations: readon
     else if (filterIndex >= 0 && nestedColumns.length) names = fieldNames(nestedColumns);
     else names = stack.some((s) => s.key === "pipeline") ? expressions : operators;
   } else if (parent === "$lookup") {
-    names = key === "from" ? relations.filter((r) => !root.database || r.schema === root.database).map((r) => r.name)
-      : key === "localField" ? fields : key === "foreignField" ? foreignFields : [];
+    if (key === "from") names = relations.filter((r) => !root.database || r.schema === root.database).map((r) => r.name);
+    else if (key === "localField") names = fields;
+    else if (key === "foreignField") names = foreignFields;
   } else if ((key === "$unset" || parent === "$unset") && stack.some((s) => s.key === "pipeline")) names = fields;
   else if (stack.some((s) => s.key === "pipeline") && partial.startsWith("$")) names = fields.map((f) => `$${f}`);
   return [...new Set(names)].filter((name) => name.toLowerCase().startsWith(partial.toLowerCase())).map((name) => ({

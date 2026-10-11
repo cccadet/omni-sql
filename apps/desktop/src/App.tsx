@@ -965,12 +965,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         const completionCursor = commandSql === null ? cursor : Math.max(0, cursor - (sql.length - commandSql.length));
         let suggestions = s3Suggestions(completionSql, completionCursor, relations);
         if (/\bwith\b/i.test(completionSql)) {
-          try {
-            const result = await backend.call<{ suggestions: Suggestion[] }>("completion.get", {
+          const result = await backend.call<{ suggestions: Suggestion[] }>("completion.get", {
               connectionId: activeConnectionId, sql: completionSql, cursor: completionCursor,
-            }, signal);
-            suggestions = result.suggestions;
-          } catch { /* Keep local suggestions when the backend is unavailable. */ }
+          }, signal).catch(() => ({ suggestions })); // Keep local suggestions when the backend is unavailable.
+          suggestions = result.suggestions;
         }
         return localizeSuggestionLabels(suggestions, t("autocompleteAllColumns"));
       }
