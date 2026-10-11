@@ -21,7 +21,7 @@ export function s3Suggestions(sql: string, cursor: number, relations: readonly R
       name: column.name,
       ...(column.fields ? { fields: column.fields.map(function convert(field, ordinalPosition): Relation["columns"][number] {
         const { fields, ...value } = field;
-        return { ...value, ordinalPosition, ...(fields ? { fields: fields.map(convert) } : {}) };
+        return { ...value, ordinalPosition, ...(fields ? { fields: fields.map((nested, index) => convert(nested, index)) } : {}) };
       }) } : {}),
       dataType: column.dataType,
       nullable: column.nullable,
