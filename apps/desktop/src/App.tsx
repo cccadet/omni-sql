@@ -960,8 +960,19 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       if (activeConnection.dialect === "mongodb") {
         const relations = sidebarCache[activeConnectionId]?.relations ?? [];
         const commandSql = mongoCommandSql(sql);
-        if (commandSql !== null) return s3Suggestions(commandSql, Math.max(0, cursor - (sql.length - commandSql.length)), relations);
-        return activeTab.mongoSqlMode ? s3Suggestions(sql, cursor, relations) : mongoSuggestions(sql, cursor, relations);
+        if (commandSql === null && !activeTab.mongoSqlMode) return mongoSuggestions(sql, cursor, relations);
+        const completionSql = commandSql ?? sql;
+        const completionCursor = commandSql === null ? cursor : Math.max(0, cursor - (sql.length - commandSql.length));
+        let suggestions = s3Suggestions(completionSql, completionCursor, relations);
+        if (/\bwith\b/i.test(completionSql)) {
+          try {
+            const result = await backend.call<{ suggestions: Suggestion[] }>("completion.get", {
+              connectionId: activeConnectionId, sql: completionSql, cursor: completionCursor,
+            }, signal);
+            suggestions = result.suggestions;
+          } catch { /* Keep local suggestions when the backend is unavailable. */ }
+        }
+        return localizeSuggestionLabels(suggestions, t("autocompleteAllColumns"));
       }
       if (activeDialect === "duckdb") return [];
       const r = await backend.call<{ suggestions: Suggestion[] }>("completion.get", {

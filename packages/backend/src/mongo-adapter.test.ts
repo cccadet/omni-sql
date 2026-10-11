@@ -39,7 +39,7 @@ test("MongoDB Extended JSON preserves BSON, bounds rows and rejects implicit wri
 });
 
 test("MongoDB adapter bounds cursors, preserves document fields and sanitizes driver failures", async (t) => {
-  const documents = [{ _id: new BSON.ObjectId(), name: "first" }, { other: true }];
+  const documents = [{ _id: new BSON.ObjectId(), name: "first", profile: { city: "SP" }, exams: [{ code: "abc" }] }, { other: true }];
   const limits: number[] = [];
   let closed = 0;
   let connected = 0;
@@ -91,9 +91,12 @@ test("MongoDB adapter bounds cursors, preserves document fields and sanitizes dr
     assert.ok(adapter.listColumns("test", "items").some(({ name, isPrimaryKey }) => name === "_id" && isPrimaryKey));
     assert.equal(adapter.listColumns("test", "items").find(({ name }) => name === "_id")?.dataType, "OBJECTID");
     assert.equal(adapter.listColumns("test", "items").find(({ name }) => name === "name")?.dataType, "VARCHAR");
+    assert.equal(adapter.listColumns("test", "items").find(({ name }) => name === "profile")?.fields?.[0]?.name, "city");
+    assert.equal(adapter.listColumns("test", "items").find(({ name }) => name === "exams")?.fields?.[0]?.name, "code");
     assert.deepEqual(adapter.listFunctions("test"), []);
     assert.equal(adapter.dialectDescriptor().dialect, "mongodb");
     const result = await adapter.runQuery(query("find", { projection: { name: 1 }, sort: { name: 1 } }), 1);
+    assert.ok(!result.columns.some(({ name }) => name === "profile.city"), "nested metadata must not flatten query result columns");
     assert.equal(result.rows.length, 1);
     assert.equal(result.rowsMoreAvailable, true);
     assert.equal(limits.at(-1), 2);

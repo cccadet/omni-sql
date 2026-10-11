@@ -1,7 +1,7 @@
 import { BSON, MongoClient, type Document, type AbstractCursor } from "mongodb";
 import { CachedAdapter, type RowInsertSpec, type RowUpdateSpec } from "@omni-sql/adapters-core";
 import { dialectDescriptor } from "@omni-sql/dialect-descriptors";
-import type { ConnectionConfig, Relation, QueryResult, ExplainResult } from "@omni-sql/ts-types";
+import type { Column, ConnectionConfig, Relation, QueryResult, ExplainResult } from "@omni-sql/ts-types";
 import { RpcDatabaseError, RpcValidationError } from "./rpc-errors.ts";
 import { assertEndpointHasNoEmbeddedCredentials } from "./security-policy.ts";
 import { mongoSqlNeedsSchemaSample, mongoSqlSnapshot, mongoSqlValue } from "./mongo-sql-snapshot.ts";
@@ -110,6 +110,17 @@ function mongoColumns(documents: Document[], names: string[]) {
   });
 }
 
+function mongoMetadataColumns(documents: Document[], names: string[], depth = 0): Column[] {
+  return mongoColumns(documents, names).map((column, ordinalPosition) => {
+    const values = documents.flatMap((doc) => Array.isArray(doc[column.name]) ? doc[column.name] : [doc[column.name]]);
+    const objects = values.filter(object);
+    const fields = depth < 16 && objects.length
+      ? mongoMetadataColumns(objects, [...new Set(objects.flatMap(Object.keys))], depth + 1) : [];
+    return { ...column, ordinalPosition, isPrimaryKey: depth === 0 && column.name === "_id",
+      ...(fields.length ? { fields } : {}) };
+  });
+}
+
 export function mongoResult(documents: Document[], limit: number, elapsedMs: number): QueryResult {
   const preview = documents.slice(0, limit);
   const names = [...new Set(preview.flatMap((doc) => Object.keys(doc)))];
@@ -183,7 +194,7 @@ export class MongoAdapter extends CachedAdapter {
           try { for await (const document of cursor) { samples.push(document); for (const name of Object.keys(document)) fields.add(name); } }
           finally { await cursor.close(); }
           relations.push({ schema: database, name: collection.name, kind: collection.type === "view" ? "view" : "table",
-            constraints: [], columns: mongoColumns(samples, [...fields]).map((column, ordinalPosition) => ({ ...column, isPrimaryKey: column.name === "_id", ordinalPosition })) });
+            constraints: [], columns: mongoMetadataColumns(samples, [...fields]) });
         }
         result.push([null, database, relations]);
       }

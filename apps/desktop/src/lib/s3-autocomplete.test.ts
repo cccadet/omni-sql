@@ -16,4 +16,23 @@ describe("S3 autocomplete", () => {
     expect(s3ReferencedRelations(sql, relations)).toEqual(relations);
     expect(s3Suggestions(sql, 7, relations).some((item) => item.label === "amount")).toBe(true);
   });
+
+  it("suggests document/list and aggregate functions in SQL expressions", () => {
+    for (const [prefix, name] of [["unn", "unnest"], ["list_c", "list_contains"], ["json_ext", "json_extract"], ["coa", "coalesce"], ["cou", "count"]]) {
+      const sql = `SELECT ${prefix}`;
+      expect(s3Suggestions(sql, sql.length, relations).some((item) => item.label === name && item.kind === "function")).toBe(true);
+    }
+  });
+
+  it("completes nested document fields, including quoted names and table aliases", () => {
+    const nested = [{ ...relations[0]!, columns: [{ name: "profile", dataType: "JSON", nullable: true, isPrimaryKey: false,
+      fields: [{ name: "city name", dataType: "VARCHAR", nullable: true, isPrimaryKey: false }] }] }];
+    for (const expression of ["profile.", "p.profile.", 'p."profile".ci']) {
+      const sql = `SELECT ${expression} FROM "omni-test"."delta__orders" p`;
+      const items = s3Suggestions(sql, sql.indexOf(" FROM"), nested);
+      expect(items.find((item) => item.label === "city name")?.insertText).toBe('"city name"');
+    }
+    const sql = 'SELECT other.profile. FROM "omni-test"."delta__orders" p';
+    expect(s3Suggestions(sql, sql.indexOf(" FROM"), nested)).toEqual([]);
+  });
 });

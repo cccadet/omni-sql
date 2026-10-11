@@ -99,6 +99,35 @@ function matchesQualifier(ctx: ResolvedContext, ref: ScopeRef, dialect: DialectD
     effectiveIdentifier(ref.alias, ref.aliasQuoted === true, dialect);
 }
 
+function nestedFieldSuggestions(ctx: ResolvedContext, meta: MetadataSource): Suggestion[] | null {
+  if (!ctx.qualifier || !["select-list", "where", "group-by", "having", "order-by", "on"].includes(ctx.clause)) return null;
+  const tokens = ctx.prelude;
+  let index = tokens.length - 1;
+  if (tokens[index]?.value !== ".") index--;
+  const path: Token[] = [];
+  while (tokens[index]?.value === "." && isNameToken(tokens[index - 1])) {
+    path.unshift(tokens[index - 1]!);
+    index -= 2;
+  }
+  if (!path.length) return null;
+  const quoted = (token: Token) => meta.dialect.identifierQuoteChars.some((quote) => ctx.statementText.startsWith(quote, token.start));
+  const matches = (name: string, token: Token) => quoted(token) ? name === token.value : name.toLowerCase() === token.value.toLowerCase();
+  const ref = ctx.scope.find((item) => matches(item.alias, path[0]!));
+  let columns = ref ? meta.resolveRelation(ref)?.columns ?? [] : ctx.scope.flatMap((item) => meta.resolveRelation(item)?.columns ?? []);
+  if (ref) path.shift();
+  if (!path.length) return null;
+  for (const token of path) {
+    const candidates = columns.filter((column) => matches(column.name, token));
+    if (candidates.length !== 1 || !candidates[0]!.fields || candidates[0]!.dataType.endsWith("[]")) return null;
+    columns = candidates[0]!.fields!;
+  }
+  const partial = ctx.cursorToken?.value ?? "";
+  return columns.filter((column) => partialMatchRank(column.name, partial) !== null).map((column) => ({
+    kind: "column", label: column.name, detail: column.dataType, relevance: 100,
+    insertText: identifierText(column.name, meta.dialect), ...(partial ? { filterText: partial } : {}),
+  }));
+}
+
 function currentSourceSegment(ctx: ResolvedContext): readonly Token[] {
   let depth = 0;
   let start = 0;
@@ -453,6 +482,8 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
   const foreignKeySuggestions = joinForeignKeySuggestions(ctx, meta);
 
   if (ctx.qualifier) {
+    const nested = nestedFieldSuggestions(ctx, meta);
+    if (nested) return nested;
     const ref = ctx.scope.find((scopeRef) => matchesQualifier(ctx, scopeRef, meta.dialect));
     if (!ref) return [];
     const relation = meta.resolveRelation(ref);

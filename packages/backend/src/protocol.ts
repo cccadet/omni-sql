@@ -1,4 +1,5 @@
 import type {
+  Column,
   ConnectionConfig,
   ConnectionGroup,
   QueryResult,
@@ -196,6 +197,7 @@ export interface ListRelationsResult {
     kind: "table" | "view";
     columns?: ReadonlyArray<{
       name: string;
+      fields?: readonly Column[];
       description?: string;
       dataType: string;
       nullable: boolean;

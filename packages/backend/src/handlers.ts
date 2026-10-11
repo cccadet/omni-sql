@@ -14,7 +14,7 @@ import { mongoSqlToNative } from "./mongo-sql.ts";
 import { mongoSqlSourcePlan } from "./mongo-sql-source.ts";
 import { MongoAdapter } from "./mongo-adapter.ts";
 import { OdbcAdapter } from "@omni-sql/adapters-odbc";
-import { dialectDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
+import { dialectDescriptor, duckdbFunctions, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
   autocompleteTier1,
   findStatement,
@@ -1158,6 +1158,7 @@ export const handlers: BackendRpcRouter = {
             ? {
                 columns: r.columns.map((c) => ({
                   name: c.name,
+                  ...(c.fields ? { fields: c.fields } : {}),
                   ...(c.description ? { description: c.description } : {}),
                   dataType: c.dataType,
                   nullable: c.nullable,
@@ -1186,6 +1187,7 @@ export const handlers: BackendRpcRouter = {
       ...(relation.description ? { description: relation.description } : {}),
       columns: cache.getColumnsByTable(connectionId, schema, table).map((column) => ({
         name: column.name,
+        ...(column.fields ? { fields: column.fields } : {}),
         ...(column.description ? { description: column.description } : {}),
         dataType: column.dataType,
         nullable: column.nullable,
@@ -1247,19 +1249,21 @@ export const handlers: BackendRpcRouter = {
     cursor,
   }: CompletionParams): Promise<CompletionResult> {
     const s = requireSession(connectionId);
-    if (s.config.dialect === "mongodb") return { suggestions: [] };
+    const mongoSql = s.config.dialect === "mongodb";
+    if (mongoSql && /^\s*\{/.test(sql)) return { suggestions: [] };
     // Tier2: resolve colunas de CTEs via sidecar JVM/Calcite antes de rodar
     // o tier1 (lexer puro, síncrono) — best-effort, timeout curto; se o
     // sidecar não responder a tempo, cteRelations fica vazio e o
     // autocomplete segue 100% tier1, como sempre foi.
-    const descriptor = dialectDescriptor(s.config.dialect);
+    const descriptor = dialectDescriptor(mongoSql ? "duckdb" : s.config.dialect);
     const cteRelations = annotateCteRelations(
       sql,
       cursor,
       descriptor,
       await resolveCteRelations(sql, cursor, descriptor),
     );
-    const meta = metaSourceOf(s, cteRelations);
+    const base = metaSourceOf(s, cteRelations);
+    const meta = mongoSql ? { ...base, dialect: descriptor, listFunctions: () => duckdbFunctions } : base;
     const suggestions = autocompleteTier1(sql, cursor, meta);
     return { suggestions };
   },

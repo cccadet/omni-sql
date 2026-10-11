@@ -47,6 +47,20 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
     assert.equal((await rpc("metadata.introspect", { connectionId })).error, undefined);
     const metadata = await rpc("metadata.listRelations", { connectionId, includeColumns: true });
     assert.ok((metadata.result?.relations as { name: string }[]).some((relation) => relation.name === "items"));
+    const itemMetadata = (metadata.result?.relations as { name: string; columns: { name: string; fields?: { name: string }[] }[] }[]).find((relation) => relation.name === "items")!;
+    assert.equal(itemMetadata.columns.find((column) => column.name === "nested")?.fields?.[0]?.name, "city");
+    const completions = async (sql: string, cursor = sql.length) => {
+      const response = await rpc("completion.get", { connectionId, sql, cursor });
+      assert.equal(response.error, undefined, response.error?.message);
+      return response.result?.suggestions as { label: string; kind: string }[];
+    };
+    assert.ok((await completions("SELECT unn")).some((item) => item.label === "unnest"));
+    const nestedSql = "SELECT i.nested. FROM items i";
+    assert.ok((await completions(nestedSql, nestedSql.indexOf(" FROM"))).some((item) => item.label === "city"));
+    if (process.env.OMNI_SQL_TEST_MONGO_CTE === "1") {
+      const cteSql = "WITH x AS (SELECT name FROM items) SELECT x. FROM x";
+      assert.ok((await completions(cteSql, cteSql.lastIndexOf(" FROM"))).some((item) => item.label === "name"));
+    }
     const query = (operation: string, rest = {}) => JSON.stringify({ database: db.databaseName, collection: "items", operation, ...rest });
     await db.collection("items").createIndex({ id_guia: 1 });
     for (const where of ["id_guia = '456'", "list_contains(id_guia, '456')"]) {

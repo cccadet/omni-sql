@@ -1,5 +1,5 @@
 import { autocompleteTier1, type MetadataSource, type Suggestion } from "@omni-sql/autocomplete-engine";
-import { duckdbDescriptor } from "@omni-sql/dialect-descriptors";
+import { duckdbDescriptor, duckdbFunctions } from "@omni-sql/dialect-descriptors";
 import type { Relation } from "@omni-sql/ts-types";
 import type { RelationInfo } from "./backend";
 
@@ -19,6 +19,10 @@ export function s3Suggestions(sql: string, cursor: number, relations: readonly R
     constraints: [],
     columns: (relation.columns ?? []).map((column, ordinalPosition) => ({
       name: column.name,
+      ...(column.fields ? { fields: column.fields.map(function convert(field, ordinalPosition): Relation["columns"][number] {
+        const { fields, ...value } = field;
+        return { ...value, ordinalPosition, ...(fields ? { fields: fields.map(convert) } : {}) };
+      }) } : {}),
       dataType: column.dataType,
       nullable: column.nullable,
       isPrimaryKey: false,
@@ -29,7 +33,7 @@ export function s3Suggestions(sql: string, cursor: number, relations: readonly R
     dialect: duckdbDescriptor,
     listSchemas: () => [...new Set(objects.map((relation) => relation.schema))],
     listRelations: () => objects,
-    listFunctions: () => [],
+    listFunctions: () => duckdbFunctions,
     resolveRelation: (ref) => objects.find((relation) => relation.name.toLocaleLowerCase() === ref.table.toLocaleLowerCase()
       && (!ref.schema || relation.schema.toLocaleLowerCase() === ref.schema.toLocaleLowerCase())) ?? null,
   };

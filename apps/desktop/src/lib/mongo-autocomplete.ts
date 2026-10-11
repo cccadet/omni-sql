@@ -1,14 +1,22 @@
 import type { Suggestion } from "@omni-sql/autocomplete-engine";
-import type { RelationInfo } from "./backend";
+import type { RelationColumn, RelationInfo } from "./backend";
 
 const operations = ["find", "aggregate", "insertOne", "updateOne", "updateMany", "deleteOne", "deleteMany"];
 const stages = ["$match", "$project", "$sort", "$group", "$limit", "$skip", "$unwind", "$lookup", "$addFields", "$set", "$unset", "$count", "$facet", "$replaceRoot"];
 const operators = ["$eq", "$ne", "$gt", "$gte", "$lt", "$lte", "$in", "$nin", "$exists", "$regex", "$and", "$or", "$not", "$nor", "$elemMatch"];
 const expressions = ["$sum", "$avg", "$min", "$max", "$first", "$last", "$push", "$addToSet", "$cond", "$ifNull", "$concat", "$add", "$subtract", "$multiply", "$divide"];
+const updates = ["$set", "$unset", "$inc", "$mul", "$min", "$max", "$push", "$pull", "$pop", "$addToSet", "$rename", "$setOnInsert", "$currentDate"];
+
+function fieldNames(columns: readonly RelationColumn[], prefix = ""): string[] {
+  return columns.flatMap((column) => {
+    const name = `${prefix}${column.name}`;
+    return [name, ...fieldNames(column.fields ?? [], `${name}.`)];
+  });
+}
 
 // Scan incomplete JSON rather than requiring a valid document while typing.
 export function mongoCompletionContext(text: string, cursor: number) {
-  const stack: { key: string; array: boolean }[] = [];
+  const stack: { key: string; array: boolean; values: Record<string, string> }[] = [];
   const root: Record<string, string> = {};
   let key = "";
   let expectKey = false;
@@ -22,8 +30,9 @@ export function mongoCompletionContext(text: string, cursor: number) {
       try { decoded = JSON.parse(value) as string; } catch { return null; }
       if (expectKey) key = decoded;
       else if (stack.length === 1) root[key] = decoded;
+      else if (stack.length) stack.at(-1)!.values[key] = decoded;
     } else if (value === "{" || value === "[") {
-      stack.push({ key, array: value === "[" }); key = ""; expectKey = value === "{";
+      stack.push({ key, array: value === "[", values: {} }); key = ""; expectKey = value === "{";
     } else if (value === "}" || value === "]") {
       key = stack.pop()?.key ?? ""; expectKey = false;
     } else if (value === ":") expectKey = false;
@@ -46,7 +55,18 @@ export function mongoSuggestions(text: string, cursor: number, relations: readon
     }
   } catch { /* Incomplete JSON uses the values already scanned. */ }
   const relation = relations.find((r) => r.name === root.collection && (!root.database || r.schema === root.database));
-  const fields = relation?.columns?.map((c) => c.name) ?? [];
+  let fields = fieldNames(relation?.columns ?? []);
+  const parent = stack.at(-1)?.key;
+  const lookup = [...stack].reverse().find((frame) => frame.key === "$lookup");
+  const foreignRelation = relations.find((r) => r.name === lookup?.values.from && (!root.database || r.schema === root.database));
+  const foreignFields = fieldNames(foreignRelation?.columns ?? []);
+  const foreignPipeline = lookup && stack.slice(stack.indexOf(lookup) + 1).some((frame) => frame.key === "pipeline");
+  if (foreignPipeline) fields = foreignFields;
+  const filterIndex = stack.findIndex((frame) => frame.key === "filter" || frame.key === "$match");
+  let nestedColumns: readonly RelationColumn[] = (foreignPipeline ? foreignRelation : relation)?.columns ?? [];
+  for (const frame of stack.slice(filterIndex < 0 ? stack.length : filterIndex + 1)) {
+    if (frame.key && !frame.key.startsWith("$")) nestedColumns = nestedColumns.find((column) => column.name === frame.key)?.fields ?? [];
+  }
   let names: string[] = [];
   if (stack.length === 1) {
     names = expectKey ? ["database", "collection", "operation", "filter", "projection", "sort", "pipeline", "document", "update"]
@@ -54,13 +74,22 @@ export function mongoSuggestions(text: string, cursor: number, relations: readon
       : key === "collection" ? relations.filter((r) => !root.database || r.schema === root.database).map((r) => r.name)
       : key === "operation" ? operations : [];
   } else if (expectKey) {
-    const parent = stack.at(-1)?.key;
     if (stack.at(-2)?.key === "pipeline" && stack.at(-2)?.array) names = stages;
-    else if (["filter", "$match", "$and", "$or", "$nor", "$elemMatch"].includes(parent || stack.at(-2)?.key || "")) names = [...fields, ...operators];
-    else if (["projection", "sort", "$project", "$sort", "$group", "$set", "$addFields", "document"].includes(parent ?? "")) names = [...fields, ...(parent?.startsWith("$") ? expressions : [])];
-    else if (parent === "update") names = ["$set", "$unset", "$inc", "$push", "$pull", "$addToSet", "$rename"];
+    else if (parent === "$lookup") names = ["from", "localField", "foreignField", "as", "let", "pipeline"];
+    else if (parent === "$unwind") names = ["path", "includeArrayIndex", "preserveNullAndEmptyArrays"];
+    else if (parent === "$replaceRoot") names = ["newRoot"];
+    else if (parent === "$facet" || parent === "let") names = [];
+    else if (["filter", "$match", "$and", "$or", "$nor", "$elemMatch"].includes(parent || stack.at(-2)?.key || "")) names = [...(parent === "$elemMatch" ? fieldNames(nestedColumns) : fields), ...operators];
+    else if (["projection", "sort", "$project", "$sort", "$set", "$addFields", "document"].includes(parent ?? "") || (stack.some((s) => s.key === "update") && updates.includes(parent ?? ""))) names = fields;
+    else if (parent === "$group") names = ["_id", ...fields];
+    else if (parent === "update") names = updates;
+    else if (filterIndex >= 0 && nestedColumns.length) names = fieldNames(nestedColumns);
     else names = stack.some((s) => s.key === "pipeline") ? expressions : operators;
-  } else if (stack.some((s) => s.key === "pipeline") && partial.startsWith("$")) names = fields.map((f) => `$${f}`);
+  } else if (parent === "$lookup") {
+    names = key === "from" ? relations.filter((r) => !root.database || r.schema === root.database).map((r) => r.name)
+      : key === "localField" ? fields : key === "foreignField" ? foreignFields : [];
+  } else if ((key === "$unset" || parent === "$unset") && stack.some((s) => s.key === "pipeline")) names = fields;
+  else if (stack.some((s) => s.key === "pipeline") && partial.startsWith("$")) names = fields.map((f) => `$${f}`);
   return [...new Set(names)].filter((name) => name.toLowerCase().startsWith(partial.toLowerCase())).map((name) => ({
     label: name, insertText: JSON.stringify(name).slice(1, -1), kind: "keyword", relevance: 100,
   }));
