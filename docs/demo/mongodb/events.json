@@ -1,0 +1,26 @@
+[
+  {
+    "_id": "demo-001",
+    "event_id": "demo-001",
+    "status": "failed",
+    "duration_ms": 1200,
+    "steps": [
+      { "name": "download", "duration_ms": 800 },
+      { "name": "parse", "duration_ms": 400 }
+    ]
+  },
+  {
+    "_id": "demo-002",
+    "event_id": "demo-002",
+    "status": "failed",
+    "duration_ms": 600,
+    "steps": [{ "name": "download", "duration_ms": 600 }]
+  },
+  {
+    "_id": "demo-003",
+    "event_id": "demo-003",
+    "status": "ok",
+    "duration_ms": 300,
+    "steps": [{ "name": "parse", "duration_ms": 300 }]
+  }
+]
