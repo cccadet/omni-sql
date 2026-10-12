@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -805,7 +806,7 @@ test("CLI startup failures produce a diagnostic and a failing exit code", async 
   const previousExitCode = process.exitCode;
   const diagnostic = t.mock.method(process.stderr, "write", () => true);
   try {
-    process.argv = [process.execPath, new URL("./cli.ts", import.meta.url).pathname];
+    process.argv = [process.execPath, fileURLToPath(new URL("./cli.ts", import.meta.url))];
     await import("./cli.ts");
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(process.exitCode, 1);
