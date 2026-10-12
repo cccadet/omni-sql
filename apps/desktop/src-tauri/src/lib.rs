@@ -1624,6 +1624,12 @@ fn analysis_import_file(
 }
 
 #[tauri::command]
+async fn analysis_preview_csv(request: data_engine::CsvPreviewRequest) -> Result<data_engine::CsvPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || data_engine::preview_csv(request))
+        .await.map_err(|error| format!("CSV preview task failed: {error}"))?
+}
+
+#[tauri::command]
 async fn analysis_import_s3(
     app: AppHandle,
     request: data_engine::S3ImportRequest,
@@ -1751,6 +1757,7 @@ pub fn run() {
             analysis_operation_status,
             analysis_export_query,
             analysis_import_file,
+            analysis_preview_csv,
             analysis_import_s3,
             analysis_query_mongo,
             analysis_query_s3,

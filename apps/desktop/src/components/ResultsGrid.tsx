@@ -42,6 +42,7 @@ import { useLanguage } from "../i18n";
 import { exportCsvFile, openExportedFile, revealExportedFile } from "../lib/file-io";
 import { formatDuration } from "../lib/format-duration";
 import { readableBsonValue } from "../lib/bson-value";
+import { useCsvOptions } from "./CsvOptionsDialog";
 
 export interface ResultsGridProps {
   result?: QueryResult | null;
@@ -64,7 +65,7 @@ export interface ResultsGridProps {
   onInsertRow?: (values: Readonly<Record<number, unknown>>) => void | Promise<void>;
   onAnalyzeLocally?: () => void | Promise<void>;
   analyzingLocally?: boolean;
-  onExportFullCsv?: () => void | Promise<void>;
+  onExportFullCsv?: (delimiter: string) => void | Promise<void>;
 }
 
 export interface StagedCellEdit {
@@ -106,12 +107,12 @@ export function serializeCellValue(value: unknown, readableBson = false): string
   }
 }
 
-function escapeCsv(value: unknown): string {
+function escapeCsv(value: unknown, delimiter: string): string {
   const serialized = serializeCellValue(value);
   // Spreadsheet programs evaluate a formula even when a cell is valid CSV.
   // Preserve the value as text for all formula-like prefixes.
   const s = /^[\t\r ]*[=+\-@]/.test(serialized) ? `'${serialized}` : serialized;
-  if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+  if (s.includes(delimiter) || s.includes('"') || s.includes("\n") || s.includes("\r")) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
@@ -175,6 +176,7 @@ export function ResultsGrid({
   onExportFullCsv,
 }: ResultsGridProps) {
   const { t } = useLanguage();
+  const { requestCsvOptions, csvOptionsDialog } = useCsvOptions();
   const toasterId = useId();
   const { dispatchToast } = useToastController(toasterId);
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan" | "related">("data");
@@ -327,9 +329,11 @@ export function ResultsGrid({
 
   const handleExportCsv = useCallback(async () => {
     if (!result) return;
-    const header = result.columns.map((c) => escapeCsv(c.name)).join(",");
+    const delimiter = await requestCsvOptions();
+    if (delimiter === null) return;
+    const header = result.columns.map((c) => escapeCsv(c.name, delimiter)).join(delimiter);
     const body = sortedRows
-      .map(({ row, rowIndex }) => row.map((value, colIndex) => escapeCsv(changeByCell.get(`${rowIndex}:${colIndex}`) ?? value)).join(","))
+      .map(({ row, rowIndex }) => row.map((value, colIndex) => escapeCsv(changeByCell.get(`${rowIndex}:${colIndex}`) ?? value, delimiter)).join(delimiter))
       .join("\n");
     try {
       const path = await exportCsvFile(`${header}\n${body}`);
@@ -400,7 +404,7 @@ export function ResultsGrid({
         { intent: "error", timeout: 8_000 },
       );
     }
-  }, [result, sortedRows, changeByCell, t, dispatchToast]);
+  }, [result, sortedRows, changeByCell, t, dispatchToast, requestCsvOptions]);
 
   const isColumnEditable = useCallback((colIndex: number) => {
     if (!editability?.editable) return false;
@@ -574,6 +578,7 @@ export function ResultsGrid({
         overflow: "auto",
       }}
     >
+      {csvOptionsDialog}
       <div className="omni-results-header">
         <TabList
           selectedValue={activeTab}
@@ -720,7 +725,7 @@ export function ResultsGrid({
                 {t("export")}
               </Button>
             </Tooltip>
-            {onExportFullCsv && <Button title={t("analysisExportCsvSafe")} appearance="outline" onClick={() => void onExportFullCsv()} disabled={!result || running}>
+            {onExportFullCsv && <Button title={t("analysisExportCsvSafe")} appearance="outline" onClick={() => { void requestCsvOptions().then((delimiter) => { if (delimiter !== null) return onExportFullCsv(delimiter); }); }} disabled={!result || running}>
               {t("analysisExportCsv")}
             </Button>}
             </div>

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import type { QueryResult } from "@omni-sql/ts-types";
 import { LanguageProvider } from "../i18n";
@@ -130,11 +130,14 @@ test("edits sorted rows by keyboard, restores focus and applies only explicitly"
   expect(apply).toHaveBeenCalledTimes(1);
 });
 
-test("offers full analytical CSV export separately from the grid export", () => {
+test("offers full analytical CSV export separately from the grid export", async () => {
   const onExportFullCsv = vi.fn();
   render(<LanguageProvider><ResultsGrid result={result} onExportFullCsv={onExportFullCsv} /></LanguageProvider>);
   fireEvent.click(screen.getByRole("button", { name: "Export full CSV" }));
-  expect(onExportFullCsv).toHaveBeenCalledOnce();
+  expect(onExportFullCsv).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("combobox", { name: "Delimiter" }), { target: { value: "\t" } });
+  fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
+  await waitFor(() => expect(onExportFullCsv).toHaveBeenCalledWith("\t"));
   expect(screen.getByRole("button", { name: "Export CSV" })).toBeTruthy();
 });
 
@@ -239,7 +242,8 @@ test("exports through the native save flow", async () => {
   vi.mocked(revealExportedFile).mockResolvedValueOnce(undefined);
   renderGrid();
   fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-  expect(exportCsvFile).toHaveBeenCalledWith('id,payload\n2,"{""nested"":{""label"":""needle""},""values"":[""x"",2]}"\n10,"{""nested"":{""label"":""other""},""values"":[""y"",3]}"');
+  fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
+  await waitFor(() => expect(exportCsvFile).toHaveBeenCalledWith('id,payload\n2,"{""nested"":{""label"":""needle""},""values"":[""x"",2]}"\n10,"{""nested"":{""label"":""other""},""values"":[""y"",3]}"'));
   expect(await screen.findByText("2 rows saved to resultados.csv")).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "Open CSV" }));
   expect(openExportedFile).toHaveBeenCalledWith("C:\\exports\\resultados.csv");
@@ -258,7 +262,7 @@ test("displays BSON values without envelopes while retaining exact raw values", 
   expect(serializeCellValue(circular, true)).toBe('{"self":"[Circular]"}');
 });
 
-test("Mongo result cells show readable IDs and dates, filter by them and export original BSON", () => {
+test("Mongo result cells show readable IDs and dates, filter by them and export original BSON", async () => {
   const mongo: QueryResult = {
     columns: [{ name: "_id", dataType: "JSON", nullable: false }, { name: "data_evento", dataType: "JSON", nullable: false }],
     rows: [[{ $oid: "6ac4e4f54dee13476cf0fbd0" }, { $date: { $numberLong: "0" } }]],
@@ -270,7 +274,8 @@ test("Mongo result cells show readable IDs and dates, filter by them and export 
   fireEvent.change(screen.getByRole("textbox", { name: "Filter data…" }), { target: { value: "1970-01-01" } });
   expect(screen.getByText("6ac4e4f54dee13476cf0fbd0")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-  expect(exportCsvFile).toHaveBeenLastCalledWith('_id,data_evento\n"{""$oid"":""6ac4e4f54dee13476cf0fbd0""}","{""$date"":{""$numberLong"":""0""}}"');
+  fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
+  await waitFor(() => expect(exportCsvFile).toHaveBeenLastCalledWith('_id,data_evento\n"{""$oid"":""6ac4e4f54dee13476cf0fbd0""}","{""$date"":{""$numberLong"":""0""}}"'));
 });
 
 test("exports formula-like headers and cells as spreadsheet text", async () => {
@@ -283,14 +288,33 @@ test("exports formula-like headers and cells as spreadsheet text", async () => {
   };
   render(<LanguageProvider><ResultsGrid result={formulaResult} /></LanguageProvider>);
   fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-  expect(exportCsvFile).toHaveBeenCalledWith("'=header\n'  @SUM(A1:A2)\n'-42\nnormal");
+  fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
+  await waitFor(() => expect(exportCsvFile).toHaveBeenCalledWith("'=header\n'  @SUM(A1:A2)\n'-42\nnormal"));
 });
 
 test("shows native CSV export failures", async () => {
   vi.mocked(exportCsvFile).mockRejectedValueOnce(new Error("disk full"));
   renderGrid();
   fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+  fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
   expect(await screen.findByText("Could not save: disk full")).toBeTruthy();
+});
+
+test.each([";", "\t", "|"])("escapes headers and values for delimiter %j and cancels without writing", async (delimiter) => {
+  vi.mocked(exportCsvFile).mockClear().mockResolvedValue(null);
+  const sample: QueryResult = {
+    columns: [{ name: `name${delimiter}part`, dataType: "text", nullable: true }, { name: "value", dataType: "text", nullable: true }],
+    rows: [[`a${delimiter}b`, 'quote"\r\nnext'], [null, "=1+1"]], rowsMoreAvailable: true, elapsedMs: 1,
+  };
+  render(<LanguageProvider><ResultsGrid result={sample} /></LanguageProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(exportCsvFile).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Delimiter" }), { target: { value: delimiter === "|" ? "custom" : delimiter } });
+  if (delimiter === "|") fireEvent.change(screen.getByRole("textbox", { name: "Custom delimiter" }), { target: { value: delimiter } });
+  fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
+  await waitFor(() => expect(exportCsvFile).toHaveBeenCalledWith(`"name${delimiter}part"${delimiter}value\n"a${delimiter}b"${delimiter}"quote""\r\nnext"\n${delimiter}'=1+1`));
 });
 
 test("stages editable cells and commits or discards the staged batch", async () => {

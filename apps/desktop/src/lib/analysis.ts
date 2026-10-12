@@ -228,6 +228,7 @@ export async function exportAnalysis(input: {
   sql: string;
   path: string;
   format: "csv" | "parquet" | "arrow_ipc";
+  delimiter?: string;
   operationId?: string;
 }): Promise<{ path: string; provenancePath: string; rows: number; bytes: number }> {
   return invoke("analysis_export_query", {
@@ -237,6 +238,7 @@ export async function exportAnalysis(input: {
       sql: input.sql,
       path: input.path,
       format: input.format,
+      ...(input.delimiter !== undefined ? { delimiter: input.delimiter } : {}),
     },
   });
 }
@@ -246,6 +248,7 @@ export async function importAnalysisFile(input: {
   name: string;
   path: string;
   format: "csv" | "parquet" | "json";
+  delimiter?: string;
   selection:
     | { mode: "full" }
     | { mode: "first_n"; rows: number }
@@ -259,9 +262,20 @@ export async function importAnalysisFile(input: {
       name: input.name,
       path: input.path,
       format: input.format,
+      ...(input.delimiter !== undefined ? { delimiter: input.delimiter } : {}),
       selection: input.selection,
     },
   });
+}
+
+export interface CsvPreview {
+  readonly columns: readonly string[];
+  readonly rows: readonly (readonly (string | null)[])[];
+  readonly rowsMoreAvailable: boolean;
+}
+
+export function previewAnalysisCsv(path: string, delimiter: string): Promise<CsvPreview> {
+  return invoke("analysis_preview_csv", { request: { path, delimiter } });
 }
 
 export async function importAnalysisS3(input: {

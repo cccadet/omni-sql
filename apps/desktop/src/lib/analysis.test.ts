@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { backend } from "./backend";
 import { runMongoSql } from "./analysis";
-import { importAnalysisS3, runS3CatalogQuery, startStableAnalysis, readStableAnalysisPage, dropStableAnalysis, cancelAnalysis, getAnalysisOperationStatus, runAnalysisS3, clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, suggestAnalysisDatasetName } from "./analysis";
+import { importAnalysisS3, runS3CatalogQuery, startStableAnalysis, readStableAnalysisPage, dropStableAnalysis, cancelAnalysis, getAnalysisOperationStatus, runAnalysisS3, clearAnalysis, dropAnalysisDataset, exportAnalysis, importAnalysisFile, previewAnalysisCsv, importQueryResult, importQuerySource, importS3CatalogQuery, normalizeAnalysisSource, renameAnalysisDataset, runAnalysis, suggestAnalysisDatasetName } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("./backend", () => ({ backend: { call: vi.fn() } }));
@@ -185,6 +185,16 @@ test("renames an analytical dataset through the Tauri bridge", async () => {
     datasetId: "dataset-1",
     name: "Orders 2026",
   });
+});
+
+test("carries CSV delimiter configuration through preview, import and full export", async () => {
+  vi.mocked(invoke).mockResolvedValue({ columns: ["id", "name"], rows: [["001", "Ada"]], rowsMoreAvailable: false });
+  await expect(previewAnalysisCsv("C:/tmp/orders.csv", ";")).resolves.toMatchObject({ rows: [["001", "Ada"]] });
+  expect(invoke).toHaveBeenCalledWith("analysis_preview_csv", { request: { path: "C:/tmp/orders.csv", delimiter: ";" } });
+  await importAnalysisFile({ workspaceId: "tab-1", name: "Orders", path: "C:/tmp/orders.csv", format: "csv", delimiter: "\t", selection: { mode: "full" } });
+  expect(invoke).toHaveBeenCalledWith("analysis_import_file", { request: expect.objectContaining({ delimiter: "\t", format: "csv" }) });
+  await exportAnalysis({ workspaceId: "tab-1", sql: "SELECT * FROM orders", path: "C:/tmp/orders.csv", format: "csv", delimiter: "|" });
+  expect(invoke).toHaveBeenCalledWith("analysis_export_query", { request: expect.objectContaining({ delimiter: "|", format: "csv" }) });
 });
 
 test("drops an analytical dataset through the Tauri bridge", async () => {

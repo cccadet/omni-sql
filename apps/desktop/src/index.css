@@ -838,6 +838,25 @@ select option {
 .omni-dialog-form { max-height: calc(100vh - 24px); }
 .omni-dialog-form > .fui-DialogTitle { flex: 0 0 auto; padding: 20px 24px 0; }
 .omni-dialog-body.omni-dialog-body { gap: 12px; overflow: hidden; padding: 24px; }
+.omni-csv-dialog.omni-csv-dialog { display: flex; flex-direction: column; }
+.omni-csv-import-dialog.omni-csv-import-dialog { width: min(860px, calc(100vw - 24px)); }
+.omni-csv-content { display: flex; flex-direction: column; gap: 12px; }
+.omni-csv-file { overflow-wrap: anywhere; font-weight: 600; }
+.omni-csv-fields { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.omni-csv-fields > .fui-Field { flex: 1 1 200px; min-width: 0; }
+.omni-csv-content > .fui-Text { color: var(--colorNeutralForeground2); }
+.omni-csv-content > .omni-csv-file { color: var(--colorNeutralForeground1); }
+.omni-csv-preview-status { display: flex; align-items: center; min-height: 160px; justify-content: center; }
+.omni-csv-preview { max-height: min(340px, 45vh); overflow: auto; border: 1px solid var(--colorNeutralStroke2); border-radius: 4px; scrollbar-color: var(--colorNeutralStroke1) var(--colorNeutralBackground1); }
+.omni-csv-preview:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: 2px; }
+.omni-csv-preview table { width: 100%; border-collapse: collapse; color: var(--colorNeutralForeground1); font-size: 12px; font-variant-numeric: tabular-nums; }
+.omni-csv-caption { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.omni-csv-preview th, .omni-csv-preview td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--colorNeutralStroke2); min-width: 100px; max-width: 320px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.omni-csv-preview th { position: sticky; top: 0; background: var(--colorNeutralBackground3); font-weight: 600; }
+.omni-csv-preview tbody tr:last-child td { border-bottom: 0; }
+.omni-csv-preview tbody tr:hover { background: var(--colorNeutralBackground2); }
+.omni-csv-empty { display: block; padding: 16px; }
+.omni-csv-actions { justify-content: flex-end; }
 .omni-dialog-body > .fui-DialogTitle { flex: 0 0 auto; }
 .omni-dialog-body > .fui-DialogContent, .omni-dialog-form > .omni-dialog-body:not(:has(.fui-DialogContent)) { min-height: 0; overflow-y: auto; }
 .omni-dialog-actions.omni-dialog-actions { flex: 0 0 auto; gap: 8px; padding: 12px 24px 20px; }

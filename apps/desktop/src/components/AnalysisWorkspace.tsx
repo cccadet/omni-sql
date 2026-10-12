@@ -23,6 +23,7 @@ import { Editor } from "./Editor";
 import { pickAnalysisExportPath, pickAnalysisImportPath } from "../lib/file-io";
 import { useLanguage } from "../i18n";
 import { ResultsGrid } from "./ResultsGrid";
+import { useCsvOptions } from "./CsvOptionsDialog";
 
 interface AnalysisWorkspaceProps {
   readonly workspaceId: string;
@@ -52,6 +53,7 @@ interface S3Source {
 
 export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sourceConnections = [], editorTheme, sidebarHost, sidebarIntegrated = false, initialSource, initialS3Connection, s3Connections = [], onSelectS3Connection, onConfigureS3Connection }: AnalysisWorkspaceProps) {
   const { t } = useLanguage();
+  const { requestCsvOptions, csvOptionsDialog } = useCsvOptions();
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [stableHandle, setStableHandle] = useState<AnalysisResultHandle | null>(null);
@@ -212,6 +214,8 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
 
   const exportResult = async (format: "csv" | "parquet") => {
     if (!dataset || running || !sql.trim()) return;
+    const delimiter = format === "csv" ? await requestCsvOptions() : undefined;
+    if (delimiter === null) return;
     const path = await pickAnalysisExportPath(dataset.name.replaceAll(/[^a-zA-Z0-9_-]/g, "_"), format);
     if (!path) return;
     setRunning(true);
@@ -219,7 +223,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
     setOperationId(nextOperationId);
     setError(null);
     try {
-      await exportAnalysis({ workspaceId, sql, path, format, operationId: nextOperationId });
+      await exportAnalysis({ workspaceId, sql, path, format, delimiter, operationId: nextOperationId });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -233,6 +237,8 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
     const path = await pickAnalysisImportPath();
     if (!path) return;
     const format = path.toLowerCase().endsWith(".parquet") ? "parquet" : path.toLowerCase().endsWith(".json") ? "json" : "csv";
+    const delimiter = format === "csv" ? await requestCsvOptions(path) : undefined;
+    if (delimiter === null) return;
     const name = path.split(/[\\/]/).pop()?.replace(/\.(csv|parquet|json)$/i, "") || "Imported data";
     setRunning(true);
     const nextOperationId = `file-import-${crypto.randomUUID()}`;
@@ -244,6 +250,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
         name,
         path,
         format,
+        delimiter,
         operationId: nextOperationId,
         selection: fileSelection === "full" ? { mode: "full" } : fileSelection === "first_n"
           ? { mode: "first_n", rows: fileSampleRows }
@@ -450,6 +457,7 @@ export function AnalysisWorkspace({ workspaceId, dataset, onDatasetSelected, sou
 
   return (
     <section className={`omni-analysis-workspace${sidebarIntegrated ? " has-sidebar-portal" : ""}`} aria-label={t("analyzeLocally")}>
+      {csvOptionsDialog}
       <Dialog open={sourceEditorOpen} onOpenChange={(_, data) => setSourceEditorOpen(data.open)}>
         <DialogSurface className="omni-standard-dialog" style={{ width: "min(850px, 90vw)", maxWidth: "90vw" }}>
           <DialogBody className="omni-dialog-body">
