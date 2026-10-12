@@ -1,5 +1,13 @@
 # Publicações do omni-sql
 
+## Tutorial MongoDB, 12/10/2026
+
+Texto em português: [Consultar MongoDB com SQL no Omni-sql: exemplos e limites do suporte experimental](TUTORIAL-MONGODB-SQL.md).
+
+Os [arquivos da demonstração](demo/mongodb/README.md) incluem eventos fictícios, consulta nativa, três SELECTs e resultados esperados. Os exemplos foram conferidos com MongoDB e com a transformação do snapshot no DuckDB; [escopo da validação](demo/mongodb/VALIDATION.md).
+
+Canal previsto: DEV.to, tags `mongodb`, `sql`, `duckdb`, `opensource`. Publicação pendente: em 12/10, o Chrome conectado abriu o formulário de login do DEV. Nenhum artigo desta campanha MongoDB foi publicado no DEV nesta etapa. Depois da publicação, registrar a URL aqui antes de preparar os posts que direcionam ao tutorial.
+
 Atualizado em 07/10/2026, horário de Brasília. Documentação publicada no GitHub; LinkedIn, Reddit e DEV.to publicados. Show HN bloqueado pela restrição temporária do Hacker News. Textos em [OUTREACH.md](OUTREACH.md).
 
 ## Sequência

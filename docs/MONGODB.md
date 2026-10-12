@@ -1,5 +1,7 @@
 # MongoDB nativo e conversão de SQL
 
+Para reproduzir uma busca, uma agregação e a expansão de um array com dados fictícios, veja [Consultar MongoDB com SQL no Omni-sql](TUTORIAL-MONGODB-SQL.md).
+
 No modo nativo, as consultas usam Extended JSON. Banco e coleção são campos separados:
 
 ```json

@@ -1,0 +1,11 @@
+{
+  "find": [{ "event_id": "demo-001", "status": "failed", "duration_ms": 1200 }],
+  "group": [
+    { "status": "failed", "total": 2, "avg_duration_ms": 900 },
+    { "status": "ok", "total": 1, "avg_duration_ms": 300 }
+  ],
+  "steps": [
+    { "event_id": "demo-001", "step_name": "download", "duration_ms": 800 },
+    { "event_id": "demo-001", "step_name": "parse", "duration_ms": 400 }
+  ]
+}

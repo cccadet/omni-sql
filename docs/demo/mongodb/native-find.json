@@ -1,0 +1,7 @@
+{
+  "database": "omni_sql_demo",
+  "collection": "events",
+  "operation": "find",
+  "filter": { "event_id": "demo-001" },
+  "projection": { "_id": 0, "event_id": 1, "status": 1, "duration_ms": 1 }
+}
