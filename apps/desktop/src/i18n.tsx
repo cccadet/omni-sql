@@ -507,6 +507,24 @@ const english = {
   formatTabularRight: "Tabular right",
   formatBefore: "Before",
   formatAfter: "After",
+  csvImport: "Import CSV",
+  csvExportOptions: "CSV export options",
+  csvDelimiter: "Delimiter",
+  csvComma: "Comma (,)",
+  csvSemicolon: "Semicolon (;)",
+  csvTab: "Tab",
+  csvCustom: "Custom",
+  csvCustomDelimiter: "Custom delimiter",
+  csvInvalidDelimiter: "Use one printable ASCII character other than double quotes, or a tab.",
+  csvDelimiterHint: "The delimiter separates columns. Quoted values may contain that character.",
+  csvPreviewHint: "Preview shows up to 20 rows as text; long values are shortened. Column types are inferred during import.",
+  csvPreviewLoading: "Reading preview…",
+  csvPreviewFailed: "Preview unavailable. Check the delimiter. Import will validate the file:",
+  csvPreviewSummary: "{rows} preview rows · {columns} columns{more}",
+  csvPreviewMore: " · more rows in the file",
+  csvOneColumnHint: "Only one column detected. If you expected more, try another delimiter.",
+  csvPreviewEmpty: "This file has a header but no data rows.",
+  csvChooseDestination: "Choose destination",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -596,6 +614,14 @@ const portugueseBrazil = [
   "Alterações pendentes: {count}",
   "Página anterior", "Próxima página",
   "Preservar", "MAIÚSCULAS", "minúsculas", "Padrão", "Tabular à esquerda", "Tabular à direita", "Antes", "Depois",
+  "Importar CSV", "Opções de exportação CSV", "Delimitador", "Vírgula (,)", "Ponto e vírgula (;)", "Tabulação", "Personalizado", "Delimitador personalizado",
+  "Use um caractere ASCII imprimível diferente de aspas duplas, ou uma tabulação.",
+  "O delimitador separa as colunas. Valores entre aspas podem conter esse caractere.",
+  "A prévia mostra até 20 linhas como texto; valores longos são abreviados. Os tipos das colunas são inferidos na importação.",
+  "Carregando prévia…", "Prévia indisponível. Confira o delimitador. A importação validará o arquivo:",
+  "{rows} linhas na prévia · {columns} colunas{more}", " · há mais linhas no arquivo",
+  "Apenas uma coluna detectada. Se esperava mais, tente outro delimitador.",
+  "Este arquivo tem cabeçalho, mas não contém linhas de dados.", "Escolher destino",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

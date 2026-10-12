@@ -237,6 +237,7 @@ pub struct FileImportRequest {
     pub name: String,
     pub path: PathBuf,
     pub format: FileFormat,
+    pub delimiter: Option<String>,
     #[serde(default)]
     pub selection: ImportSelection,
 }
@@ -499,6 +500,22 @@ pub struct ExportRequest {
     pub sql: String,
     pub path: PathBuf,
     pub format: ExportFormat,
+    pub delimiter: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CsvPreviewRequest {
+    pub path: PathBuf,
+    pub delimiter: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CsvPreview {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+    pub rows_more_available: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -1339,7 +1356,7 @@ impl DataEngine {
                 }
                 Ok(())
             });
-            let imported = staged.and_then(|()| self.import_file_with_origin(FileImportRequest {
+            let imported = staged.and_then(|()| self.import_file_with_origin(FileImportRequest { delimiter: None,
                 operation_id: request.query.operation_id,
                 workspace_id: "local-duckdb".to_string(),
                 name: request.name,
@@ -1424,7 +1441,7 @@ impl DataEngine {
             for (relation_name, workspace_id) in local_datasets {
                 let temporary_path = self._temp_directory.0.join(format!("{}.parquet", random_id()?));
                 let escaped_path = temporary_path.to_string_lossy().replace('\'', "''");
-                let export_result = self.export_query_inner(ExportRequest {
+                let export_result = self.export_query_inner(ExportRequest { delimiter: None,
                     operation_id: request.operation_id.clone(),
                     workspace_id,
                     sql: format!("SELECT * FROM {}", quote_identifier(&relation_name)),
@@ -1494,7 +1511,7 @@ impl DataEngine {
         }
         drop(_remote_guard);
         drop(remote);
-        let imported = self.import_file_with_origin(FileImportRequest {
+        let imported = self.import_file_with_origin(FileImportRequest { delimiter: None,
             operation_id: request.operation_id,
             workspace_id: request.workspace_id,
             name: request.name,
@@ -1518,10 +1535,11 @@ impl DataEngine {
         }
         validate_selection(&request.selection)?;
         validate_import_path(&request.path, request.format)?;
+        let delimiter = validate_csv_delimiter(request.delimiter.as_deref(), matches!(request.format, FileFormat::Csv))?;
         if matches!(request.format, FileFormat::Json) {
             return self.import_json_file_inner(request);
         }
-        let (schema, mut batches) = open_file_batches(&request.path, request.format)?;
+        let (schema, mut batches) = open_file_batches(&request.path, request.format, delimiter)?;
         if schema.fields().is_empty() || schema.fields().len() > 1024 {
             return Err("analytical file must contain between 1 and 1024 columns".to_string());
         }
@@ -1657,7 +1675,7 @@ impl DataEngine {
                 .map_err(|error| format!("failed to load JSON support: {error}"))?;
             reader.execute_batch(&format!("COPY (SELECT * FROM read_json_auto('{escaped_source}')) TO '{escaped_target}' (FORMAT PARQUET)"))
                 .map_err(|error| format!("failed to read JSON file: {error}"))?;
-            self.import_file_with_origin(FileImportRequest {
+            self.import_file_with_origin(FileImportRequest { delimiter: None,
                 operation_id: request.operation_id, workspace_id: request.workspace_id,
                 name: request.name, path: temporary_path.clone(), format: FileFormat::Parquet,
                 selection: request.selection,
@@ -1671,6 +1689,7 @@ impl DataEngine {
         validate_workspace_id(&request.workspace_id)?;
         let sql = validate_read_only_sql(&request.sql)?;
         validate_export_path(&request.path, request.format)?;
+        let delimiter = validate_csv_delimiter(request.delimiter.as_deref(), matches!(request.format, ExportFormat::Csv))?;
         let temporary_path = temporary_export_path(&request.path)?;
         let export = (|| {
             let inner = self.lock()?;
@@ -1685,7 +1704,7 @@ impl DataEngine {
             let mut rows = 0_usize;
             match request.format {
                 ExportFormat::Csv => {
-                    let mut writer = arrow::csv::WriterBuilder::new().with_header(true).build(file);
+                    let mut writer = arrow::csv::WriterBuilder::new().with_header(true).with_delimiter(delimiter).build(file);
                     for batch in batches.by_ref() {
                         if self.cancel_requested.load(Ordering::Acquire) {
                             return Err("analytical export cancelled".to_string());
@@ -1757,6 +1776,7 @@ impl DataEngine {
                 }))
                 .collect::<Vec<_>>();
             serde_json::json!({"workspaceDatasets": datasets,
+                "csvDelimiter": matches!(request.format, ExportFormat::Csv).then(|| char::from(delimiter).to_string()),
                 "note": "Workspace datasets are listed for context; not all necessarily contributed to this export. Full export cannot restore rows omitted by sampled or truncated inputs. SQL text is omitted to avoid exposing query literals."})
         };
         let temporary_provenance_path = temporary_export_path(&provenance_path)?;
@@ -2012,20 +2032,95 @@ fn validate_import_path(path: &Path, format: FileFormat) -> Result<(), String> {
 
 type FileBatchIterator = Box<dyn Iterator<Item = Result<arrow::record_batch::RecordBatch, String>>>;
 
+fn validate_csv_delimiter(value: Option<&str>, csv: bool) -> Result<u8, String> {
+    if value.is_some() && !csv {
+        return Err("delimiter is only supported for CSV files".into());
+    }
+    let value = value.unwrap_or(",").as_bytes();
+    match value {
+        [byte] if *byte == b'\t' || ((b' '..=b'~').contains(byte) && *byte != b'"') => Ok(*byte),
+        _ => Err("CSV delimiter must be one printable ASCII character (except double quotes) or a tab".into()),
+    }
+}
+
+// Bound each preview pass even when a malformed file contains an enormous record.
+struct CsvPreviewReader {
+    file: File,
+    remaining: usize,
+}
+
+impl CsvPreviewReader {
+    fn open(path: &Path) -> Result<Self, String> {
+        Ok(Self {
+            file: File::open(path).map_err(|error| format!("failed to open CSV preview: {error}"))?,
+            remaining: 1024 * 1024,
+        })
+    }
+}
+
+impl Read for CsvPreviewReader {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if buffer.is_empty() { return Ok(0); }
+        if self.remaining == 0 {
+            return if self.file.read(&mut [0])? == 0 { Ok(0) } else {
+                Err(std::io::Error::other("CSV preview exceeds 1 MiB; the header or first rows are too large"))
+            };
+        }
+        let limit = buffer.len().min(self.remaining);
+        let read = self.file.read(&mut buffer[..limit])?;
+        self.remaining -= read;
+        Ok(read)
+    }
+}
+
+pub fn preview_csv(request: CsvPreviewRequest) -> Result<CsvPreview, String> {
+    use arrow::array::{Array, StringArray};
+    use arrow::datatypes::{DataType, Field, Schema};
+    const ROWS: usize = 20;
+    validate_import_path(&request.path, FileFormat::Csv)?;
+    let delimiter = validate_csv_delimiter(request.delimiter.as_deref(), true)?;
+    let format = arrow::csv::reader::Format::default().with_header(true).with_delimiter(delimiter);
+    let (header, _) = format.infer_schema(CsvPreviewReader::open(&request.path)?, Some(0))
+        .map_err(|error| format!("failed to read CSV preview header: {error}"))?;
+    if header.fields().is_empty() || header.fields().len() > 1024 {
+        return Err("CSV preview must contain between 1 and 1024 columns".into());
+    }
+    let columns = header.fields().iter().map(|field| field.name().clone()).collect::<Vec<_>>();
+    // Show original text (including leading zeroes); full import still infers column types.
+    let schema = Arc::new(Schema::new(columns.iter().map(|name| Field::new(name, DataType::Utf8, true)).collect::<Vec<_>>()));
+    let mut reader = arrow::csv::ReaderBuilder::new(schema).with_format(format)
+        .with_batch_size(ROWS + 1).with_bounds(0, ROWS + 1)
+        .build(CsvPreviewReader::open(&request.path)?)
+        .map_err(|error| format!("failed to create CSV preview reader: {error}"))?;
+    let mut preview = CsvPreview { columns, rows: Vec::new(), rows_more_available: false };
+    if let Some(batch) = reader.next() {
+        let batch = batch.map_err(|error| format!("failed to read CSV preview: {error}"))?;
+        preview.rows_more_available = batch.num_rows() > ROWS;
+        for row in 0..batch.num_rows().min(ROWS) {
+            preview.rows.push(batch.columns().iter().map(|column| {
+                let values = column.as_any().downcast_ref::<StringArray>().expect("CSV preview uses text columns");
+                (!values.is_null(row)).then(|| values.value(row).to_string())
+            }).collect());
+        }
+    }
+    Ok(preview)
+}
+
 fn open_file_batches(
     path: &Path,
     format: FileFormat,
+    delimiter: u8,
 ) -> Result<(arrow::datatypes::SchemaRef, FileBatchIterator), String> {
     match format {
         FileFormat::Csv => {
             let mut file = File::open(path).map_err(|error| format!("failed to open CSV file: {error}"))?;
-            let format = arrow::csv::reader::Format::default().with_header(true);
+            let format = arrow::csv::reader::Format::default().with_header(true).with_delimiter(delimiter);
             let (schema, _) = format.infer_schema(&mut file, Some(10_000))
                 .map_err(|error| format!("failed to infer CSV schema: {error}"))?;
             file.rewind().map_err(|error| format!("failed to rewind CSV file: {error}"))?;
             let schema = Arc::new(schema);
             let reader = arrow::csv::ReaderBuilder::new(schema.clone())
-                .with_header(true)
+                .with_format(format)
                 .with_batch_size(1_000)
                 .build(file)
                 .map_err(|error| format!("failed to create CSV reader: {error}"))?;
@@ -3331,7 +3426,7 @@ mod tests {
             engine.rename_dataset("federated", &temporary.id, "changed_temp").unwrap();
             let csv_path = directory.join("temporary.csv");
             std::fs::write(&csv_path, "id\n1\n").unwrap();
-            engine.import_file(FileImportRequest {
+            engine.import_file(FileImportRequest { delimiter: None,
                 operation_id: "temporary-file-import".into(), workspace_id: "federated".into(),
                 name: "csv_temp".into(), path: csv_path, format: FileFormat::Csv,
                 selection: ImportSelection::Full,
@@ -3482,7 +3577,7 @@ mod tests {
         let path = directory.join("customers.json");
         std::fs::write(&path, "[{\"id\":1,\"name\":\"Ada\"},{\"id\":2,\"name\":\"Lin\"}]").unwrap();
         let engine = DataEngine::open_in_memory().unwrap();
-        let dataset = engine.import_file(FileImportRequest {
+        let dataset = engine.import_file(FileImportRequest { delimiter: None,
             operation_id: "json-import".into(), workspace_id: "local-duckdb".into(), name: "customers".into(),
             path: path.clone(), format: FileFormat::Json, selection: ImportSelection::Full,
         }).unwrap();
@@ -3765,7 +3860,7 @@ mod tests {
         let engine = DataEngine::open_in_memory().unwrap();
         engine.import_result(request("workspace-files")).unwrap();
         std::fs::create_dir(&old_provenance).unwrap();
-        assert!(engine.export_query(ExportRequest {
+        assert!(engine.export_query(ExportRequest { delimiter: None,
             operation_id: "export-blocked-provenance".into(), workspace_id: "workspace-files".into(),
             sql: "SELECT 1".into(), path: destination.clone(), format: ExportFormat::Csv,
         }).is_err());
@@ -3868,7 +3963,7 @@ mod tests {
             ("export-csv", csv_path.clone(), ExportFormat::Csv),
             ("export-parquet", parquet_path.clone(), ExportFormat::Parquet),
         ] {
-            let exported = engine.export_query(ExportRequest {
+            let exported = engine.export_query(ExportRequest { delimiter: None,
                 operation_id: operation_id.into(),
                 workspace_id: "workspace-files".into(),
                 sql: sql.clone(),
@@ -3882,7 +3977,7 @@ mod tests {
             assert!(provenance.get("sql").is_none());
         }
 
-        let imported_csv = engine.import_file(FileImportRequest {
+        let imported_csv = engine.import_file(FileImportRequest { delimiter: None,
             operation_id: "import-csv".into(),
             workspace_id: "workspace-files".into(),
             name: "CSV copy".into(),
@@ -3890,7 +3985,7 @@ mod tests {
             format: FileFormat::Csv,
             selection: ImportSelection::Full,
         }).unwrap();
-        let imported_parquet = engine.import_file(FileImportRequest {
+        let imported_parquet = engine.import_file(FileImportRequest { delimiter: None,
             operation_id: "import-parquet".into(),
             workspace_id: "workspace-files".into(),
             name: "Parquet copy".into(),
@@ -3904,6 +3999,109 @@ mod tests {
         let _ = std::fs::remove_file(parquet_path);
         let _ = std::fs::remove_file(base.with_extension("csv.omni.json"));
         let _ = std::fs::remove_file(base.with_extension("parquet.omni.json"));
+    }
+
+    #[test]
+    fn csv_delimiters_preview_export_and_import_real_files() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let directory = std::env::temp_dir().join(format!("omni-csv-{}", random_id().unwrap()));
+        std::fs::create_dir(&directory).unwrap();
+        let header = "text;|,\t\"quoted";
+        let value = "a;|,\t\"quoted\"\nline\rnext";
+        for (index, delimiter) in [",", ";", "\t", "|"].into_iter().enumerate() {
+            let path = directory.join(format!("{index}.csv"));
+            let exported = engine.export_query(ExportRequest {
+                operation_id: format!("csv-export-{index}"), workspace_id: "csv-files".into(),
+                sql: format!("SELECT i AS id, '{value}' AS {}, '=1+1' AS {} FROM range(25) AS r(i)", quote_identifier(header), quote_identifier("=formula")),
+                path: path.clone(), format: ExportFormat::Csv, delimiter: Some(delimiter.into()),
+            }).unwrap();
+            assert_eq!(exported.rows, 25);
+            let provenance: JsonValue = serde_json::from_slice(&std::fs::read(&exported.provenance_path).unwrap()).unwrap();
+            assert_eq!(provenance["csvDelimiter"], delimiter);
+            let preview = preview_csv(CsvPreviewRequest { path: path.clone(), delimiter: Some(delimiter.into()) }).unwrap();
+            assert_eq!(preview.columns, vec!["id", header, "'=formula"]);
+            assert_eq!(preview.rows.len(), 20);
+            assert!(preview.rows_more_available);
+            assert_eq!(preview.rows[0], vec![Some("0".into()), Some(value.into()), Some("'=1+1".into())]);
+            for (sample, selection) in [(false, ImportSelection::Full), (true, ImportSelection::FirstN { rows: 3 })] {
+                let dataset = engine.import_file(FileImportRequest {
+                    operation_id: format!("csv-import-{index}-{sample}"), workspace_id: "csv-files".into(),
+                    name: format!("csv-{index}-{sample}"), path: path.clone(), format: FileFormat::Csv,
+                    delimiter: Some(delimiter.into()), selection,
+                }).unwrap();
+                assert_eq!(dataset.row_count, if sample { 3 } else { 25 });
+                let result = engine.query(QueryRequest {
+                    operation_id: format!("csv-check-{index}-{sample}"), workspace_id: "csv-files".into(),
+                    sql: format!("SELECT * FROM {} ORDER BY id", quote_identifier(&dataset.relation_name)), limit: 30,
+                }).unwrap();
+                assert_eq!(result.rows[0], vec![serde_json::json!(0), serde_json::json!(value), serde_json::json!("'=1+1")]);
+                assert_eq!(result.columns[1].name, header);
+                assert!(!result.rows_more_available);
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn csv_preview_preserves_text_and_bounds_reads_without_creating_datasets() {
+        let directory = std::env::temp_dir().join(format!("omni-csv-preview-{}", random_id().unwrap()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("sample.csv");
+        std::fs::write(&path, "id;name;empty\r\n001;\"Ada;\"\"Lovelace\"\"\nnext\";\r\n").unwrap();
+        let preview = preview_csv(CsvPreviewRequest { path: path.clone(), delimiter: Some(";".into()) }).unwrap();
+        assert_eq!(preview.columns, vec!["id", "name", "empty"]);
+        assert_eq!(preview.rows, vec![vec![Some("001".into()), Some("Ada;\"Lovelace\"\nnext".into()), None]]);
+        assert!(!preview.rows_more_available);
+        std::fs::write(&path, "id,name\n").unwrap();
+        let preview = preview_csv(CsvPreviewRequest { path: path.clone(), delimiter: None }).unwrap();
+        assert!(preview.rows.is_empty());
+        assert_eq!(preview.columns, vec!["id", "name"]);
+        std::fs::write(&path, "id,name\n1,Ada,extra\n").unwrap();
+        assert!(preview_csv(CsvPreviewRequest { path: path.clone(), delimiter: None }).is_err());
+        std::fs::write(&path, format!("id,name\n1,{}\n", "x".repeat(1024 * 1024))).unwrap();
+        let error = preview_csv(CsvPreviewRequest { path: path.clone(), delimiter: None }).unwrap_err();
+        assert!(error.contains("1 MiB"), "{error}");
+        std::fs::write(&path, format!("id,name\n{}2,{}\n", "1,Ada\n".repeat(21), "x".repeat(1024 * 1024))).unwrap();
+        let preview = preview_csv(CsvPreviewRequest { path, delimiter: None }).unwrap();
+        assert_eq!(preview.rows.len(), 20);
+        assert!(preview.rows_more_available);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn csv_delimiter_validation_preserves_existing_data_and_legacy_defaults() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let directory = std::env::temp_dir().join(format!("omni-csv-invalid-{}", random_id().unwrap()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("original.csv");
+        std::fs::write(&path, "id,name\n1,Ada\n").unwrap();
+        let legacy: FileImportRequest = serde_json::from_value(serde_json::json!({
+            "operationId": "legacy-csv", "workspaceId": "csv-invalid", "name": "legacy",
+            "path": path, "format": "csv", "selection": { "mode": "full" },
+        })).unwrap();
+        assert_eq!(engine.import_file(legacy).unwrap().columns.len(), 2);
+        let legacy_export: ExportRequest = serde_json::from_value(serde_json::json!({
+            "operationId": "legacy-export", "workspaceId": "csv-invalid", "sql": "SELECT 1",
+            "path": path, "format": "csv",
+        })).unwrap();
+        assert!(legacy_export.delimiter.is_none());
+        for delimiter in ["", "||", "\"", "é", "😀", "\0", "\r", "\n", "\x7f"] {
+            assert!(engine.import_file(FileImportRequest {
+                operation_id: "invalid-import".into(), workspace_id: "csv-invalid".into(), name: "invalid".into(),
+                path: path.clone(), format: FileFormat::Csv, delimiter: Some(delimiter.into()), selection: ImportSelection::Full,
+            }).unwrap_err().contains("delimiter"));
+            assert!(engine.export_query(ExportRequest {
+                operation_id: "invalid-export".into(), workspace_id: "csv-invalid".into(), sql: "SELECT 2".into(),
+                path: path.clone(), format: ExportFormat::Csv, delimiter: Some(delimiter.into()),
+            }).unwrap_err().contains("delimiter"));
+            assert!(preview_csv(CsvPreviewRequest { path: path.clone(), delimiter: Some(delimiter.into()) }).unwrap_err().contains("delimiter"));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "id,name\n1,Ada\n");
+            assert_eq!(engine.list_datasets("csv-invalid").unwrap().len(), 1);
+        }
+        assert!(validate_csv_delimiter(Some(";"), false).unwrap_err().contains("only supported for CSV"));
+        assert_eq!(validate_csv_delimiter(Some(" "), true).unwrap(), b' ');
+        assert_eq!(validate_csv_delimiter(Some("'"), true).unwrap(), b'\'');
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -4191,7 +4389,7 @@ mod tests {
             let mut writer = parquet::arrow::ArrowWriter::try_new(File::create(&path).unwrap(), batch.schema(), None).unwrap();
             writer.write(&batch).unwrap(); writer.close().unwrap();
         }
-        let error = engine.import_file(FileImportRequest { operation_id: "wide-file".into(), workspace_id: "wide-file".into(), name: "wide".into(), path, format: FileFormat::Parquet, selection: ImportSelection::Reservoir { rows: 10, seed: 42 } }).unwrap_err();
+        let error = engine.import_file(FileImportRequest { delimiter: None, operation_id: "wide-file".into(), workspace_id: "wide-file".into(), name: "wide".into(), path, format: FileFormat::Parquet, selection: ImportSelection::Reservoir { rows: 10, seed: 42 } }).unwrap_err();
         assert!(error.contains("memory budget"), "{error}");
         assert!(engine.list_datasets("wide-file").unwrap().is_empty());
         assert!(engine.import_result(request("wide-file")).is_ok());
@@ -4203,7 +4401,7 @@ mod tests {
         let engine = DataEngine::open_in_memory().unwrap();
         let directory = create_temp_directory().unwrap();
         let path = directory.join("safe.csv");
-        engine.export_query(ExportRequest { operation_id: "safe-csv".into(), workspace_id: "safe-csv".into(), sql: "SELECT '=1+1' AS \"=header\", -2 AS number, '@enum'::ENUM('@enum') AS enum_text".into(), path: path.clone(), format: ExportFormat::Csv }).unwrap();
+        engine.export_query(ExportRequest { delimiter: None, operation_id: "safe-csv".into(), workspace_id: "safe-csv".into(), sql: "SELECT '=1+1' AS \"=header\", -2 AS number, '@enum'::ENUM('@enum') AS enum_text".into(), path: path.clone(), format: ExportFormat::Csv }).unwrap();
         let csv = std::fs::read_to_string(&path).unwrap();
         assert_eq!(csv, "'=header,number,enum_text\n'=1+1,-2,'@enum\n");
         assert!(path.with_extension("csv.omni.json").exists());

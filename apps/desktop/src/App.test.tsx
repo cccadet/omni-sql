@@ -9,7 +9,7 @@ import App from "./App";
 import { McpUiBridge } from "./lib/mcp-ui-bridge";
 import { LanguageProvider } from "./i18n";
 import { backend } from "./lib/backend";
-import { pickAnalysisExportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
+import { pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { MCP_MAX_ERROR_MESSAGE_BYTES } from "@omni-sql/ts-types";
 
 const editorMockState = vi.hoisted(() => ({
@@ -26,6 +26,7 @@ vi.mock("./lib/file-io", () => ({
   basenameNoExt: (path: string) => path.split("/").at(-1)?.replace(/\.sql$/u, "") ?? path,
   pickOpenPath: vi.fn(),
   pickAnalysisExportPath: vi.fn(),
+  pickAnalysisImportPath: vi.fn(),
   pickSavePath: vi.fn(),
   readSqlFile: vi.fn(),
   writeSqlFile: vi.fn(),
@@ -130,6 +131,7 @@ beforeEach(() => {
   call.mockReset();
   vi.mocked(pickOpenPath).mockResolvedValue(null);
   vi.mocked(pickAnalysisExportPath).mockResolvedValue(null);
+  vi.mocked(pickAnalysisImportPath).mockResolvedValue(null);
   vi.mocked(pickSavePath).mockResolvedValue(null);
   vi.mocked(readSqlFile).mockResolvedValue("");
   vi.mocked(writeSqlFile).mockResolvedValue();
@@ -215,6 +217,31 @@ describe("App history persistence", () => {
   });
 });
 describe("App execution flow", () => {
+  it("previews a local CSV and waits for confirmation before creating the connection or dataset", async () => {
+    vi.mocked(pickAnalysisImportPath).mockResolvedValue("C:/tmp/orders.csv");
+    vi.mocked(invoke).mockImplementation(async (command) => command === "analysis_preview_csv"
+      ? { columns: ["id", "name"], rows: [["001", "Ada"]], rowsMoreAvailable: false } : undefined);
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Import file" }));
+    const delimiterControl = await screen.findByRole("combobox", { name: "Delimiter" });
+    delimiterControl.focus();
+    fireEvent.change(delimiterControl, { target: { value: ";" } });
+    expect(await screen.findByText("001")).toBeTruthy();
+    expect(call.mock.calls.some(([method]) => method === "connection.add")).toBe(false);
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === "analysis_import_file")).toBe(false);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(call.mock.calls.some(([method]) => method === "connection.add")).toBe(false);
+    fireEvent.click(await screen.findByRole("button", { name: "Import file" }));
+    const nextDelimiterControl = await screen.findByRole("combobox", { name: "Delimiter" });
+    nextDelimiterControl.focus();
+    fireEvent.change(nextDelimiterControl, { target: { value: ";" } });
+    expect(await screen.findByText("001")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Import CSV" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("analysis_import_file", {
+      request: expect.objectContaining({ path: "C:/tmp/orders.csv", workspaceId: "local-duckdb", delimiter: ";", selection: { mode: "full" } }),
+    }));
+  });
+
   it("exports the executed local SQL beyond the grid preview", async () => {
     seedSession("SELECT id FROM orders", 100, "local-duckdb");
     const defaultCall = call.getMockImplementation()!;
@@ -229,9 +256,11 @@ describe("App execution flow", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Run" }));
     fireEvent.click(await screen.findByRole("button", { name: "Export full CSV" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Delimiter" }), { target: { value: ";" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
 
     await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("analysis_export_query", {
-      request: expect.objectContaining({ workspaceId: "local-duckdb", sql: "SELECT id FROM orders", path: "C:/tmp/orders.csv", format: "csv" }),
+      request: expect.objectContaining({ workspaceId: "local-duckdb", sql: "SELECT id FROM orders", path: "C:/tmp/orders.csv", format: "csv", delimiter: ";" }),
     }));
   });
 

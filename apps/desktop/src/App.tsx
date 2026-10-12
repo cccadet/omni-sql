@@ -31,6 +31,7 @@ import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, type DialectId, type Fu
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
+import { useCsvOptions } from "./components/CsvOptionsDialog";
 import { McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
 import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runMongoSql, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
@@ -212,6 +213,7 @@ export interface AppProps {
 
 export default function App({ themeName: name, onToggleTheme: toggle }: AppProps) {
   const { language, t } = useLanguage();
+  const { requestCsvOptions, csvOptionsDialog } = useCsvOptions();
   const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab, getTabRevision, compareAndSwapTabSql } = useSession();
   const { connections, error: connectionsError, loadConnections } = useConnections();
   const [connectionGroups, setConnectionGroups] = useState<ConnectionGroup[]>([]);
@@ -845,11 +847,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const path = await pickAnalysisImportPath();
     if (!path) return;
     const format = path.toLowerCase().endsWith(".parquet") ? "parquet" : path.toLowerCase().endsWith(".json") ? "json" : "csv";
+    const delimiter = format === "csv" ? await requestCsvOptions(path) : undefined;
+    if (delimiter === null) return;
     const name = path.split(/[\\/]/).at(-1)?.replace(/\.(csv|parquet|json)$/i, "") || "Imported data";
     setBusyMsg(`Importing ${name}…`);
     try {
       await backend.call("connection.add", { config: { id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "local.duckdb", user: "" } });
-      await importAnalysisFile({ workspaceId: "local-duckdb", name, path, format, selection: { mode: "full" } });
+      await importAnalysisFile({ workspaceId: "local-duckdb", name, path, format, delimiter, selection: { mode: "full" } });
       await loadConnections();
       setSidebarCache((previous) => { const next = { ...previous }; delete next["local-duckdb"]; return next; });
       setAnalysisWorkspaceId(null);
@@ -859,7 +863,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     } finally {
       setBusyMsg(null);
     }
-  }, [activeTab.id, loadConnections, updateTab, t]);
+  }, [activeTab.id, loadConnections, updateTab, t, requestCsvOptions]);
 
   const onDeleteLocalDataset = useCallback(async (relationName: string) => {
     try {
@@ -1165,7 +1169,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       });
   }, [finishQuery]);
 
-  const exportFullLocalCsv = useCallback(async () => {
+  const exportFullLocalCsv = useCallback(async (delimiter: string) => {
     if (activeDialect !== "duckdb" || !activeConnectionId || !analysisSourceSql || activeQueryRef.current) return;
     const path = await pickAnalysisExportPath(activeTab.title.replaceAll(/[^a-zA-Z0-9_-]/g, "_"), "csv");
     if (!path || activeQueryRef.current) return;
@@ -1184,7 +1188,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     setBusyMsg(t("analysisExportCsv"));
     updateTab(activeTab.id, { error: null });
     try {
-      await exportAnalysis({ workspaceId: "local-duckdb", sql: analysisSourceSql, path, format: "csv", operationId });
+      await exportAnalysis({ workspaceId: "local-duckdb", sql: analysisSourceSql, path, format: "csv", delimiter, operationId });
     } catch (cause) {
       if (activeQueryRef.current === activeQuery) updateTab(activeTab.id, { error: cause instanceof Error ? cause.message : String(cause) });
     } finally {
@@ -1958,6 +1962,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       />
 
       <McpEditDialog proposal={mcpProposal} onApply={applyMcpProposal} onReject={() => resolveMcpProposal("rejected")} />
+      {csvOptionsDialog}
     </div>
   );
 }

@@ -3,7 +3,8 @@ import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "../i18n";
 import type { DatasetRef } from "../lib/analysis";
-import { cancelAnalysis, dropAnalysisDataset, dropStableAnalysis, exportAnalysis, importQuerySource, listAnalysisDatasets, listAnalysisS3, readStableAnalysisPage, renameAnalysisDataset, runAnalysis, runAnalysisS3, startStableAnalysis } from "../lib/analysis";
+import { cancelAnalysis, dropAnalysisDataset, dropStableAnalysis, exportAnalysis, importAnalysisFile, previewAnalysisCsv, importQuerySource, listAnalysisDatasets, listAnalysisS3, readStableAnalysisPage, renameAnalysisDataset, runAnalysis, runAnalysisS3, startStableAnalysis } from "../lib/analysis";
+import { pickAnalysisExportPath, pickAnalysisImportPath } from "../lib/file-io";
 import { backend } from "../lib/backend";
 import { AnalysisWorkspace } from "./AnalysisWorkspace";
 
@@ -13,6 +14,7 @@ vi.mock("../lib/analysis", async (importOriginal) => ({
   dropAnalysisDataset: vi.fn(),
   exportAnalysis: vi.fn(),
   importAnalysisFile: vi.fn(),
+  previewAnalysisCsv: vi.fn(),
   runAnalysisS3: vi.fn(),
   listAnalysisS3: vi.fn(),
   importQuerySource: vi.fn(),
@@ -62,6 +64,10 @@ describe("AnalysisWorkspace", () => {
     vi.mocked(runAnalysisS3).mockReset();
     vi.mocked(listAnalysisS3).mockReset();
     vi.mocked(exportAnalysis).mockReset();
+    vi.mocked(importAnalysisFile).mockReset().mockResolvedValue(customer);
+    vi.mocked(previewAnalysisCsv).mockReset().mockResolvedValue({ columns: ["id", "name"], rows: [["001", "Ada"]], rowsMoreAvailable: false });
+    vi.mocked(pickAnalysisImportPath).mockReset();
+    vi.mocked(pickAnalysisExportPath).mockReset();
     vi.mocked(cancelAnalysis).mockReset();
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -73,6 +79,40 @@ describe("AnalysisWorkspace", () => {
     expect(screen.getByText("Orders")).toBeTruthy();
     expect(screen.getByText("No results")).toBeTruthy();
     expect((screen.getByRole("button", { name: /^Run$/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("previews CSV and preserves the sampled import selection", async () => {
+    vi.mocked(pickAnalysisImportPath).mockResolvedValue("C:/tmp/orders.csv");
+    show();
+    fireEvent.change(screen.getByRole("combobox", { name: "File load selection" }), { target: { value: "first_n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import file" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Delimiter" }), { target: { value: "\t" } });
+    expect(await screen.findByText("001")).toBeTruthy();
+    expect(importAnalysisFile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Import CSV" }));
+    await waitFor(() => expect(importAnalysisFile).toHaveBeenCalledWith(expect.objectContaining({ delimiter: "\t", path: "C:/tmp/orders.csv", selection: { mode: "first_n", rows: 1_000 } })));
+  });
+
+  it("exports the edited full query with the selected delimiter and cancels before choosing a destination", async () => {
+    vi.mocked(pickAnalysisExportPath).mockResolvedValue("C:/tmp/orders.csv");
+    show();
+    fireEvent.change(screen.getByRole("textbox", { name: "SQL editor" }), { target: { value: "SELECT * FROM customers WHERE id > 1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export full CSV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(pickAnalysisExportPath).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Export full CSV" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Delimiter" }), { target: { value: ";" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
+    await waitFor(() => expect(exportAnalysis).toHaveBeenCalledWith(expect.objectContaining({ sql: "SELECT * FROM customers WHERE id > 1", delimiter: ";", format: "csv" })));
+  });
+
+  it("imports Parquet without displaying CSV options", async () => {
+    vi.mocked(pickAnalysisImportPath).mockResolvedValue("C:/tmp/orders.parquet");
+    show();
+    fireEvent.click(screen.getByRole("button", { name: "Import file" }));
+    await waitFor(() => expect(importAnalysisFile).toHaveBeenCalledWith(expect.objectContaining({ format: "parquet", delimiter: undefined })));
+    expect(previewAnalysisCsv).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("warns when another dataset in the workspace is sampled", async () => {
