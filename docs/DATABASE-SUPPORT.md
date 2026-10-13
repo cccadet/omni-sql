@@ -44,3 +44,20 @@ Limitations are intentional because JDBC drivers differ:
 
 Native adapters should be preferred when available because they provide
 dialect-specific introspection and explain support.
+
+## ODBC
+
+Configure the connection with a DSN or ODBC connection string, plus username
+and password when required. Install a 64-bit ODBC driver for the target database
+separately; the driver manager alone does not provide a database driver.
+
+The adapter discovers tables, views, columns, and best-effort primary keys
+through the driver's metadata APIs. It supports bounded query results and
+streaming for local analysis. SQL syntax, authentication, TLS, metadata quality,
+and type conversion depend on the selected driver.
+
+Execution plans, indexes, object definitions, functions, and result-grid row
+edits/inserts are not currently supported. For analytical streaming, date/time
+or numeric values whose precision cannot be preserved must be cast to text in
+the source SQL; otherwise the import fails explicitly. See the
+[local analysis guide](LOCAL-ANALYSIS.md) for import behavior.
