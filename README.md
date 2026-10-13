@@ -1,7 +1,7 @@
 <p align="center"><img src="omni-sql.svg" alt="omni-sql logo" width="96" /></p>
 <h1 align="center">omni-sql</h1>
 <p align="center"><strong>Query CSV and Parquet in your SQL IDE, locally.</strong></p>
-<p align="center">An open-source SQL workspace with DuckDB analysis and native connections to<br />PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle.</p>
+<p align="center">An open-source SQL workspace with DuckDB analysis and native connections to<br />PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, and MongoDB.</p>
 <p align="center"><a href="https://github.com/cccadet/omni-sql/releases/latest"><strong>Download omni-sql</strong></a> · <a href="#analyze-files-and-database-results-locally">Try local analysis</a> · <a href="#quick-start">Quick start</a> · <a href="docs/DATABASE-SUPPORT.md">Database support</a></p>
 <p align="center"><strong>Runs locally · No account required · No separate runtime or database client to install</strong></p>
 <p align="center">
@@ -54,17 +54,27 @@ row, byte, cost, and time estimates alongside plan predicates.
 
 ## Database support
 
-| Database | Connection | Metadata autocomplete | Query execution |
+| Database / mechanism | Connection | Metadata autocomplete | Query execution |
 | --- | :---: | :---: | :---: |
 | <img src="docs/images/database-icons/postgres.svg" alt="" width="18" height="18" /> PostgreSQL | ✅ | ✅ | ✅ |
 | <img src="docs/images/database-icons/mysql.svg" alt="" width="18" height="18" /> MySQL | ✅ | ✅ | ✅ |
 | <img src="docs/images/database-icons/mariadb.svg" alt="" width="18" height="18" /> MariaDB | ✅ | ✅ | ✅ |
 | <img src="docs/images/database-icons/sqlserver.svg" alt="" width="18" height="18" /> SQL Server | ✅ | ✅ | ✅ |
 | <img src="docs/images/database-icons/oracle.svg" alt="" width="18" height="18" /> Oracle | ✅ | ✅ | ✅ |
-| <img src="docs/images/database-icons/jdbc-generic.svg" alt="" width="18" height="18" /> Generic JDBC | 🧪 Experimental | Basic | Limited |
+| MongoDB | ✅ | ✅ Sampled fields | Native Extended JSON + read-only SQL |
+| <img src="docs/images/database-icons/jdbc-generic.svg" alt="" width="18" height="18" /> Generic JDBC | 🧪 Experimental | Driver-dependent | SQL; driver-dependent |
+| ODBC | 🧪 Experimental | Driver-dependent | SQL; driver-dependent |
 
 Generic JDBC uses a driver JAR, JDBC URL, and driver class supplied by the user.
-Plans, indexes, definitions, and row edits are not currently available for generic JDBC.
+ODBC uses a DSN or connection string and requires a separately installed 64-bit
+database driver. Both expose basic metadata and bounded query execution, with
+behavior depending on the selected driver. Plans, indexes, definitions, and
+result-grid row edits are not currently available for generic JDBC or ODBC.
+
+MongoDB supports native queries and explicit writes, metadata autocomplete,
+and SELECT conversion with `/mongo`. SQL mode is read-only and uses native
+execution with DuckDB for complex queries. See [MongoDB usage](docs/MONGODB.md).
+
 See the [database support guide](docs/DATABASE-SUPPORT.md) for connection details and limitations.
 
 ## Install
@@ -79,7 +89,9 @@ Download the package for your platform from the **[latest GitHub release](https:
 | Linux ARM, AppImage, RPM | — | Not packaged yet |
 
 Release assets include a `SHA256SUMS` file so downloads can be verified. End users
-do not need to install Node.js, Java, Rust, a database client, or a vendor client SDK.
+do not need to install Node.js, Java, or Rust. Native database connections do not
+require a separate database client or vendor client SDK; generic JDBC and ODBC
+require the database drivers described above.
 
 ### macOS first launch
 
@@ -190,12 +202,11 @@ verification steps, limits, and the complete security model.
 
 ## Roadmap
 
-- ✅ Native PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle adapters
-- ✅ CTE-aware autocomplete
-- 🧪 Generic JDBC (experimental)
-- 🧪 ODBC (experimental; requires a separately installed 64-bit driver)
-- ✅ MongoDB: native Extended JSON, autocomplete, SQL-to-native conversion with `/mongo`, and read-only SQL with native execution and DuckDB fallback. See [MongoDB usage](docs/MONGODB.md).
-- 📋 More installer formats and platforms
+Current database support, including experimental JDBC and ODBC connections, is
+listed in [Database support](#database-support). CTE-aware autocomplete and
+MongoDB native/SQL workflows are already available.
+
+- 📋 More installer formats and platforms: Linux ARM, AppImage, and RPM.
 
 ## Documentation
 
