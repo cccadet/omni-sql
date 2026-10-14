@@ -112,6 +112,11 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
     assert.equal(result.error, undefined); assert.equal(result.result?.rowsMoreAvailable, true);
     const rows = result.result?.rows as unknown[][]; assert.equal(rows.length, 1);
     assert.ok(JSON.stringify(rows).includes("$oid")); assert.ok(JSON.stringify(rows).includes("SP"));
+    const documents = result.result?.documents as Record<string, unknown>[];
+    assert.equal(documents.length, 1);
+    assert.equal(Object.hasOwn(documents[0]!, "price"), false);
+    assert.deepEqual(documents[0]!.nested, { city: "SP" });
+    assert.deepEqual(documents[0]!.data_evento, { $date: { $numberLong: "1791417600000" } });
     assert.equal((await rpc("query.run", { connectionId, sql: query("insertOne", { document: { name: "third" } }) })).result?.rowsAffected, 1);
     assert.match((await rpc("query.run", { connectionId, sql: query("deleteMany", { filter: {} }) })).error!.message, /confirmation/);
     assert.equal(await db.collection("items").countDocuments(), 3);

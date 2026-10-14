@@ -525,6 +525,10 @@ const english = {
   csvOneColumnHint: "Only one column detected. If you expected more, try another delimiter.",
   csvPreviewEmpty: "This file has a header but no data rows.",
   csvChooseDestination: "Choose destination",
+  resultView: "Result view",
+  tableView: "Table",
+  documentsView: "Documents",
+  documentNumber: "Document {number}",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -622,6 +626,7 @@ const portugueseBrazil = [
   "{rows} linhas na prévia · {columns} colunas{more}", " · há mais linhas no arquivo",
   "Apenas uma coluna detectada. Se esperava mais, tente outro delimitador.",
   "Este arquivo tem cabeçalho, mas não contém linhas de dados.", "Escolher destino",
+  "Visualização dos resultados", "Tabela", "Documentos", "Documento {number}",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

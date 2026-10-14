@@ -31,11 +31,13 @@ import {
   CalendarLtrRegular,
   FilterRegular,
   TableRegular,
+  DocumentRegular,
   ChatRegular,
   WrenchRegular,
   OpenRegular,
 } from "@fluentui/react-icons";
 import { DuckDbIcon } from "./DuckDbIcon";
+import { DocumentValue } from "./DocumentValue";
 import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
 import type { RelationInfo } from "../lib/backend";
 import { useLanguage } from "../i18n";
@@ -180,6 +182,8 @@ export function ResultsGrid({
   const toasterId = useId();
   const { dispatchToast } = useToastController(toasterId);
   const [activeTab, setActiveTab] = useState<"data" | "messages" | "plan" | "related">("data");
+  const [resultView, setResultView] = useState<"table" | "documents">("table");
+  const documentView = result?.documents !== undefined && resultView === "documents";
   const [related, setRelated] = useState<{ title: string; result: QueryResult | null; error: string | null; loading: boolean } | null>(null);
   const relatedRequestRef = useRef(0);
   const [globalFilter, setGlobalFilter] = useState("");
@@ -597,6 +601,10 @@ export function ResultsGrid({
       </div>
         {activeTab === "data" && result && (
           <div className="omni-results-actions">
+            {result.documents !== undefined && <div className="omni-result-view" role="group" aria-label={t("resultView")}>
+              <Button appearance={documentView ? "subtle" : "secondary"} icon={<TableRegular />} aria-pressed={!documentView} onClick={() => setResultView("table")}>{t("tableView")}</Button>
+              <Button appearance={documentView ? "secondary" : "subtle"} icon={<DocumentRegular />} aria-pressed={documentView} onClick={() => setResultView("documents")}>{t("documentsView")}</Button>
+            </div>}
             <div className="omni-results-inspect-actions" role="group" aria-label={t("filterData")}>
             <Input
               aria-label={t("filterData")}
@@ -625,7 +633,7 @@ export function ResultsGrid({
               }
               className="omni-results-filter"
             />
-            <Popover positioning="below-end">
+            {!documentView && <Popover positioning="below-end">
               <PopoverTrigger disableButtonEnhancement>
                 <Button appearance="outline" icon={<TableRegular />}>{t("columns")}</Button>
               </PopoverTrigger>
@@ -668,7 +676,7 @@ export function ResultsGrid({
                   {t("columnsHint")}
                 </Text>
               </PopoverSurface>
-            </Popover>
+            </Popover>}
             </div>
             <div className="omni-results-edit-actions">
             {editability?.editable && onInsertRow && (
@@ -733,7 +741,7 @@ export function ResultsGrid({
         )}
 
       <Toaster toasterId={toasterId} position="bottom-end" />
-      {activeTab === "data" && result && !running && <div className="omni-results-keyboard-hint">
+      {activeTab === "data" && result && !running && !documentView && <div className="omni-results-keyboard-hint">
         <Text id={keyboardHintId} size={200}>{t("gridKeyboardHint")}</Text>
         <Text role="status" aria-live="polite" size={200}>
           {t("pendingChanges").replace("{count}", String(changes.length))}
@@ -767,7 +775,11 @@ export function ResultsGrid({
               {filteredRows.length === 0 && <Text className="omni-empty-state" size={200}>
                 {result.rows.length > 0 ? t("resultFilterEmpty") : result.rowsAffected !== undefined ? `${t("affectedRows")}: ${result.rowsAffected}` : t("queryEmptyHint")}
               </Text>}
-              <table
+              {documentView ? <div className="omni-documents" aria-label={t("documentsView")}>
+                {pageRows.map(({ rowIndex }) => <article className="omni-document" key={rowIndex}>
+                  <DocumentValue name={t("documentNumber").replace("{number}", String(rowIndex + 1))} value={result.documents![rowIndex]} expanded />
+                </article>)}
+              </div> : <table
                 style={{
                   borderCollapse: "collapse",
                   fontSize: 12,
@@ -984,7 +996,7 @@ export function ResultsGrid({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table>}
               </>
             )}
           </>
@@ -1065,7 +1077,7 @@ export function ResultsGrid({
           }}
         >
           <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-            {sortedRows.length} {t("of")} {rows.length} {t("rows")}
+            {sortedRows.length} {t("of")} {rows.length} {t(documentView ? "documentsView" : "rows")}
           </Text>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Button
