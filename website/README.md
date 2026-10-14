@@ -26,3 +26,19 @@ Preview with a static server rooted at `website/` (for example,
 `python -m http.server 8080 --directory website`). Before publishing, check mobile
 and desktop layout, image loading, keyboard navigation, the expandable import
 details, and download/documentation links. There is no JS bundle or build step.
+
+## Languages
+
+English is served at `/`; Brazilian Portuguese is served at `/pt/`. Both pages
+share styles and assets and remain readable with JavaScript disabled. Keep their
+content, section IDs, links, and alternate-language metadata aligned.
+
+`language.js` uses the browser's first supported language on the initial English
+entry page, falling back to English. The header's English / Português links use
+`?lang=` to select and save a manual preference in localStorage. That choice wins
+on later visits to `/`. Direct `/pt/` links remain Portuguese. When storage is
+blocked, explicit language links and browser detection still work, but choices
+cannot persist. The demo screenshot and linked guides retain their source language.
+
+Run the language-routing checks with `node --test scripts/website-language.test.mjs`
+and lint with `pnpm exec eslint website/language.js scripts/website-language.test.mjs`.

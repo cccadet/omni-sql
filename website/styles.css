@@ -32,10 +32,14 @@ a:hover { color: var(--gold-hover); }
 .brand { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; font-weight: 750; text-decoration: none; }
 .brand img { object-fit: contain; }
 nav { display: flex; align-items: center; gap: 24px; color: var(--muted); font-size: 14px; }
-nav a { display: inline-flex; align-items: center; min-height: 48px; text-decoration: none; }
+nav a { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 48px; text-decoration: none; }
 .button { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 10px 22px; border-radius: 9px; background: var(--gold); color: var(--ink); font-weight: 750; text-decoration: none; transition: background-color .18s ease-out; }
 .button:hover { background: var(--gold-hover); color: var(--ink); }
 .button.small { padding-inline: 16px; }
+.nav > nav:first-of-type { margin-left: auto; }
+.language-switch { gap: 12px; }
+.language-switch a { font-size: 13px; }
+.language-switch [aria-current="page"] { color: var(--gold); text-decoration: underline; }
 .text-link { display: inline-flex; align-items: center; min-height: 48px; font-weight: 600; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 28px; }
 h1, h2, h3, p, figure { margin: 0; }
@@ -110,6 +114,8 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
   .demo-copy { max-width: 65ch; }
 }
 @media (max-width: 760px) {
+  .nav { flex-wrap: wrap; padding-block: 12px; gap: 0 16px; }
+  .language-switch { width: 100%; justify-content: flex-end; }
   .hero { grid-template-columns: 1fr; padding-block: 40px 56px; gap: 36px; }
   h1 { max-width: 15ch; font-size: clamp(40px, 7.5vw, 56px); }
   .hero-copy { max-width: 600px; }
@@ -119,6 +125,7 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
   nav { gap: 16px; }
   nav .demo-link { display: none; }
   .packages { flex-direction: column; gap: 20px; }
+  footer { flex-direction: column; align-items: flex-start; gap: 8px; }
 }
 @media (max-width: 400px) {
   .wrap { width: calc(100% - 32px); }
@@ -133,7 +140,6 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
   .result-preview > figcaption { font-size: 23px; }
   table { font-size: 12px; }
   th, td { padding-inline: 3px; }
-  footer { flex-direction: column; align-items: flex-start; gap: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
