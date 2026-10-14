@@ -141,6 +141,8 @@ export interface QueryResult {
   readonly columns: readonly QueryResultColumn[];
   /** Linhas como arrays posicionais alinhados às colunas. */
   readonly rows: readonly unknown[][];
+  /** Original MongoDB documents in Extended JSON, aligned with rows; preserves absent fields. */
+  readonly documents?: readonly Readonly<Record<string, unknown>>[];
   readonly rowsAffected?: number;
   readonly rowsMoreAvailable: boolean;
   readonly elapsedMs: number;

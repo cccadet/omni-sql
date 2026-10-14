@@ -124,12 +124,11 @@ function mongoMetadataColumns(documents: Document[], names: string[], depth = 0)
 export function mongoResult(documents: Document[], limit: number, elapsedMs: number): QueryResult {
   const preview = documents.slice(0, limit);
   const names = [...new Set(preview.flatMap((doc) => Object.keys(doc)))];
+  const jsonDocuments = preview.map((doc) => BSON.EJSON.serialize(doc, { relaxed: false }) as Document);
   return {
     columns: mongoColumns(preview, names),
-    rows: preview.map((doc) => {
-      const json = BSON.EJSON.serialize(doc, { relaxed: false }) as Document;
-      return names.map((name) => Object.hasOwn(json, name) ? json[name] : null);
-    }),
+    rows: jsonDocuments.map((doc) => names.map((name) => Object.hasOwn(doc, name) ? doc[name] : null)),
+    documents: jsonDocuments,
     rowsMoreAvailable: documents.length > limit,
     elapsedMs,
   };

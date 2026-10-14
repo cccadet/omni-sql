@@ -22,6 +22,65 @@ const result: QueryResult = {
 
 const firstPayload = result.rows[0]![1];
 
+test("offers documents only for native Mongo results and preserves BSON, nesting and absent fields", async () => {
+  const documents = [
+    { _id: { $oid: "507f1f77bcf86cd799439011" }, profile: { city: "São Paulo" }, tags: ["one", { $numberLong: "9223372036854775807" }], price: null },
+    { _id: { $oid: "507f1f77bcf86cd799439012" }, amount: { $numberDecimal: "12345678901234567890.123" }, date: { $date: { $numberLong: "0" } } },
+  ];
+  const mongo = { ...result, documents };
+  const { rerender } = render(<LanguageProvider><ResultsGrid result={mongo} /></LanguageProvider>);
+  expect(screen.getByRole("button", { name: "Table" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Documents", pressed: false }));
+  expect(screen.queryByRole("table")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Columns" })).toBeNull();
+  expect(screen.queryByText(/Cells: arrow keys/)).toBeNull();
+  const articles = screen.getAllByRole("article");
+  expect(within(articles[0]!).getByText('"price"')).toBeTruthy();
+  expect(within(articles[0]!).getByText("null", { selector: ".omni-document-value" })).toBeTruthy();
+  expect(within(articles[1]!).queryByText('"price"')).toBeNull();
+  expect(screen.getByText('"507f1f77bcf86cd799439011"')).toBeTruthy();
+  expect(screen.getAllByText("ObjectId")).toHaveLength(2);
+  expect(screen.getByText('"12345678901234567890.123"')).toBeTruthy();
+  expect(screen.getByText('"1970-01-01T00:00:00.000Z"')).toBeTruthy();
+  expect(screen.queryByText('"São Paulo"')).toBeNull();
+  fireEvent.click(screen.getByText("profile"));
+  await screen.findByText('"São Paulo"');
+  fireEvent.click(screen.getByText("tags"));
+  await screen.findByText('"9223372036854775807"');
+  fireEvent.click(screen.getByText("tags"));
+  await waitFor(() => expect(screen.queryByText('"9223372036854775807"')).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "Table" }));
+  expect(screen.getByRole("table")).toBeTruthy();
+  rerender(<LanguageProvider><ResultsGrid result={result} /></LanguageProvider>);
+  expect(screen.queryByRole("group", { name: "Result view" })).toBeNull();
+});
+
+test("documents share grid filtering, sorting and pagination and keep the selected view on new results", () => {
+  const documents = Array.from({ length: 101 }, (_, index) => ({ id: index, label: `item-${index}` }));
+  const mongo = { ...result, rows: documents.map(({ id, label }) => [id, label]), documents };
+  const { rerender } = render(<LanguageProvider><ResultsGrid result={mongo} /></LanguageProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Sort by id" }));
+  fireEvent.click(screen.getByRole("button", { name: "Sort by id" }));
+  fireEvent.click(screen.getByRole("button", { name: "Documents" }));
+  expect(within(screen.getAllByRole("article")[0]!).getByText("Document 101")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getByText("Document 1")).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter data…" }), { target: { value: "item-50" } });
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getByText("Document 51")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Table" }));
+  expect(screen.getAllByRole("row")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Documents" }));
+  rerender(<LanguageProvider><ResultsGrid result={{ ...mongo, columns: [...mongo.columns] }} /></LanguageProvider>);
+  expect(screen.getByRole("button", { name: "Documents", pressed: true })).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter data…" }), { target: { value: "absent-value" } });
+  expect(screen.queryByRole("article")).toBeNull();
+  expect(screen.getByText("No rows match this filter. Clear or change the filter.")).toBeTruthy();
+  rerender(<LanguageProvider><ResultsGrid result={{ ...mongo, rows: [], documents: [] }} /></LanguageProvider>);
+  expect(screen.getByText("The query returned no rows. Review its filters and run it again.")).toBeTruthy();
+});
+
 test("distinguishes empty queries, unmatched filters, and execution failures", () => {
   const { rerender } = render(<LanguageProvider><ResultsGrid result={{ ...result, rows: [] }} /></LanguageProvider>);
   expect(screen.getByText("The query returned no rows. Review its filters and run it again.")).toBeTruthy();

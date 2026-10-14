@@ -17,6 +17,12 @@ test("Mongo result types describe returned scalars, lists and missing fields wit
     assert.equal(column(name).dataType, type, name);
   }
   assert.equal(column("name").nullable, true);
+  const documents = JSON.parse(JSON.stringify(result)).documents;
+  assert.equal(documents.length, 3);
+  assert.equal(Object.hasOwn(documents[1], "missing"), false);
+  assert.equal(documents[0].missing, null);
+  assert.deepEqual(documents[0].long, { $numberLong: "9223372036854775807" });
+  assert.deepEqual(documents[0].nested, [[{ $numberInt: "1" }]]);
   assert.equal(mongoResult([document], 1, 1).columns[0]!.nullable, false);
   assert.deepEqual(result.rows[0]![5], { $numberLong: "9223372036854775807" });
   assert.deepEqual(result.rows[0]![7], { $numberDecimal: "12345678901234567890.123" });
@@ -34,6 +40,7 @@ test("MongoDB Extended JSON preserves BSON, bounds rows and rejects implicit wri
   const result = mongoResult([{ _id: query.filter._id, value: BSON.Long.fromString("9223372036854775807") }, { other: true }], 1, 2);
   assert.deepEqual(result.rows, [[{ $oid: "507f1f77bcf86cd799439011" }, { $numberLong: "9223372036854775807" }]]);
   assert.equal(result.rowsMoreAvailable, true);
+  assert.equal(result.documents?.length, 1);
   assert.equal(analyzeExecutionRisk('{"collection":"items","operation":"deleteMany","filter":{}}', "mongodb").level, "critical");
   assert.equal(analyzeExecutionRisk('{"collection":"items","operation":"find","filter":{}}', "mongodb").level, "none");
 });
