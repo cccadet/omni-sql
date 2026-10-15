@@ -65,6 +65,9 @@ const MCP_DIALECT_NAMES = new Set([
   "oracle",
   "jdbc-generic",
   "odbc",
+  "mongodb",
+  "duckdb",
+  "s3",
 ]);
 
 export class McpBridgeError extends Error {
