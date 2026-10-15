@@ -35,8 +35,9 @@ import {
   ChatRegular,
   WrenchRegular,
   OpenRegular,
+  CheckmarkCircleRegular,
+  LockClosedRegular,
 } from "@fluentui/react-icons";
-import { DuckDbIcon } from "./DuckDbIcon";
 import { DocumentValue } from "./DocumentValue";
 import type { QueryResult, RowEditability } from "@omni-sql/ts-types";
 import type { RelationInfo } from "../lib/backend";
@@ -65,8 +66,6 @@ export interface ResultsGridProps {
   /** Kept for compatibility; it is now called only when applying all edits. */
   onCellEdit?: (rowIndex: number, colIndex: number, value: unknown) => Promise<void>;
   onInsertRow?: (values: Readonly<Record<number, unknown>>) => void | Promise<void>;
-  onAnalyzeLocally?: () => void | Promise<void>;
-  analyzingLocally?: boolean;
   onExportFullCsv?: (delimiter: string) => void | Promise<void>;
 }
 
@@ -173,8 +172,6 @@ export function ResultsGrid({
   committing = false,
   onCellEdit,
   onInsertRow,
-  onAnalyzeLocally,
-  analyzingLocally = false,
   onExportFullCsv,
 }: ResultsGridProps) {
   const { t } = useLanguage();
@@ -194,7 +191,6 @@ export function ResultsGrid({
   const [page, setPage] = useState(0);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number; value: string } | null>(null);
   const [localChanges, setLocalChanges] = useState<StagedCellEdit[]>([]);
-  const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [focusedColumnIndex, setFocusedColumnIndex] = useState<number | null>(null);
   const [addingRow, setAddingRow] = useState(false);
   const [newRowValues, setNewRowValues] = useState<Record<number, string>>({});
@@ -215,7 +211,7 @@ export function ResultsGrid({
     setRelated(null);
     setSortColumn(undefined);
     setPage(0);
-    setSelectedRow(null);
+    setActiveCell(null);
     setColumnFinder("");
     setFocusedColumnIndex(null);
     setHiddenColumnIndexes(new Set());
@@ -513,6 +509,8 @@ export function ResultsGrid({
     () => columns.filter((column) => !hiddenColumnIndexes.has(column.index)),
     [columns, hiddenColumnIndexes],
   );
+  const gridCanEdit = columns.some((column) => column.editable);
+  const gridKeyboardHelp = t(gridCanEdit ? "gridKeyboardHint" : "gridReadOnlyKeyboardHint");
   const focusableCell = activeCell && pageRows.some(({ rowIndex }) => rowIndex === activeCell.row)
     && visibleColumns.some(({ index }) => index === activeCell.col)
     ? activeCell : { row: pageRows[0]?.rowIndex, col: visibleColumns[0]?.index };
@@ -585,6 +583,7 @@ export function ResultsGrid({
       {csvOptionsDialog}
       <div className="omni-results-header">
         <TabList
+          size="small"
           selectedValue={activeTab}
           onTabSelect={(_, data) => setActiveTab(data.value as "data" | "messages" | "plan" | "related")}
         >
@@ -593,20 +592,26 @@ export function ResultsGrid({
           {related && <Tab value="related" icon={<OpenRegular fontSize={12} />}>{t("related")}</Tab>}
           {planText && <Tab value="plan" icon={<WrenchRegular fontSize={12} />}>{t("plan")}</Tab>}
         </TabList>
+        {activeTab === "data" && result?.documents !== undefined && <div className="omni-result-view" role="group" aria-label={t("resultView")}>
+          <Button size="small" appearance={documentView ? "subtle" : "secondary"} icon={<TableRegular />} aria-pressed={!documentView} onClick={() => setResultView("table")}>{t("tableView")}</Button>
+          <Button size="small" appearance={documentView ? "secondary" : "subtle"} icon={<DocumentRegular />} aria-pressed={documentView} onClick={() => setResultView("documents")}>{t("documentsView")}</Button>
+        </div>}
+        <span className={`omni-execution-status${error ? " is-error" : ""}`} role="status" aria-live="polite">
+          {running ? <><Spinner size="tiny" />{t("running")}</> : error ? t("error") : result ? <><CheckmarkCircleRegular aria-hidden /><span className="omni-execution-label">{t("executionCompleted")} · </span>{formatDuration(result.elapsedMs)}</> : null}
+        </span>
         {activeTab === "data" && result && editability && !editability.editable && (
-              <Text role="status" aria-live="polite" size={200} style={{ color: tokens.colorNeutralForeground2, background: tokens.colorNeutralBackground3, border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4, padding: "4px 8px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={editability.reason ?? t("inlineEditingUnavailable")}>
-                {t("inlineEditingUnavailableText")}{editability.reason ? `: ${editability.reason}` : "."}
-              </Text>
+          <Tooltip content={`${t("inlineEditingUnavailableText")}${editability.reason ? `: ${editability.reason}` : "."} ${gridKeyboardHelp}`} relationship="description">
+            <span className="omni-readonly-status" role="status" tabIndex={0} aria-label={`${t("inlineEditingUnavailableText")}${editability.reason ? `: ${editability.reason}` : "."}`}>
+              <LockClosedRegular aria-hidden />
+              <span className="omni-readonly-label">{t("readOnly")}</span>
+            </span>
+          </Tooltip>
         )}
-      </div>
         {activeTab === "data" && result && (
-          <div className="omni-results-actions">
-            {result.documents !== undefined && <div className="omni-result-view" role="group" aria-label={t("resultView")}>
-              <Button appearance={documentView ? "subtle" : "secondary"} icon={<TableRegular />} aria-pressed={!documentView} onClick={() => setResultView("table")}>{t("tableView")}</Button>
-              <Button appearance={documentView ? "secondary" : "subtle"} icon={<DocumentRegular />} aria-pressed={documentView} onClick={() => setResultView("documents")}>{t("documentsView")}</Button>
-            </div>}
+          <>
             <div className="omni-results-inspect-actions" role="group" aria-label={t("filterData")}>
             <Input
+              size="small"
               aria-label={t("filterData")}
               placeholder={t("filterData")}
               value={globalFilter}
@@ -618,6 +623,7 @@ export function ResultsGrid({
                 <>
                   {globalFilter && (
                     <Button
+                      size="small"
                       appearance="transparent"
                       icon={<DismissRegular />}
                       aria-label={t("clearSearch")}
@@ -635,7 +641,7 @@ export function ResultsGrid({
             />
             {!documentView && <Popover positioning="below-end">
               <PopoverTrigger disableButtonEnhancement>
-                <Button appearance="outline" icon={<TableRegular />}>{t("columns")}</Button>
+                <Button size="small" appearance="subtle" icon={<TableRegular />}>{t("columns")}</Button>
               </PopoverTrigger>
               <PopoverSurface
                 style={{
@@ -718,34 +724,25 @@ export function ResultsGrid({
             )}
             </div>
             <div className="omni-results-export-actions" role="group" aria-label={t("export")}>
-            {onAnalyzeLocally && (
-              <Button
-                appearance="outline"
-                icon={<DuckDbIcon size={18} />}
-                onClick={() => void onAnalyzeLocally()}
-                disabled={!result || analyzingLocally}
-              >
-                {analyzingLocally ? t("analysisImporting") : t("analyzeLocally")}
-              </Button>
-            )}
-            <Tooltip content={t("exportCsv")} relationship="label">
-              <Button icon={<ArrowDownloadRegular />} onClick={() => void handleExportCsv()} disabled={!result || rows.length === 0}>
-                {t("export")}
-              </Button>
-            </Tooltip>
-            {onExportFullCsv && <Button title={t("analysisExportCsvSafe")} appearance="outline" onClick={() => { void requestCsvOptions().then((delimiter) => { if (delimiter !== null) return onExportFullCsv(delimiter); }); }} disabled={!result || running}>
-              {t("analysisExportCsv")}
-            </Button>}
+              <Tooltip content={t("exportCsv")} relationship="label">
+                <Button size="small" appearance="subtle" aria-label={t("exportCsv")} icon={<ArrowDownloadRegular />} onClick={() => void handleExportCsv()} disabled={rows.length === 0} />
+              </Tooltip>
+              {onExportFullCsv && <Tooltip content={t("analysisExportCsvSafe")} relationship="description">
+                <Button size="small" aria-label={t("analysisExportCsv")} appearance="subtle" onClick={() => { void requestCsvOptions().then((delimiter) => { if (delimiter !== null) return onExportFullCsv(delimiter); }); }} disabled={running}>
+                  {t("analysisExportCsv")}
+                </Button>
+              </Tooltip>}
             </div>
-          </div>
+          </>
         )}
+      </div>
 
       <Toaster toasterId={toasterId} position="bottom-end" />
-      {activeTab === "data" && result && !running && !documentView && <div className="omni-results-keyboard-hint">
-        <Text id={keyboardHintId} size={200}>{t("gridKeyboardHint")}</Text>
-        <Text role="status" aria-live="polite" size={200}>
+      {activeTab === "data" && result && !running && !documentView && <div className={`omni-results-keyboard-hint${gridCanEdit ? "" : " is-readonly"}`}>
+        <Text id={keyboardHintId} size={200}>{gridKeyboardHelp}</Text>
+        {(gridCanEdit || changes.length > 0 || committing) && <Text role="status" aria-live="polite" size={200}>
           {t("pendingChanges").replace("{count}", String(changes.length))}
-        </Text>
+        </Text>}
       </div>}
 
       <div ref={gridScrollRef} style={{ flex: "1 0 80px", minHeight: 80, overflow: "auto" }}>
@@ -796,6 +793,7 @@ export function ResultsGrid({
                           <th
                             key={`${col.key}:${col.index}`}
                             data-column-index={col.index}
+                            data-numeric={columnTypeLabel(col.dataType) === "123" || undefined}
                             data-column-focused={focusedColumnIndex === col.index || undefined}
                             onClick={() => handleSort(col.index)}
                             aria-sort={sortColumn === col.index ? sortDirection : "none"}
@@ -869,15 +867,6 @@ export function ResultsGrid({
                   {pageRows.map(({ row, rowIndex: originalRowIndex }, displayRowIndex) => (
                     <tr
                       key={originalRowIndex}
-                      className={selectedRow === displayRowIndex ? "selected" : undefined}
-                      onClick={() => setSelectedRow(displayRowIndex)}
-                      style={{
-                        backgroundColor:
-                          selectedRow === displayRowIndex
-                            ? tokens.colorBrandBackground2
-                            : undefined,
-                        cursor: "pointer",
-                      }}
                     >
                       {visibleColumns.map((col) => {
                         const cellKey = `${originalRowIndex}:${col.index}`;
@@ -889,11 +878,12 @@ export function ResultsGrid({
                             key={`${col.key}:${col.index}`}
                             data-row-index={originalRowIndex}
                             data-column-index={col.index}
+                            data-numeric={columnTypeLabel(col.dataType) === "123" || undefined}
+                            data-selected={activeCell?.row === originalRowIndex && activeCell.col === col.index || undefined}
                             tabIndex={!isEditing && focusableCell.row === originalRowIndex && focusableCell.col === col.index ? 0 : -1}
                             aria-describedby={keyboardHintId}
                             onFocus={() => {
                               setActiveCell({ row: originalRowIndex, col: col.index });
-                              setSelectedRow(displayRowIndex);
                             }}
                             onKeyDown={(event) => {
                               if (event.target !== event.currentTarget) return;
@@ -929,19 +919,13 @@ export function ResultsGrid({
                                 focusedColumnIndex === col.index
                                   ? tokens.colorPaletteYellowBackground2
                                   : undefined,
-                              color:
-                                selectedRow === displayRowIndex &&
-                                !changeByCell.has(cellKey) &&
-                                focusedColumnIndex !== col.index
-                                  ? tokens.colorNeutralForegroundOnBrand
-                                  : tokens.colorNeutralForeground1,
+                              color: tokens.colorNeutralForeground1,
                             }}
                             onClick={(e) => {
                               // Input clicks must not bubble back into the cell
                               // activation path and recreate/reset the editor.
                               if ((e.target as HTMLElement).closest("input")) return;
                               e.stopPropagation();
-                              setSelectedRow(displayRowIndex);
                               setActiveCell({ row: originalRowIndex, col: col.index });
                               e.currentTarget.focus();
                               if (col.editable) startEdit(displayRowIndex, col.index);

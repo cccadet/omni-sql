@@ -529,6 +529,17 @@ const english = {
   tableView: "Table",
   documentsView: "Documents",
   documentNumber: "Document {number}",
+  moreActions: "More actions",
+  localAnalysis: "Local analysis",
+  localDatasetsUnavailable: "Local datasets are unavailable. Open the desktop app and try again.",
+  connectionEnvironment: "Environment",
+  environmentUnset: "Not specified",
+  environmentDevelopment: "Development",
+  environmentStaging: "Staging",
+  environmentProduction: "Production",
+  executionCompleted: "Completed",
+  localDatasetsEmpty: "Import a file or analyze query results to add a dataset.",
+  gridReadOnlyKeyboardHint: "Cells: use arrow keys to navigate. These results are read-only.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -627,6 +638,11 @@ const portugueseBrazil = [
   "Apenas uma coluna detectada. Se esperava mais, tente outro delimitador.",
   "Este arquivo tem cabeçalho, mas não contém linhas de dados.", "Escolher destino",
   "Visualização dos resultados", "Tabela", "Documentos", "Documento {number}",
+  "Mais ações", "Análise local",
+  "Os datasets locais estão indisponíveis. Abra o aplicativo desktop e tente novamente.",
+  "Ambiente", "Não especificado", "Desenvolvimento", "Homologação", "Produção", "Concluído",
+  "Importe um arquivo ou analise resultados para adicionar um dataset.",
+  "Células: use as setas para navegar. Estes resultados são somente leitura.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

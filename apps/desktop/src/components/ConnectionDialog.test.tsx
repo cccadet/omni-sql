@@ -16,6 +16,18 @@ vi.mock("../lib/file-io", () => ({ pickJarPath: vi.fn() }));
 const close = vi.fn();
 const saved = vi.fn();
 
+test("saves and restores an explicit environment without dropping SSL", async () => {
+  vi.mocked(backend.call).mockResolvedValue({ connectionId: "saved-pg" });
+  renderWithLanguage(<ConnectionDialog open editing={{ id: "saved-pg", label: "Warehouse", dialect: "postgres", endpoint: "localhost:5432/test", user: "u", options: { ssl: "require", environment: "staging" } }} onClose={close} onSaved={saved} />);
+  const environment = screen.getByRole("combobox", { name: "Environment" }) as HTMLSelectElement;
+  assert.equal(environment.value, "staging");
+  fireEvent.change(environment, { target: { value: "production" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  assert.deepEqual((add![1] as { config: ConnectionConfig }).config.options, { ssl: "require", environment: "production" });
+});
+
 beforeEach(() => {
   vi.mocked(backend.call).mockReset();
   vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list" ? { configs: [] } : undefined);
@@ -57,7 +69,7 @@ test("registers multiple S3 buckets without choosing a format", async () => {
   vi.mocked(listAnalysisS3).mockResolvedValue([]);
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
   const dialog = screen.getByRole("dialog");
-  fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "s3" } });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Type" }), { target: { value: "s3" } });
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Sales lake" } });
   fireEvent.click(screen.getByRole("button", { name: "Load buckets" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "bucket" }));
@@ -252,7 +264,7 @@ test("tests and saves a new connection", async () => {
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
 
   const dialog = screen.getByRole("dialog");
-  fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "postgres" } });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Type" }), { target: { value: "postgres" } });
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Warehouse" } });
   fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "db.example" } });
   fireEvent.change(within(dialog).getAllByPlaceholderText("postgres")[1]!, { target: { value: "reporter" } });
@@ -290,7 +302,7 @@ test("shows failed connection test and recovers on retry", async () => {
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
 
   const dialog = screen.getByRole("dialog");
-  fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "postgres" } });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Type" }), { target: { value: "postgres" } });
   fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "db.example" } });
   fireEvent.change(within(dialog).getAllByPlaceholderText("postgres")[1]!, { target: { value: "reporter" } });
   fireEvent.click(screen.getByRole("button", { name: "Test connection" }));

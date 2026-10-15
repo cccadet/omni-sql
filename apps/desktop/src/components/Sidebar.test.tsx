@@ -161,9 +161,21 @@ describe("Sidebar", () => {
     const onOpenAnalysis = vi.fn();
     renderSidebar({ onOpenAnalysis, analysisActive: false });
 
-    fireEvent.click(screen.getByRole("button", { name: "Analyze locally" }));
+    fireEvent.click(screen.getByRole("button", { name: "DuckDB" }));
 
     expect(onOpenAnalysis).toHaveBeenCalledOnce();
+  });
+
+  it("keeps local datasets available alongside a remote connection", () => {
+    const onOpenLocalDataset = vi.fn();
+    const dataset = { id: "targets", workspaceId: "local-duckdb", name: "targets.csv", relationName: 'targets"2026', columns: [], rowCount: 5, approximateBytes: 100, createdAtMs: 1, coverage: "complete" as const, selection: { mode: "full" as const }, scannedRows: 5 };
+    renderSidebar({ localDatasets: [dataset], onOpenLocalDataset });
+    fireEvent.click(screen.getByRole("button", { name: "targets.csv" }));
+    expect(onOpenLocalDataset).toHaveBeenCalledWith(dataset);
+    expect(screen.getByRole("button", { name: "Local analysis" }).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Local analysis" }));
+    expect(screen.queryByRole("button", { name: "targets.csv" })).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Search tables, columns…" })).toBeTruthy();
   });
 
   it("searches objects, inserts qualified names, and loads indexes on expansion", async () => {

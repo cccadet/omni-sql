@@ -217,6 +217,29 @@ describe("App history persistence", () => {
   });
 });
 describe("App execution flow", () => {
+  it("opens a local dataset in its own tab and preserves the source connection", async () => {
+    seedSession("SELECT 42", 1000, "conn-1");
+    const dataset = { id: "targets", workspaceId: "local-duckdb", name: "targets.csv", relationName: 'targets"2026', columns: [], rowCount: 5, approximateBytes: 100, createdAtMs: 1, coverage: "complete", selection: { mode: "full" }, scannedRows: 5 };
+    vi.mocked(invoke).mockImplementation(async (command, args) => command === "analysis_list_datasets"
+      ? (args as { workspaceId?: string })?.workspaceId === "local-duckdb" ? [dataset] : [] : undefined);
+    const defaultCall = call.getMockImplementation()!;
+    call.mockImplementation((method, params, signal) => method === "connection.list"
+      ? Promise.resolve({ configs: [
+        { id: "conn-1", label: "Local Postgres", dialect: "postgres", endpoint: "localhost", user: "user" },
+        { id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "local.duckdb", user: "" },
+      ] }) : defaultCall(method, params, signal));
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "targets.csv" }));
+    await waitFor(() => {
+      const session = JSON.parse(localStorage.getItem("omni-sql:session") ?? "null");
+      expect(session.tabs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "tab-1", connectionId: "conn-1", sql: "SELECT 42" }),
+        expect.objectContaining({ connectionId: "local-duckdb", sql: 'SELECT * FROM "targets""2026" LIMIT 1000' }),
+      ]));
+      expect(session.activeTabId).not.toBe("tab-1");
+    });
+  });
+
   it("previews a local CSV and waits for confirmation before creating the connection or dataset", async () => {
     vi.mocked(pickAnalysisImportPath).mockResolvedValue("C:/tmp/orders.csv");
     vi.mocked(invoke).mockImplementation(async (command) => command === "analysis_preview_csv"
@@ -551,7 +574,8 @@ describe("App execution flow", () => {
     await waitFor(() => expect(writeSqlFile).toHaveBeenCalledWith("/tmp/report.sql", "SELECT 1"));
     expect(await screen.findByText("report")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open saved tab" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open saved tab" }));
     await waitFor(() => expect(readSqlFile).toHaveBeenCalledWith("/tmp/import.sql"));
     expect(await screen.findByText("import")).toBeTruthy();
   });
@@ -581,7 +605,8 @@ describe("App update event listener", () => {
     renderApp();
     fireEvent.click(await screen.findByRole("button", { name: "Run" }));
     await screen.findByText("42");
-    fireEvent.click(screen.getByRole("button", { name: "Send to Analyze locally" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Send to Analyze locally" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Analyze locally", hidden: true }));
     expect(await screen.findByText("Source query failed")).toBeTruthy();

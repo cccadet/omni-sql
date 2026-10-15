@@ -22,6 +22,26 @@ const result: QueryResult = {
 
 const firstPayload = result.rows[0]![1];
 
+test("reports execution progress, completion duration and failure beside the results", () => {
+  const { rerender } = render(<LanguageProvider><ResultsGrid running /></LanguageProvider>);
+  expect(screen.getAllByRole("status").some((status) => status.textContent?.includes("Running"))).toBe(true);
+  rerender(<LanguageProvider><ResultsGrid result={result} /></LanguageProvider>);
+  expect(screen.getAllByRole("status").some((status) => status.textContent === "Completed · 1 ms")).toBe(true);
+  rerender(<LanguageProvider><ResultsGrid error="Invalid SQL" /></LanguageProvider>);
+  expect(screen.getByRole("alert").textContent).toBe("Invalid SQL");
+  expect(screen.getAllByRole("status").some((status) => status.textContent?.includes("Completed"))).toBe(false);
+});
+
+test("keeps the reason for read-only results accessible from the compact status", () => {
+  render(<LanguageProvider><ResultsGrid result={result} editability={{ editable: false, reason: "No primary key", table: null, pkColumns: [], selectStar: false, columns: [] }} /></LanguageProvider>);
+  const status = screen.getByRole("status", { name: "Inline editing unavailable: No primary key" });
+  expect(status.textContent).toBe("Read-only");
+  expect(status.tabIndex).toBe(0);
+  const cell = screen.getAllByRole("cell")[0]!;
+  expect(document.getElementById(cell.getAttribute("aria-describedby")!)?.textContent).toBe("Cells: use arrow keys to navigate. These results are read-only.");
+  expect(screen.queryByText("Pending changes: 0")).toBeNull();
+});
+
 test("offers documents only for native Mongo results and preserves BSON, nesting and absent fields", async () => {
   const documents = [
     { _id: { $oid: "507f1f77bcf86cd799439011" }, profile: { city: "São Paulo" }, tags: ["one", { $numberLong: "9223372036854775807" }], price: null },
@@ -121,6 +141,8 @@ test("navigates read-only cells without intercepting filter keys or starting an 
   expect(document.activeElement).toBe(cells[1]);
   fireEvent.keyDown(cells[1]!, { key: "ArrowDown" });
   expect(document.activeElement).toBe(cells[3]);
+  expect(cells[3]!.getAttribute("data-selected")).toBe("true");
+  expect(cells[1]!.hasAttribute("data-selected")).toBe(false);
   fireEvent.keyDown(cells[3]!, { key: "Home", ctrlKey: true });
   expect(document.activeElement).toBe(cells[0]);
   fireEvent.keyDown(cells[0]!, { key: "F2" });

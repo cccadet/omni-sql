@@ -42,6 +42,7 @@ export type UpdateCheckStatus =
 export type McpVisualState = "inactive" | "listening" | "connected" | "error";
 
 export interface StatusBarProps {
+  compactConnection?: boolean;
   connection?: ConnectionEntry | null;
   result?: QueryResult | null;
   cursorPosition?: { line: number; column: number } | null;
@@ -56,7 +57,7 @@ export interface StatusBarProps {
   mcpError?: string | null;
 }
 
-export function StatusBar({ connection, result, cursorPosition, busyMsg, database, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError }: StatusBarProps) {
+export function StatusBar({ compactConnection = false, connection, result, cursorPosition, busyMsg, database, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError }: StatusBarProps) {
   const { t } = useLanguage();
   const [mcpOpen, setMcpOpen] = useState(false);
   const dialectLabels: Record<string, string> = {
@@ -77,22 +78,22 @@ export function StatusBar({ connection, result, cursorPosition, busyMsg, databas
 
   return (
     <footer className="omni-status-bar">
-      <span className="omni-status-connection omni-header-health" title={connection?.label}>
+      {!compactConnection && <span className="omni-status-connection omni-header-health" title={connection?.label}>
         {connection && health === "online" ? (
           <PlugConnectedRegular fontSize={12} />
         ) : (
           <PlugDisconnectedRegular fontSize={12} />
         )}
         <span>{connection?.label ?? t("noResults")}</span>
-      </span>
+      </span>}
       {connection && (
         <span className="omni-status-detail">
           <DialectIcon dialect={connection.dialect} size={12} />
           {dialectLabels[connection.dialect] ?? connection.dialect}
         </span>
       )}
-      {connection && database && <span className="omni-status-detail"><span>{t("headerDatabase")}</span><strong>{database}</strong></span>}
-      {connection && <span className={`omni-status-detail omni-header-state-${health}`}>
+      {!compactConnection && connection && database && <span className="omni-status-detail"><span>{t("headerDatabase")}</span><strong>{database}</strong></span>}
+      {!compactConnection && connection && <span className={`omni-status-detail omni-header-state-${health}`}>
         <span aria-hidden className="omni-header-state-dot" />{healthLabel}
       </span>}
       <button
