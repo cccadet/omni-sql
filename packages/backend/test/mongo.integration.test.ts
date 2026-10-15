@@ -5,16 +5,19 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
+import type { McpBridgeRequest, McpToolName } from "@omni-sql/ts-types";
 
 const dockerIntegration = process.env.OMNI_SQL_RUN_INTEGRATION === "1";
 const endpoint = process.env.OMNI_SQL_TEST_MONGO_URI ?? (dockerIntegration ? "mongodb://127.0.0.1:27017/omni_test?authSource=admin" : undefined);
 test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive confirmation", { skip: !endpoint }, async () => {
   const token = process.env.OMNI_SQL_AUTH_TOKEN = "mongo-integration-token";
+  process.env.OMNI_SQL_MCP_AUTH_TOKEN = "mongo-integration-bridge-token";
   const tempDir = mkdtempSync(join(tmpdir(), "omni-mongo-integration-"));
   process.env.OMNI_SQL_METADATA_DB = join(tempDir, "metadata.db");
   process.env.OMNI_SQL_DEV_KEYRING_FILE = join(tempDir, "keyring.json");
   const { startServer } = await import("../src/index.ts");
   const { closeBackendResources } = await import("../src/handlers.ts");
+  const { closeMcpHttp, closeMcpBridge } = await import("../src/mcp-handlers.ts");
   const adminUser = process.env.OMNI_SQL_TEST_MONGO_ADMIN_USER ?? (dockerIntegration ? "omni_root" : undefined);
   const adminPassword = process.env.OMNI_SQL_TEST_MONGO_ADMIN_PASSWORD ?? (dockerIntegration ? "omni_root" : undefined);
   const client = new MongoClient(endpoint!, adminUser ? { auth: { username: adminUser, password: adminPassword ?? "" } } : {});
@@ -33,6 +36,7 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
   await once(server, "listening");
   const address = server.address(); assert.ok(address && typeof address !== "string");
   const port = address.port;
+  process.env.OMNI_SQL_PORT = String(port);
   async function rpc(method: string, params: unknown = {}) {
     return await (await fetch(`http://127.0.0.1:${port}/rpc`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })).json() as { result?: Record<string, unknown>; error?: { message: string } };
   }
@@ -47,7 +51,7 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
     assert.equal((await rpc("metadata.introspect", { connectionId })).error, undefined);
     const metadata = await rpc("metadata.listRelations", { connectionId, includeColumns: true });
     assert.ok((metadata.result?.relations as { name: string }[]).some((relation) => relation.name === "items"));
-    const itemMetadata = (metadata.result?.relations as { name: string; columns: { name: string; fields?: { name: string }[] }[] }[]).find((relation) => relation.name === "items")!;
+    const itemMetadata = (metadata.result?.relations as { name: string; columns: { name: string; dataType: string; fields?: { name: string }[] }[] }[]).find((relation) => relation.name === "items")!;
     assert.equal(itemMetadata.columns.find((column) => column.name === "nested")?.fields?.[0]?.name, "city");
     const completions = async (sql: string, cursor = sql.length) => {
       const response = await rpc("completion.get", { connectionId, sql, cursor });
@@ -103,6 +107,56 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
     assert.equal(source.documents[0]?.data_evento, "2026-10-08T12:34:56.123Z");
     assert.equal(source.documents[0]?.id_guia, undefined, "projection excludes the filter field after server filtering");
     assert.deepEqual(source.structure, [{ _id: "VARCHAR", data_evento: "TIMESTAMP", inteiro: "BIGINT", exames: [{ codigos: ["VARCHAR"], nome_padronizado: "VARCHAR" }] }]);
+    const httpToken = "mongo-integration-http-token";
+    const http = await rpc("mcp.http.start", { token: httpToken, port: 0 });
+    assert.equal(http.error, undefined, http.error?.message);
+    const mcpEndpoint = String(http.result?.endpoint);
+    let session = "";
+    let mcpId = 0;
+    async function mcp(body: unknown) {
+      return fetch(mcpEndpoint, {
+        method: "POST",
+        headers: { authorization: `Bearer ${httpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream", ...(session ? { "mcp-session-id": session } : {}) },
+        body: JSON.stringify(body),
+      });
+    }
+    const initialized = await mcp({ jsonrpc: "2.0", id: ++mcpId, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "mongo-integration", version: "1" } } });
+    assert.equal(initialized.status, 200);
+    session = initialized.headers.get("mcp-session-id")!;
+    await initialized.arrayBuffer();
+    await (await mcp({ jsonrpc: "2.0", method: "notifications/initialized" })).arrayBuffer();
+    // Simulate desktop responses; transport, backend, catalog and MongoDB are real.
+    async function callTool(tool: McpToolName, args: unknown, respond: (request: McpBridgeRequest) => Promise<unknown>) {
+      await rpc("mcp.ui.next", { listenerId: "mongo-ui" });
+      const pending = mcp({ jsonrpc: "2.0", id: ++mcpId, method: "tools/call", params: { name: tool, arguments: args } });
+      const next = await rpc("mcp.ui.next", { listenerId: "mongo-ui", waitMs: 2_000 });
+      assert.equal(next.error, undefined, next.error?.message);
+      const request = next.result as unknown as McpBridgeRequest;
+      assert.equal(request.tool, tool);
+      const expected = await respond(request);
+      const accepted = await rpc("mcp.ui.respond", { listenerId: "mongo-ui", id: request.id, ok: true, result: expected });
+      assert.equal(accepted.error, undefined, accepted.error?.message);
+      const response = await pending;
+      assert.equal(response.status, 200);
+      const body = await response.json() as { result: { isError?: boolean; structuredContent: unknown } };
+      assert.equal(body.result.isError, undefined);
+      assert.deepEqual(body.result.structuredContent, expected);
+      return expected;
+    }
+    await callTool("getActiveSql", {}, async () => ({ sql: sourceSql, dialect: "duckdb" }));
+    await callTool("getActiveConnectionContext", {}, async () => ({ connectionId, label: config.label, dialect: config.dialect }));
+    await callTool("getSchemaSummary", {}, async () => ({ connectionId, schemas: [{ name: db.databaseName, relations: [{ name: "items", kind: "table", columns: itemMetadata.columns.map(({ name, dataType }) => ({ name, dataType })) }] }] }));
+    const nativeSql = query("find", { filter: { name: "first" } });
+    await callTool("getActiveSql", {}, async () => ({ sql: nativeSql, dialect: "mongodb" }));
+    await callTool("executeSql", { sql: nativeSql, limit: 1 }, async (request) => {
+      const approved = await rpc("mcp.ui.execute", { id: request.id, listenerId: "mongo-ui", connectionId });
+      assert.equal(approved.error, undefined, approved.error?.message);
+      assert.equal((approved.result?.rows as unknown[][]).length, 1);
+      assert.ok(JSON.stringify(approved.result?.rows).includes("first"));
+      return approved.result;
+    });
+    const history = await rpc("mcp.history");
+    assert.equal((history.result?.entries as { status: string }[]).filter(({ status }) => status === "completed").length, 5);
     const emptySource = await rpc("query.mongoSqlSource", { connectionId, sql: sourceSql.replace("52712827", "absent") });
     assert.equal(emptySource.error, undefined, emptySource.error?.message);
     assert.equal((emptySource.result?.source as { rowCount: number }).rowCount, 0);
@@ -177,6 +231,8 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
     assert.match(rejected.error!.message, /embedded credentials/);
     assert.ok(!rejected.error!.message.includes("password@"));
   } finally {
+    closeMcpBridge();
+    await closeMcpHttp();
     await rpc("connection.remove", { connectionId });
     server.close(); await once(server, "close");
     await closeBackendResources();

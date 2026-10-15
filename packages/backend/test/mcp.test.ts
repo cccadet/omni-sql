@@ -87,6 +87,25 @@ test("MCP endpoint isolates tokens, rejects generic RPC, and bridges one UI resp
     const status = await rpc("mcp.status");
     assert.equal(status.result.uiConnected, true);
     assert.equal(status.result.queueSize, 0);
+
+    // Mongo SQL reports DuckDB for editor text and MongoDB for the connection.
+    for (const [tool, result] of [
+      ["getActiveSql", { sql: "SELECT * FROM reports", dialect: "duckdb" }],
+      ["getActiveConnectionContext", { connectionId: "mongo", label: "MongoDB", dialect: "mongodb" }],
+      ["getActiveSql", { sql: '{"collection":"reports","operation":"find"}', dialect: "mongodb" }],
+      ["getActiveConnectionContext", { connectionId: "local", label: "DuckDB", dialect: "duckdb" }],
+      ["getActiveSql", { sql: "SELECT * FROM files", dialect: "s3" }],
+      ["getActiveConnectionContext", { connectionId: "files", label: "S3", dialect: "s3" }],
+    ] as const) {
+      const reading = post("/mcp", { tool, args: {} }, mcpHeaders);
+      const delivered = await rpc("mcp.ui.next", { listenerId: "desktop", waitMs: 1_000 });
+      assert.equal(delivered.result.tool, tool);
+      const response = await rpc("mcp.ui.respond", {
+        listenerId: "desktop", id: delivered.result.id, ok: true, result,
+      });
+      assert.deepEqual(await reading, { status: 200, body: { result } });
+      assert.equal(response.result.accepted, true);
+    }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
