@@ -42,3 +42,16 @@ cannot persist. The demo screenshot and linked guides retain their source langua
 
 Run the language-routing checks with `node --test scripts/website-language.test.mjs`
 and lint with `pnpm exec eslint website/language.js scripts/website-language.test.mjs`.
+
+## Feature sections
+
+Both homepages group the features at `#features`, with a four-link section index,
+the local-analysis walkthrough, and separate visual blocks for SQL editing,
+results, MongoDB, imports, S3, and MCP. Keep matching section IDs in both languages
+so automatic language navigation can preserve deep links.
+
+`assets/features/` mirrors the existing CTE and MCP captures in `docs/images/`
+and the query-result/import captures in `docs/images/release-visuals/`. These are
+illustrations of the workflows, not a guarantee of exact current toolbar layout.
+MongoDB Extended JSON and S3 SQL are labeled illustrative examples, not app
+screenshots. The feature index and code examples also work without JavaScript.

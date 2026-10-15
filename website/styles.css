@@ -81,13 +81,7 @@ tbody th { font-weight: 500; }
 .product-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 12px; }
 .product-shot > a { display: block; }
 .product-shot figcaption { margin-top: 14px; color: var(--muted); font-size: 13px; }
-.workspace { border-top: 1px solid var(--line); }
-.section-heading { max-width: 760px; }
-.section-heading p { margin-top: 20px; color: var(--muted); font-size: 18px; }
 .databases { display: flex; flex-wrap: wrap; gap: 12px 32px; list-style: none; padding: 0; margin-block: 32px 0; font-weight: 650; }
-.capabilities { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin-block: 44px 28px; }
-dt { font-size: 18px; font-weight: 650; margin-bottom: 12px; }
-dd { margin: 0; color: var(--muted); }
 .driver-note { max-width: 85ch; font-size: 14px; color: var(--muted); }
 .import-details { border-block: 1px solid var(--line); }
 summary { min-height: 64px; padding-block: 18px; cursor: pointer; font-weight: 600; }
@@ -116,16 +110,53 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 @media (max-width: 760px) {
   .nav { flex-wrap: wrap; padding-block: 12px; gap: 0 16px; }
   .language-switch { width: 100%; justify-content: flex-end; }
+  .nav > nav:first-of-type { flex-wrap: wrap; justify-content: flex-end; }
   .hero { grid-template-columns: 1fr; padding-block: 40px 56px; gap: 36px; }
   h1 { max-width: 15ch; font-size: clamp(40px, 7.5vw, 56px); }
   .hero-copy { max-width: 600px; }
   .result-preview { max-width: 600px; }
-  .benefits, .capabilities { grid-template-columns: 1fr; gap: 28px; }
+  .benefits { grid-template-columns: 1fr; gap: 28px; }
   .section { padding-block: 56px; }
   nav { gap: 16px; }
-  nav .demo-link { display: none; }
   .packages { flex-direction: column; gap: 20px; }
   footer { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+
+/* Each feature pairs product evidence with its own reading block. */
+.feature-heading { padding-block: 64px 0; }
+.feature-heading h2 { max-width: 27ch; }
+.feature-heading .lede { max-width: 66ch; }
+.catalog-nav { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 28px; font-size: 15px; }
+.catalog-nav a { min-height: 44px; }
+.feature-demo { padding-block: 48px 64px; }
+.feature-demo h3 { font-size: clamp(28px, 3.2vw, 38px); line-height: 1.2; letter-spacing: -.025em; }
+.feature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 64px 48px; padding-block: 0 64px; }
+.feature-tile { min-width: 0; scroll-margin-top: 28px; }
+.feature-tile h3 { margin-top: 24px; font-size: 28px; letter-spacing: -.02em; }
+.feature-tile > p { margin-top: 14px; color: var(--muted); }
+.feature-tile .text-link { margin-top: 12px; }
+.feature-visual { aspect-ratio: 16 / 10; display: grid; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.feature-visual img { display: block; width: 100%; height: 100%; max-height: 100%; object-fit: contain; }
+.feature-visual a { display: block; height: 100%; min-height: 0; }
+.feature-visual pre { margin: 0; padding: 24px; overflow-x: auto; font-size: 14px; line-height: 1.8; color: var(--text); }
+.feature-visual code { font-size: inherit; }
+.feature-visual .code-key { color: var(--gold); }
+.feature-visual .code-value { color: #b9d8c4; }
+.feature-caption { display: block; margin-top: 10px; color: var(--muted); font-size: 13px; }
+.feature-list { padding-block: 36px; border-top: 1px solid var(--line); }
+.feature-list h3 { font-size: 28px; }
+.feature-list .driver-note { margin-top: 24px; }
+@media (max-width: 850px) {
+  .feature-grid { gap: 48px 28px; }
+  .feature-visual pre { padding: 18px; font-size: 12px; }
+}
+@media (max-width: 600px) {
+  .nav > nav:first-of-type { gap: 8px; }
+  .feature-heading { padding-block: 48px 0; }
+  .catalog-nav { gap: 4px 20px; }
+  .feature-grid { grid-template-columns: 1fr; padding-bottom: 48px; }
+  .feature-tile h3 { font-size: 26px; }
+  .feature-visual pre { font-size: 13px; }
 }
 @media (max-width: 400px) {
   .wrap { width: calc(100% - 32px); }
@@ -144,4 +175,7 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .button { transition: none; }
+}
+@media (max-width: 360px) {
+  .brand span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
