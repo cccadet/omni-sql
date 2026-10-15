@@ -11,6 +11,7 @@ import { useConnections } from "./hooks/useConnections";
 import { Toolbar } from "./components/Toolbar";
 import { TabBar } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
+import { DialectIcon } from "./components/DialectIcon";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { StatusBar, type ConnectionHealth, type McpVisualState, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
@@ -218,12 +219,16 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const { connections, error: connectionsError, loadConnections } = useConnections();
   const [connectionGroups, setConnectionGroups] = useState<ConnectionGroup[]>([]);
   const editorRef = useRef<EditorHandle | null>(null);
-  const [resultsPercent, setResultsPercent] = useState(50);
+  const [resultsPercent, setResultsPercent] = useState(60);
   const resultsDrag = useRef<{ y: number; height: number; total: number } | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [backgroundProcessesOpen, setBackgroundProcessesOpen] = useState(false);
   const [analysisDataset, setAnalysisDataset] = useState<DatasetRef | null>(null);
+  const [localDatasets, setLocalDatasets] = useState<DatasetRef[]>([]);
+  const [localDatasetsLoading, setLocalDatasetsLoading] = useState(false);
+  const [localDatasetsError, setLocalDatasetsError] = useState(false);
+  const [localDatasetsRevision, setLocalDatasetsRevision] = useState(0);
   const [analysisWorkspaceId, setAnalysisWorkspaceId] = useState<string | null>(null);
   const [analysisS3ConnectionId, setAnalysisS3ConnectionId] = useState<string | null>(null);
   const onAnalysisDatasetSelected = useCallback((item: DatasetRef | null) => {
@@ -660,6 +665,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       const local = connections.find((item) => item.id === connectionId && item.dialect === "duckdb");
       if (local) {
         const datasets = [...await listAnalysisDatasets("local-duckdb"), ...await listAnalysisDatasets("federated")];
+        setLocalDatasets(datasets);
         setSidebarCache((previous) => ({ ...previous, [connectionId]: {
           schemas: ["main"],
           relations: datasets.map((dataset) => ({ schema: "main", name: dataset.relationName, kind: "table", columns: dataset.columns.map((column) => ({ name: column.name, dataType: column.dataType, nullable: column.nullable, isPrimaryKey: false })) })),
@@ -733,6 +739,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         await loadSidebarData(activeConnectionId);
       }
       setCrossSourceOpen(false);
+      setLocalDatasetsRevision((value) => value + 1);
       setBusyMsg(`${imported.relationName}: ${imported.rowCount.toLocaleString()} linhas disponíveis como local."${imported.relationName.replaceAll('"', '""')}"`);
       window.setTimeout(() => setBusyMsg(null), 8000);
     } catch (error) {
@@ -1409,6 +1416,31 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   );
 
   useEffect(() => {
+    let cancelled = false;
+    setLocalDatasetsLoading(true);
+    setLocalDatasetsError(false);
+    void Promise.all([listAnalysisDatasets("local-duckdb"), listAnalysisDatasets("federated")])
+      .then((datasets) => { if (!cancelled) setLocalDatasets(datasets.flatMap((items) => items ?? [])); })
+      .catch(() => { if (!cancelled) setLocalDatasetsError(true); })
+      .finally(() => { if (!cancelled) setLocalDatasetsLoading(false); });
+    return () => { cancelled = true; };
+  }, [connections, analysisDataset, localDatasetsRevision]);
+
+  const openLocalDataset = useCallback(async (dataset?: DatasetRef) => {
+    try {
+      await backend.call("connection.add", { config: { id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "local.duckdb", user: "" } });
+      await loadConnections();
+      const tab = makeTab({ title: dataset?.name ?? "DuckDB", connectionId: "local-duckdb",
+        sql: dataset ? `SELECT * FROM "${dataset.relationName.replaceAll('"', '""')}" LIMIT 1000` : "SELECT 1" });
+      setTabs((previous) => [...previous, tab]);
+      selectTab(tab.id);
+      setAnalysisWorkspaceId(null);
+    } catch (error) {
+      updateTab(activeTab.id, { error: `${t("error")}: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }, [activeTab.id, loadConnections, selectTab, setTabs, t, updateTab]);
+
+  useEffect(() => {
     void invoke("set_native_menu_language", { language }).catch(() => undefined);
   }, [language]);
 
@@ -1600,9 +1632,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "auto 1fr",
+        gridTemplateColumns: "auto minmax(0, 1fr)",
         gridTemplateRows: `auto auto minmax(0, ${100 - resultsPercent}fr) 6px minmax(0, ${resultsPercent}fr) auto`,
-        height: "100vh",
+        height: "100dvh",
         background: tokens.colorNeutralBackground1,
         color: tokens.colorNeutralForeground1,
       }}
@@ -1610,12 +1642,22 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     >
       <header className="omni-app-header" style={{ gridColumn: "1 / -1", gridRow: 1 }}>
         <div className="omni-logo">
-          <img src="/omni-sql.svg" alt="omni-sql" height={28} />
-          <div>
-            <Title1 className="wordmark">omni-sql</Title1>
-            <span className="subtitle">One IDE for every database</span>
-          </div>
+          <img src="/omni-sql.svg" alt="" height={24} />
+          <Title1 className="wordmark">omni-sql</Title1>
         </div>
+        {activeConnection && <div className="omni-app-context" aria-label={t("activeConnection")}>
+          <DialectIcon dialect={activeConnection.dialect} size={16} />
+          <strong className="omni-app-connection" title={activeConnection.label}>{activeConnection.label}</strong>
+          <span className="omni-app-dialect">{DIALECT_LABELS[activeConnection.dialect]}</span>
+          {activeDatabase && <span className="omni-app-database" title={activeDatabase}>{activeDatabase}</span>}
+          {(activeConnection.options?.environment === "development" || activeConnection.options?.environment === "staging" || activeConnection.options?.environment === "production") && <span className="omni-environment-badge" data-environment={activeConnection.options.environment}>
+            {t(activeConnection.options.environment === "production" ? "environmentProduction" : activeConnection.options.environment === "staging" ? "environmentStaging" : "environmentDevelopment")}
+          </span>}
+          <span className={`omni-app-health omni-header-state-${connectionHealth}`} role="status">
+            <span aria-hidden className="omni-header-state-dot" />
+            {connectionHealth === "online" ? t("headerConnected") : connectionHealth === "offline" ? t("headerOffline") : connectionHealth === "verifying" ? t("headerVerifying") : t("statusUnknown")}
+          </span>
+        </div>}
         <button
           type="button"
           onClick={toggle}
@@ -1627,7 +1669,20 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         </button>
       </header>
 
-      <div style={{ gridColumn: "1 / -1", gridRow: 2 }}>
+      <div className="omni-editor-controls" style={{ gridColumn: 2, gridRow: 2, minWidth: 0 }}>
+        {!analysisWorkspaceId && <TabBar
+          tabs={tabs.map((tab) => ({
+            id: tab.id,
+            title: tab.title,
+            dirty: tab.filePath != null && tab.sql !== tab.savedSql,
+            dialect: tab.connectionId ? connections.find((connection) => connection.id === tab.connectionId)?.dialect : undefined,
+          }))}
+          activeTabId={activeTabId}
+          onSelect={selectTab}
+          onClose={closeTab}
+          onAdd={() => addTab(activeConnectionId)}
+          onRename={renameTab}
+        />}
         <Toolbar
           mongoControls={activeConnection?.dialect === "mongodb" && <div className="omni-toolbar-mongo-controls">
             <Switch label="SQL" title={t("mongoSqlMode")} checked={activeTab.mongoSqlMode === true} disabled={running} onChange={(_event, data) => {
@@ -1668,11 +1723,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           analysisMode={analysisWorkspaceId !== null}
           onExitAnalysis={() => void closeAnalysisWorkspace()}
           onSendToAnalysis={activeDialect === "s3" || activeDialect === "duckdb" || activeDialect === "mongodb" ? undefined : sendCurrentSqlToAnalysis}
+          onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportError(null); setAnalysisImportOpen(true); } : undefined}
+          analyzingLocally={analysisImporting}
           onImportLocalFile={onImportLocalFile}
         />
       </div>
 
-      <aside style={{ gridColumn: 1, gridRow: "3 / span 3" }}>
+      <aside style={{ gridColumn: 1, gridRow: "2 / span 4", minHeight: 0 }}>
         <Sidebar
           open={sidebarOpen}
           connections={connections}
@@ -1706,6 +1763,13 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onOpenInNewTab={onOpenInNewTab}
           health={connectionHealth}
           analysisActive={analysisWorkspaceId !== null}
+          localDatasets={localDatasets}
+          localDatasetsLoading={localDatasetsLoading}
+          localDatasetsError={localDatasetsError}
+          onOpenAnalysis={() => void openLocalDataset()}
+          onOpenLocalDataset={(dataset) => void openLocalDataset(dataset)}
+          onImportLocalFile={onImportLocalFile}
+          onRefreshLocalDatasets={() => setLocalDatasetsRevision((value) => value + 1)}
           analysisConnectionId={analysisWorkspaceId ? analysisS3ConnectionId : null}
           onAnalysisHostChange={setAnalysisSidebarHost}
         />
@@ -1714,19 +1778,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       {!analysisWorkspaceId && <section
         style={{ gridColumn: 2, gridRow: 3, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
       >
-        <TabBar
-          tabs={tabs.map((t) => ({
-            id: t.id,
-            title: t.title,
-            dirty: t.filePath != null && t.sql !== t.savedSql,
-            dialect: t.connectionId ? connections.find((c) => c.id === t.connectionId)?.dialect : undefined,
-          }))}
-          activeTabId={activeTabId}
-          onSelect={selectTab}
-          onClose={closeTab}
-          onAdd={() => addTab(activeConnectionId)}
-          onRename={renameTab}
-        />
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, minHeight: 0 }}><Editor
             ref={editorRef}
@@ -1783,7 +1834,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       />}
 
       {!analysisWorkspaceId && <section style={{ gridColumn: 2, gridRow: 5, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportError(null); setAnalysisImportOpen(true); } : undefined} analyzingLocally={analysisImporting} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} />
+        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} />
       </section>}
 
       {analysisWorkspaceId && (
@@ -1793,7 +1844,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       )}
 
       <div style={{ gridColumn: "1 / -1", gridRow: 6 }}>
-        <StatusBar connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
+        <StatusBar compactConnection connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
       </div>
 
       {dialogOpen && <ConnectionDialog

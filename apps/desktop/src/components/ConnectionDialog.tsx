@@ -93,6 +93,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const { t } = useLanguage();
   const [mode, setMode] = useState<Mode>("postgres");
   const [label, setLabel] = useState("");
+  const [environment, setEnvironment] = useState("");
   const [id, setId] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("5432");
@@ -132,6 +133,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setMode(nextMode);
     setMongoUri(editingDialect === "mongodb" ? editing!.endpoint : "mongodb://localhost:27017/test");
     setLabel(editing?.label ?? "");
+    setEnvironment(String(editing?.options?.environment ?? ""));
     setId(duplicating ? generateId() : editing?.id ?? "");
     setUser(isS3 ? "" : editing?.user ?? "");
     setS3AccessKey(isS3 ? editing?.user ?? "" : "");
@@ -230,6 +232,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
         dialect: "postgres",
         endpoint: "memory://local",
         user: user || "anon",
+        ...(environment ? { options: { environment } } : {}),
       };
     }
     return {
@@ -238,10 +241,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
       dialect: mode,
       endpoint: buildEndpoint(),
       user: mode === "s3" ? s3AccessKey.trim() : user,
-      options: buildOptions(),
+      options: environment ? { ...buildOptions(), environment } : buildOptions(),
       schemas: selectedSchemas.size > 0 ? [...selectedSchemas] : undefined,
     };
-  }, [mode, id, label, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
+  }, [mode, id, label, environment, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
 
   const onTest = async () => {
     if (mode === "demo") return;
@@ -391,6 +394,14 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
             <Field label={t("connectionName")}>
               <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />
+            </Field>
+            <Field label={t("connectionEnvironment")}>
+              <select aria-label={t("connectionEnvironment")} value={environment} onChange={(event) => setEnvironment(event.target.value)} disabled={busy} className="omni-environment-select">
+                <option value="">{t("environmentUnset")}</option>
+                <option value="development">{t("environmentDevelopment")}</option>
+                <option value="staging">{t("environmentStaging")}</option>
+                <option value="production">{t("environmentProduction")}</option>
+              </select>
             </Field>
 
             {mode === "mongodb" && <Field label="MongoDB URI">

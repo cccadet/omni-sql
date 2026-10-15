@@ -43,6 +43,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
 
   return (
     <div
+      className="omni-tab-bar"
       style={{
         display: "flex",
         alignItems: "center",

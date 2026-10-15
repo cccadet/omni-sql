@@ -1,4 +1,4 @@
-import { Button, Dialog, DialogActions, DialogBody, DialogSurface, DialogTitle, Spinner, Toolbar as FluentToolbar, ToolbarButton, Tooltip, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogSurface, DialogTitle, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Spinner, Toolbar as FluentToolbar, ToolbarButton, Tooltip, tokens } from "@fluentui/react-components";
 import {
   AddRegular,
   PlayRegular,
@@ -12,6 +12,7 @@ import {
   WrenchRegular,
   BookRegular,
   ArrowLeftRegular,
+  MoreVerticalRegular,
 } from "@fluentui/react-icons";
 import { useLanguage } from "../i18n";
 import { DuckDbIcon } from "./DuckDbIcon";
@@ -43,6 +44,8 @@ export interface ToolbarProps {
   analysisMode?: boolean;
   onExitAnalysis?: () => void;
   onSendToAnalysis?: () => void;
+  onAnalyzeLocally?: () => void;
+  analyzingLocally?: boolean;
   onImportLocalFile?: () => void;
 }
 
@@ -74,11 +77,13 @@ export function Toolbar({
   analysisMode = false,
   onExitAnalysis,
   onSendToAnalysis,
+  onAnalyzeLocally,
+  analyzingLocally = false,
   onImportLocalFile,
 }: ToolbarProps) {
   const { t } = useLanguage();
   return (
-    <FluentToolbar className="omni-toolbar">
+    <FluentToolbar size="small" className="omni-toolbar">
       <div className="omni-toolbar-main">
       {analysisMode && <div className="omni-toolbar-analysis-context">
         <DuckDbIcon size={24} />
@@ -113,7 +118,6 @@ export function Toolbar({
               EXPLAIN
             </ToolbarButton>
         <div className="omni-toolbar-limit">
-          <span className="omni-toolbar-inline-label">{t("rowLimit")}</span>
           <select
             aria-label={t("rowLimit")}
             value={limit}
@@ -137,23 +141,13 @@ export function Toolbar({
       </div>
       </div>}
 
-      {!globalOnly && <div className="omni-toolbar-group omni-toolbar-tab-actions" role="group" aria-label={t("tabActions")}>
-            <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onAdd} aria-label={t("newSqlTab")} title={t("newSqlTab")} />
-            <ToolbarButton icon={<FolderOpenRegular fontSize={14} />} onClick={onOpen} aria-label={t("openSavedTab")}>
-              {t("openSavedTab")}
-            </ToolbarButton>
-            <ToolbarButton icon={<SaveRegular fontSize={14} />} onClick={onSave} aria-label={t("saveTab")}>
-              {t("saveTab")}
-            </ToolbarButton>
-      </div>}
-
-      {!globalOnly && <div className="omni-toolbar-group omni-toolbar-analysis-actions" role="group" aria-label={t("analyzeLocally")}>
-        <ToolbarButton icon={<DuckDbIcon size={15} />} onClick={onSendToAnalysis} disabled={!activeConnectionId || !onSendToAnalysis}
-          aria-label={t("analysisSendToLocal")} title={t("analysisSendToLocal")}>DuckDB</ToolbarButton>
-        <ToolbarButton icon={<AddRegular fontSize={14} />} onClick={onImportLocalFile}
-          aria-label={t("analysisImportFile")} title={t("analysisImportFile")}>{t("analysisImportFile")}</ToolbarButton>
-      </div>}
       {!globalOnly && mongoControls}
+      {!globalOnly && onAnalyzeLocally && <ToolbarButton
+        className="omni-toolbar-analyze"
+        icon={<DuckDbIcon size={16} />}
+        onClick={onAnalyzeLocally}
+        disabled={running || analyzingLocally}
+      >{analyzingLocally ? t("analysisImporting") : t("analyzeLocally")}</ToolbarButton>}
 
       </div>
       <div className="omni-toolbar-utilities">
@@ -164,10 +158,26 @@ export function Toolbar({
       {analysisMode && <ToolbarButton icon={<ArrowLeftRegular fontSize={14} />} onClick={onExitAnalysis}>{t("analysisBackToSql")}</ToolbarButton>}
 
       <div className="omni-toolbar-group omni-toolbar-global-actions" role="group" aria-label={t("settings")}>
-        <ToolbarButton icon={<SettingsRegular fontSize={14} />} onClick={onOpenFormatSettings} aria-label={t("settings")} title={t("settings")} />
+        {!globalOnly && <ToolbarButton icon={<SaveRegular fontSize={16} />} onClick={onSave} aria-label={t("saveTab")} title={t("saveTab")} />}
         <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} title={t("toggleSidebar")} />
-        <ToolbarButton icon={<BookRegular fontSize={14} />} onClick={onOpenCommandLibrary} aria-label={t("commandLibrary")} title={t("commandLibrary")} />
-        <ToolbarButton icon={<HistoryRegular fontSize={14} />} onClick={onToggleHistory} aria-label={t("history")} title={t("history")} />
+        <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <ToolbarButton icon={<MoreVerticalRegular fontSize={16} />} aria-label={t("moreActions")} title={t("moreActions")} />
+          </MenuTrigger>
+          <MenuPopover>
+            <MenuList>
+              {!globalOnly && <>
+                <MenuItem icon={<AddRegular />} onClick={onAdd}>{t("newSqlTab")}</MenuItem>
+                <MenuItem icon={<FolderOpenRegular />} onClick={onOpen}>{t("openSavedTab")}</MenuItem>
+                <MenuItem icon={<DuckDbIcon size={16} />} onClick={onSendToAnalysis} disabled={!activeConnectionId || !onSendToAnalysis}>{t("analysisSendToLocal")}</MenuItem>
+                <MenuItem icon={<AddRegular />} onClick={onImportLocalFile}>{t("analysisImportFile")}</MenuItem>
+              </>}
+              <MenuItem icon={<SettingsRegular />} onClick={onOpenFormatSettings}>{t("settings")}</MenuItem>
+              <MenuItem icon={<BookRegular />} onClick={onOpenCommandLibrary}>{t("commandLibrary")}</MenuItem>
+              <MenuItem icon={<HistoryRegular />} onClick={onToggleHistory}>{t("history")}</MenuItem>
+            </MenuList>
+          </MenuPopover>
+        </Menu>
       </div>
       </div>
       {pendingRunCount && (

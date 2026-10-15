@@ -49,6 +49,8 @@ import {
 } from "@fluentui/react-icons";
 import { DialectIcon } from "./DialectIcon";
 import { SidecarStatus } from "./SidecarStatus";
+import { DuckDbIcon } from "./DuckDbIcon";
+import type { DatasetRef } from "../lib/analysis";
 import { typeIcon } from "../lib/type-icon";
 import { backend, type ConnectionEntry, type RelationColumn, type RelationInfo } from "../lib/backend";
 import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
@@ -93,6 +95,12 @@ export interface SidebarProps {
   analysisConnectionId?: string | null;
   onOpenAnalysis?: () => void;
   onAnalysisHostChange?: (element: HTMLDivElement | null) => void;
+  localDatasets?: readonly DatasetRef[];
+  localDatasetsLoading?: boolean;
+  localDatasetsError?: boolean;
+  onOpenLocalDataset?: (dataset: DatasetRef) => void;
+  onImportLocalFile?: () => void;
+  onRefreshLocalDatasets?: () => void;
 }
 
 interface SchemaGroup {
@@ -231,9 +239,9 @@ const MIN_WIDTH = 160;
 const MAX_WIDTH = 640;
 const DEFAULT_WIDTH = 260;
 const WIDTH_KEY = "omni-sql:sidebarWidth";
-const MIN_CONNECTIONS_HEIGHT = 150;
+const MIN_CONNECTIONS_HEIGHT = 100;
 const MIN_OBJECTS_HEIGHT = 180;
-const DEFAULT_CONNECTIONS_HEIGHT = 220;
+const DEFAULT_CONNECTIONS_HEIGHT = 160;
 const CONNECTIONS_HEIGHT_KEY = "omni-sql:connectionsHeight";
 const DEFAULT_OBJECTS_HEIGHT = 360;
 const MIN_ANALYSIS_HEIGHT = 120;
@@ -303,13 +311,18 @@ export function Sidebar({
   onMoveConnection,
   onOpenInNewTab,
   mongoSqlMode = false,
-  health = "unknown",
   metadataRefreshFailed = false,
   metadataRefreshing = false,
   analysisActive = false,
   analysisConnectionId = null,
   onOpenAnalysis,
   onAnalysisHostChange,
+  localDatasets = [],
+  localDatasetsLoading = false,
+  localDatasetsError = false,
+  onOpenLocalDataset,
+  onImportLocalFile,
+  onRefreshLocalDatasets,
 }: SidebarProps) {
   const { t: tr } = useLanguage();
   const [search, setSearch] = useState("");
@@ -710,7 +723,6 @@ export function Sidebar({
   const metadataFreshness = getMetadataFreshness(connection?.lastSyncedAt);
   const metadataTimestamp = formatLastSyncedAt(connection?.lastSyncedAt);
   const metadataTooltip = `${metadataRefreshFailed ? `${tr("error")}: ${tr("refreshMetadata")}` : metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
-  const healthLabel = health === "online" ? tr("headerConnected") : health === "offline" ? tr("headerOffline") : health === "verifying" ? tr("headerVerifying") : tr("statusUnknown");
 
   return (
     <Card
@@ -895,35 +907,6 @@ export function Sidebar({
           >
             <span className="omni-sidebar-section-title">{tr("objects")}</span>
           </Button>
-        </div>
-      {objectsExpanded && <>
-      <div
-        className={connection ? "omni-objects-context" : "omni-objects-context is-empty"}
-        style={{
-          padding: "10px 12px",
-          borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          justifyContent: "space-between",
-        }}
-      >
-        {connection ? (
-          <div
-            className={`omni-connection-chip ${connection.lastSyncedAt ? "synced" : ""}`}
-            style={{ flex: "1 1 auto", minWidth: 0 }}
-          >
-            <DialectIcon dialect={connection.dialect} size={14} />
-            <div style={{ minWidth: 0 }}>
-              <div className="connection-label" style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{connection.label}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, color: health === "online" ? tokens.colorPaletteGreenForeground1 : health === "offline" ? tokens.colorPaletteRedForeground1 : tokens.colorNeutralForeground2, fontSize: 12 }}>
-                {healthLabel}
-              </div>
-            </div>
-          </div>
-        ) : (
-          null
-        )}
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
           {loading && <Spinner size="tiny" />}
           {connection && (
@@ -942,7 +925,8 @@ export function Sidebar({
           )}
           <SidecarStatus />
         </div>
-      </div>
+        </div>
+      {objectsExpanded && <>
       <div style={{ padding: 8 }}>
         {connection?.dialect === "s3" && <div className="omni-s3-objects-prefix">
           <Input size="small" value={s3PrefixDraft} onChange={(_, data) => setS3PrefixDraft(data.value)}
@@ -1304,20 +1288,31 @@ export function Sidebar({
       </>}
       </section>
       {analysisActive && objectsExpanded && analysisExpanded && <div className={`connections-resize-handle${resizingAnalysis ? " resizing" : ""}`} role="separator" aria-orientation="horizontal" tabIndex={0} aria-label={tr("resizeAnalysisPanel")} onPointerDown={onAnalysisResizeStart} onKeyDown={onAnalysisResizeKeyDown} />}
-      {onOpenAnalysis && <section ref={analysisSectionRef} className={`omni-sidebar-analysis-section${analysisActive && analysisExpanded ? "" : " collapsed"}`}>
+      <section ref={analysisSectionRef} className={`omni-sidebar-analysis-section${analysisExpanded ? "" : " collapsed"}${analysisActive ? "" : " is-persistent"}`}>
         <div className="omni-sidebar-section-header">
           <Button
             appearance="transparent"
             size="small"
-            icon={analysisActive && analysisExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
-            onClick={() => analysisActive ? setAnalysisExpanded((value) => !value) : onOpenAnalysis()}
-            aria-expanded={analysisActive && analysisExpanded}
+            icon={analysisExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
+            onClick={() => setAnalysisExpanded((value) => !value)}
+            aria-expanded={analysisExpanded}
           >
-            <span className="omni-sidebar-section-title">{tr("analyzeLocally")}</span>
+            <span className="omni-sidebar-section-title">{tr("localAnalysis")}</span>
           </Button>
+          <Button appearance="transparent" size="small" icon={<AddRegular />} onClick={onImportLocalFile} aria-label={tr("analysisImportFile")} title={tr("analysisImportFile")} />
         </div>
         {analysisActive && analysisExpanded && <div ref={onAnalysisHostChange} className="omni-sidebar-analysis-content" />}
-      </section>}
+        {!analysisActive && analysisExpanded && <div className="omni-local-datasets">
+          <Button appearance="transparent" className="omni-local-engine" icon={<DuckDbIcon size={16} />} onClick={onOpenAnalysis} disabled={!onOpenAnalysis}>DuckDB</Button>
+          {localDatasetsLoading && <Spinner size="tiny" label={tr("loading")} />}
+          {localDatasetsError && <div className="omni-local-datasets-message" role="status">{tr("localDatasetsUnavailable")}</div>}
+          {!localDatasetsLoading && !localDatasetsError && localDatasets.length === 0 && <div className="omni-local-datasets-message">{tr("localDatasetsEmpty")}</div>}
+          {!localDatasetsLoading && localDatasets.map((dataset) => <Button key={`${dataset.workspaceId}:${dataset.id}`} appearance="transparent" className="omni-local-dataset" icon={<TableRegular fontSize={14} />} title={`${dataset.name} · ${dataset.rowCount.toLocaleString()} ${tr("rows")}`} onClick={() => onOpenLocalDataset?.(dataset)}>
+            <span>{dataset.name}</span>
+          </Button>)}
+          {onRefreshLocalDatasets && <Button appearance="transparent" size="small" onClick={onRefreshLocalDatasets} disabled={localDatasetsLoading}>{tr("refresh")}</Button>}
+        </div>}
+      </section>
       {connection && connection.dialect !== "s3" && connection.dialect !== "duckdb" && connection.dialect !== "mongodb" && <CreateTableDialog
         open={createTableSchema !== null}
         dialect={connection.dialect}
