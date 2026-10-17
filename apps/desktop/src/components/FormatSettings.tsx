@@ -24,7 +24,7 @@ import {
   type FormatterSettings,
 } from "../lib/format-sql";
 import type { DialectId } from "@omni-sql/ts-types";
-import { useLanguage } from "../i18n";
+import { useLanguage, type Language } from "../i18n";
 
 export interface FormatSettingsProps {
   open: boolean;
@@ -104,10 +104,11 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                 <Select
                   aria-label={t("language")}
                   value={language}
-                  onChange={(_, data) => setLanguage(data.value as "en" | "pt-BR")}
+                  onChange={(_, data) => setLanguage(data.value as Language)}
                 >
                   <option value="en">{t("english")}</option>
                   <option value="pt-BR">{t("portugueseBrazil")}</option>
+                  <option value="zh-CN">{t("simplifiedChinese")}</option>
                 </Select>
               </Field>
               </div>

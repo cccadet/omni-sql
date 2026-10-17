@@ -52,3 +52,14 @@ test("keeps a process running when stopping is declined and reports restart erro
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Reiniciar o omni-sql"));
   confirm.mockRestore();
 });
+
+test("shows Chinese process states and confirmation", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  render(<BackgroundProcessesDialog open onClose={vi.fn()} language="zh-CN" />);
+  expect(await screen.findByText("Node backend — 运行中 (PID 123)")).toBeTruthy();
+  expect(screen.getByText("JVM sidecar — 已停止")).toBeTruthy();
+  fireEvent.click(screen.getAllByRole("button", { name: "停止" })[0]!);
+  expect(confirm).toHaveBeenCalledWith("停止 Node backend？依赖此进程的功能将不可用，直到应用重启。");
+  expect(invokeMock).not.toHaveBeenCalledWith("stop_managed_process", expect.anything());
+  confirm.mockRestore();
+});

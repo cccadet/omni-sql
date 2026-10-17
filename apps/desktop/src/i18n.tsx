@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { simplifiedChinese } from "./i18n.zh-CN";
 
-export type Language = "en" | "pt-BR";
+export type Language = "en" | "pt-BR" | "zh-CN";
 
 const LANGUAGE_KEY = "omni-sql:language";
 
@@ -540,6 +541,16 @@ const english = {
   executionCompleted: "Completed",
   localDatasetsEmpty: "Import a file or analyze query results to add a dataset.",
   gridReadOnlyKeyboardHint: "Cells: use arrow keys to navigate. These results are read-only.",
+  simplifiedChinese: "简体中文",
+  backgroundProcesses: "Background processes",
+  backgroundServices: "Services started and controlled by omni-sql:",
+  processRunning: "Running",
+  processStopped: "Stopped",
+  stopProcessConfirm: "Stop {label}? Features that depend on it will be unavailable until the app restarts.",
+  restartServicesConfirm: "Restart omni-sql and its services? Open database connections will need to reconnect.",
+  externalMcpProcesses: "MCP launchers opened by external clients belong to those clients. Stop them in the client; this panel does not control them.",
+  restartServices: "Restart app and services",
+  stopProcess: "Stop",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -643,12 +654,26 @@ const portugueseBrazil = [
   "Ambiente", "Não especificado", "Desenvolvimento", "Homologação", "Produção", "Concluído",
   "Importe um arquivo ou analise resultados para adicionar um dataset.",
   "Células: use as setas para navegar. Estes resultados são somente leitura.",
+  "简体中文",
+  "Processos em segundo plano",
+  "Serviços iniciados e controlados pelo omni-sql:",
+  "Em execução",
+  "Parado",
+  "Encerrar {label}? Os recursos que dependem dele ficarão indisponíveis até reiniciar o aplicativo.",
+  "Reiniciar o omni-sql e seus serviços? As conexões de banco abertas precisarão ser reconectadas.",
+  "Launchers MCP abertos por clientes externos pertencem a esses clientes. Encerre-os no próprio cliente; eles não são controlados por este painel.",
+  "Reiniciar aplicativo e serviços",
+  "Encerrar",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
   translationKeys.map((key, index) => [key, portugueseBrazil[index]!]),
 ) as Dictionary;
-const dictionaries: Record<Language, Dictionary> = { en: english, "pt-BR": portugueseBrazilDictionary };
+export const dictionaries: Record<Language, Dictionary> = {
+  en: english,
+  "pt-BR": portugueseBrazilDictionary,
+  "zh-CN": simplifiedChinese,
+};
 
 interface LanguageContextValue {
   language: Language;
@@ -661,7 +686,7 @@ const LanguageContext = createContext<LanguageContextValue | null>(null);
 function readLanguage(): Language {
   try {
     const value = localStorage.getItem(LANGUAGE_KEY);
-    return value === "pt-BR" || value === "en" ? value : "en";
+    return value === "pt-BR" || value === "en" || value === "zh-CN" ? value : "en";
   } catch {
     return "en";
   }

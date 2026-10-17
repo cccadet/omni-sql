@@ -1,8 +1,27 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { test, expect, vi } from "vitest";
+import { beforeEach, test, expect, vi } from "vitest";
 import { FormatSettings } from "./FormatSettings";
 import { LanguageProvider } from "../i18n";
 import { DEFAULT_FORMATTER_SETTINGS } from "../lib/format-sql";
+
+beforeEach(() => localStorage.clear());
+
+test("selects Chinese in settings and restores it when reopened", () => {
+  const settings = <LanguageProvider>
+    <FormatSettings open dialect="postgres" settings={DEFAULT_FORMATTER_SETTINGS} onClose={vi.fn()} onSave={vi.fn()} />
+  </LanguageProvider>;
+  const view = render(settings);
+  fireEvent.click(screen.getByRole("tab", { name: "Language" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Language" }), { target: { value: "zh-CN" } });
+  expect(screen.getByRole("combobox", { name: "语言" })).toHaveProperty("value", "zh-CN");
+  expect(screen.getByRole("button", { name: "保存设置" })).toBeTruthy();
+  expect(localStorage.getItem("omni-sql:language")).toBe("zh-CN");
+  view.unmount();
+  render(settings);
+  expect(screen.getByRole("tab", { name: "编辑器" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "语言" }));
+  expect(screen.getByRole("combobox", { name: "语言" })).toHaveProperty("value", "zh-CN");
+});
 
 test("uses context-specific save label", () => {
   render(
