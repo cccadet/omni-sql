@@ -83,7 +83,7 @@ Nenhum overlay foi injetado: evaluate disponível é somente leitura. Evidência
 - [ ] UX-20 · P2 · Metadados: ao cadastrar ou editar a conexão, parece ocorrer uma atualização dos metadados, mas o ícone de metadados não reflete o estado atualizado. Relatado pelo usuário em 2026-10-09; confirmar a atualização efetiva antes de corrigir. Aceite: após cadastrar/editar e concluir a atualização, o ícone reflete o estado real; verificar também atualização em andamento e falha.
 - [x] UX-21 · P1 · Grid: área de dados praticamente invisível em painel baixo após executar. Reproduzido e corrigido no lote 6: removido gap padrão do Card e garantida área mínima com rolagem de fallback. Detalhes da conexão também quebram em linhas sem sobreposição. Validação nativa do usuário pendente.
 
-Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entregar o que mudou e um roteiro curto de teste; aguardar a validação do usuário antes do próximo. Para cada mudança, selecionar o menor nível de teste que detecte o comportamento, rodar typecheck/lint/testes afetados uma vez e integração quando o caminho exigir, conforme AGENTS.md.
+Implementação autorizada em lotes em 2026-10-09. Ao terminar cada lote, entregar o que mudou e um roteiro curto de teste; aguardar a validação do usuário antes do próximo. Para cada mudança, selecionar o menor nível de teste que detecte o comportamento, rodar typecheck/lint/testes afetados uma vez e integração quando o caminho exigir, conforme CLAUDE.md.
 
 ## Layout e organização dos botões
 
