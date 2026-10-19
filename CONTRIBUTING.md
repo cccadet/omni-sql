@@ -1,7 +1,7 @@
 # Contributing
 
 1. Follow [Development](docs/DEVELOPMENT.md) to install and run the project.
-2. Follow package boundaries and conventions in [AGENTS.md](AGENTS.md).
+2. Follow package boundaries and conventions in [CLAUDE.md](CLAUDE.md).
    Preserve validation, error handling and accessibility.
 3. At completion, run typecheck, lint and tests for affected packages. Shared
    contracts require consumer checks; Rust/JVM changes require native checks.

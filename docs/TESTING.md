@@ -1,7 +1,7 @@
 # Test and release gates
 
 Read this before running push/release gates or changing coverage configuration.
-Daily test-selection rules live in [AGENTS.md](../AGENTS.md).
+Daily test-selection rules live in [CLAUDE.md](../CLAUDE.md).
 
 ## Coverage and release workflow
 
@@ -11,7 +11,7 @@ Daily test-selection rules live in [AGENTS.md](../AGENTS.md).
   coverage against Sonar's configured threshold. Do not substitute overall
   TypeScript coverage for new-code coverage.
 - `verify:push` is a coverage preflight, not a substitute for the affected
-  typecheck/lint checks required by AGENTS.md. Keep full multi-database integration and desktop
+  typecheck/lint checks required by CLAUDE.md. Keep full multi-database integration and desktop
   lifecycle validation at release or when the affected path requires them;
   do not add them to the per-edit or precommit loop.
 - The checkpoint reuses a successful result while tracked/nonignored code and

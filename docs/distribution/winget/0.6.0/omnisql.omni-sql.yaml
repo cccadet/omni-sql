@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.12.0.schema.json
+PackageIdentifier: omnisql.omni-sql
+PackageVersion: 0.6.0
+PackageLocale: en-US
+Publisher: omnisql
+PublisherUrl: https://github.com/cccadet/omni-sql
+PackageName: omni-sql
+PackageUrl: https://github.com/cccadet/omni-sql
+License: MIT
+LicenseUrl: https://github.com/cccadet/omni-sql/blob/main/LICENSE
+ShortDescription: Join database results with CSV and Parquet locally using DuckDB.
+Moniker: omni-sql
+Tags:
+  - sql
+  - duckdb
+  - database
+  - postgresql
+  - analytics
+Installers:
+  - Architecture: x64
+    InstallerType: nullsoft
+    Scope: user
+    InstallerUrl: https://github.com/cccadet/omni-sql/releases/download/v0.6.0/omni-sql_0.6.0_x64-setup.exe
+    InstallerSha256: 6A096FCA8425D5FA2E6372D9CF017556A9DC1E9C37EAC65B91B05267CE772F3C
+ManifestType: singleton
+ManifestVersion: 1.12.0
