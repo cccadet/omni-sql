@@ -172,7 +172,7 @@ export const simplifiedChinese = {
   connectionNamePlaceholder: "我的连接",
   internalId: "内部 ID",
   credentialsPreserved: "此值固定，以保留已保存的凭据。",
-  duplicatePasswordHint: "密码不会被复制。请输入密码以保存此连接的凭据。",
+  duplicateCredentialsHint: "密码不会被复制。请输入密码以保存此连接的凭据。",
   browse: "浏览…",
   user: "用户",
   password: "密码",
