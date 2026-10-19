@@ -4,6 +4,7 @@ import argparse
 import fnmatch
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -18,6 +19,18 @@ CACHE = ROOT / '.cache/coverage-checkpoint.json'
 
 def git(*args):
     return subprocess.check_output(['git', *args], cwd=ROOT).decode()
+
+
+def bash():
+    """On Windows, `bash` on PATH is often the WSL launcher, which cannot see
+    the host toolchain; prefer the Git for Windows bash next to git."""
+    if os.name == 'nt':
+        git_exe = shutil.which('git')
+        if git_exe:
+            candidate = Path(git_exe).resolve().parents[1] / 'bin' / 'bash.exe'
+            if candidate.is_file():
+                return str(candidate)
+    return shutil.which('bash') or 'bash'
 
 
 def snapshot():
@@ -188,7 +201,7 @@ def main():
         subprocess.run(['cargo', 'llvm-cov', '--version'], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         subprocess.run(['docker', 'info', '--format', '{{.ServerVersion}}'], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         subprocess.run([shutil.which('pnpm') or 'pnpm', 'test:coverage'], cwd=ROOT, check=True)
-        subprocess.run(['bash', 'scripts/coverage-native.sh'], cwd=ROOT, check=True)
+        subprocess.run([bash(), 'scripts/coverage-native.sh'], cwd=ROOT, check=True)
     files = {}
     for path in report_paths:
         files.update(read_jacoco(path) if path.suffix == '.xml' else read_lcov(path))
