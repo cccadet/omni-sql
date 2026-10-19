@@ -752,7 +752,8 @@ it("MCP execution shows connection and SQL and requires approval before the exec
     expect(within(dialog).getByText(/Local Postgres/)).toBeTruthy();
     expect(within(dialog).getByDisplayValue("DELETE FROM users")).toBeTruthy();
     expect(call.mock.calls.some(([method]) => method === "mcp.ui.execute")).toBe(false);
-    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Run" })); await pending; });
+    const run = await within(dialog).findByRole("button", { name: "Run" });
+    await act(async () => { fireEvent.click(run); await pending; });
     expect(call).toHaveBeenCalledWith("mcp.ui.execute", expect.objectContaining({ id: "mcp-execute", connectionId: "conn-1" }));
     expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe("SELECT original");
   } finally { start.mockRestore(); }
