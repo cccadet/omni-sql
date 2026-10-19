@@ -1,6 +1,9 @@
 #!/bin/sh
+# Release tags run the full release gate, pushes to main run verify:push, and
+# any other branch gets the light check. Bypass in an emergency: git push --no-verify
 set -eu
 release=0
+full=0
 push=0
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
@@ -8,9 +11,16 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   case "$local_ref" in
     refs/tags/v*) release=1 ;;
   esac
+  case "$remote_ref" in
+    refs/heads/main) full=1 ;;
+  esac
 done
 [ "$push" -eq 0 ] && exit 0
 if [ "$release" -eq 1 ]; then
   exec bash "$(git rev-parse --show-toplevel)/scripts/pre-release.sh"
 fi
-pnpm verify:push
+if [ "$full" -eq 1 ]; then
+  pnpm verify:push
+else
+  pnpm typecheck && pnpm lint && pnpm test:fast
+fi
