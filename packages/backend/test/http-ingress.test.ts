@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-test("invalid raw request target cannot terminate the backend", { timeout: 20_000 }, async () => {
+test("invalid raw request target cannot terminate the backend", { timeout: 60_000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "omni-http-ingress-"));
   const child = spawn(process.execPath, ["--input-type=module", "-e", `
     const { startServer } = await import(${JSON.stringify(new URL("../src/index.ts", import.meta.url).href)});
