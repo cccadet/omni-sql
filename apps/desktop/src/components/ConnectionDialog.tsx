@@ -529,7 +529,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 <Field label={t("password")}>
                   <Input type="password" value={password} onChange={(_, data) => setPassword(data.value)} placeholder="••••••" disabled={busy} style={{ marginTop: 4 }} />
                 </Field>
-                {duplicating && <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("duplicatePasswordHint")}</Text>}
+                {duplicating && <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("duplicateCredentialsHint")}</Text>}
               </>
             )}
 

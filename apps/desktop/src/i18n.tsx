@@ -176,7 +176,7 @@ const english = {
   connectionNamePlaceholder: "My connection",
   internalId: "Internal ID",
   credentialsPreserved: "Fixed to preserve saved credentials.",
-  duplicatePasswordHint: "Password is not copied. Enter it to save credentials for this connection.",
+  duplicateCredentialsHint: "Password is not copied. Enter it to save credentials for this connection.",
   browse: "Browse…",
   user: "User",
   password: "Password",
