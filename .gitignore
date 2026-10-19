@@ -16,18 +16,10 @@ artifacts/
 !.env.example
 
 # Agent / IDE local state
-.serena/*
-!.serena/memories/
-.serena/memories/**/*
-!.serena/memories/**/
-!.serena/memories/**/*.md
 .codebase-memory/
-.headroom/
 .tokensave/
 .mimocode/
 .cursorrules
-.codex/
-.impeccable/
 node
 .cache/omni-sql-runtimes/
 apps/desktop/src-tauri/resources/backend/
@@ -53,13 +45,11 @@ docker/test-dbs/drivers/
 # OS
 .DS_Store
 Thumbs.db
-.claude/.headroom_wrap_marker.json
 .codex-security/
 layout_transpilar.png
 layout2.png
 docs/images/tela_settings_formater.png
 apps/desktop/src-tauri/resultados.csv
-.agents/
 .windsurf/
 skills-lock.json
 .claude/
