@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import urllib.parse
 import urllib.request
@@ -186,7 +187,7 @@ def main():
     if not args.reports_only:
         subprocess.run(['cargo', 'llvm-cov', '--version'], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         subprocess.run(['docker', 'info', '--format', '{{.ServerVersion}}'], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(['pnpm', 'test:coverage'], cwd=ROOT, check=True)
+        subprocess.run([shutil.which('pnpm') or 'pnpm', 'test:coverage'], cwd=ROOT, check=True)
         subprocess.run(['bash', 'scripts/coverage-native.sh'], cwd=ROOT, check=True)
     files = {}
     for path in report_paths:
