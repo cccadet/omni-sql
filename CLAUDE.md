@@ -1,6 +1,8 @@
-# AGENTS.md — omni-sql
+# CLAUDE.md
 
-Multi-database SQL IDE with contextual autocomplete (no LLM required) and local analysis.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+omni-sql: multi-database SQL IDE with contextual autocomplete (no LLM required) and local analysis. This is the single source of project guidance.
 
 ## Layout and stack
 
@@ -26,6 +28,19 @@ PostgreSQL uses information_schema/pg_catalog, server-side cursors and
 Tauri ↔ backend contracts live in `packages/backend/src/protocol.ts` (localhost:41920).
 JVM endpoints include `/health`, `/scope/resolve`, `/query/editability` and `/jdbc/*`.
 
+## Architecture (big picture)
+
+Local desktop app; several processes cooperate over loopback:
+
+- **Tauri/Rust shell** spawns and health-checks the Node backend (`:41920`) and optional JVM sidecar (`:41921`), hosts the React UI and exposes Tauri commands for local analysis.
+- **React UI** talks to the **Node backend** via HTTP JSON-RPC. The backend owns connections, adapters (behind `adapters-core`'s registry/caching wrapper), metadata sync and autocomplete orchestration.
+- **Autocomplete** is two-tier: tier 1 is the lexer/contextual engine driven by `dialect-descriptors`; tier 2 asks the JVM sidecar (Calcite) to resolve CTE columns. Sidecar failure/timeout falls back to tier 1; never fail the request.
+- **JDBC** and user-supplied drivers run only through the JVM sidecar. MongoDB uses the native driver plus SQL translation in the backend.
+- **Local analysis** runs in Rust/DuckDB (`local.duckdb`); the backend streams relational rows to Rust as bounded NDJSON.
+- **MCP server** (stdio or authenticated HTTP `:41922`) bridges to the backend; SQL edits/execution require desktop approval and results are bounded.
+
+Deeper detail: `docs/ARCHITECTURE.md`, `docs/MCP.md`, `docs/MONGODB.md`, `docs/RUST_DATA_ENGINE_PLAN.md`.
+
 ## Commands
 
 Use pnpm 11.17.0 (`package.json#packageManager`) and Node 22.
@@ -44,6 +59,13 @@ Use pnpm 11.17.0 (`package.json#packageManager`) and Node 22.
   `CARGO_BUILD_JOBS=2 pnpm dev:tauri`
 - Rust check: `CARGO_BUILD_JOBS=2 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`
 - Optional hooks: `git config core.hooksPath .githooks`
+
+Single tests:
+
+- Desktop (Vitest): `pnpm --filter desktop exec vitest run src/lib/foo.test.ts` (`-t "name"` for one case)
+- Backend (`node --test`): `pnpm --filter backend exec node --test src/foo.test.ts`
+- Other packages: `node --test`; check each package's `test` script.
+- JVM sidecar: `./gradlew test` in `services/jvm-sidecar` (`gradlew.bat` on Windows); `./gradlew jar` builds the JAR.
 
 ## Development and tests
 
@@ -112,11 +134,13 @@ coverage gates; it contains prerequisites, baseline handling and checkpoint deta
 - Query execution is bounded and cancellable where drivers support it. MCP
   transports enforce authentication, payload/session bounds and UI bridge handling.
 
-<!-- headroom:memory-instructions -->
-## Memory
+## Module notes
 
-Use `headroom_memory` when available: call memory_search before answering about
-past decisions/preferences/context, and memory_save after durable decisions or discoveries.
-Search "Plano omni-sql" for earlier architecture context. If tools are unavailable,
-use checked-in code/docs, state the limitation and do not invent past decisions or
-install a memory server. Memory is the first source for facts absent from this chat.
+- **Stack:** Node >=22, ESM TypeScript 5.7 (`noUncheckedIndexedAccess`, `noImplicitOverride`), Tauri 2, JVM sidecar on Kotlin 2.1 / JDK 21 / Gradle / Calcite 1.37 (scope parsing is syntactic, not schema-backed). pnpm filter names: `desktop`, `@omni-sql/backend`, `@omni-sql/mcp-server`.
+- **Backend** (`packages/backend`): entry `src/index.ts`, contract `src/protocol.ts`, handlers `src/handlers.ts`. `query.run` validates positive integer limits, defaults to 1,000 rows, caps at 10,000. CTE completion calls sidecar `/scope/resolve` with a 250ms timeout and merges relations into tier 1; failure, timeout, malformed response or unparseable CTE falls back to tier 1. The MCP bridge exposes bounded, validated UI tools, never credentials or automatic SQL edits.
+- **Desktop UI:** `src/App.tsx` coordinates session, connections, execution, completion, formatting, results and MCP UI state. Tabs, history, theme, language and formatter settings persist in `localStorage`; connections restore from backend SQLite + keyring. Monaco setup is `src/lib/monaco-config.ts`.
+- **SQL formatter:** `sql-formatter` only (no custom formatter), via `src/lib/format-sql.ts` (dialect → formatter language: PostgreSQL, MySQL/MariaDB, SQL Server `transactsql`, Oracle `plsql`, generic). Default shortcut `Ctrl+Alt+L`; settings in `localStorage` key `omni-sql:formatterSettings`.
+- **JVM sidecar:** main `dev.omnisql.sidecar.MainKt`, fat JAR run via `java -jar`, JDK HttpServer, Calcite logging bound to slf4j-nop. `CteTextScanner` isolates each CTE body before parsing so incomplete outer SQL is never parsed. Out of scope for now in the sidecar: schema/catalog adapter, SELECT-star expansion, full validation, correlated-subquery scope (tier 1 handles correlated subqueries).
+- **MCP server:** `createMcpServer` registers approved tools; default stdio. Streamable HTTP at fixed `/mcp` on `127.0.0.1:41922` requires `OMNI_SQL_MCP_HTTP_TOKEN` and Bearer auth; sessions have generated IDs, bounded capacity and idle expiry; bodies, tool text, responses and errors are size-bounded and schema-validated. `BackendMcpClient` forwards calls to backend `/mcp`, which filters sensitive fields, bounds queue/timeouts and routes approved UI actions.
+- **Dialects:** PostgreSQL metadata uses information_schema/pg_catalog with cursors and JSON EXPLAIN; SQL Server plans use SHOWPLAN in a separate transaction.
+- **Reporting:** report only commands with observed output; preserve unrelated dirty/untracked work (don't stage or revert it).
