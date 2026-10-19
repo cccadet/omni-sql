@@ -25,8 +25,9 @@ Daily test-selection rules live in [CLAUDE.md](../CLAUDE.md).
   only with an explicitly established reference. Never silently use HEAD or the
   latest tag. `--reports-only` inspects existing reports and does not record a
   successful checkpoint; it is for diagnosis, not final validation.
-- The pre-push hook uses the same cached checkpoint. Before a `v*` release tag,
-  it also runs `scripts/pre-release.sh`. Manual release validation and the hook
+- The pre-push hook runs `pnpm typecheck`, `pnpm lint` and `pnpm test:fast` for
+  branches other than `main`. Pushes to `main` run `pnpm verify:push`, which uses
+  the cached checkpoint. A `v*` release tag runs `scripts/pre-release.sh`. Manual release validation and the hook
   share the same successful checkpoint; do not rerun approved checks needlessly.
 - Release validation tests PostgreSQL/MySQL/MariaDB/SQL Server/Oracle and JDBC
   through adapters and HTTP JSON-RPC, MongoDB through HTTP/SQL translation,
