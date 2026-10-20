@@ -7,7 +7,6 @@ vi.mock("@fluentui/react-icons", () => {
   const Icon = () => null;
   return {
     AddRegular: Icon,
-    ArrowLeftRegular: Icon,
     ArrowSyncRegular: Icon,
     BookRegular: Icon,
     DatabaseRegular: Icon,
@@ -29,8 +28,8 @@ vi.mock("@fluentui/react-icons", () => {
 
 test("runs local analysis from the execution toolbar and blocks it during a query or import", () => {
   const onAnalyzeLocally = vi.fn();
-  const view = (running = false, analyzingLocally = false, globalOnly = false) => <LanguageProvider>
-    <Toolbar activeConnectionId="mongo" running={running} analyzingLocally={analyzingLocally} onAnalyzeLocally={onAnalyzeLocally} globalOnly={globalOnly} />
+  const view = (running = false, analyzingLocally = false) => <LanguageProvider>
+    <Toolbar activeConnectionId="mongo" running={running} analyzingLocally={analyzingLocally} onAnalyzeLocally={onAnalyzeLocally} />
   </LanguageProvider>;
   const { rerender } = render(view());
   fireEvent.click(screen.getByRole("button", { name: "Analyze locally" }));
@@ -39,8 +38,6 @@ test("runs local analysis from the execution toolbar and blocks it during a quer
   expect((screen.getByRole("button", { name: "Analyze locally" }) as HTMLButtonElement).disabled).toBe(true);
   rerender(view(false, true));
   expect((screen.getByRole("button", { name: "Importing source data…" }) as HTMLButtonElement).disabled).toBe(true);
-  rerender(view(false, false, true));
-  expect(screen.queryByRole("button", { name: "Analyze locally" })).toBeNull();
 });
 
 test("renders multi-statement modal and row limit in English", () => {
@@ -83,20 +80,6 @@ test("shows the visible cancel action while a query is running", () => {
   expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
   fireEvent.click(cancel);
   expect(onCancelRun).toHaveBeenCalledOnce();
-});
-
-test("keeps global actions together in analysis mode", () => {
-  render(
-    <LanguageProvider>
-      <Toolbar activeConnectionId="connection-1" globalOnly />
-    </LanguageProvider>,
-  );
-  expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
-  expect(screen.getByRole("group", { name: "Settings" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-  expect(screen.getByRole("menuitem", { name: "Settings" })).toBeTruthy();
-  expect(screen.getByRole("menuitem", { name: "SQL command library" })).toBeTruthy();
-  expect(screen.getByRole("menuitem", { name: "History" })).toBeTruthy();
 });
 
 test("opens saved SQL and imports files from labeled secondary actions", () => {

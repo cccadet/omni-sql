@@ -159,7 +159,7 @@ describe("Sidebar", () => {
 
   it("opens local analysis before a query result or dataset exists", () => {
     const onOpenAnalysis = vi.fn();
-    renderSidebar({ onOpenAnalysis, analysisActive: false });
+    renderSidebar({ onOpenAnalysis });
 
     fireEvent.click(screen.getByRole("button", { name: "DuckDB" }));
 
