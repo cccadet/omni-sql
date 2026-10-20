@@ -17,7 +17,6 @@ import { ResultsGrid } from "./components/ResultsGrid";
 import { StatusBar, type ConnectionHealth, type McpVisualState, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
 import { McpEditDialog, type McpEditProposal } from "./components/McpEditDialog";
 import { BackgroundProcessesDialog } from "./components/BackgroundProcessesDialog";
-import { AnalysisWorkspace } from "./components/AnalysisWorkspace";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
@@ -35,7 +34,7 @@ import { useLanguage } from "./i18n";
 import { useCsvOptions } from "./components/CsvOptionsDialog";
 import { McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
-import { cancelAnalysis, clearAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runMongoSql, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
+import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runMongoSql, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import { s3Buckets } from "./lib/s3-buckets";
 import { discoverConfiguredS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type S3DiscoveryCredentials, type S3TableSource } from "./lib/s3-sources";
 import { mongoCommandSql } from "./lib/mongo-command";
@@ -229,12 +228,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [localDatasetsLoading, setLocalDatasetsLoading] = useState(false);
   const [localDatasetsError, setLocalDatasetsError] = useState(false);
   const [localDatasetsRevision, setLocalDatasetsRevision] = useState(0);
-  const [analysisWorkspaceId, setAnalysisWorkspaceId] = useState<string | null>(null);
-  const [analysisS3ConnectionId, setAnalysisS3ConnectionId] = useState<string | null>(null);
-  const onAnalysisDatasetSelected = useCallback((item: DatasetRef | null) => {
-    setAnalysisDataset(item);
-    if (item) setAnalysisS3ConnectionId(null);
-  }, []);
   const [analysisImporting, setAnalysisImporting] = useState(false);
   const [analysisImportOperationId, setAnalysisImportOperationId] = useState<string | null>(null);
   const [analysisImportStatus, setAnalysisImportStatus] = useState<AnalysisOperationStatus | null>(null);
@@ -253,8 +246,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [analysisLoadOrigin, setAnalysisLoadOrigin] = useState<"displayed" | "source">("source");
   const [analysisSampleRows, setAnalysisSampleRows] = useState(1_000);
   const [analysisSourceSql, setAnalysisSourceSql] = useState<string | null>(null);
-  const analysisInitialSource = null;
-  const [analysisSidebarHost, setAnalysisSidebarHost] = useState<HTMLDivElement | null>(null);
   const [editingConfig, setEditingConfig] = useState<ConnectionEntry | null>(null);
   const [duplicatingConnection, setDuplicatingConnection] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -474,13 +465,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]!;
   const activeConnectionId = activeTab?.connectionId ?? null;
 
-  const closeAnalysisWorkspace = useCallback(async () => {
-    if (analysisWorkspaceId) await clearAnalysis(analysisWorkspaceId).catch(() => undefined);
-    setAnalysisDataset(null);
-    setAnalysisWorkspaceId(null);
-    setAnalysisS3ConnectionId(null);
-  }, [analysisWorkspaceId]);
-
   const sendCurrentSqlToAnalysis = useCallback(() => {
     if (!activeConnectionId) return;
     const sql = (editorRef.current?.getSelectionOrCurrent().sql ?? activeTab.sql).trim();
@@ -551,7 +535,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         for (const connection of connections) if (connection.dialect === "s3") delete next[connection.id];
         return next;
       });
-      setAnalysisWorkspaceId(null);
       updateTab(activeTab.id, { connectionId: "local-duckdb", sql: `SELECT * FROM "${dataset.relationName.replaceAll('"', '""')}" LIMIT 1000` });
       setAnalysisImportOpen(false);
     } catch (error) {
@@ -579,7 +562,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     }
   }, [activeConnection, activeTab.id, activeTab.sql, activeTab.mongoSqlMode, updateTabSql, sidebarCache]);
 
-  const analysisS3Connection = connections.find((connection) => connection.id === analysisS3ConnectionId) ?? null;
   const crossSourceConnection = connections.find((connection) => connection.id === crossSourceConnectionId);
 
   useEffect(() => {
@@ -836,12 +818,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
   const onSelectConnection = useCallback(
     async (id: string) => {
-      if (analysisWorkspaceId) setAnalysisWorkspaceId(null);
-      setAnalysisS3ConnectionId(null);
       updateTab(activeTab.id, { connectionId: id });
       await loadSidebarData(id);
     },
-    [activeTab.id, analysisWorkspaceId, updateTab, loadSidebarData],
+    [activeTab.id, updateTab, loadSidebarData],
   );
 
   const onAddConnection = useCallback(() => {
@@ -863,7 +843,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       await importAnalysisFile({ workspaceId: "local-duckdb", name, path, format, delimiter, selection: { mode: "full" } });
       await loadConnections();
       setSidebarCache((previous) => { const next = { ...previous }; delete next["local-duckdb"]; return next; });
-      setAnalysisWorkspaceId(null);
       updateTab(activeTab.id, { connectionId: "local-duckdb" });
     } catch (error) {
       updateTab(activeTab.id, { error: `${t("error")}: ${error instanceof Error ? error.message : String(error)}` });
@@ -906,15 +885,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       try {
         await backend.call("connection.remove", { connectionId: id });
         await loadConnections();
-        if (id === analysisS3ConnectionId) {
-          setAnalysisS3ConnectionId(null);
-          setAnalysisWorkspaceId(null);
-        }
       } catch (e) {
         updateTab(activeTab.id, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
       }
     },
-    [activeTab.id, analysisS3ConnectionId, loadConnections, updateTab, t],
+    [activeTab.id, loadConnections, updateTab, t],
   );
 
   const onCreateConnectionGroup = useCallback(async (name: string) => {
@@ -943,7 +918,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     const { configs } = await backend.call<{ configs: ConnectionEntry[] }>("connection.list", {});
     if (configs.some((config) => config.id === connectionId && config.dialect === "s3")) {
       await loadConnections();
-      setAnalysisWorkspaceId(null);
       updateTab(activeTab.id, { connectionId });
       setSidebarCache((previous) => { const next = { ...previous }; delete next[connectionId]; return next; });
       return;
@@ -1434,7 +1408,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         sql: dataset ? `SELECT * FROM "${dataset.relationName.replaceAll('"', '""')}" LIMIT 1000` : "SELECT 1" });
       setTabs((previous) => [...previous, tab]);
       selectTab(tab.id);
-      setAnalysisWorkspaceId(null);
     } catch (error) {
       updateTab(activeTab.id, { error: `${t("error")}: ${error instanceof Error ? error.message : String(error)}` });
     }
@@ -1670,7 +1643,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       </header>
 
       <div className="omni-editor-controls" style={{ gridColumn: 2, gridRow: 2, minWidth: 0 }}>
-        {!analysisWorkspaceId && <TabBar
+        <TabBar
           tabs={tabs.map((tab) => ({
             id: tab.id,
             title: tab.title,
@@ -1682,7 +1655,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onClose={closeTab}
           onAdd={() => addTab(activeConnectionId)}
           onRename={renameTab}
-        />}
+        />
         <Toolbar
           mongoControls={activeConnection?.dialect === "mongodb" && <div className="omni-toolbar-mongo-controls">
             <Switch label="SQL" title={t("mongoSqlMode")} checked={activeTab.mongoSqlMode === true} disabled={running} onChange={(_event, data) => {
@@ -1719,9 +1692,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onToggleHistory={() => setHistoryOpen((v) => !v)}
           onOpenCommandLibrary={() => setCommandLibraryOpen(true)}
-          globalOnly={analysisWorkspaceId !== null}
-          analysisMode={analysisWorkspaceId !== null}
-          onExitAnalysis={() => void closeAnalysisWorkspace()}
           onSendToAnalysis={activeDialect === "s3" || activeDialect === "duckdb" || activeDialect === "mongodb" ? undefined : sendCurrentSqlToAnalysis}
           onAnalyzeLocally={result ? () => { setAnalysisLoadOrigin(analysisSourceStreaming && analysisSourceSql ? "source" : "displayed"); setAnalysisImportError(null); setAnalysisImportOpen(true); } : undefined}
           analyzingLocally={analysisImporting}
@@ -1762,7 +1732,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onMoveConnection={onMoveConnection}
           onOpenInNewTab={onOpenInNewTab}
           health={connectionHealth}
-          analysisActive={analysisWorkspaceId !== null}
           localDatasets={localDatasets}
           localDatasetsLoading={localDatasetsLoading}
           localDatasetsError={localDatasetsError}
@@ -1770,12 +1739,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onOpenLocalDataset={(dataset) => void openLocalDataset(dataset)}
           onImportLocalFile={onImportLocalFile}
           onRefreshLocalDatasets={() => setLocalDatasetsRevision((value) => value + 1)}
-          analysisConnectionId={analysisWorkspaceId ? analysisS3ConnectionId : null}
-          onAnalysisHostChange={setAnalysisSidebarHost}
         />
       </aside>
 
-      {!analysisWorkspaceId && <section
+      <section
         style={{ gridColumn: 2, gridRow: 3, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
       >
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -1799,9 +1766,9 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             }}
           /></div>
         </div>
-      </section>}
+      </section>
 
-      {!analysisWorkspaceId && <div
+      <div
         className="omni-results-resize-handle"
         style={{ gridColumn: 2, gridRow: 4 }}
         role="separator"
@@ -1831,17 +1798,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           event.preventDefault();
           setResultsPercent((value) => Math.max(10, Math.min(90, value + (event.key === "ArrowUp" ? 5 : -5))));
         }}
-      />}
+      />
 
-      {!analysisWorkspaceId && <section style={{ gridColumn: 2, gridRow: 5, minHeight: 0, overflow: "hidden" }}>
+      <section style={{ gridColumn: 2, gridRow: 5, minHeight: 0, overflow: "hidden" }}>
         <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} />
-      </section>}
-
-      {analysisWorkspaceId && (
-        <section style={{ gridColumn: 2, gridRow: "3 / span 3", display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <AnalysisWorkspace workspaceId={analysisWorkspaceId} dataset={analysisDataset} onDatasetSelected={onAnalysisDatasetSelected} sourceConnections={connections.filter((connection) => connection.dialect !== "s3" && connection.dialect !== "mongodb")} s3Connections={connections.filter((connection) => connection.dialect === "s3")} onSelectS3Connection={(id) => void onSelectConnection(id)} onConfigureS3Connection={onEditConnection} editorTheme={monacoTheme} sidebarHost={analysisSidebarHost} sidebarIntegrated initialSource={analysisInitialSource} initialS3Connection={analysisS3Connection} />
-        </section>
-      )}
+      </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 6 }}>
         <StatusBar compactConnection connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
