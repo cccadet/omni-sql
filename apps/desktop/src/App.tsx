@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, MessageBar, MessageBarBody, Radio, RadioGroup, Switch, Title1, tokens } from "@fluentui/react-components";
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, MessageBar, MessageBarBody, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
 import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -1596,6 +1596,16 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const mcpActive = Boolean(mcpStatus?.uiConnected && (mcpStatus.queueSize > 0 || mcpStatus.inFlight > 0));
   const mcpState: McpVisualState = mcpError ? "error" : !mcpStarted ? "inactive" : mcpActive ? "connected" : "listening";
 
+  const setMongoSqlMode = (enabled: boolean) => {
+    if (running || activeConnection?.dialect !== "mongodb") return;
+    if (enabled === (activeTab.mongoSqlMode === true)) return;
+    updateTab(activeTab.id, { mongoSqlMode: enabled,
+      ...(enabled ? { mongoNativeText: activeTab.sql, sql: activeTab.mongoSqlText ?? "SELECT 1" }
+        : { mongoSqlText: activeTab.sql, sql: activeTab.mongoNativeText ?? initialMongoQuery(activeConnection.endpoint, sidebarCache[activeConnection.id]?.relations) }),
+      error: null, latestSqlExecutionError: null });
+    setResult(null); setEditability(null); setPlanText(null); setDiagnostics([]);
+  };
+
   const monacoTheme = useEditorMonacoTheme(name);
 
   const sidebarData = activeConnectionId ? sidebarCache[activeConnectionId] : undefined;
@@ -1662,16 +1672,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         />
         <Toolbar
           mongoControls={activeConnection?.dialect === "mongodb" && <div className="omni-toolbar-mongo-controls">
-            <Switch label="SQL" title={t("mongoSqlMode")} checked={activeTab.mongoSqlMode === true} disabled={running} onChange={(_event, data) => {
-            if (running || activeConnection?.dialect !== "mongodb") return;
-            const enabled = data.checked;
-            if (enabled === (activeTab.mongoSqlMode === true)) return;
-            updateTab(activeTab.id, { mongoSqlMode: enabled,
-              ...(enabled ? { mongoNativeText: activeTab.sql, sql: activeTab.mongoSqlText ?? "SELECT 1" }
-                : { mongoSqlText: activeTab.sql, sql: activeTab.mongoNativeText ?? initialMongoQuery(activeConnection.endpoint, sidebarCache[activeConnection.id]?.relations) }),
-              error: null, latestSqlExecutionError: null });
-            setResult(null); setEditability(null); setPlanText(null); setDiagnostics([]);
-            }} />
+            <div role="radiogroup" aria-label={t("mongoSqlMode")} className="omni-segmented">
+              <button type="button" role="radio" aria-checked={activeTab.mongoSqlMode !== true} disabled={running} onClick={() => setMongoSqlMode(false)}>Mongo JSON</button>
+              <button type="button" role="radio" aria-checked={activeTab.mongoSqlMode === true} disabled={running} title={t("mongoSqlMode")} onClick={() => setMongoSqlMode(true)}>SQL</button>
+            </div>
             {!activeTab.mongoSqlMode && <Button size="small" appearance="outline" disabled={running} onClick={() => void handleConvertMongo()} title={t("mongoConvertHint")}>
               {t("mongoConvert")}
             </Button>}

@@ -769,28 +769,28 @@ it("keeps MongoDB native/SQL text per tab and falls back to DuckDB for unsupport
   vi.mocked(invoke).mockImplementation(async (command) => command === "analysis_query_mongo"
     ? { columns: [{ name: "n", dataType: "BIGINT", nullable: false }], rows: [[1]], rowsMoreAvailable: false } : undefined);
   renderApp();
-  const tag = await screen.findByRole("switch", { name: "SQL" });
-  expect((tag as HTMLInputElement).checked).toBe(false);
+  const tag = await screen.findByRole("radio", { name: "SQL" });
+  expect(tag.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", expect.objectContaining({ connectionId: "mongo-1", sql: native }), expect.any(AbortSignal)));
   await waitFor(() => expect((tag as HTMLInputElement).disabled).toBe(false));
   fireEvent.click(tag);
-  expect((tag as HTMLInputElement).checked).toBe(true);
+  expect(tag.getAttribute("aria-checked")).toBe("true");
 
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual("SELECT 1");
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("analysis_query_mongo", { request: expect.objectContaining({ connectionId: "mongo-1", sql: "SELECT 1", limit: 100, explain: false }) }));
   expect(call.mock.calls.filter(([method]) => method === "query.run")).toHaveLength(1);
   await waitFor(() => expect((tag as HTMLInputElement).disabled).toBe(false));
-  fireEvent.click(tag);
+  fireEvent.click(screen.getByRole("radio", { name: "Mongo JSON" }));
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual(native);
   fireEvent.click(tag);
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual("SELECT 1");
   fireEvent.click(screen.getByRole("button", { name: "New tab" }));
-  await waitFor(() => expect((tag as HTMLInputElement).checked).toBe(false));
+  await waitFor(() => expect(tag.getAttribute("aria-checked")).toBe("false"));
   expect((screen.getByRole("textbox", { name: "SQL editor" }) as HTMLTextAreaElement).value).toEqual(expect.stringContaining('"operation": "find"'));
   fireEvent.click(screen.getByRole("tab", { name: /Query 1/ }));
-  expect((tag as HTMLInputElement).checked).toBe(true);
+  expect(tag.getAttribute("aria-checked")).toBe("true");
 });
 
 it.each([false, true])("resolves MongoDB CTE completion from SQL mode or /mongo (command=%s)", async (command) => {
@@ -807,7 +807,7 @@ it.each([false, true])("resolves MongoDB CTE completion from SQL mode or /mongo 
     : method === "completion.get" ? Promise.resolve({ suggestions: [{ label: "name", kind: "column", relevance: 100 }] })
     : defaultCall(method, params, signal));
   renderApp();
-  await screen.findByRole("switch", { name: "SQL" });
+  await screen.findByRole("radio", { name: "SQL" });
   const button = screen.getByRole("button", { name: "Editor autocomplete" });
   fireEvent.click(button);
   await waitFor(() => expect(button.textContent).toBe("name"));
@@ -826,7 +826,7 @@ it("runs a Mongo SQL WHERE through the native driver without changing the editor
     ? Promise.resolve({ configs: [{ id: "mongo-1", label: "MongoDB test", dialect: "mongodb", endpoint: "mongodb://localhost/base_laudos", user: "" }] })
     : method === "query.mongoSqlPlan" ? Promise.resolve({ query: native }) : defaultCall(method, params, signal));
   renderApp();
-  await screen.findByRole("switch", { name: "SQL" });
+  await screen.findByRole("radio", { name: "SQL" });
   const editor = screen.getByRole("textbox", { name: "SQL editor" });
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", { connectionId: "mongo-1", sql: native, limit: 100 }, expect.any(AbortSignal)));
@@ -878,9 +878,9 @@ it("does not overwrite the editor if the query mode changes during conversion", 
   renderApp();
   fireEvent.click(await screen.findByRole("button", { name: "Convert SQL to MongoDB" }));
   await waitFor(() => expect(call.mock.calls.some(([method]) => method === "query.mongoConvert")).toBe(true));
-  fireEvent.click(screen.getByRole("switch", { name: "SQL" }));
+  fireEvent.click(screen.getByRole("radio", { name: "SQL" }));
   await act(async () => { resolveConversion({ query: '{"operation":"find","collection":"items"}' }); await pending; });
   expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe("SELECT 1");
-  fireEvent.click(screen.getByRole("switch", { name: "SQL" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Mongo JSON" }));
   expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe(original);
 });
