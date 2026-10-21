@@ -797,6 +797,10 @@ select option {
 .omni-app-health { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
 .omni-environment-badge { padding: 2px 6px; border: 1px solid var(--colorBrandStroke1); border-radius: 4px; color: var(--colorBrandForeground1); white-space: nowrap; font-size: 11px; font-weight: 600; }
 .omni-environment-badge[data-environment="production"] { border-color: var(--colorPaletteRedBorder2); color: var(--colorPaletteRedForeground1); }
+.omni-segmented { display: inline-flex; padding: 2px; border: 1px solid var(--colorNeutralStroke1); border-radius: 6px; background: var(--colorNeutralBackground1); }
+.omni-segmented > button { padding: 3px 12px; border: 0; border-radius: 4px; background: transparent; color: var(--colorNeutralForeground2); font: inherit; font-size: 12px; cursor: pointer; }
+.omni-segmented > button[aria-checked="true"] { background: var(--colorNeutralBackground4); color: var(--colorNeutralForeground1); font-weight: 600; }
+.omni-segmented > button:disabled { opacity: .6; cursor: default; }
 .omni-toolbar-run-hint { margin-left: 8px; font-size: 11px; font-weight: 400; opacity: .75; }
 .omni-db-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .omni-db-type { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border: 1px solid var(--colorNeutralStroke1); border-radius: 6px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }

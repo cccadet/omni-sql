@@ -107,6 +107,7 @@ export function Toolbar({
               EXPLAIN
             </ToolbarButton>
         <div className="omni-toolbar-limit">
+          <span aria-hidden className="omni-toolbar-inline-label">{t("rowLimit")}</span>
           <select
             aria-label={t("rowLimit")}
             value={limit}
