@@ -355,7 +355,7 @@ test("ON prioriza predicado da FK com aliases e aceita FK nos dois sentidos", ()
   }
   const completed = "SELECT * FROM users u JOIN orders o ON o.user_id = ";
   assert.ok(!autocompleteTier1(completed, completed.length, meta)
-    .some((suggestion) => suggestion.detail === "chave estrangeira"));
+    .some((suggestion) => suggestion.tag === "foreign key"));
 });
 
 test("ON usa a FK da relação recém-joinada contra qualquer relação anterior", () => {
@@ -380,7 +380,7 @@ test("ON usa a FK da relação recém-joinada contra qualquer relação anterior
   assert.deepEqual(suggestions.slice(0, 2).map((suggestion) => suggestion.label), [
     "p.order_id = o.id", "p.user_id = u.id",
   ]);
-  assert.ok(suggestions.slice(0, 2).every((suggestion) => suggestion.detail === "chave estrangeira"));
+  assert.ok(suggestions.slice(0, 2).every((suggestion) => suggestion.tag === "foreign key"));
 });
 
 test("ON respeita identificadores citados, schema e prefixo parcial", () => {
@@ -406,7 +406,7 @@ test("ON respeita identificadores citados, schema e prefixo parcial", () => {
   };
   const withoutMatch = "SELECT * FROM audit.users u JOIN public.orders o ON ";
   assert.ok(!autocompleteTier1(withoutMatch, withoutMatch.length, otherSchema)
-    .some((suggestion) => suggestion.detail === "chave estrangeira"));
+    .some((suggestion) => suggestion.tag === "foreign key"));
 });
 
 test("após relação JOIN sugere ON prioritário, sem transições gerais", () => {

@@ -312,6 +312,7 @@ export function configureAutocomplete(
   monacoInstance: typeof monaco,
   onAutocompleteRef: { current: AutocompleteCallback | null },
   dialectRef: { current: DialectId } = { current: "jdbc-generic" },
+  tagLabelsRef: { current: Readonly<Record<string, string>> } = { current: {} },
 ): monaco.IDisposable {
   const provider: monaco.languages.CompletionItemProvider = {
     triggerCharacters: [".", " ", "/", '"', "$"],
@@ -406,7 +407,7 @@ export function configureAutocomplete(
       const indexWidth = String(Math.max(suggestions.length - 1, 0)).length;
       return {
         suggestions: suggestions.map((s, i) => ({
-          label: s.tag ? { label: s.label, description: s.tag } : s.label,
+          label: s.tag ? { label: s.label, description: tagLabelsRef.current[s.tag] ?? s.tag } : s.label,
           kind: mapKind(s.kind),
           detail: s.detail,
           ...(s.documentation ? { documentation: { value: s.documentation } } : {}),

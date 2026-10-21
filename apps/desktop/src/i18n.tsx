@@ -600,6 +600,8 @@ const english = {
   minimizeWindow: "Minimize",
   maximizeWindow: "Maximize",
   closeWindow: "Close",
+  completionForeignKeyTag: "foreign key",
+  mcpEditTab: "Tab",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -762,6 +764,8 @@ const portugueseBrazil = [
   "Minimizar",
   "Maximizar",
   "Fechar",
+  "chave estrangeira",
+  "Aba",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

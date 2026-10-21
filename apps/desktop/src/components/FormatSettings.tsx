@@ -16,6 +16,7 @@ import {
   Textarea,
   tokens,
 } from "@fluentui/react-components";
+import { DismissRegular } from "@fluentui/react-icons";
 import {
   DEFAULT_FORMATTER_SETTINGS,
   formatKeybindingForDisplay,
@@ -93,7 +94,10 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave, theme
     <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
       <DialogSurface className="omni-settings-dialog">
         <form onSubmit={handleSubmit} style={{ display: "flex", flex: "1 1 auto", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-          <DialogTitle className="omni-settings-title">{t("formatSettingsTitle")}</DialogTitle>
+          <div className="omni-settings-header">
+            <DialogTitle className="omni-settings-title">{t("formatSettingsTitle")}</DialogTitle>
+            <Button type="button" appearance="subtle" size="small" icon={<DismissRegular />} aria-label={t("close")} title={t("close")} onClick={onClose} />
+          </div>
           <div className="omni-settings-layout">
           <TabList
             vertical
@@ -266,7 +270,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave, theme
           </DialogBody>
           </div>
           <DialogActions className="omni-settings-actions">
-            <Button type="button" onClick={() => setDraft(DEFAULT_FORMATTER_SETTINGS)}>
+            <Button type="button" appearance="transparent" className="omni-settings-reset" onClick={() => setDraft(DEFAULT_FORMATTER_SETTINGS)}>
               {t("resetToDefaults")}
             </Button>
             <div style={{ flex: 1 }} />
