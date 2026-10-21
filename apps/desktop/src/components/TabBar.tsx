@@ -9,6 +9,8 @@ export interface TabItem {
   title: string;
   dirty?: boolean;
   dialect?: string;
+  /** Second line under the title, e.g. the connection the tab runs against. */
+  subtitle?: string;
 }
 
 export interface TabBarProps {
@@ -94,8 +96,9 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
                       <DialectIcon dialect={tab.dialect} size={12} />
                     </span>
                   )}
-                  <span style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {tab.title}
+                  <span className="omni-tab-label" title={tab.subtitle ? `${tab.title} · ${tab.subtitle}` : tab.title}>
+                    <span className="omni-tab-title">{tab.title}</span>
+                    {tab.subtitle && <span className="omni-tab-subtitle">{tab.subtitle}</span>}
                   </span>
                   {tab.dirty && (
                     <span style={{ color: tokens.colorPaletteYellowForeground1, fontSize: 8 }}>●</span>
