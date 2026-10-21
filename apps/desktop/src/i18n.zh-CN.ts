@@ -546,4 +546,7 @@ export const simplifiedChinese = {
   externalMcpProcesses: "由外部客户端启动的 MCP 启动器属于相应客户端。请在客户端中停止它们；此面板无法管理它们。",
   restartServices: "重启应用和服务",
   stopProcess: "停止",
+  mcpFromClient: "来自 AI 客户端",
+  mcpNothingRunsUntilApply: "在您点击“应用”之前不会执行任何操作。",
+  mcpUndoHint: "应用后可用 Ctrl+Z 撤销。",
 } satisfies Record<TranslationKey, string>;

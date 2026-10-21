@@ -22,6 +22,19 @@ import { useLanguage } from "../i18n";
 
 type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "s3" | "mongodb" | "demo";
 
+const DB_TYPES: readonly { mode: Mode; abbr: string; label?: string; color: string }[] = [
+  { mode: "postgres", abbr: "PG", label: "PostgreSQL", color: "#336791" },
+  { mode: "mysql", abbr: "My", label: "MySQL", color: "#00758F" },
+  { mode: "mariadb", abbr: "Ma", label: "MariaDB", color: "#003545" },
+  { mode: "sqlserver", abbr: "MS", label: "SQL Server", color: "#A91D22" },
+  { mode: "oracle", abbr: "Or", label: "Oracle", color: "#C74634" },
+  { mode: "mongodb", abbr: "Mo", label: "MongoDB", color: "#2E7D32" },
+  { mode: "s3", abbr: "S3", label: "S3", color: "#B8620B" },
+  { mode: "jdbc-generic", abbr: "JD", color: "#5A5A8A" },
+  { mode: "odbc", abbr: "OD", label: "ODBC", color: "#5A7A6A" },
+  { mode: "demo", abbr: "De", label: "Demo (in-memory)", color: "#6B6B6B" },
+];
+
 const DEFAULT_PORTS: Record<Mode, string> = {
   postgres: "5432",
   oracle: "1521",
@@ -371,26 +384,22 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
         <form className="omni-dialog-form" onSubmit={onSave} onChange={() => { setTestResult(null); setError(null); }}>
           <DialogTitle>{duplicating ? t("duplicateConnection") : editing ? t("editConnection") : t("newConnection")}</DialogTitle>
           <DialogBody className="omni-dialog-body">
-            <Label>
-              {t("connectionType")}
-              <select
-                value={mode}
-                onChange={(e) => onModeChange(e.target.value as Mode)}
-                disabled={busy}
-                style={{ display: "block", width: "100%", marginTop: 4, padding: 6 }}
-              >
-                <option value="postgres">PostgreSQL</option>
-                <option value="mysql">MySQL</option>
-                <option value="mariadb">MariaDB</option>
-                <option value="sqlserver">SQL Server</option>
-                <option value="oracle">Oracle</option>
-                <option value="jdbc-generic">{t("jdbcGeneric")}</option>
-                <option value="odbc">ODBC</option>
-                <option value="mongodb">MongoDB</option>
-                <option value="s3">S3</option>
-                <option value="demo">Demo (in-memory)</option>
-              </select>
-            </Label>
+            <div role="radiogroup" aria-label={t("connectionType")} className="omni-db-type-grid">
+              {DB_TYPES.map(({ mode: value, abbr, label: typeLabel, color }) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === value}
+                  className="omni-db-type"
+                  disabled={busy}
+                  onClick={() => onModeChange(value)}
+                >
+                  <span aria-hidden className="omni-db-type-badge" style={{ background: color }}>{abbr}</span>
+                  <span>{typeLabel ?? t("jdbcGeneric")}</span>
+                </button>
+              ))}
+            </div>
 
             <Field label={t("connectionName")}>
               <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />

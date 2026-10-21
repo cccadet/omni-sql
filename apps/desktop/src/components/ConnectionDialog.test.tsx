@@ -13,6 +13,9 @@ vi.mock("../lib/backend", () => ({ backend: { call: vi.fn() } }));
 vi.mock("../lib/analysis", () => ({ listAnalysisS3: vi.fn() }));
 vi.mock("../lib/file-io", () => ({ pickJarPath: vi.fn() }));
 
+const TYPE_LABELS: Record<string, string> = { postgres: "PostgreSQL", s3: "S3", mongodb: "MongoDB" };
+const pickType = (value: string) => fireEvent.click(screen.getByRole("radio", { name: TYPE_LABELS[value] }));
+
 const close = vi.fn();
 const saved = vi.fn();
 
@@ -40,19 +43,18 @@ test("keeps SQL and S3 credentials separate when switching types", async () => {
   vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
     ? { configs: [] } : { connectionId: "s3-new" });
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
-  const type = screen.getByRole("combobox", { name: "Type" });
-  fireEvent.change(type, { target: { value: "postgres" } });
+  pickType("postgres");
   fireEvent.change(screen.getByRole("textbox", { name: "User" }), { target: { value: "reporter" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "sql-secret" } });
-  fireEvent.change(type, { target: { value: "s3" } });
+  pickType("s3");
   assert.equal((screen.getByLabelText("Access Key ID") as HTMLInputElement).value, "");
   assert.equal((screen.getByLabelText("Secret Access Key") as HTMLInputElement).value, "");
   fireEvent.change(screen.getByLabelText("Access Key ID"), { target: { value: "s3-key" } });
   fireEvent.change(screen.getByLabelText("Secret Access Key"), { target: { value: "s3-secret" } });
-  fireEvent.change(type, { target: { value: "postgres" } });
+  pickType("postgres");
   assert.equal((screen.getByLabelText("User") as HTMLInputElement).value, "reporter");
   assert.equal((screen.getByLabelText("Password") as HTMLInputElement).value, "sql-secret");
-  fireEvent.change(type, { target: { value: "s3" } });
+  pickType("s3");
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Lake" } });
   fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
   await waitFor(() => assert.equal(saved.mock.calls.length, 1));
@@ -68,8 +70,7 @@ test("registers multiple S3 buckets without choosing a format", async () => {
       ? { buckets: ["bucket", "bucket-two"] } : { connectionId: "s3-1", ok: true });
   vi.mocked(listAnalysisS3).mockResolvedValue([]);
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
-  const dialog = screen.getByRole("dialog");
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "Type" }), { target: { value: "s3" } });
+  pickType("s3");
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Sales lake" } });
   fireEvent.click(screen.getByRole("button", { name: "Load buckets" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "bucket" }));
@@ -102,7 +103,7 @@ test("loads S3 buckets and saves the selected ones", async () => {
     return { connectionId: "s3-1", ok: true };
   });
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
-  fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "s3" } });
+  pickType("s3");
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "S3 account" } });
   fireEvent.click(screen.getByRole("button", { name: "Load buckets" }));
   const first = await screen.findByRole("checkbox", { name: "bucket-a" });
@@ -122,7 +123,7 @@ test("saves an S3 account without buckets", async () => {
   vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
     ? { configs: [] } : { connectionId: "s3-empty", ok: true });
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
-  fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "s3" } });
+  pickType("s3");
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "S3 account" } });
   fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
   await waitFor(() => assert.equal(saved.mock.calls.length, 1));
@@ -264,7 +265,7 @@ test("tests and saves a new connection", async () => {
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
 
   const dialog = screen.getByRole("dialog");
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "Type" }), { target: { value: "postgres" } });
+  pickType("postgres");
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Warehouse" } });
   fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "db.example" } });
   fireEvent.change(within(dialog).getAllByPlaceholderText("postgres")[1]!, { target: { value: "reporter" } });
@@ -302,7 +303,7 @@ test("shows failed connection test and recovers on retry", async () => {
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
 
   const dialog = screen.getByRole("dialog");
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "Type" }), { target: { value: "postgres" } });
+  pickType("postgres");
   fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "db.example" } });
   fireEvent.change(within(dialog).getAllByPlaceholderText("postgres")[1]!, { target: { value: "reporter" } });
   fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
@@ -317,7 +318,7 @@ test("saves a MongoDB URI and permits local anonymous connections", async () => 
   vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
     ? { configs: [] } : { connectionId: "mongo-1", ok: true });
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
-  fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "mongodb" } });
+  pickType("mongodb");
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "MongoDB" } });
   fireEvent.change(screen.getByPlaceholderText("mongodb://localhost:27017/test?authSource=admin"), { target: { value: "mongodb+srv://example.mongodb.net/test?authSource=admin" } });
   assert.equal(screen.queryByRole("textbox", { name: "Host" }), null);

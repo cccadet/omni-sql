@@ -551,6 +551,9 @@ const english = {
   externalMcpProcesses: "MCP launchers opened by external clients belong to those clients. Stop them in the client; this panel does not control them.",
   restartServices: "Restart app and services",
   stopProcess: "Stop",
+  mcpFromClient: "From AI client",
+  mcpNothingRunsUntilApply: "Nothing runs until you click Apply.",
+  mcpUndoHint: "Undo with Ctrl+Z after applying.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -664,6 +667,9 @@ const portugueseBrazil = [
   "Launchers MCP abertos por clientes externos pertencem a esses clientes. Encerre-os no próprio cliente; eles não são controlados por este painel.",
   "Reiniciar aplicativo e serviços",
   "Encerrar",
+  "Do cliente de IA",
+  "Nada é executado até você clicar em Aplicar.",
+  "Desfaça com Ctrl+Z depois de aplicar.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

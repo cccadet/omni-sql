@@ -38,7 +38,7 @@ export function McpEditDialog({
     <Dialog open={proposal !== null} onOpenChange={(_, data) => !data.open && onReject()}>
       <DialogSurface className="omni-standard-dialog omni-mcp-edit-dialog">
         <DialogBody className="omni-dialog-body omni-mcp-edit-dialog-body">
-          <DialogTitle style={{ flexShrink: 0 }}>{t(proposal?.kind === "execute" ? "mcpExecuteTitle" : "mcpEditTitle")}</DialogTitle>
+          <DialogTitle style={{ flexShrink: 0 }}><span aria-hidden className="omni-mcp-origin-badge">{t("mcpFromClient")}</span> {t(proposal?.kind === "execute" ? "mcpExecuteTitle" : "mcpEditTitle")}</DialogTitle>
           <DialogContent className="omni-mcp-edit-dialog-content">
             <Text>{proposal?.kind === "execute" ? t("mcpExecuteWarning") : `${t("mcpEditRationale")}: ${proposal?.rationale}`}</Text>
             {proposal?.kind === "execute" && <Text>{t("activeConnection")}: {proposal.connectionLabel} · {t("mcpRowLimit")}: {proposal.limit}</Text>}
@@ -46,6 +46,7 @@ export function McpEditDialog({
               {proposal?.kind !== "execute" && <SqlPreview label={t("mcpOriginalSql")} value={proposal?.originalSql ?? ""} />}
               <SqlPreview label={t("mcpProposedSql")} value={proposal?.proposedSql ?? ""} accent />
             </div>
+            {proposal?.kind !== "execute" && <Text className="omni-mcp-edit-hint">{t("mcpNothingRunsUntilApply")} {t("mcpUndoHint")}</Text>}
           </DialogContent>
           <DialogActions className="omni-dialog-actions" style={{ flexShrink: 0 }}>
             <Button appearance="secondary" onClick={onReject}>{t("reject")}</Button>
