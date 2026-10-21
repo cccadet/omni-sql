@@ -112,8 +112,8 @@ function renderApp() {
 }
 
 async function connectToDatabase() {
-  fireEvent.click(await screen.findByRole("option", { name: "Local Postgres" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Activate" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Switch connection/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Local Postgres/ }));
   await waitFor(() => expect(call).toHaveBeenCalledWith("connection.status", { connectionId: "conn-1" }));
 }
 
@@ -229,6 +229,7 @@ describe("App execution flow", () => {
         { id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "local.duckdb", user: "" },
       ] }) : defaultCall(method, params, signal));
     renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Local analysis" }));
     fireEvent.click(await screen.findByRole("button", { name: "targets.csv" }));
     await waitFor(() => {
       const session = JSON.parse(localStorage.getItem("omni-sql:session") ?? "null");
@@ -518,9 +519,12 @@ describe("App execution flow", () => {
     fireEvent.click(within(dialog).getByText("Refresh", { selector: "button" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.introspect", { connectionId: "conn-1" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
-    fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "Reporting" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Switch connection/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Manage connections…" }));
+    const manage = await screen.findByRole("dialog", { name: "Manage connections" });
+    fireEvent.click(await within(manage).findByRole("button", { name: "New folder" }));
+    fireEvent.change(await within(manage).findByPlaceholderText("Folder name"), { target: { value: "Reporting" } });
+    fireEvent.click(within(manage).getByRole("button", { name: "Create folder" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("connectionGroup.create", { name: "Reporting" }));
     expect(call).toHaveBeenCalledWith("connectionGroup.list", {});
   });

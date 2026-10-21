@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { FluentProvider, webDarkTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "../i18n";
-import { connectionMoveFromDrag, Sidebar } from "./Sidebar";
+import { Sidebar } from "./Sidebar";
 import { backend } from "../lib/backend";
 
 vi.mock("./SidecarStatus", () => ({ SidecarStatus: () => <span>Sidecar ready</span> }));
@@ -43,12 +43,10 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
       <LanguageProvider>
         <Sidebar
           connections={[connection]}
-          connectionGroups={[{ id: "group-1", name: "Production" }]}
           connection={connection}
           connectionId={connection.id}
           relations={relations}
           functions={[{ schema: "public", name: "refresh_orders", overloads: [{ parameters: [], returnType: "void" }] }]}
-          health="online"
           {...overrides}
         />
       </LanguageProvider>
@@ -161,6 +159,7 @@ describe("Sidebar", () => {
     const onOpenAnalysis = vi.fn();
     renderSidebar({ onOpenAnalysis });
 
+    fireEvent.click(screen.getByRole("button", { name: "Local analysis" }));
     fireEvent.click(screen.getByRole("button", { name: "DuckDB" }));
 
     expect(onOpenAnalysis).toHaveBeenCalledOnce();
@@ -169,13 +168,19 @@ describe("Sidebar", () => {
   it("keeps local datasets available alongside a remote connection", () => {
     const onOpenLocalDataset = vi.fn();
     const dataset = { id: "targets", workspaceId: "local-duckdb", name: "targets.csv", relationName: 'targets"2026', columns: [], rowCount: 5, approximateBytes: 100, createdAtMs: 1, coverage: "complete" as const, selection: { mode: "full" as const }, scannedRows: 5 };
-    renderSidebar({ localDatasets: [dataset], onOpenLocalDataset });
+    const view = renderSidebar({ localDatasets: [dataset], onOpenLocalDataset });
+    const section = () => screen.getByRole("button", { name: "Local analysis" });
+    expect(section().getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "targets.csv" })).toBeNull();
+
+    fireEvent.click(section());
     fireEvent.click(screen.getByRole("button", { name: "targets.csv" }));
     expect(onOpenLocalDataset).toHaveBeenCalledWith(dataset);
-    expect(screen.getByRole("button", { name: "Local analysis" }).getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Local analysis" }));
-    expect(screen.queryByRole("button", { name: "targets.csv" })).toBeNull();
     expect(screen.getByRole("textbox", { name: "Search tables, columns…" })).toBeTruthy();
+
+    view.unmount();
+    renderSidebar({ localDatasets: [dataset], onOpenLocalDataset });
+    expect(section().getAttribute("aria-expanded")).toBe("true");
   });
 
   it("searches objects, inserts qualified names, and loads indexes on expansion", async () => {
@@ -219,71 +224,6 @@ describe("Sidebar", () => {
     });
   });
 
-  it("manages folders and moves connections through user-visible controls", async () => {
-    const onCreateConnectionGroup = vi.fn().mockResolvedValue(undefined);
-    const onRenameConnectionGroup = vi.fn().mockResolvedValue(undefined);
-    const onDeleteConnectionGroup = vi.fn().mockResolvedValue(undefined);
-    const onMoveConnection = vi.fn().mockResolvedValue(undefined);
-    renderSidebar({ onCreateConnectionGroup, onRenameConnectionGroup, onDeleteConnectionGroup, onMoveConnection });
-
-    fireEvent.click(screen.getByLabelText("New folder"));
-    fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "Analytics" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
-    expect(onCreateConnectionGroup).toHaveBeenCalledWith("Analytics");
-
-    fireEvent.click(screen.getByLabelText("Production Edit connection"));
-    const editor = screen.getByDisplayValue("Production");
-    fireEvent.change(editor, { target: { value: "Primary" } });
-    fireEvent.click(screen.getByRole("button", { name: "OK" }));
-    expect(onRenameConnectionGroup).toHaveBeenCalledWith("group-1", "Primary");
-
-    fireEvent.click(screen.getByLabelText("Production Remove connection"));
-    expect(onDeleteConnectionGroup).toHaveBeenCalledWith("group-1");
-
-    fireEvent.click(screen.getByLabelText("Actions for Local database"));
-    expect(screen.queryByRole("button", { name: "Root" })).toBeNull();
-    fireEvent.mouseEnter(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Move to…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Root" }));
-    await waitFor(() => expect(onMoveConnection).toHaveBeenCalledWith("connection-1", null));
-  });
-
-  it("aligns the Move to submenu to its item and closes it on leave", () => {
-    renderSidebar();
-
-    fireEvent.click(screen.getByLabelText("Actions for Local database"));
-    const contextMenu = document.querySelector<HTMLUListElement>(".context-menu")!;
-    const moveItem = within(contextMenu).getByRole("button", { name: "Move to…" }) as HTMLButtonElement;
-    vi.spyOn(moveItem, "getBoundingClientRect").mockReturnValue({
-      right: 480,
-      top: 140,
-    } as DOMRect);
-
-    fireEvent.mouseEnter(moveItem);
-    const submenu = document.querySelector<HTMLUListElement>(".context-submenu")!;
-    expect(submenu.style.left).toBe("480px");
-    expect(submenu.style.top).toBe("140px");
-
-    fireEvent.mouseEnter(within(contextMenu).getByRole("button", { name: "Edit connection" }).closest("li") as HTMLLIElement);
-    expect(document.querySelector(".context-submenu")).toBeNull();
-
-    fireEvent.mouseEnter(moveItem);
-    fireEvent.mouseLeave(document.querySelector<HTMLDivElement>(".context-menu-container")!);
-    expect(document.querySelector(".context-submenu")).toBeNull();
-  });
-
-
-  it("maps dnd-kit drops to folders and Root connections", () => {
-    expect(connectionMoveFromDrag("connection-1", "connection-group:group-2")).toEqual({
-      connectionId: "connection-1",
-      groupId: "group-2",
-    });
-    expect(connectionMoveFromDrag("connection-1", "connection-group:root")).toEqual({
-      connectionId: "connection-1",
-      groupId: null,
-    });
-    expect(connectionMoveFromDrag("connection-1", null)).toBeNull();
-    expect(connectionMoveFromDrag("connection-1", "unrelated-target")).toBeNull();
-  });
   it("opens definitions and keeps failures in a visible new tab", async () => {
     const onOpenInNewTab = vi.fn();
     renderSidebar({ onOpenInNewTab });
@@ -451,29 +391,10 @@ describe("Sidebar", () => {
     expect(onOpenInNewTab).toHaveBeenCalledWith("Alter indexes orders", expect.stringContaining("ADD CONSTRAINT orders_primary PRIMARY KEY (id, customer_id);"));
   });
 
-  it("routes context-menu connection actions and persists keyboard resizing", () => {
-    const onEditConnection = vi.fn();
-    const onDuplicateConnection = vi.fn();
-    const onRemoveConnection = vi.fn();
-    renderSidebar({ onEditConnection, onDuplicateConnection, onRemoveConnection });
-
-    fireEvent.click(screen.getByLabelText("Actions for Local database"));
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Edit connection" }));
-    expect(onEditConnection).toHaveBeenCalledWith("connection-1");
-    fireEvent.click(screen.getByLabelText("Actions for Local database"));
-    expect(screen.queryByLabelText("Edit connection")).toBeNull();
-    expect(screen.queryByLabelText("Duplicate connection")).toBeNull();
-    expect(screen.queryByLabelText("Remove connection")).toBeNull();
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Duplicate connection" }));
-    expect(onDuplicateConnection).toHaveBeenCalledWith("connection-1");
-    fireEvent.click(screen.getByLabelText("Actions for Local database"));
-    fireEvent.click(within(document.querySelector(".context-menu")!).getByRole("button", { name: "Remove connection" }));
-    expect(onRemoveConnection).toHaveBeenCalledWith("connection-1");
-
+  it("persists keyboard resizing of the object panel", () => {
+    renderSidebar();
     fireEvent.keyDown(screen.getByLabelText("Resize object panel"), { key: "ArrowRight" });
-    fireEvent.keyDown(screen.getByLabelText("Resize connections panel"), { key: "ArrowDown" });
     expect(localStorage.getItem("omni-sql:sidebarWidth")).toBeTruthy();
-    expect(localStorage.getItem("omni-sql:connectionsMaxHeight")).toBeTruthy();
   });
 });
 

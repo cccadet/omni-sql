@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, Menu, MenuDivider, MenuItem, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
-import { AddRegular, AppsListRegular, ArrowSwapRegular, ArrowSyncRegular, SignOutRegular, BookRegular, ChevronDownRegular, DatabaseRegular, DocumentArrowUpRegular, FolderOpenRegular, HistoryRegular, NavigationRegular, PanelLeftRegular, SaveRegular, SettingsRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
+import { AddRegular, AppsListRegular, FolderRegular, ArrowSwapRegular, ArrowSyncRegular, SignOutRegular, BookRegular, DatabaseRegular, DocumentArrowUpRegular, FolderOpenRegular, HistoryRegular, NavigationRegular, PanelLeftRegular, SaveRegular, SettingsRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -12,8 +12,11 @@ import { useConnections } from "./hooks/useConnections";
 import { Toolbar } from "./components/Toolbar";
 import { TabBar } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
-import { DialectIcon } from "./components/DialectIcon";
 import { DuckDbIcon } from "./components/DuckDbIcon";
+import { DIALECT_LABELS } from "./lib/dialect-labels";
+import { ConnectionSwitcher } from "./components/ConnectionSwitcher";
+import { ManageConnectionsDialog } from "./components/ManageConnectionsDialog";
+import { loadConnectionUsage, recordConnectionUse } from "./lib/recent-connections";
 import { usesCustomTitleBar, WindowControls } from "./components/WindowControls";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
@@ -55,10 +58,6 @@ const TRUSTED_WARNING_CONNECTIONS_KEY = "omni-sql:trusted-warning-connections";
 const HISTORY_MAX_ENTRIES = 200;
 const historyTextEncoder = new TextEncoder();
 
-const DIALECT_LABELS: Record<string, string> = {
-  postgres: "PostgreSQL", mysql: "MySQL", mariadb: "MariaDB", sqlserver: "SQL Server",
-  mongodb: "MongoDB", oracle: "Oracle", "jdbc-generic": "JDBC", odbc: "ODBC", s3: "S3", duckdb: "DuckDB",
-};
 
 function supportsInAppUpdate(): boolean {
   return /Windows/u.test(navigator.userAgent);
@@ -220,6 +219,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab, getTabRevision, compareAndSwapTabSql } = useSession();
   const { connections, error: connectionsError, loadConnections } = useConnections();
   const [connectionGroups, setConnectionGroups] = useState<ConnectionGroup[]>([]);
+  const [connectionUsage, setConnectionUsage] = useState(loadConnectionUsage);
+  const [manageConnectionsOpen, setManageConnectionsOpen] = useState(false);
   const editorRef = useRef<EditorHandle | null>(null);
   const [resultsPercent, setResultsPercent] = useState(60);
   const resultsDrag = useRef<{ y: number; height: number; total: number } | null>(null);
@@ -823,6 +824,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const onSelectConnection = useCallback(
     async (id: string) => {
       updateTab(activeTab.id, { connectionId: id });
+      setConnectionUsage((usage) => recordConnectionUse(usage, id));
       await loadSidebarData(id);
     },
     [activeTab.id, updateTab, loadSidebarData],
@@ -883,14 +885,16 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
     setDialogOpen(true);
   }, [connections]);
 
-  const onRemoveConnection = useCallback(
-    async (id: string) => {
-      if (!confirm(t("removeConnection"))) return;
+  const onRemoveConnections = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      if (!confirm(ids.length === 1 ? t("removeConnection") : t("removeConnectionsConfirm").replace("{count}", String(ids.length)))) return;
       try {
-        await backend.call("connection.remove", { connectionId: id });
-        await loadConnections();
+        for (const id of ids) await backend.call("connection.remove", { connectionId: id });
       } catch (e) {
         updateTab(activeTab.id, { error: `${t("error")}: ${e instanceof Error ? e.message : String(e)}` });
+      } finally {
+        await loadConnections();
       }
     },
     [activeTab.id, loadConnections, updateTab, t],
@@ -1643,6 +1647,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
               <MenuItem icon={<SaveRegular />} onClick={() => void onSaveTab()}>{t("saveTab")}</MenuItem>
               <MenuDivider />
               <MenuItem icon={<DatabaseRegular />} onClick={onAddConnection}>{t("newConnection")}</MenuItem>
+              <MenuItem icon={<FolderRegular />} onClick={() => setManageConnectionsOpen(true)}>{t("manageConnectionsEllipsis")}</MenuItem>
               <MenuItem icon={<DocumentArrowUpRegular />} onClick={() => void onImportLocalFile()}>{t("analysisImportFile")}</MenuItem>
               <MenuDivider />
               <MenuItem icon={<HistoryRegular />} onClick={() => setHistoryOpen((v) => !v)}>{t("history")}</MenuItem>
@@ -1660,44 +1665,21 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           <img src="/omni-sql.svg" alt="" height={22} />
           <Title1 className="wordmark">omni-sql</Title1>
         </div>
-        <Menu>
-          <MenuTrigger disableButtonEnhancement>
-            <button type="button" className="omni-connection-switcher" aria-label={`${t("switchConnection")}: ${activeConnection?.label ?? t("noActiveConnection")}`} title={t("switchConnection")}>
-              {activeConnection ? <>
-                <DialectIcon dialect={activeConnection.dialect} size={14} />
-                <strong className="omni-app-connection" title={activeConnection.label}>{activeConnection.label}</strong>
-                <span className="omni-app-dialect">{DIALECT_LABELS[activeConnection.dialect]}</span>
-                {activeDatabase && <span className="omni-app-database" title={activeDatabase}>{activeDatabase}</span>}
-                {(activeConnection.options?.environment === "development" || activeConnection.options?.environment === "staging" || activeConnection.options?.environment === "production") && <span className="omni-environment-badge" data-environment={activeConnection.options.environment}>
-                  {t(activeConnection.options.environment === "production" ? "environmentProduction" : activeConnection.options.environment === "staging" ? "environmentStaging" : "environmentDevelopment")}
-                </span>}
-                <span className={`omni-app-health omni-header-state-${connectionHealth}`} role="status">
-                  <span aria-hidden className="omni-header-state-dot" />
-                  {connectionHealth === "online" ? t("headerConnected") : connectionHealth === "offline" ? t("headerOffline") : connectionHealth === "verifying" ? t("headerVerifying") : t("statusUnknown")}
-                </span>
-              </> : <span className="omni-header-empty">{t("noActiveConnection")}</span>}
-              <ChevronDownRegular fontSize={12} className="omni-connection-switcher-chevron" />
-            </button>
-          </MenuTrigger>
-          <MenuPopover>
-            <MenuList>
-              {connections.map((connection) => (
-                <MenuItem
-                  key={connection.id}
-                  icon={<DialectIcon dialect={connection.dialect} size={14} />}
-                  secondaryContent={DIALECT_LABELS[connection.dialect] ?? connection.dialect}
-                  onClick={() => void onSelectConnection(connection.id)}
-                  aria-current={connection.id === activeConnectionId ? "true" : undefined}
-                  className={connection.id === activeConnectionId ? "omni-connection-switcher-active" : undefined}
-                >
-                  {connection.label}
-                </MenuItem>
-              ))}
-              {connections.length > 0 && <MenuDivider />}
-              <MenuItem icon={<AddRegular />} onClick={onAddConnection}>{t("newConnection")}</MenuItem>
-            </MenuList>
-          </MenuPopover>
-        </Menu>
+        <ConnectionSwitcher
+          connections={connections}
+          groups={connectionGroups}
+          activeConnectionId={activeConnectionId}
+          activeDatabase={activeDatabase}
+          health={connectionHealth}
+          usage={connectionUsage}
+          onSelect={(id) => void onSelectConnection(id)}
+          onAdd={onAddConnection}
+          onEdit={onEditConnection}
+          onDuplicate={onDuplicateConnection}
+          onRemove={(id) => void onRemoveConnections([id])}
+          onMove={onMoveConnection}
+          onManage={() => setManageConnectionsOpen(true)}
+        />
         <span className="omni-header-spacer" data-tauri-drag-region />
         <button
           type="button"
@@ -1770,7 +1752,6 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         <Sidebar
           open={sidebarOpen}
           connections={connections}
-          connectionGroups={connectionGroups}
           connection={activeConnection}
           connectionId={activeConnectionId}
           mongoSqlMode={activeTab.mongoSqlMode === true}
@@ -1785,20 +1766,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           onDeleteLocalDataset={(relationName) => void onDeleteLocalDataset(relationName)}
           onImportDatabaseTable={() => { setCrossSourceConnectionId(""); setCrossSourceSql(""); setCrossSourceSearch(""); setCrossSourceError(null); setCrossSourceOpen(true); }}
           onEditConnection={onEditConnection}
-          onDuplicateConnection={onDuplicateConnection}
-          onRemoveConnection={onRemoveConnection}
           onRefreshMetadata={onRefreshMetadata}
           onLoadS3Columns={activeConnectionId ? (schema, table) => loadS3Columns(activeConnectionId, schema, table) : undefined}
           s3Prefix={activeConnectionId ? s3Prefixes[activeConnectionId] ?? "" : ""}
           duckLakeCandidates={activeConnectionId ? s3DuckLakeCandidates[activeConnectionId] ?? [] : []}
           onS3PrefixChange={onS3PrefixChange}
-          onSelectConnection={onSelectConnection}
-          onCreateConnectionGroup={onCreateConnectionGroup}
-          onRenameConnectionGroup={onRenameConnectionGroup}
-          onDeleteConnectionGroup={onDeleteConnectionGroup}
-          onMoveConnection={onMoveConnection}
           onOpenInNewTab={onOpenInNewTab}
-          health={connectionHealth}
           localDatasets={localDatasets}
           localDatasetsLoading={localDatasetsLoading}
           localDatasetsError={localDatasetsError}
@@ -2052,6 +2025,21 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         onSubmit={handleVariablesSubmit}
       />
 
+      <ManageConnectionsDialog
+        open={manageConnectionsOpen}
+        onClose={() => setManageConnectionsOpen(false)}
+        connections={connections}
+        groups={connectionGroups}
+        usage={connectionUsage}
+        onAdd={onAddConnection}
+        onEdit={onEditConnection}
+        onDuplicate={onDuplicateConnection}
+        onRemove={onRemoveConnections}
+        onMove={onMoveConnection}
+        onCreateGroup={onCreateConnectionGroup}
+        onRenameGroup={onRenameConnectionGroup}
+        onDeleteGroup={onDeleteConnectionGroup}
+      />
       <McpEditDialog proposal={mcpProposal} onApply={applyMcpProposal} onReject={() => resolveMcpProposal("rejected")} />
       {csvOptionsDialog}
     </div>
