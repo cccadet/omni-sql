@@ -61,6 +61,8 @@ export interface Relation {
   readonly columns: readonly Column[];
   readonly constraints: readonly Constraint[];
   readonly lastSyncedAt?: number;
+  /** True when the relation is a CTE resolved from the query text, not from the catalog. */
+  readonly isCte?: boolean;
 }
 
 export interface FunctionParameter {

@@ -406,9 +406,10 @@ export function configureAutocomplete(
       const indexWidth = String(Math.max(suggestions.length - 1, 0)).length;
       return {
         suggestions: suggestions.map((s, i) => ({
-          label: s.label,
+          label: s.tag ? { label: s.label, description: s.tag } : s.label,
           kind: mapKind(s.kind),
           detail: s.detail,
+          ...(s.documentation ? { documentation: { value: s.documentation } } : {}),
           filterText: s.filterText,
           insertText: s.insertText ?? s.label,
           insertTextRules:

@@ -771,3 +771,58 @@ test("PostgreSQL escaped literals cannot conceal a trailing mutation", () => {
   assert.ok(tokens.some(token => token.upper === "DELETE"));
   assert.equal(tokenize("SELECT $$a;b$$ /* outer /* ; */ ; */; SELECT 2", postgresDescriptor).filter(token => token.value === ";").length, 1);
 });
+
+function metaWith(relations: readonly Relation[]): MetadataSource {
+  return {
+    dialect: postgresDescriptor,
+    listSchemas: () => ["public"],
+    listRelations: () => relations,
+    listFunctions: () => [],
+    resolveRelation: (ref: ScopeRef) => relations.find((r) => r.name === ref.table && (ref.schema == null || r.schema === ref.schema)) ?? null,
+  };
+}
+
+test("colunas de tabela trazem tag PK/FK e documentação com metadados do catálogo", () => {
+  const payments: Relation = {
+    schema: "public",
+    name: "payments",
+    kind: "table",
+    columns: [
+      { name: "id", dataType: "bigint", nullable: false, isPrimaryKey: true, ordinalPosition: 0 },
+      { name: "order_id", dataType: "bigint", nullable: false, isPrimaryKey: false, ordinalPosition: 1, foreignKeyTo: { schema: "public", table: "orders", column: "id" } },
+      { name: "note", dataType: "text", nullable: true, isPrimaryKey: false, ordinalPosition: 2, description: "Free text" },
+    ],
+    constraints: [],
+  };
+  const sql = "SELECT p. FROM payments p";
+  const out = autocompleteTier1(sql, "SELECT p.".length, metaWith([payments]));
+  const byLabel = new Map(out.map((s) => [s.label, s]));
+  assert.equal(byLabel.get("id")?.tag, "PK");
+  assert.equal(byLabel.get("id")?.detail, "bigint");
+  assert.equal(byLabel.get("id")?.documentation, "bigint · NOT NULL\nPrimary key");
+  assert.equal(byLabel.get("order_id")?.tag, "FK");
+  assert.equal(byLabel.get("order_id")?.documentation, "bigint · NOT NULL\nReferences public.orders.id");
+  assert.equal(byLabel.get("note")?.tag, undefined);
+  assert.equal(byLabel.get("note")?.documentation, "text\nFree text");
+});
+
+test("colunas de CTE escondem o tipo desconhecido e indicam a CTE de origem", () => {
+  const recent: Relation = {
+    schema: "",
+    name: "recent",
+    kind: "view",
+    isCte: true,
+    columns: [{ name: "customer_id", dataType: "unknown", nullable: true, isPrimaryKey: false, ordinalPosition: 1 }],
+    constraints: [],
+  };
+  const qualified = autocompleteTier1("SELECT r. FROM recent r", "SELECT r.".length, metaWith([recent]));
+  assert.equal(qualified.length, 1);
+  assert.equal(qualified[0]?.detail, undefined);
+  assert.equal(qualified[0]?.tag, "CTE recent");
+  assert.equal(qualified[0]?.documentation, "Defined in CTE recent");
+
+  const unqualified = autocompleteTier1("SELECT  FROM recent r", "SELECT ".length, metaWith([recent]));
+  const column = unqualified.find((s) => s.label === "customer_id");
+  assert.equal(column?.detail, "r.customer_id");
+  assert.equal(column?.tag, "CTE recent");
+});
