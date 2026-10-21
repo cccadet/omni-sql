@@ -1869,8 +1869,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
                 value={analysisLoadOrigin}
                 onChange={(_, data) => setAnalysisLoadOrigin(data.value as "displayed" | "source")}
               >
-                <Radio value="source" disabled={!analysisSourceStreaming || !analysisSourceSql} label={t("analysisSourceQuery")} />
                 <Radio value="displayed" label={t("analysisDisplayedResult")} />
+                <Radio value="source" disabled={!analysisSourceStreaming || !analysisSourceSql} label={t("analysisSourceQuery")} />
               </RadioGroup>
               <div className="omni-analysis-import-heading">{t("analysisRowsToImport")}</div>
               <RadioGroup

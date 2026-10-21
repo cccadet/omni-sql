@@ -87,7 +87,9 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
       <DialogSurface className="omni-settings-dialog">
         <form onSubmit={handleSubmit} style={{ display: "flex", flex: "1 1 auto", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
           <DialogTitle className="omni-settings-title">{t("formatSettingsTitle")}</DialogTitle>
+          <div className="omni-settings-layout">
           <TabList
+            vertical
             selectedValue={section}
             onTabSelect={(_, data) => setSection(data.value as "editor" | "formatting" | "language")}
             aria-label={t("settingsSections")}
@@ -239,6 +241,7 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
               </div>
             )}
           </DialogBody>
+          </div>
           <DialogActions className="omni-settings-actions">
             <Button type="button" onClick={() => setDraft(DEFAULT_FORMATTER_SETTINGS)}>
               {t("resetToDefaults")}

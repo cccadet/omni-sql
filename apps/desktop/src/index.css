@@ -797,6 +797,7 @@ select option {
 .omni-app-health { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
 .omni-environment-badge { padding: 2px 6px; border: 1px solid var(--colorBrandStroke1); border-radius: 4px; color: var(--colorBrandForeground1); white-space: nowrap; font-size: 11px; font-weight: 600; }
 .omni-environment-badge[data-environment="production"] { border-color: var(--colorPaletteRedBorder2); color: var(--colorPaletteRedForeground1); }
+.omni-toolbar-run-hint { margin-left: 8px; font-size: 11px; font-weight: 400; opacity: .75; }
 .omni-db-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .omni-db-type { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border: 1px solid var(--colorNeutralStroke1); border-radius: 6px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
 .omni-db-type:hover:not(:disabled) { background: var(--colorNeutralBackground1Hover); }
@@ -964,7 +965,9 @@ button:focus-visible, select:focus-visible, [role="separator"]:focus-visible {
 
 .omni-settings-dialog > form { flex: 1 1 auto; min-height: 0; }
 .omni-settings-title { flex-shrink: 0; padding-bottom: 8px; }
-.omni-settings-tabs { flex-shrink: 0; overflow-x: auto; padding: 0 24px; border-bottom: 1px solid var(--colorNeutralStroke1); }
+.omni-settings-layout { display: flex; flex: 1 1 auto; min-height: 0; border-top: 1px solid var(--colorNeutralStroke1); }
+.omni-settings-tabs { flex: 0 0 200px; box-sizing: border-box; overflow-y: auto; padding: 12px 8px; border-right: 1px solid var(--colorNeutralStroke1); background: var(--colorNeutralBackground2); }
+.omni-settings-layout > .omni-settings-body { flex: 1 1 auto; min-width: 0; padding-left: 20px; }
 .omni-settings-body.omni-settings-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-top: 14px; }
 .omni-settings-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .omni-settings-formatting { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; min-height: 0; }
@@ -1002,7 +1005,8 @@ button:focus-visible, select:focus-visible, [role="separator"]:focus-visible {
 
 @media (max-width: 720px), (max-height: 620px) {
   .omni-settings-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
-  .omni-settings-tabs { padding-inline: 12px; }
+  .omni-settings-layout { flex-direction: column; }
+  .omni-settings-tabs.omni-settings-tabs { flex: 0 0 auto; flex-direction: row; overflow-x: auto; padding: 4px 12px; border-right: 0; border-bottom: 1px solid var(--colorNeutralStroke1); }
   .omni-settings-body { padding: 10px 12px; }
   .omni-settings-card { padding: 10px; }
   .omni-settings-actions.omni-settings-actions { padding: 12px; }
