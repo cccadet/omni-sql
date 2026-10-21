@@ -67,6 +67,8 @@ export interface ResultsGridProps {
   onCellEdit?: (rowIndex: number, colIndex: number, value: unknown) => Promise<void>;
   onInsertRow?: (values: Readonly<Record<number, unknown>>) => void | Promise<void>;
   onExportFullCsv?: (delimiter: string) => void | Promise<void>;
+  /** Context for the empty state before the first run: where the query goes and its row cap. */
+  emptyState?: { target?: string | null; limit: number; onOpenHistory?: () => void };
 }
 
 export interface StagedCellEdit {
@@ -173,6 +175,7 @@ export function ResultsGrid({
   onCellEdit,
   onInsertRow,
   onExportFullCsv,
+  emptyState,
 }: ResultsGridProps) {
   const { t } = useLanguage();
   const { requestCsvOptions, csvOptionsDialog } = useCsvOptions();
@@ -764,9 +767,15 @@ export function ResultsGrid({
                 <Spinner size="small" label={t("running")} />
               </div>
             ) : !result ? (
-              <Text className="omni-empty-state" size={200}>
+              error || !emptyState ? <Text className="omni-empty-state" size={200}>
                 {error ? t("queryFailedHint") : t("queryReadyHint")}
-              </Text>
+              </Text> : <div className="omni-results-empty">
+                <Text weight="semibold" size={400}>{t("resultsEmptyTitle")}</Text>
+                <Text className="omni-results-empty-copy">{renderEmptyHint(emptyState.target
+                  ? t("resultsEmptyRun").replace("{target}", emptyState.target).replace("{limit}", emptyState.limit.toLocaleString())
+                  : t("resultsEmptyNoConnection"))}</Text>
+                {emptyState.onOpenHistory && <Button appearance="transparent" size="small" className="omni-results-empty-link" onClick={emptyState.onOpenHistory}>{t("openHistory")}</Button>}
+              </div>
             ) : (
               <>
               {filteredRows.length === 0 && <Text className="omni-empty-state" size={200}>
@@ -1086,4 +1095,10 @@ export function ResultsGrid({
       )}
     </Card>
   );
+}
+
+/** Renders "{shortcut}" in an empty-state hint as Ctrl + Enter key caps. */
+function renderEmptyHint(text: string) {
+  const [before, after = ""] = text.split("{shortcut}");
+  return <>{before}<kbd>Ctrl</kbd> + <kbd>Enter</kbd>{after}</>;
 }

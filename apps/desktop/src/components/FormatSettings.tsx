@@ -32,7 +32,14 @@ export interface FormatSettingsProps {
   settings: FormatterSettings;
   onClose: () => void;
   onSave: (settings: FormatterSettings) => void;
+  theme?: "light" | "dark";
+  onThemeChange?: (theme: "light" | "dark") => void;
+  /** Short MCP state shown under the "MCP server" section, e.g. "MCP ready · listening". */
+  mcpSummary?: string;
+  onOpenMcp?: () => void;
 }
+
+type SettingsSection = "general" | "editor" | "formatting" | "mcp";
 
 const keywordCaseOptions = [
   { value: "preserve", label: "formatPreserve" },
@@ -53,11 +60,11 @@ const logicalOperatorOptions = [
 
 const PREVIEW_SQL = `GRANT SELECT, UPDATE, DELETE, INSERT ON DW.TEST_TABLE TO DREMIO;\n\nSELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
 
-export function FormatSettings({ open, dialect, settings, onClose, onSave }: FormatSettingsProps) {
+export function FormatSettings({ open, dialect, settings, onClose, onSave, theme, onThemeChange, mcpSummary, onOpenMcp }: FormatSettingsProps) {
   const { t, language, setLanguage } = useLanguage();
   const [draft, setDraft] = useState<FormatterSettings>(() => ({ ...settings }));
   const [previewSql, setPreviewSql] = useState(PREVIEW_SQL);
-  const [section, setSection] = useState<"editor" | "formatting" | "language">("editor");
+  const [section, setSection] = useState<SettingsSection>("editor");
 
   const keybindingError = useMemo(
     () => (isValidKeybinding(draft.keybinding) ? null : t("invalidShortcut")),
@@ -91,16 +98,26 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
           <TabList
             vertical
             selectedValue={section}
-            onTabSelect={(_, data) => setSection(data.value as "editor" | "formatting" | "language")}
+            onTabSelect={(_, data) => setSection(data.value as SettingsSection)}
             aria-label={t("settingsSections")}
             className="omni-settings-tabs"
           >
-            <Tab value="editor">{t("editorSettingsTab")}</Tab>
-            <Tab value="formatting">{t("formattingSettingsTab")}</Tab>
-            <Tab value="language">{t("languageSettingsTab")}</Tab>
+            <Tab value="general"><SectionLabel title={t("languageSettingsTab")} hint={t("settingsGeneralHint")} /></Tab>
+            <Tab value="editor"><SectionLabel title={t("editorSettingsTab")} hint={t("settingsEditorHint")} /></Tab>
+            <Tab value="formatting"><SectionLabel title={t("formattingSettingsTab")} hint={t("settingsFormattingHint")} /></Tab>
+            {onOpenMcp && <Tab value="mcp"><SectionLabel title={t("mcpSettingsTab")} hint={mcpSummary ?? ""} /></Tab>}
           </TabList>
           <DialogBody className="omni-settings-body">
-            {section === "language" ? (
+            {section === "mcp" ? (
+              <div className="omni-settings-section omni-settings-language">
+                <section className="omni-settings-card">
+                  <Text weight="semibold">{t("mcpSettingsTab")}</Text>
+                  {mcpSummary && <Text size={200}>{mcpSummary}</Text>}
+                  <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpSettingsHelp")}</Text>
+                  <Button type="button" appearance="secondary" onClick={onOpenMcp} style={{ justifySelf: "start" }}>{t("openMcpServer")}</Button>
+                </section>
+              </div>
+            ) : section === "general" ? (
               <div className="omni-settings-section omni-settings-language">
               <Field label={t("language")} className="omni-settings-language-field">
                 <Select
@@ -113,6 +130,12 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
                   <option value="zh-CN">{t("simplifiedChinese")}</option>
                 </Select>
               </Field>
+              {theme && onThemeChange && <Field label={t("themeLabel")} className="omni-settings-language-field">
+                <Select aria-label={t("themeLabel")} value={theme} onChange={(_, data) => onThemeChange(data.value as "light" | "dark")}>
+                  <option value="dark">{t("themeDark")}</option>
+                  <option value="light">{t("themeLight")}</option>
+                </Select>
+              </Field>}
               </div>
             ) : section === "editor" ? (
               <div className="omni-settings-section">
@@ -258,4 +281,8 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave }: For
       </DialogSurface>
     </Dialog>
   );
+}
+
+function SectionLabel({ title, hint }: { title: string; hint: string }) {
+  return <span className="omni-settings-nav-label">{title}{hint && <span aria-hidden className="omni-settings-nav-hint">{hint}</span>}</span>;
 }

@@ -37,6 +37,7 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [historyFilter, setHistoryFilter] = useState<"all" | "pending" | "error">("all");
   const label = state === "connected" ? t("mcpConnected") : state === "error" ? t("mcpError") : state === "listening" ? t("mcpListening") : t("mcpInactive");
   const color = state === "connected" ? tokens.colorPaletteGreenForeground1 : state === "error" ? tokens.colorPaletteRedForeground1 : state === "listening" ? tokens.colorPaletteYellowForeground1 : tokens.colorNeutralForeground2;
   const endpoint = safeHttpEndpoint(http.endpoint);
@@ -71,6 +72,7 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
     setHistory(null);
     setHistoryError(null);
     setExpanded(new Set());
+    setHistoryFilter("all");
     setHttpToken("");
     setHttpError(null);
     void refreshHttp();
@@ -80,6 +82,8 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
       .catch((reason: unknown) => setConfigError(reason instanceof Error ? reason.message : String(reason)));
     return () => { window.clearInterval(timer); };
   }, [open]);
+
+  const visibleHistory = (history ?? []).filter((entry) => historyFilter === "all" || (historyFilter === "error" ? entry.status === "error" : entry.status !== "completed" && entry.status !== "error"));
 
   const selectSection = (value: "configuration" | "activity") => {
     setSection(value);
@@ -92,22 +96,26 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
         <DialogBody className="omni-dialog-body">
           <DialogTitle>{t("mcpStatusTitle")}</DialogTitle>
           <DialogContent className="omni-mcp-dialog-content">
-            <section className="omni-mcp-summary" aria-label={label}>
+            <section className="omni-mcp-summary" data-state={state} aria-label={label}>
+              <span className="omni-mcp-status-dot" style={{ background: color }} />
               <span className="omni-mcp-summary-icon" style={{ color }}><PlugConnectedRegular /></span>
               <div className="omni-mcp-summary-copy">
-                <Text weight="semibold" style={{ color }}>{label}</Text>
-                <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                  {status?.uiConnected ? t("mcpUiReady") : t("mcpInactive")} · {t("mcpQueue")}: {status?.queueSize ?? 0} · {t("mcpInFlight")}: {status?.inFlight ?? 0} · {t("mcpHttpSessions")}: {http.sessions}
-                </Text>
+                <Text weight="semibold">{label}</Text>
+                <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{state === "connected" ? t("mcpActiveClient") : t("mcpNoClient")}</Text>
               </div>
-              <span className="omni-mcp-status-dot" style={{ background: color }} />
             </section>
+            <div className="omni-mcp-stats">
+              <div className="omni-mcp-stat"><span>{t("mcpDesktopUi")}</span><strong className={status?.uiConnected ? "is-ok" : undefined}>{status?.uiConnected ? t("mcpReady") : t("mcpNotReady")}</strong></div>
+              <div className="omni-mcp-stat"><span>{t("mcpQueue")}</span><strong>{status?.queueSize ?? 0}</strong></div>
+              <div className="omni-mcp-stat"><span>{t("mcpInFlight")}</span><strong>{status?.inFlight ?? 0}</strong></div>
+              <div className="omni-mcp-stat"><span>{t("mcpHttpSessions")}</span><strong>{http.sessions}</strong></div>
+            </div>
 
             {(error || configError) && <div className="omni-mcp-error" role="alert">{error ?? configError}</div>}
 
             <TabList selectedValue={section} onTabSelect={(_, data) => selectSection(data.value as "configuration" | "activity")} aria-label={t("mcpStatusTitle")}>
               <Tab value="configuration">{t("mcpConfigurationTab")}</Tab>
-              <Tab value="activity">{t("mcpActivityTab")}</Tab>
+              <Tab value="activity">{t("mcpActivityTab")}{history && history.length > 0 && <span className="omni-mcp-tab-count">{history.length}</span>}</Tab>
             </TabList>
 
             {section === "configuration" && (
@@ -147,13 +155,19 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
               <div className="omni-mcp-section">
                 <div className="omni-mcp-section-heading">
                   <div><Text weight="semibold">{t("mcpRecentRequests")}</Text><Text block size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("mcpActivityHelp")}</Text></div>
+                  <div role="radiogroup" aria-label={t("mcpFilterLabel")} className="omni-segmented omni-mcp-filter">
+                    {([["all", "mcpFilterAll"], ["pending", "mcpFilterPending"], ["error", "mcpFilterErrors"]] as const).map(([value, key]) => (
+                      <button key={value} type="button" role="radio" aria-checked={historyFilter === value} onClick={() => setHistoryFilter(value)}>{t(key)}</button>
+                    ))}
+                  </div>
                   <Button appearance="subtle" size="small" icon={<ArrowClockwiseRegular />} aria-label={t("mcpHistoryRefresh")} title={t("mcpHistoryRefresh")} onClick={loadHistory} disabled={historyLoading} />
                 </div>
                 {historyLoading && history === null && <div className="omni-empty-state">{t("loading")}</div>}
                 {historyError && <div className="omni-mcp-error" role="alert">{historyError}</div>}
                 {!historyLoading && !historyError && (history ?? []).length === 0 && <div className="omni-empty-state">{t("mcpHistoryEmpty")}</div>}
+                {(history ?? []).length > 0 && visibleHistory.length === 0 && <div className="omni-empty-state">{t("mcpFilterEmpty")}</div>}
                 <div className="omni-mcp-history">
-                  {(history ?? []).map((entry) => <HistoryEntry key={entry.id} entry={entry} expanded={expanded.has(entry.id)} onToggle={() => setExpanded((current) => {
+                  {visibleHistory.map((entry) => <HistoryEntry key={entry.id} entry={entry} expanded={expanded.has(entry.id)} onToggle={() => setExpanded((current) => {
                     const next = new Set(current);
                     if (next.has(entry.id)) next.delete(entry.id);
                     else next.add(entry.id);
@@ -174,8 +188,9 @@ function HistoryEntry({ entry, expanded, onToggle }: { entry: McpHistoryEntry; e
   const { t } = useLanguage();
   const statusLabel = entry.status === "completed" ? t("success") : entry.status === "error" ? t("failure") : t("mcpHistoryPending");
   const statusColor = entry.status === "completed" ? tokens.colorPaletteGreenForeground1 : entry.status === "error" ? tokens.colorPaletteRedForeground1 : tokens.colorPaletteYellowForeground1;
+  const statusKind = entry.status === "completed" ? "ok" : entry.status === "error" ? "error" : "pending";
   return <article className="omni-mcp-history-item">
-    <div className="omni-mcp-history-heading"><Text size={200} className="omni-mcp-history-time">{new Date(entry.receivedAt).toLocaleTimeString()}</Text><Text weight="semibold" className="omni-mcp-history-tool">{entry.tool}</Text><Text size={200} style={{ color: statusColor }}>{statusLabel}</Text></div>
+    <div className="omni-mcp-history-heading"><span className={`omni-mcp-history-badge is-${statusKind}`} style={{ color: statusColor }}>{statusLabel}</span><Text weight="semibold" className="omni-mcp-history-tool">{entry.tool}</Text><Text size={200} className="omni-mcp-history-time">{new Date(entry.receivedAt).toLocaleTimeString()}</Text></div>
     {entry.completedAt !== undefined && <Text size={200}>{entry.completedAt - entry.receivedAt} ms</Text>}
     {entry.rationale && <Text size={200} className="omni-mcp-history-rationale">{entry.rationale}</Text>}
     {entry.sql && <button type="button" className="omni-mcp-sql-toggle" onClick={onToggle} aria-expanded={expanded}>{expanded ? <ChevronUpRegular /> : <ChevronDownRegular />} {expanded ? t("mcpHideSql") : t("mcpShowSql")}</button>}
