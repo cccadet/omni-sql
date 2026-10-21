@@ -71,12 +71,12 @@ body {
 .omni-analysis-editor { height: clamp(140px, 24vh, 260px); min-height: 140px; overflow: hidden; border: 1px solid var(--colorNeutralStroke2); border-radius: 4px; }
 .omni-analysis-results { flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--colorNeutralStroke2); border-radius: 4px; }
 .omni-analysis-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.omni-sidebar-objects-section { display: flex; flex: 1 1 45%; min-height: 32px; flex-direction: column; overflow: hidden; border-bottom: 1px solid var(--colorNeutralStroke1); }
+.omni-sidebar-objects-section { display: flex; flex: 1 1 0; min-height: 32px; flex-direction: column; overflow: hidden; border-bottom: 1px solid var(--colorNeutralStroke1); }
 .omni-sidebar-objects-section.collapsed { flex: 0 0 32px; }
 .omni-sidebar-analysis-section { display: flex; flex: 1 1 55%; min-height: 32px; flex-direction: column; overflow: hidden; }
 .omni-sidebar-analysis-section.collapsed { flex: 0 0 32px; }
 .omni-sidebar-analysis-section.collapsed .omni-sidebar-analysis-content { display: none; }
-.omni-sidebar-analysis-section.is-persistent { flex: 0 1 180px; min-height: 120px; border-top: 1px solid var(--colorNeutralStroke1); }
+.omni-sidebar-analysis-section.is-persistent { flex: 1 1 0; min-height: 120px; border-top: 1px solid var(--colorNeutralStroke1); }
 .omni-sidebar-analysis-section.is-persistent.collapsed { flex: 0 0 32px; min-height: 32px; }
 .omni-local-datasets { display: flex; flex: 1; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; padding: 2px 8px 8px; scrollbar-width: thin; }
 .omni-local-engine.omni-local-engine, .omni-local-dataset.omni-local-dataset { justify-content: flex-start; flex-shrink: 0; min-height: 28px; padding: 4px 8px; font-size: 12px; }
