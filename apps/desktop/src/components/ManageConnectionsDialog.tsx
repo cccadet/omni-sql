@@ -82,12 +82,29 @@ function FolderDropTarget({ id, className, children }: { id: string; className: 
   return <div ref={setNodeRef} className={`${className}${isOver ? " is-drop-over" : ""}`}>{children}</div>;
 }
 
-function DragHandle({ id, label }: { id: string; label: string }) {
-  const { attributes, listeners, setNodeRef } = useDraggable({ id });
+/**
+ * The whole row starts a pointer drag (clicks stay clicks thanks to the 5px activation distance);
+ * the handle is the keyboard activator. Native drag is blocked so selecting text never cancels it.
+ */
+function DraggableRow({ id, handleLabel, className, dimmed, checkbox, children }: {
+  id: string;
+  handleLabel: string;
+  className?: string;
+  dimmed: boolean;
+  checkbox: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef } = useDraggable({ id });
   return (
-    <button ref={setNodeRef} type="button" className="omni-manage-drag-handle" aria-label={label} {...attributes} {...listeners} style={{ touchAction: "none" }}>
-      <ReOrderDotsVerticalRegular fontSize={14} />
-    </button>
+    <tr ref={setNodeRef} className={`omni-manage-row${className ? ` ${className}` : ""}`} style={{ opacity: dimmed ? 0.5 : undefined }} {...listeners} onDragStart={(event) => event.preventDefault()}>
+      <td>{checkbox}</td>
+      <td>
+        <button ref={setActivatorNodeRef} type="button" className="omni-manage-drag-handle" aria-label={handleLabel} {...attributes}>
+          <ReOrderDotsVerticalRegular fontSize={14} />
+        </button>
+      </td>
+      {children}
+    </tr>
   );
 }
 
@@ -339,9 +356,14 @@ export function ManageConnectionsDialog({
                         {rows.map((connection) => {
                           const age = formatUsageAge(usage[connection.id]);
                           return (
-                            <tr key={connection.id} className={selected.has(connection.id) ? "is-selected" : undefined} style={{ opacity: draggedId && (draggedId === connection.id || (selected.has(draggedId) && selected.has(connection.id))) ? 0.5 : undefined }}>
-                              <td><Checkbox checked={selected.has(connection.id)} aria-label={t("selectItem").replace("{item}", connection.label)} onChange={(_, data) => toggle(connection.id, data.checked === true)} /></td>
-                              <td><DragHandle id={connection.id} label={t("dragItemToFolder").replace("{item}", connection.label)} /></td>
+                            <DraggableRow
+                              key={connection.id}
+                              id={connection.id}
+                              handleLabel={t("dragItemToFolder").replace("{item}", connection.label)}
+                              className={selected.has(connection.id) ? "is-selected" : undefined}
+                              dimmed={draggedId !== null && (draggedId === connection.id || (selected.has(draggedId) && selected.has(connection.id)))}
+                              checkbox={<Checkbox checked={selected.has(connection.id)} aria-label={t("selectItem").replace("{item}", connection.label)} onChange={(_, data) => toggle(connection.id, data.checked === true)} />}
+                            >
                               <td><span className="omni-manage-name"><DialectIcon dialect={connection.dialect} size={14} /><strong>{connection.label}</strong></span></td>
                               <td>{DIALECT_LABELS[connection.dialect] ?? connection.dialect}</td>
                               <td><EnvironmentBadge connection={connection} /></td>
@@ -361,7 +383,7 @@ export function ManageConnectionsDialog({
                                   </MenuPopover>
                                 </Menu>
                               </td>
-                            </tr>
+                            </DraggableRow>
                           );
                         })}
                       </tbody>

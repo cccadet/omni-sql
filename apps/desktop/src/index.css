@@ -1137,6 +1137,8 @@ button:focus-visible, select:focus-visible, [role="separator"]:focus-visible {
 .omni-manage-table th.is-narrow { width: 32px; padding: 4px; }
 .omni-manage-table td { height: 38px; padding: 0 8px; border-bottom: 1px solid var(--colorNeutralStroke2); }
 .omni-manage-table td:first-child, .omni-manage-table td:nth-child(2), .omni-manage-table td:last-child { padding: 0 4px; }
+.omni-manage-row { cursor: grab; touch-action: none; user-select: none; }
+.omni-manage-row:hover td { background: var(--colorNeutralBackground1Hover); }
 .omni-manage-table tr.is-selected td { background: var(--colorBrandBackground2); }
 .omni-manage-name { display: flex; align-items: center; gap: 8px; }
 .omni-manage-name > svg { flex-shrink: 0; }
