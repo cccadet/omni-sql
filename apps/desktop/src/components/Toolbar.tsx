@@ -100,7 +100,7 @@ export function Toolbar({
                 style={{ fontWeight: 600, padding: "4px 12px" }}
                 title={t("runCurrentShortcut")}
               >
-                {t("run")}
+                {t("run")}<span aria-hidden className="omni-toolbar-run-hint">Ctrl+↵</span>
               </ToolbarButton>
             )}
             <ToolbarButton icon={<WrenchRegular fontSize={14} />} onClick={onExplain} disabled={!activeConnectionId || running || !explainAvailable} aria-label={t("explainQuery")} title={t("explainQuery")}>
