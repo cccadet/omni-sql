@@ -22,6 +22,13 @@ import { useLanguage } from "../i18n";
 
 type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "s3" | "mongodb" | "demo";
 
+const ENVIRONMENTS = [
+  { value: "", label: "environmentUnset" },
+  { value: "development", label: "environmentDevelopment" },
+  { value: "staging", label: "environmentStaging" },
+  { value: "production", label: "environmentProduction" },
+] as const;
+
 const DB_TYPES: readonly { mode: Mode; abbr: string; label?: string; color: string }[] = [
   { mode: "postgres", abbr: "PG", label: "PostgreSQL", color: "#336791" },
   { mode: "mysql", abbr: "My", label: "MySQL", color: "#00758F" },
@@ -134,6 +141,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [availableSchemas, setAvailableSchemas] = useState<string[] | null>(null);
   const [selectedSchemas, setSelectedSchemas] = useState<Set<string>>(new Set());
   const [schemaSearch, setSchemaSearch] = useState("");
+  const [schemasOpen, setSchemasOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -187,6 +195,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setAvailableSchemas(null);
     setSelectedSchemas(new Set(editing?.schemas ?? []));
     setSchemaSearch("");
+    setSchemasOpen((editing?.schemas?.length ?? 0) > 0);
   }, [open, editing, duplicating]);
 
   useEffect(() => {
@@ -384,6 +393,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
         <form className="omni-dialog-form" onSubmit={onSave} onChange={() => { setTestResult(null); setError(null); }}>
           <DialogTitle>{duplicating ? t("duplicateConnection") : editing ? t("editConnection") : t("newConnection")}</DialogTitle>
           <DialogBody className="omni-dialog-body">
+            <div className="omni-dialog-step">{t("connectionStepType")}</div>
             <div role="radiogroup" aria-label={t("connectionType")} className="omni-db-type-grid">
               {DB_TYPES.map(({ mode: value, abbr, label: typeLabel, color }) => (
                 <button
@@ -401,21 +411,26 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               ))}
             </div>
 
-            <Field label={t("connectionName")}>
-              <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />
-            </Field>
-            <Field label={t("connectionEnvironment")}>
-              <select aria-label={t("connectionEnvironment")} value={environment} onChange={(event) => setEnvironment(event.target.value)} disabled={busy} className="omni-environment-select">
-                <option value="">{t("environmentUnset")}</option>
-                <option value="development">{t("environmentDevelopment")}</option>
-                <option value="staging">{t("environmentStaging")}</option>
-                <option value="production">{t("environmentProduction")}</option>
-              </select>
-            </Field>
+            <div className="omni-dialog-step">{t("connectionStepDetails")}</div>
+            <div className="omni-connection-name-row">
+              <Field label={t("connectionName")}>
+                <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />
+              </Field>
+              <div className="omni-connection-environment">
+                <span id="omni-connection-environment-label" className="omni-connection-environment-label">{t("connectionEnvironment")}</span>
+                <div role="radiogroup" aria-labelledby="omni-connection-environment-label" className="omni-segmented omni-environment-segmented">
+                  {ENVIRONMENTS.map(({ value, label: key }) => (
+                    <button key={value || "unset"} type="button" role="radio" aria-checked={environment === value} disabled={busy} data-environment={value || undefined} onClick={() => { setEnvironment(value); setTestResult(null); setError(null); }}>
+                      {value && <span aria-hidden className="omni-environment-dot" />}{t(key)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
 
             {mode === "mongodb" && <Field label="MongoDB URI">
               <Input value={mongoUri} onChange={(_, data) => setMongoUri(data.value)} placeholder="mongodb://localhost:27017/test?authSource=admin" disabled={busy} required />
-              <Text size={200}>{t("mongoUriHint")}</Text>
+              <Text size={200}>{t("mongoUriHint")} {t("connectionCredentialsHint")}</Text>
             </Field>}
 
             {mode === "jdbc-generic" && (
@@ -547,14 +562,15 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 {mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && (
                   <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />
                 )}
-                <section className="connection-schema-picker">
+                <details className="connection-schema-picker omni-connection-schemas" open={schemasOpen} onToggle={(event) => setSchemasOpen(event.currentTarget.open)}>
+                  <summary className="omni-connection-schemas-summary">
+                    <span>{t("schemasToIndex")}</span>
+                    <span className="connection-schema-summary">
+                      {selectedSchemas.size === 0 ? t("noSelectionAllSchemas") : t("schemaSelectionCount").replace("{selected}", String(selectedSchemas.size)).replace("{total}", String(schemaNames.length))}
+                    </span>
+                    <span className="connection-schema-change">{t("changeSelection")}</span>
+                  </summary>
                   <div className="connection-schema-heading">
-                    <div>
-                      <Text weight="semibold">{t("schemasToIndex")}</Text>
-                      <Text size={200} className="connection-schema-summary">
-                        {selectedSchemas.size === 0 ? t("noSelectionAllSchemas") : t("schemaSelectionCount").replace("{selected}", String(selectedSchemas.size)).replace("{total}", String(schemaNames.length))}
-                      </Text>
-                    </div>
                     <Button type="button" onClick={loadSchemas} disabled={busy || !canConnect()} size="small">
                       {busy ? t("loading") : t("loadSchemas")}
                     </Button>
@@ -586,7 +602,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                       </div>
                     </>
                   )}
-                </section>
+                </details>
               </>
             )}
 
@@ -594,20 +610,22 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
           <div className="omni-connection-feedback">
             {error && <Text role="alert" style={{ color: tokens.colorPaletteRedForeground1 }}>{error}</Text>}
             {testResult && (
-              <Text role={testResult.ok ? "status" : "alert"} style={{ color: testResult.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
-                {testResult.ok ? `${t("connectionTestSucceeded")} ${testResult.latencyMs}ms` : `${t("failure")}: ${testResult.message ?? t("unknownFailure")}`}
-              </Text>
+              <div role={testResult.ok ? "status" : "alert"} className={`omni-connection-test-banner ${testResult.ok ? "is-ok" : "is-error"}`}>
+                <span aria-hidden>●</span>
+                <span>{testResult.ok ? `${t("connectionTestSucceeded")} ${testResult.latencyMs}ms` : `${t("failure")}: ${testResult.message ?? t("unknownFailure")}`}</span>
+              </div>
             )}
           </div>
-          <DialogActions className="omni-dialog-actions">
-            <Button type="button" onClick={onClose} disabled={busy}>
-              {t("cancel")}
-            </Button>
+          <DialogActions className="omni-dialog-actions omni-connection-actions">
             {mode !== "demo" && (
               <Button type="button" onClick={onTest} disabled={busy || !canConnect()}>
                 {busy ? t("loading") : t("testConnection")}
               </Button>
             )}
+            <span className="omni-dialog-actions-spacer" />
+            <Button type="button" appearance="subtle" onClick={onClose} disabled={busy}>
+              {t("cancel")}
+            </Button>
             <Button type="submit" appearance="primary" disabled={busy || (mode !== "demo" && !canConnect())}>
               {busy ? t("loading") : t("saveConnection")}
             </Button>

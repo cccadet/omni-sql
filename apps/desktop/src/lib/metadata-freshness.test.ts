@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it } from "vitest";
-import { formatLastSyncedAt, getMetadataFreshness } from "./metadata-freshness";
+import { formatLastSyncedAt, formatSyncAge, getMetadataFreshness } from "./metadata-freshness";
 
 const now = new Date(2026, 7, 12, 15, 30);
 
@@ -15,4 +15,12 @@ it("formats only finite valid metadata timestamps", () => {
   expect(formatLastSyncedAt(undefined)).toBeNull();
   expect(formatLastSyncedAt(Number.POSITIVE_INFINITY)).toBeNull();
   expect(formatLastSyncedAt(now.getTime())).toBeTruthy();
+});
+
+it("formats the sync age compactly for the sidebar header", () => {
+  expect(formatSyncAge(undefined, now.getTime())).toBeNull();
+  expect(formatSyncAge(now.getTime() - 30_000, now.getTime())).toBeNull();
+  expect(formatSyncAge(now.getTime() - 5 * 60_000, now.getTime())).toBe("5m");
+  expect(formatSyncAge(now.getTime() - 3 * 3_600_000, now.getTime())).toBe("3h");
+  expect(formatSyncAge(now.getTime() - 50 * 3_600_000, now.getTime())).toBe("2d");
 });

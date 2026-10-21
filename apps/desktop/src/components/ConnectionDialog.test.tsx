@@ -22,9 +22,9 @@ const saved = vi.fn();
 test("saves and restores an explicit environment without dropping SSL", async () => {
   vi.mocked(backend.call).mockResolvedValue({ connectionId: "saved-pg" });
   renderWithLanguage(<ConnectionDialog open editing={{ id: "saved-pg", label: "Warehouse", dialect: "postgres", endpoint: "localhost:5432/test", user: "u", options: { ssl: "require", environment: "staging" } }} onClose={close} onSaved={saved} />);
-  const environment = screen.getByRole("combobox", { name: "Environment" }) as HTMLSelectElement;
-  assert.equal(environment.value, "staging");
-  fireEvent.change(environment, { target: { value: "production" } });
+  const environment = screen.getByRole("radiogroup", { name: "Environment" });
+  assert.equal(within(environment).getByRole("radio", { name: "Staging" }).getAttribute("aria-checked"), "true");
+  fireEvent.click(within(environment).getByRole("radio", { name: "Production" }));
   fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
   await waitFor(() => assert.equal(saved.mock.calls.length, 1));
   const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");

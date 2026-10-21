@@ -55,7 +55,7 @@ import { typeIcon } from "../lib/type-icon";
 import { backend, type ConnectionEntry, type RelationColumn, type RelationInfo } from "../lib/backend";
 import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
 import type { ConnectionHealth } from "./StatusBar";
-import { formatLastSyncedAt, getMetadataFreshness } from "../lib/metadata-freshness";
+import { formatLastSyncedAt, formatSyncAge, getMetadataFreshness } from "../lib/metadata-freshness";
 import { useLanguage } from "../i18n";
 import { CreateTableDialog, TableStructureDialog } from "./TableDialogs";
 
@@ -337,7 +337,20 @@ export function Sidebar({
   const [createTableSchema, setCreateTableSchema] = useState<string | null>(null);
   const [structureTable, setStructureTable] = useState<{ schema: string; table: string } | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const connectionsHeightRef = useRef(connectionsHeight);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "p") return;
+      event.preventDefault();
+      setObjectsExpanded(true);
+      window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   useEffect(() => {
     setExpanded(new Set());
@@ -668,6 +681,8 @@ export function Sidebar({
     : `SELECT * FROM ${qualified(schema, name)} LIMIT 1000`);
   const metadataFreshness = getMetadataFreshness(connection?.lastSyncedAt);
   const metadataTimestamp = formatLastSyncedAt(connection?.lastSyncedAt);
+  const metadataAge = formatSyncAge(connection?.lastSyncedAt);
+  const metadataAgeLabel = metadataFreshness === "unsynced" ? tr("notSyncedShort") : metadataAge ? tr("syncedAgo").replace("{age}", metadataAge) : tr("syncedJustNow");
   const metadataTooltip = `${metadataRefreshFailed ? `${tr("error")}: ${tr("refreshMetadata")}` : metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
 
   return (
@@ -702,6 +717,7 @@ export function Sidebar({
             aria-controls="omni-connections-content"
           >
             <span id="omni-connections-heading" className="omni-sidebar-section-title">{tr("connections")}</span>
+            {connections.length > 0 && <span className="omni-sidebar-section-count">{connections.length}</span>}
           </Button>
           {connectionsExpanded && <div className="omni-connection-actions">
             <Tooltip content={tr("newConnection")} relationship="label">
@@ -866,7 +882,7 @@ export function Sidebar({
                 aria-label={tr("refreshMetadata")}
                 aria-busy={metadataRefreshing}
                 aria-description={metadataRefreshing || connection.dialect === "s3" ? tr("refreshMetadata") : metadataTooltip}
-              />
+              >{connection.dialect !== "s3" && <span className={`omni-sync-age omni-sync-age-${metadataRefreshFailed ? "error" : metadataFreshness}`}>{metadataAgeLabel}</span>}</Button>
             </Tooltip>
           )}
           <SidecarStatus />
@@ -887,8 +903,10 @@ export function Sidebar({
         {connection?.dialect === "s3" && <Button size="small" appearance="outline" icon={<LinkRegular fontSize={14} />} style={{ width: "100%", marginBottom: 10 }} onClick={onImportDatabaseTable}>{tr("addTableToJoin")}</Button>}
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <Input
+          ref={searchInputRef}
           placeholder={tr("searchObjects")}
           aria-label={tr("searchObjects")}
+          title={tr("focusObjectSearch")}
           value={search}
           onChange={(_, data) => setSearch(data.value)}
           contentBefore={<SearchRegular fontSize={12} />}
@@ -900,7 +918,7 @@ export function Sidebar({
                 onClick={() => setSearch("")}
                 aria-label={tr("clearSearch")}
               />
-            ) : undefined
+            ) : <kbd className="omni-kbd-hint" aria-hidden>Ctrl+P</kbd>
           }
           style={{ flex: 1, minWidth: 0 }}
         />

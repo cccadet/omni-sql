@@ -55,11 +55,16 @@ export interface StatusBarProps {
   mcpState?: McpVisualState;
   mcpStatus?: McpStatusResult | null;
   mcpError?: string | null;
+  /** Controls the MCP dialog from outside (e.g. Settings); uncontrolled when omitted. */
+  mcpOpen?: boolean;
+  onMcpOpenChange?: (open: boolean) => void;
 }
 
-export function StatusBar({ compactConnection = false, connection, result, cursorPosition, busyMsg, database, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError }: StatusBarProps) {
+export function StatusBar({ compactConnection = false, connection, result, cursorPosition, busyMsg, database, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError, mcpOpen: controlledMcpOpen, onMcpOpenChange }: StatusBarProps) {
   const { t } = useLanguage();
-  const [mcpOpen, setMcpOpen] = useState(false);
+  const [uncontrolledMcpOpen, setUncontrolledMcpOpen] = useState(false);
+  const mcpOpen = controlledMcpOpen ?? uncontrolledMcpOpen;
+  const setMcpOpen = (open: boolean) => { setUncontrolledMcpOpen(open); onMcpOpenChange?.(open); };
   const dialectLabels: Record<string, string> = {
     postgres: "PostgreSQL",
     mysql: "MySQL",
@@ -104,9 +109,9 @@ export function StatusBar({ compactConnection = false, connection, result, curso
         style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", color: mcpColor, cursor: "pointer", font: "inherit" }}
         title={mcpLabel}
       >
+        <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: mcpColor }} />
         <McpIcon fontSize={13} />
-        <Text size={200}>{t("mcp")}</Text>
-        <span aria-hidden style={{ width: 6, height: 6, borderRadius: "50%", background: mcpColor }} />
+        <Text size={200}>{mcpLabel}</Text>
       </button>
       {busyMsg && (
         <Text size={200} style={{ color: tokens.colorPaletteYellowForeground1, display: "flex", alignItems: "center", gap: 4 }}>
@@ -157,15 +162,8 @@ export function StatusBar({ compactConnection = false, connection, result, curso
               // Ignore malformed release URLs.
             }
           }}
-          style={{
-            padding: "2px 6px",
-            border: `1px solid ${tokens.colorBrandStroke1}`,
-            borderRadius: 3,
-            background: "transparent",
-            color: tokens.colorBrandForeground1,
-            cursor: update.releaseUrl ? "pointer" : "default",
-            font: "inherit",
-          }}
+          className="omni-status-update"
+          style={{ cursor: onInstallUpdate || update.releaseUrl ? "pointer" : "default" }}
         >
           {t("updateAvailable").replace("{version}", displayUpdateVersion(update.version))}
         </button>

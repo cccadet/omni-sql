@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, MessageBar, MessageBarBody, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
-import { WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
+import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, Menu, MenuDivider, MenuItem, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
+import { AddRegular, BookRegular, ChevronDownRegular, DatabaseRegular, DocumentArrowUpRegular, FolderOpenRegular, HistoryRegular, NavigationRegular, PanelLeftRegular, SaveRegular, SettingsRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -12,6 +12,7 @@ import { Toolbar } from "./components/Toolbar";
 import { TabBar } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
 import { DialectIcon } from "./components/DialectIcon";
+import { DuckDbIcon } from "./components/DuckDbIcon";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { StatusBar, type ConnectionHealth, type McpVisualState, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
@@ -232,6 +233,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
   const [analysisImportOperationId, setAnalysisImportOperationId] = useState<string | null>(null);
   const [analysisImportStatus, setAnalysisImportStatus] = useState<AnalysisOperationStatus | null>(null);
   const [analysisImportOpen, setAnalysisImportOpen] = useState(false);
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [analysisImportError, setAnalysisImportError] = useState<string | null>(null);
   const [crossSourceOpen, setCrossSourceOpen] = useState(false);
   const [crossSourceConnectionId, setCrossSourceConnectionId] = useState("");
@@ -1624,23 +1626,69 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       data-theme={name}
     >
       <header className="omni-app-header" style={{ gridColumn: "1 / -1", gridRow: 1 }}>
+        <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <button type="button" className="omni-header-icon-button" aria-label={t("appMenu")} title={t("appMenu")}><NavigationRegular fontSize={18} /></button>
+          </MenuTrigger>
+          <MenuPopover>
+            <MenuList>
+              <MenuItem icon={<AddRegular />} onClick={() => addTab(activeConnectionId)}>{t("newSqlTab")}</MenuItem>
+              <MenuItem icon={<FolderOpenRegular />} onClick={() => void onOpenFile()}>{t("openSavedTab")}</MenuItem>
+              <MenuItem icon={<SaveRegular />} onClick={() => void onSaveTab()}>{t("saveTab")}</MenuItem>
+              <MenuDivider />
+              <MenuItem icon={<DatabaseRegular />} onClick={onAddConnection}>{t("newConnection")}</MenuItem>
+              <MenuItem icon={<DocumentArrowUpRegular />} onClick={() => void onImportLocalFile()}>{t("analysisImportFile")}</MenuItem>
+              <MenuDivider />
+              <MenuItem icon={<HistoryRegular />} onClick={() => setHistoryOpen((v) => !v)}>{t("history")}</MenuItem>
+              <MenuItem icon={<BookRegular />} onClick={() => setCommandLibraryOpen(true)}>{t("commandLibrary")}</MenuItem>
+              <MenuItem icon={<PanelLeftRegular />} onClick={() => setSidebarOpen((v) => !v)}>{t("toggleSidebar")}</MenuItem>
+              <MenuItem icon={<SettingsRegular />} onClick={() => setFormatSettingsOpen(true)}>{t("settings")}</MenuItem>
+            </MenuList>
+          </MenuPopover>
+        </Menu>
         <div className="omni-logo">
-          <img src="/omni-sql.svg" alt="" height={24} />
+          <img src="/omni-sql.svg" alt="" height={22} />
           <Title1 className="wordmark">omni-sql</Title1>
         </div>
-        {activeConnection && <div className="omni-app-context" aria-label={t("activeConnection")}>
-          <DialectIcon dialect={activeConnection.dialect} size={16} />
-          <strong className="omni-app-connection" title={activeConnection.label}>{activeConnection.label}</strong>
-          <span className="omni-app-dialect">{DIALECT_LABELS[activeConnection.dialect]}</span>
-          {activeDatabase && <span className="omni-app-database" title={activeDatabase}>{activeDatabase}</span>}
-          {(activeConnection.options?.environment === "development" || activeConnection.options?.environment === "staging" || activeConnection.options?.environment === "production") && <span className="omni-environment-badge" data-environment={activeConnection.options.environment}>
-            {t(activeConnection.options.environment === "production" ? "environmentProduction" : activeConnection.options.environment === "staging" ? "environmentStaging" : "environmentDevelopment")}
-          </span>}
-          <span className={`omni-app-health omni-header-state-${connectionHealth}`} role="status">
-            <span aria-hidden className="omni-header-state-dot" />
-            {connectionHealth === "online" ? t("headerConnected") : connectionHealth === "offline" ? t("headerOffline") : connectionHealth === "verifying" ? t("headerVerifying") : t("statusUnknown")}
-          </span>
-        </div>}
+        <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <button type="button" className="omni-connection-switcher" aria-label={`${t("switchConnection")}: ${activeConnection?.label ?? t("noActiveConnection")}`} title={t("switchConnection")}>
+              {activeConnection ? <>
+                <DialectIcon dialect={activeConnection.dialect} size={14} />
+                <strong className="omni-app-connection" title={activeConnection.label}>{activeConnection.label}</strong>
+                <span className="omni-app-dialect">{DIALECT_LABELS[activeConnection.dialect]}</span>
+                {activeDatabase && <span className="omni-app-database" title={activeDatabase}>{activeDatabase}</span>}
+                {(activeConnection.options?.environment === "development" || activeConnection.options?.environment === "staging" || activeConnection.options?.environment === "production") && <span className="omni-environment-badge" data-environment={activeConnection.options.environment}>
+                  {t(activeConnection.options.environment === "production" ? "environmentProduction" : activeConnection.options.environment === "staging" ? "environmentStaging" : "environmentDevelopment")}
+                </span>}
+                <span className={`omni-app-health omni-header-state-${connectionHealth}`} role="status">
+                  <span aria-hidden className="omni-header-state-dot" />
+                  {connectionHealth === "online" ? t("headerConnected") : connectionHealth === "offline" ? t("headerOffline") : connectionHealth === "verifying" ? t("headerVerifying") : t("statusUnknown")}
+                </span>
+              </> : <span className="omni-header-empty">{t("noActiveConnection")}</span>}
+              <ChevronDownRegular fontSize={12} className="omni-connection-switcher-chevron" />
+            </button>
+          </MenuTrigger>
+          <MenuPopover>
+            <MenuList>
+              {connections.map((connection) => (
+                <MenuItem
+                  key={connection.id}
+                  icon={<DialectIcon dialect={connection.dialect} size={14} />}
+                  secondaryContent={DIALECT_LABELS[connection.dialect] ?? connection.dialect}
+                  onClick={() => void onSelectConnection(connection.id)}
+                  aria-current={connection.id === activeConnectionId ? "true" : undefined}
+                  className={connection.id === activeConnectionId ? "omni-connection-switcher-active" : undefined}
+                >
+                  {connection.label}
+                </MenuItem>
+              ))}
+              {connections.length > 0 && <MenuDivider />}
+              <MenuItem icon={<AddRegular />} onClick={onAddConnection}>{t("newConnection")}</MenuItem>
+            </MenuList>
+          </MenuPopover>
+        </Menu>
+        <span className="omni-header-spacer" />
         <button
           type="button"
           onClick={toggle}
@@ -1648,7 +1696,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
           title={name === "dark" ? t("switchToLightTheme") : t("switchToDarkTheme")}
           className="omni-theme-toggle"
         >
-          {name === "dark" ? <WeatherSunnyRegular fontSize={22} /> : <WeatherMoonRegular fontSize={22} />}
+          {name === "dark" ? <WeatherSunnyRegular fontSize={18} /> : <WeatherMoonRegular fontSize={18} />}
         </button>
       </header>
 
@@ -1809,11 +1857,11 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       />
 
       <section style={{ gridColumn: 2, gridRow: 5, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} />
+        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} emptyState={{ target: activeConnection ? (activeDatabase ? `${activeConnection.label} · ${activeDatabase}` : activeConnection.label) : null, limit: activeTab.queryLimit, onOpenHistory: () => setHistoryOpen(true) }} />
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 6 }}>
-        <StatusBar compactConnection connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} />
+        <StatusBar compactConnection connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} mcpOpen={mcpDialogOpen} onMcpOpenChange={setMcpDialogOpen} />
       </div>
 
       {dialogOpen && <ConnectionDialog
@@ -1865,38 +1913,46 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       <Dialog open={analysisImportOpen}>
         <DialogSurface className="omni-standard-dialog omni-analysis-import-dialog">
           <DialogBody className="omni-dialog-body">
-            <DialogTitle>{t("analysisImportTitle")}</DialogTitle>
-            <DialogContent style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="omni-analysis-import-hint">{t("analysisDisplayedCount").replace("{count}", result?.rows.length.toLocaleString(language) ?? "0").replace("{more}", result?.rowsMoreAvailable ? t("analysisMoreRows") : "")}</div>
-              <div className="omni-analysis-import-heading">{t("analysisLoadFrom")}</div>
+            <DialogTitle className="omni-analysis-import-title"><DuckDbIcon size={18} /> {t("analysisImportHeading")}</DialogTitle>
+            <DialogContent className="omni-analysis-import-content">
+              <p className="omni-analysis-import-intro">{t("analysisImportIntro")}</p>
+              <div className="omni-analysis-import-heading" id="omni-analysis-load-from">{t("analysisLoadFrom")}</div>
               <RadioGroup
+                aria-labelledby="omni-analysis-load-from"
+                className="omni-analysis-import-options"
                 value={analysisLoadOrigin}
                 onChange={(_, data) => setAnalysisLoadOrigin(data.value as "displayed" | "source")}
               >
-                <Radio value="displayed" label={t("analysisDisplayedResult")} />
-                <Radio value="source" disabled={!analysisSourceStreaming || !analysisSourceSql} label={t("analysisSourceQuery")} />
+                <Radio value="displayed" className="omni-analysis-import-option" label={<><strong>{t("analysisDisplayedResult")}</strong><span>{t("analysisDisplayedCount").replace("{count}", result?.rows.length.toLocaleString(language) ?? "0").replace("{more}", result?.rowsMoreAvailable ? t("analysisMoreRows") : "")}</span></>} />
+                <Radio value="source" className="omni-analysis-import-option" disabled={!analysisSourceStreaming || !analysisSourceSql} label={<><strong>{t("analysisSourceQuery")}</strong><span>{t("analysisSourceQueryHint")}</span></>} />
               </RadioGroup>
-              <div className="omni-analysis-import-heading">{t("analysisRowsToImport")}</div>
-              <RadioGroup
-                value={analysisSelection}
-                onChange={(_, data) => setAnalysisSelection(data.value as "full" | "first_n" | "reservoir")}
-              >
-                <Radio value="full" label={analysisLoadOrigin === "source" ? t("analysisFullSnapshot") : t("analysisDisplayedFull")} />
-                <Radio value="first_n" label={t(analysisLoadOrigin === "source" ? "analysisFirstN" : "analysisDisplayedFirstN")} />
-                <Radio value="reservoir" label={t(analysisLoadOrigin === "source" ? "analysisReservoir" : "analysisDisplayedReservoir")} />
-              </RadioGroup>
+              <div className="omni-analysis-import-heading" id="omni-analysis-rows">{t("analysisRowsToImport")}</div>
+              <div role="radiogroup" aria-labelledby="omni-analysis-rows" className="omni-segmented omni-analysis-rows">
+                {([
+                  ["full", "analysisRowsAll", analysisLoadOrigin === "source" ? "analysisFullSnapshot" : "analysisDisplayedFull"],
+                  ["first_n", "analysisRowsFirst", analysisLoadOrigin === "source" ? "analysisFirstN" : "analysisDisplayedFirstN"],
+                  ["reservoir", "analysisRowsSample", analysisLoadOrigin === "source" ? "analysisReservoir" : "analysisDisplayedReservoir"],
+                ] as const).map(([value, label, description]) => (
+                  <button key={value} type="button" role="radio" aria-checked={analysisSelection === value} title={t(description)} onClick={() => setAnalysisSelection(value)}>{t(label)}</button>
+                ))}
+              </div>
               {analysisSelection !== "full" && (
-                <Input
-                  type="number"
-                  min={1}
-                  max={10_000}
-                  value={String(analysisSampleRows)}
-                  aria-label={t("analysisSampleRows")}
-                  onChange={(_, data) => setAnalysisSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))}
-                />
+                <label className="omni-analysis-sample-rows">
+                  {t("analysisSampleRows")}
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10_000}
+                    value={String(analysisSampleRows)}
+                    aria-label={t("analysisSampleRows")}
+                    onChange={(_, data) => setAnalysisSampleRows(Math.max(1, Math.min(10_000, Number(data.value) || 1)))}
+                  />
+                  <span>{t("analysisRowsMax")}</span>
+                </label>
               )}
               {analysisImportStatus && (
-                <div role="status" aria-live="polite">
+                <div role="status" aria-live="polite" className="omni-analysis-import-progress">
+                  <span aria-hidden className="omni-analysis-import-bar"><span style={{ width: analysisImportStatus.scannedRows > 0 ? `${Math.min(100, Math.round((analysisImportStatus.retainedRows / Math.max(1, analysisSelection === "full" ? analysisImportStatus.scannedRows : analysisSampleRows)) * 100))}%` : "0%" }} /></span>
                   {analysisImportStatus.scannedRows.toLocaleString(language)} {t("analysisRowsScanned")} · {analysisImportStatus.retainedRows.toLocaleString(language)} {t("analysisRowsRetained")} · {(analysisImportStatus.processedBytes / 1_048_576).toFixed(1)} MiB
                 </div>
               )}
@@ -1942,6 +1998,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         settings={formatterSettings}
         onClose={() => setFormatSettingsOpen(false)}
         onSave={onSaveFormatSettings}
+        theme={name}
+        onThemeChange={(next) => { if (next !== name) toggle(); }}
+        mcpSummary={mcpState === "connected" ? t("mcpConnected") : mcpState === "error" ? t("mcpError") : mcpState === "listening" ? t("mcpListening") : t("mcpInactive")}
+        onOpenMcp={() => { setFormatSettingsOpen(false); setMcpDialogOpen(true); }}
       />
 
       <SqlCommandLibrary
