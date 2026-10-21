@@ -239,9 +239,12 @@ select option {
 
 .omni-toolbar-limit { display: flex; align-items: center; gap: 4px; margin-left: 8px; }
 .omni-toolbar.omni-toolbar { flex-wrap: nowrap; box-sizing: border-box; }
-.omni-toolbar-main { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 4px 0; min-width: 0; }
+.omni-toolbar-main { display: flex; flex: 1; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+.omni-toolbar-main > .omni-toolbar-execution { flex-wrap: nowrap; }
+.omni-toolbar-limit { padding-left: 10px; border-left: 1px solid var(--colorNeutralStroke2); }
+.omni-toolbar-main > .omni-toolbar-mongo-controls { padding-left: 10px; border-left: 1px solid var(--colorNeutralStroke2); }
 .omni-toolbar-utilities { display: flex; flex-shrink: 0; align-items: center; gap: 4px; margin-left: auto; }
-.omni-toolbar-analyze.omni-toolbar-analyze { padding: 4px 8px; font-size: 12px; white-space: nowrap; }
+.omni-toolbar-analyze.omni-toolbar-analyze { padding: 3px 8px; border: 1px solid var(--colorNeutralStroke1); font-size: 12px; white-space: nowrap; }
 
 .omni-toolbar-inline-label {
   font-size: 12px;
@@ -258,7 +261,7 @@ select option {
 .omni-connections-section {
   box-sizing: border-box;
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   flex-direction: column;
   min-height: 100px;
   min-width: 0;
@@ -675,13 +678,13 @@ select option {
   border-bottom: 1px solid var(--colorNeutralStroke1);
   background: var(--colorNeutralBackground1);
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
-.omni-tab-bar > .fui-TabList { flex-shrink: 0; }
+.omni-tab-bar > .fui-TabList { flex-shrink: 1; min-width: 0; overflow: hidden; }
+.omni-tab-overflow.omni-tab-overflow { min-width: 0; white-space: nowrap; color: var(--colorNeutralForeground2); font-weight: 400; }
 .omni-tab-bar > .fui-Button { flex-shrink: 0; }
 .omni-tab-bar .fui-Tab { min-height: 32px; padding: 4px 10px; }
-.omni-tab-bar .fui-Tab:has(.omni-tab-subtitle) { min-height: 38px; max-width: 220px; }
+.omni-tab-bar .fui-Tab:has(.omni-tab-subtitle) { min-height: 38px; max-width: 190px; }
 .omni-tab-label { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.15; }
 .omni-tab-title { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .omni-tab-subtitle { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--colorNeutralForeground3); }
@@ -791,7 +794,11 @@ select option {
   background: var(--colorNeutralBackground1);
 }
 .omni-app-header.omni-app-header { justify-content: flex-start; gap: 10px; min-height: 40px; padding: 0 8px 0 6px; background: var(--colorNeutralBackground2); }
-.omni-header-spacer { flex: 1; }
+.omni-header-spacer { flex: 1; align-self: stretch; }
+.omni-window-controls { display: flex; align-self: stretch; margin: 0 -8px 0 4px; }
+.omni-window-controls > button { display: flex; align-items: center; justify-content: center; width: 46px; border: 0; background: transparent; color: var(--colorNeutralForeground2); cursor: default; }
+.omni-window-controls > button:hover { background: var(--colorNeutralBackground3); color: var(--colorNeutralForeground1); }
+.omni-window-controls > button.is-close:hover { background: #C42B1C; color: #fff; }
 .omni-header-icon-button { display: flex; align-items: center; justify-content: center; width: 30px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--colorNeutralForeground1); cursor: pointer; }
 .omni-header-icon-button:hover { background: var(--colorNeutralBackground3); }
 .omni-connection-switcher { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: min(640px, 60vw); height: 28px; margin-left: 12px; padding: 0 10px; border: 1px solid var(--colorNeutralStroke1); border-radius: 6px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; font-size: 12.5px; cursor: pointer; }
@@ -815,8 +822,8 @@ select option {
 .omni-app-health { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
 .omni-environment-badge { padding: 2px 6px; border: 1px solid var(--colorBrandStroke1); border-radius: 4px; color: var(--colorBrandForeground1); white-space: nowrap; font-size: 11px; font-weight: 600; }
 .omni-environment-badge[data-environment="production"] { border-color: var(--colorPaletteRedBorder2); color: var(--colorPaletteRedForeground1); }
-.omni-segmented { display: inline-flex; padding: 2px; border: 1px solid var(--colorNeutralStroke1); border-radius: 6px; background: var(--colorNeutralBackground1); }
-.omni-segmented > button { padding: 3px 12px; border: 0; border-radius: 4px; background: transparent; color: var(--colorNeutralForeground2); font: inherit; font-size: 12px; cursor: pointer; }
+.omni-segmented { display: inline-flex; flex-shrink: 0; padding: 2px; border: 1px solid var(--colorNeutralStroke1); border-radius: 6px; background: var(--colorNeutralBackground1); }
+.omni-segmented > button { padding: 3px 12px; white-space: nowrap; border: 0; border-radius: 4px; background: transparent; color: var(--colorNeutralForeground2); font: inherit; font-size: 12px; cursor: pointer; }
 .omni-segmented > button[aria-checked="true"] { background: var(--colorNeutralBackground4); color: var(--colorNeutralForeground1); font-weight: 600; }
 .omni-segmented > button:disabled { opacity: .6; cursor: default; }
 .omni-toolbar-run-hint { margin-left: 8px; font-size: 11px; font-weight: 400; opacity: .75; }
@@ -1012,6 +1019,7 @@ button:focus-visible, select:focus-visible, [role="separator"]:focus-visible {
 .omni-mcp-stat > strong.is-ok { color: var(--colorPaletteGreenForeground1); }
 .omni-mcp-tab-count { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: var(--colorNeutralBackground4); font-size: 11px; }
 .omni-mcp-filter { margin-left: auto; }
+.omni-mcp-client { align-self: flex-start; }
 .omni-mcp-history-badge { padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .omni-mcp-history-badge.is-ok { background: color-mix(in srgb, var(--colorPaletteGreenForeground1) 14%, transparent); }
 .omni-mcp-history-badge.is-error { background: color-mix(in srgb, var(--colorPaletteRedForeground1) 14%, transparent); }
@@ -1268,8 +1276,9 @@ button:focus-visible, select:focus-visible, [role="separator"]:focus-visible {
 .omni-standard-dialog.omni-analysis-import-dialog { width: min(500px, calc(100vw - 24px)); }
 .omni-analysis-import-dialog .omni-dialog-actions { width: 100%; box-sizing: border-box; justify-content: flex-end; }
 
-.omni-toolbar-mongo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 12px; font-size: 12px; border-left: 1px solid transparent; border-radius: 4px; background: color-mix(in srgb, var(--colorPaletteGreenForeground1) 8%, var(--colorNeutralBackground2)); }
-.omni-toolbar-mongo-controls .fui-Button:not(:hover):not(:active) { background: var(--colorNeutralBackground1); }
+.omni-toolbar-mongo-controls { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; font-size: 12px; }
+.omni-toolbar-mongo-controls .fui-Button { min-width: 0; padding: 3px 8px; border: 0; background: transparent; color: var(--colorBrandForeground1); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.omni-toolbar-mongo-controls .fui-Button:hover { background: var(--colorNeutralBackground3); }
 .omni-results-keyboard-hint {
   display: flex;
   flex-wrap: wrap;

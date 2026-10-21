@@ -473,7 +473,7 @@ describe("Sidebar", () => {
     fireEvent.keyDown(screen.getByLabelText("Resize object panel"), { key: "ArrowRight" });
     fireEvent.keyDown(screen.getByLabelText("Resize connections panel"), { key: "ArrowDown" });
     expect(localStorage.getItem("omni-sql:sidebarWidth")).toBeTruthy();
-    expect(localStorage.getItem("omni-sql:connectionsHeight")).toBeTruthy();
+    expect(localStorage.getItem("omni-sql:connectionsMaxHeight")).toBeTruthy();
   });
 });
 

@@ -132,22 +132,21 @@ export function Toolbar({
       </div>
 
       {mongoControls}
-      {onAnalyzeLocally && <ToolbarButton
-        className="omni-toolbar-analyze"
-        icon={<DuckDbIcon size={16} />}
-        onClick={onAnalyzeLocally}
-        disabled={running || analyzingLocally}
-      >{analyzingLocally ? t("analysisImporting") : t("analyzeLocally")}</ToolbarButton>}
-
       </div>
       <div className="omni-toolbar-utilities">
       <span className="omni-toolbar-progress" aria-live="polite">
         {busyMsg && <Tooltip content={busyMsg} relationship="description"><Spinner size="tiny" aria-label={busyMsg} /></Tooltip>}
       </span>
 
+      <ToolbarButton
+        className="omni-toolbar-analyze"
+        icon={<DuckDbIcon size={14} />}
+        onClick={onAnalyzeLocally}
+        disabled={!onAnalyzeLocally || running || analyzingLocally}
+        title={onAnalyzeLocally ? undefined : t("queryReadyHint")}
+      >{analyzingLocally ? t("analysisImporting") : t("analyzeLocally")}</ToolbarButton>
       <div className="omni-toolbar-group omni-toolbar-global-actions" role="group" aria-label={t("settings")}>
         <ToolbarButton icon={<SaveRegular fontSize={16} />} onClick={onSave} aria-label={t("saveTab")} title={t("saveTab")} />
-        <ToolbarButton icon={sidebarOpen ? <PanelLeftContractRegular fontSize={14} /> : <PanelLeftExpandRegular fontSize={14} />} onClick={onToggleSidebar} aria-label={t("toggleSidebar")} title={t("toggleSidebar")} />
         <Menu>
           <MenuTrigger disableButtonEnhancement>
             <ToolbarButton icon={<MoreVerticalRegular fontSize={16} />} aria-label={t("moreActions")} title={t("moreActions")} />
@@ -158,6 +157,7 @@ export function Toolbar({
                 <MenuItem icon={<FolderOpenRegular />} onClick={onOpen}>{t("openSavedTab")}</MenuItem>
                 <MenuItem icon={<DuckDbIcon size={16} />} onClick={onSendToAnalysis} disabled={!activeConnectionId || !onSendToAnalysis}>{t("analysisSendToLocal")}</MenuItem>
                 <MenuItem icon={<AddRegular />} onClick={onImportLocalFile}>{t("analysisImportFile")}</MenuItem>
+              <MenuItem icon={sidebarOpen ? <PanelLeftContractRegular /> : <PanelLeftExpandRegular />} onClick={onToggleSidebar}>{t("toggleSidebar")}</MenuItem>
               <MenuItem icon={<SettingsRegular />} onClick={onOpenFormatSettings}>{t("settings")}</MenuItem>
               <MenuItem icon={<BookRegular />} onClick={onOpenCommandLibrary}>{t("commandLibrary")}</MenuItem>
               <MenuItem icon={<HistoryRegular />} onClick={onToggleHistory}>{t("history")}</MenuItem>

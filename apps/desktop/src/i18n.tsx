@@ -594,6 +594,12 @@ const english = {
   themeLabel: "Theme",
   themeDark: "Dark",
   themeLight: "Light",
+  moreTabs: "{count} more",
+  checkForUpdatesMenu: "Check for updates…",
+  exitApp: "Exit",
+  minimizeWindow: "Minimize",
+  maximizeWindow: "Maximize",
+  closeWindow: "Close",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -750,6 +756,12 @@ const portugueseBrazil = [
   "Tema",
   "Escuro",
   "Claro",
+  "mais {count}",
+  "Verificar atualizações…",
+  "Sair",
+  "Minimizar",
+  "Maximizar",
+  "Fechar",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

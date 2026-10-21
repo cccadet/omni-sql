@@ -239,7 +239,8 @@ const WIDTH_KEY = "omni-sql:sidebarWidth";
 const MIN_CONNECTIONS_HEIGHT = 100;
 const MIN_OBJECTS_HEIGHT = 180;
 const DEFAULT_CONNECTIONS_HEIGHT = 160;
-const CONNECTIONS_HEIGHT_KEY = "omni-sql:connectionsHeight";
+/** Cap set by dragging the handle; until then the list sizes to its content (up to 45% of the sidebar). */
+const CONNECTIONS_HEIGHT_KEY = "omni-sql:connectionsMaxHeight";
 
 function relationKey(schema: string, name: string) {
   return `${schema}.${name}`;
@@ -255,13 +256,13 @@ function loadWidth(): number {
   }
 }
 
-function loadConnectionsHeight(): number {
+function loadConnectionsHeight(): number | null {
   try {
     const raw = localStorage.getItem(CONNECTIONS_HEIGHT_KEY);
     const value = raw !== null ? Number(raw) : NaN;
-    return Number.isFinite(value) ? Math.max(MIN_CONNECTIONS_HEIGHT, value) : DEFAULT_CONNECTIONS_HEIGHT;
+    return Number.isFinite(value) ? Math.max(MIN_CONNECTIONS_HEIGHT, value) : null;
   } catch {
-    return DEFAULT_CONNECTIONS_HEIGHT;
+    return null;
   }
 }
 
@@ -309,7 +310,9 @@ export function Sidebar({
   const [formatFilter, setFormatFilter] = useState("");
   const [searchMatches, setSearchMatches] = useState<Set<string> | null>(null);
   const [width, setWidth] = useState(loadWidth);
-  const [connectionsHeight, setConnectionsHeight] = useState(loadConnectionsHeight);
+  const [storedConnectionsHeight] = useState(loadConnectionsHeight);
+  const [connectionsHeight, setConnectionsHeight] = useState(storedConnectionsHeight ?? DEFAULT_CONNECTIONS_HEIGHT);
+  const [connectionsUserSized, setConnectionsUserSized] = useState(storedConnectionsHeight !== null);
   const [resizing, setResizing] = useState(false);
   const [resizingConnections, setResizingConnections] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -583,6 +586,7 @@ export function Sidebar({
     const bounded = Math.min(getMaxConnectionsHeight(), Math.max(MIN_CONNECTIONS_HEIGHT, value));
     connectionsHeightRef.current = bounded;
     setConnectionsHeight(bounded);
+    setConnectionsUserSized(true);
     try {
       localStorage.setItem(CONNECTIONS_HEIGHT_KEY, String(bounded));
     } catch {
@@ -704,7 +708,7 @@ export function Sidebar({
     >
       <section
         className={`omni-connections-section${connectionsExpanded ? "" : " collapsed"}`}
-        style={{ height: connectionsExpanded ? Math.min(connectionsHeight, getMaxConnectionsHeight()) : 32 }}
+        style={connectionsExpanded ? { maxHeight: connectionsUserSized ? Math.min(connectionsHeight, getMaxConnectionsHeight()) : "45%" } : { height: 32 }}
         aria-labelledby="omni-connections-heading"
       >
         <div className="omni-sidebar-section-header">

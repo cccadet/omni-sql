@@ -589,4 +589,10 @@ export const simplifiedChinese = {
   themeLabel: "主题",
   themeDark: "深色",
   themeLight: "浅色",
+  moreTabs: "另外 {count} 个",
+  checkForUpdatesMenu: "检查更新…",
+  exitApp: "退出",
+  minimizeWindow: "最小化",
+  maximizeWindow: "最大化",
+  closeWindow: "关闭",
 } satisfies Record<TranslationKey, string>;

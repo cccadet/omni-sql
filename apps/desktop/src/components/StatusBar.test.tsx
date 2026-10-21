@@ -154,7 +154,7 @@ test("StatusBar: shows HTTP endpoint without exposing descriptor data", async ()
   renderWithLanguage(<StatusBar mcpState="listening" />);
 
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
-  fireEvent.click(await screen.findByRole("tab", { name: "HTTP" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "HTTP" }));
   expect(await screen.findByText("HTTP endpoint")).toBeTruthy();
   expect(screen.getByText("http://127.0.0.1:41922/mcp")).toBeTruthy();
   expect(screen.queryByText("secret-token")).toBeNull();
@@ -181,7 +181,7 @@ test("StatusBar: separates MCP configuration from activity and expands SQL on de
   expect(await screen.findByRole("button", { name: "Copy GitHub Copilot configuration" })).toBeTruthy();
   expect(screen.queryByText("STDIO command")).toBeNull();
 
-  fireEvent.click(screen.getByRole("tab", { name: "STDIO" }));
+  fireEvent.click(screen.getByRole("radio", { name: "STDIO" }));
   expect(await screen.findByText("STDIO command")).toBeTruthy();
   expect(screen.getByText("Argument 1")).toBeTruthy();
   expect(screen.getByText("/usr/bin/node")).toBeTruthy();
@@ -212,7 +212,7 @@ test("StatusBar: starts and stops HTTP using a separate token and the actual lis
   vi.mocked(backend.call).mockImplementation(async (method) => method === "mcp.http.start" ? { endpoint: "http://127.0.0.1:41922/mcp", sessions: 0 } : { endpoint: null, sessions: 0 });
   renderWithLanguage(<StatusBar mcpState="listening" />);
   fireEvent.click(screen.getByRole("button", { name: /MCP: MCP ready/ }));
-  fireEvent.click(await screen.findByRole("tab", { name: "HTTP" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "HTTP" }));
   const token = screen.getByLabelText("HTTP access token");
   expect(token.getAttribute("type")).toBe("password");
   fireEvent.change(token, { target: { value: "a-separate-test-http-token" } });

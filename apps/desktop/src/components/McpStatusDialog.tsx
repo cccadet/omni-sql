@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Textarea, Tab, TabList, Text, tokens } from "@fluentui/react-components";
-import { ArrowClockwiseRegular, ChevronDownRegular, ChevronUpRegular, CopyRegular, PlugConnectedRegular } from "@fluentui/react-icons";
+import { ArrowClockwiseRegular, ChevronDownRegular, ChevronUpRegular, CopyRegular, DismissRegular, PlugConnectedRegular } from "@fluentui/react-icons";
 import { invoke } from "@tauri-apps/api/core";
 import type { McpHttpStatus, McpHistoryEntry, McpHistoryResult, McpStatusResult } from "@omni-sql/ts-types";
 import { backend } from "../lib/backend";
@@ -94,7 +94,7 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
     <Dialog open={open} onOpenChange={(_, data) => onOpenChange(data.open)}>
       <DialogSurface className="omni-standard-dialog omni-mcp-status-dialog">
         <DialogBody className="omni-dialog-body">
-          <DialogTitle>{t("mcpStatusTitle")}</DialogTitle>
+          <DialogTitle action={<Button appearance="subtle" icon={<DismissRegular />} aria-label={t("close")} title={t("close")} onClick={() => onOpenChange(false)} />}>{t("mcpStatusTitle")}</DialogTitle>
           <DialogContent className="omni-mcp-dialog-content">
             <section className="omni-mcp-summary" data-state={state} aria-label={label}>
               <span className="omni-mcp-status-dot" style={{ background: color }} />
@@ -126,12 +126,12 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
                 </div>
                 {config ? (
                   <>
-                    <TabList size="small" selectedValue={client} onTabSelect={(_, data) => setClient(data.value as typeof client)} aria-label={t("configureClient")}>
-                      <Tab value="copilot">{t("mcpCopilotVsCodeConfig")}</Tab>
-                      <Tab value="http">HTTP</Tab>
-                      <Tab value="stdio">{t("mcpStdioTab")}</Tab>
-                    </TabList>
-                    {client === "copilot" && <McpValue value={createCopilotVsCodeMcpConfig(config)} copyLabel={t("copyCopilotVsCodeConfig")} copiedLabel={t("copied")} multiline help={t("mcpCopilotVsCodeHelp")} />}
+                    <div role="radiogroup" aria-label={t("configureClient")} className="omni-segmented omni-mcp-client">
+                      {([["copilot", t("mcpCopilotVsCodeConfig")], ["http", "HTTP"], ["stdio", t("mcpStdioTab")]] as const).map(([value, text]) => (
+                        <button key={value} type="button" role="radio" aria-checked={client === value} onClick={() => setClient(value)}>{text}</button>
+                      ))}
+                    </div>
+                    {client === "copilot" && <McpValue label="mcp.json" value={createCopilotVsCodeMcpConfig(config)} copyLabel={t("copyCopilotVsCodeConfig")} copiedLabel={t("copied")} multiline help={t("mcpCopilotVsCodeHelp")} />}
                     {client === "http" && <div className="omni-mcp-section">
                       <Text>{t("mcpHttpHelp")}</Text>
                       {endpoint ? <McpValue label={t("mcpHttpEndpoint")} value={endpoint} copyLabel={t("copyEndpoint")} copiedLabel={t("copied")} /> : <>

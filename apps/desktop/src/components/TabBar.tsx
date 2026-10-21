@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Tab, TabList, tokens } from "@fluentui/react-components";
-import { AddRegular, DismissRegular } from "@fluentui/react-icons";
+import { Button, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Tab, TabList, tokens } from "@fluentui/react-components";
+import { AddRegular, ChevronDownRegular, DismissRegular } from "@fluentui/react-icons";
 import { DialectIcon } from "./DialectIcon";
 import { useLanguage } from "../i18n";
 
@@ -22,11 +22,39 @@ export interface TabBarProps {
   onRename?: (id: string, title: string) => void;
 }
 
+const TAB_SLOT_WIDTH = 196;
+const PLAIN_TAB_SLOT_WIDTH = 96;
+const OVERFLOW_RESERVE = 130;
+
 export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }: TabBarProps) {
   const { t } = useLanguage();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const [barWidth, setBarWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setBarWidth(entry?.contentRect.width ?? null));
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
+
+  // Fit as many tabs as the bar allows; the rest go to the overflow menu. The active tab always stays visible.
+  let capacity = tabs.length;
+  if (barWidth) {
+    let used = OVERFLOW_RESERVE;
+    capacity = tabs.findIndex((tab) => (used += tab.subtitle ? TAB_SLOT_WIDTH : PLAIN_TAB_SLOT_WIDTH) > barWidth);
+    capacity = capacity === -1 ? tabs.length : Math.max(1, capacity);
+  }
+  let visibleTabs = tabs.slice(0, capacity);
+  if (tabs.length > capacity) {
+    const active = tabs.find((tab) => tab.id === activeTabId);
+    if (active && !visibleTabs.includes(active)) visibleTabs = [...visibleTabs.slice(0, capacity - 1), active];
+  }
+  const hiddenTabs = tabs.filter((tab) => !visibleTabs.includes(tab));
 
   useEffect(() => {
     if (editingId && inputRef.current) {
@@ -45,6 +73,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
 
   return (
     <div
+      ref={barRef}
       className="omni-tab-bar"
       style={{
         display: "flex",
@@ -59,7 +88,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
         selectedValue={activeTabId ?? undefined}
         onTabSelect={(_, data) => onSelect?.(String(data.value))}
       >
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <Tab key={tab.id} value={tab.id}>
             {editingId === tab.id ? (
               <input
@@ -120,6 +149,22 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd, onRename }
           </Tab>
         ))}
       </TabList>
+      {hiddenTabs.length > 0 && <Menu>
+        <MenuTrigger disableButtonEnhancement>
+          <Button size="small" appearance="subtle" icon={<ChevronDownRegular />} className="omni-tab-overflow" aria-label={t("moreTabs").replace("{count}", String(hiddenTabs.length))}>
+            {t("moreTabs").replace("{count}", String(hiddenTabs.length))}
+          </Button>
+        </MenuTrigger>
+        <MenuPopover>
+          <MenuList>
+            {hiddenTabs.map((tab) => (
+              <MenuItem key={tab.id} icon={tab.dialect ? <DialectIcon dialect={tab.dialect} size={12} /> : undefined} secondaryContent={tab.subtitle} onClick={() => onSelect?.(tab.id)}>
+                {tab.title}
+              </MenuItem>
+            ))}
+          </MenuList>
+        </MenuPopover>
+      </Menu>}
       <Button icon={<AddRegular />} size="small" appearance="subtle" onClick={onAdd} aria-label={t("newTab")} title={t("newTab")} />
     </div>
   );

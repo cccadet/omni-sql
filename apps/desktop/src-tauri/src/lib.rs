@@ -388,7 +388,13 @@ fn set_native_menu_language(app: AppHandle, language: String) -> Result<(), Stri
     let menu = native_menu(&app, &language).map_err(|err| err.to_string())?;
     app.set_menu(menu)
         .map(|_| ())
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    // `set_menu` re-attaches the bar; keep it hidden where the header replaces it.
+    #[cfg(windows)]
+    if let Some(window) = app.get_webview_window("main") {
+        window.hide_menu().map_err(|err| err.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -1845,6 +1851,18 @@ pub fn run() {
                         }
                     }
                     Err(err) => log::warn!("failed to create native menu: {err}"),
+                }
+                // On Windows the web header is the title bar (menu, drag region and
+                // window buttons), so drop the native caption and menu bar. The menu
+                // stays attached so its accelerators keep working.
+                #[cfg(windows)]
+                {
+                    if let Err(err) = window.hide_menu() {
+                        log::warn!("failed to hide window menu: {err}");
+                    }
+                    if let Err(err) = window.set_decorations(false) {
+                        log::warn!("failed to remove window decorations: {err}");
+                    }
                 }
             }
 
