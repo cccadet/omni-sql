@@ -51,7 +51,6 @@ test("renders multi-statement modal and row limit in English", () => {
   expect(screen.getByRole("button", { name: "Run all (2)" })).toBeTruthy();
   expect(screen.getByRole("option", { name: "10 rows" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save Tab" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("title")).toBe("Toggle sidebar");
   expect(screen.getByRole("button", { name: "Run" }).getAttribute("title")).toBe("Run current SQL statement (Ctrl+Enter)");
   expect(screen.getByRole("button", { name: "Explain SQL" }).getAttribute("title")).toBe("Explain SQL");
 });

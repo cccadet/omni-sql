@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, Menu, MenuDivider, MenuItem, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
-import { AddRegular, BookRegular, ChevronDownRegular, DatabaseRegular, DocumentArrowUpRegular, FolderOpenRegular, HistoryRegular, NavigationRegular, PanelLeftRegular, SaveRegular, SettingsRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
+import { AddRegular, AppsListRegular, ArrowSwapRegular, ArrowSyncRegular, SignOutRegular, BookRegular, ChevronDownRegular, DatabaseRegular, DocumentArrowUpRegular, FolderOpenRegular, HistoryRegular, NavigationRegular, PanelLeftRegular, SaveRegular, SettingsRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { check } from "@tauri-apps/plugin-updater";
 import { useEditorMonacoTheme, type ThemeName } from "./theme";
 import { useSession, makeTab } from "./hooks/useSession";
@@ -13,6 +14,7 @@ import { TabBar } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
 import { DialectIcon } from "./components/DialectIcon";
 import { DuckDbIcon } from "./components/DuckDbIcon";
+import { usesCustomTitleBar, WindowControls } from "./components/WindowControls";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { StatusBar, type ConnectionHealth, type McpVisualState, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
@@ -1625,7 +1627,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       }}
       data-theme={name}
     >
-      <header className="omni-app-header" style={{ gridColumn: "1 / -1", gridRow: 1 }}>
+      <header className="omni-app-header" style={{ gridColumn: "1 / -1", gridRow: 1 }} data-tauri-drag-region>
         <Menu>
           <MenuTrigger disableButtonEnhancement>
             <button type="button" className="omni-header-icon-button" aria-label={t("appMenu")} title={t("appMenu")}><NavigationRegular fontSize={18} /></button>
@@ -1643,6 +1645,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
               <MenuItem icon={<BookRegular />} onClick={() => setCommandLibraryOpen(true)}>{t("commandLibrary")}</MenuItem>
               <MenuItem icon={<PanelLeftRegular />} onClick={() => setSidebarOpen((v) => !v)}>{t("toggleSidebar")}</MenuItem>
               <MenuItem icon={<SettingsRegular />} onClick={() => setFormatSettingsOpen(true)}>{t("settings")}</MenuItem>
+              <MenuDivider />
+              <MenuItem icon={<AppsListRegular />} onClick={() => setBackgroundProcessesOpen(true)}>{t("backgroundProcesses")}</MenuItem>
+              <MenuItem icon={<ArrowSyncRegular />} onClick={() => void emit(CHECK_FOR_UPDATES_EVENT).catch(() => undefined)}>{t("checkForUpdatesMenu")}</MenuItem>
+              {usesCustomTitleBar() && <MenuItem icon={<SignOutRegular />} onClick={() => void getCurrentWindow().close()}>{t("exitApp")}</MenuItem>}
             </MenuList>
           </MenuPopover>
         </Menu>
@@ -1688,7 +1694,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
             </MenuList>
           </MenuPopover>
         </Menu>
-        <span className="omni-header-spacer" />
+        <span className="omni-header-spacer" data-tauri-drag-region />
         <button
           type="button"
           onClick={toggle}
@@ -1698,6 +1704,7 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         >
           {name === "dark" ? <WeatherSunnyRegular fontSize={18} /> : <WeatherMoonRegular fontSize={18} />}
         </button>
+        <WindowControls />
       </header>
 
       <div className="omni-editor-controls" style={{ gridColumn: 2, gridRow: 2, minWidth: 0 }}>
@@ -1721,10 +1728,10 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         <Toolbar
           mongoControls={activeConnection?.dialect === "mongodb" && <div className="omni-toolbar-mongo-controls">
             <div role="radiogroup" aria-label={t("mongoSqlMode")} className="omni-segmented">
-              <button type="button" role="radio" aria-checked={activeTab.mongoSqlMode !== true} disabled={running} onClick={() => setMongoSqlMode(false)}>Mongo JSON</button>
               <button type="button" role="radio" aria-checked={activeTab.mongoSqlMode === true} disabled={running} title={t("mongoSqlMode")} onClick={() => setMongoSqlMode(true)}>SQL</button>
+              <button type="button" role="radio" aria-checked={activeTab.mongoSqlMode !== true} disabled={running} onClick={() => setMongoSqlMode(false)}>Mongo JSON</button>
             </div>
-            {!activeTab.mongoSqlMode && <Button size="small" appearance="outline" disabled={running} onClick={() => void handleConvertMongo()} title={t("mongoConvertHint")}>
+            {!activeTab.mongoSqlMode && <Button size="small" appearance="transparent" icon={<ArrowSwapRegular />} disabled={running} onClick={() => void handleConvertMongo()} title={t("mongoConvertHint")}>
               {t("mongoConvert")}
             </Button>}
           </div>}
