@@ -45,6 +45,7 @@ export async function resolveCteRelations(
       schema: "",
       name: cte.name,
       kind: "view" as const,
+      isCte: true,
       columns: cte.columns.map((name, i) => ({
         name,
         dataType: "unknown",

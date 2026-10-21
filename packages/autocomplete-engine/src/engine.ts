@@ -1,4 +1,4 @@
-import type { FunctionDef, Relation } from "@omni-sql/ts-types";
+import type { Column, FunctionDef, Relation } from "@omni-sql/ts-types";
 import { formatIdentifier, identifierNeedsQuote, quoteIdentifier, type DialectDescriptor } from "@omni-sql/dialect-descriptors";
 import { resolveContext, type ResolvedContext, type ScopeRef } from "./context.ts";
 import type { Token } from "./lexer.ts";
@@ -29,7 +29,35 @@ export interface Suggestion {
   readonly insertText?: string;
   /** Texto usado pelo cliente para manter sugestões que casam fora do início do rótulo. */
   readonly filterText?: string;
+  /** Short badge shown next to the label (for example "PK", "FK" or "CTE recent"). */
+  readonly tag?: string;
+  /** Plain-text lines shown in the details panel for the focused suggestion. */
+  readonly documentation?: string;
   readonly relevance: number;
+}
+
+const UNKNOWN_TYPE = "unknown";
+
+function qualifiedColumnRef(ref: NonNullable<Column["foreignKeyTo"]>): string {
+  return [ref.schema, ref.table, ref.column].filter(Boolean).join(".");
+}
+
+/** Badge and details-panel text for a column, from metadata the catalog already stores. */
+function columnAnnotations(column: Column, relation: Relation): Pick<Suggestion, "tag" | "documentation"> {
+  if (relation.isCte) {
+    return { tag: `CTE ${relation.name}`, documentation: `Defined in CTE ${relation.name}` };
+  }
+  const lines = [`${column.dataType}${column.nullable ? "" : " · NOT NULL"}`];
+  if (column.isPrimaryKey) lines.push("Primary key");
+  if (column.foreignKeyTo) lines.push(`References ${qualifiedColumnRef(column.foreignKeyTo)}`);
+  if (column.description) lines.push(column.description);
+  const tag = column.isPrimaryKey ? "PK" : column.foreignKeyTo ? "FK" : undefined;
+  return { ...(tag ? { tag } : {}), documentation: lines.join("\n") };
+}
+
+/** CTE column types are not inferred yet, so "unknown" is hidden instead of shown as a type. */
+function columnTypeLabel(column: Column, relation: Relation): string | undefined {
+  return relation.isCte && column.dataType === UNKNOWN_TYPE ? undefined : column.dataType;
 }
 
 function partialMatchRank(name: string, partial: string): number | null {
@@ -493,14 +521,18 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
       .map((column) => ({ column, matchRank: partialMatchRank(column.name, partial) }))
       .filter((candidate): candidate is { column: typeof candidate.column; matchRank: number } => candidate.matchRank !== null)
       .sort((a, b) => b.matchRank - a.matchRank || a.column.name.localeCompare(b.column.name))
-      .map(({ column, matchRank }) => ({
-        kind: "column" as const,
-        label: column.name,
-        detail: column.dataType,
-        ...(identifierNeedsQuote(meta.dialect, column.name) ? { insertText: identifierText(column.name, meta.dialect) } : {}),
-        ...(partial ? { filterText: partial } : {}),
-        relevance: 100 + matchRank * 100,
-      }));
+      .map(({ column, matchRank }) => {
+        const detail = columnTypeLabel(column, relation);
+        return {
+          kind: "column" as const,
+          label: column.name,
+          ...(detail === undefined ? {} : { detail }),
+          ...columnAnnotations(column, relation),
+          ...(identifierNeedsQuote(meta.dialect, column.name) ? { insertText: identifierText(column.name, meta.dialect) } : {}),
+          ...(partial ? { filterText: partial } : {}),
+          relevance: 100 + matchRank * 100,
+        };
+      });
   }
 
   if ((ctx.clause === "from" || ctx.clause === "join") && !relationSlot) {
@@ -544,10 +576,12 @@ export function autocompleteTier1(input: string, cursor: number, meta: MetadataS
       const insertText = (columnCounts.get(column.name.toLowerCase()) ?? 0) > 1
         ? qualifiedText
         : identifierNeedsQuote(meta.dialect, column.name) ? columnText : undefined;
+      const typeLabel = columnTypeLabel(column, relation);
       columns.push({
         kind: "column",
         label: column.name,
-        detail: `${scopeRef.alias}.${column.name} (${column.dataType})`,
+        detail: typeLabel === undefined ? `${scopeRef.alias}.${column.name}` : `${scopeRef.alias}.${column.name} (${typeLabel})`,
+        ...columnAnnotations(column, relation),
         ...(insertText === undefined ? {} : { insertText }),
         ...(partial ? { filterText: partial } : {}),
         relevance: (scopeRef.alias === scopeRef.table ? 80 : 85) + matchRank * 100,

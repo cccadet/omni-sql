@@ -215,3 +215,34 @@ test("/mongo is discoverable from native JSON and inserts an editable SQL templa
   assert.ok(result!.suggestions[0]?.insertText.startsWith("/mongo\nSELECT"));
   assert.equal(callback.mock.calls.length, 0);
 });
+
+test("autocomplete exposes tag as label description and documentation as markdown", async () => {
+  type CompletionProvider = Parameters<typeof monaco.languages.registerCompletionItemProvider>[1];
+  let provider: CompletionProvider | undefined;
+  const monacoInstance = {
+    languages: {
+      registerCompletionItemProvider: vi.fn((_languageId: string, registeredProvider: CompletionProvider) => {
+        provider = registeredProvider;
+        return { dispose: vi.fn() };
+      }),
+    },
+  } as never;
+  configureAutocomplete(monacoInstance, {
+    current: async () => [
+      { kind: "column", label: "id", detail: "bigint", tag: "PK", documentation: "bigint · NOT NULL\nPrimary key", relevance: 100 },
+      { kind: "column", label: "note", detail: "text", relevance: 100 },
+    ],
+  });
+  if (!provider) throw new Error("completion provider was not registered");
+  const result = await provider.provideCompletionItems(
+    { getOffsetAt: () => 0, getWordUntilPosition: () => ({ startColumn: 1, endColumn: 1 }), getValue: () => "" } as never,
+    { lineNumber: 1, column: 1 } as never,
+    {} as never,
+    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: vi.fn() }) } as never,
+  );
+  if (!result) throw new Error("completion result was not returned");
+  assert.deepEqual(result.suggestions[0]?.label, { label: "id", description: "PK" });
+  assert.deepEqual(result.suggestions[0]?.documentation, { value: "bigint · NOT NULL\nPrimary key" });
+  assert.equal(result.suggestions[1]?.label, "note");
+  assert.equal(result.suggestions[1]?.documentation, undefined);
+});
