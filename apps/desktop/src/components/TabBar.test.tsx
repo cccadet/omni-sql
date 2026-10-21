@@ -39,6 +39,12 @@ it("selects, closes, and adds tabs through accessible controls", () => {
   expect(onAdd).toHaveBeenCalledOnce();
 });
 
+it("shows the connection subtitle under the tab title", () => {
+  renderTabBar({ tabs: [{ id: "first", title: "orders by month", subtitle: "PostgreSQL · orders-prod" }] });
+
+  expect(screen.getByRole("tab", { name: /orders by month\s*PostgreSQL · orders-prod/ })).toBeTruthy();
+});
+
 it("commits non-empty rename on Enter and discards Escape", () => {
   const { onRename } = renderTabBar();
 

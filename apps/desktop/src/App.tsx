@@ -1644,12 +1644,16 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
 
       <div className="omni-editor-controls" style={{ gridColumn: 2, gridRow: 2, minWidth: 0 }}>
         <TabBar
-          tabs={tabs.map((tab) => ({
-            id: tab.id,
-            title: tab.title,
-            dirty: tab.filePath != null && tab.sql !== tab.savedSql,
-            dialect: tab.connectionId ? connections.find((connection) => connection.id === tab.connectionId)?.dialect : undefined,
-          }))}
+          tabs={tabs.map((tab) => {
+            const tabConnection = tab.connectionId ? connections.find((connection) => connection.id === tab.connectionId) : undefined;
+            return {
+              id: tab.id,
+              title: tab.title,
+              dirty: tab.filePath != null && tab.sql !== tab.savedSql,
+              dialect: tabConnection?.dialect,
+              subtitle: tabConnection ? `${DIALECT_LABELS[tabConnection.dialect] ?? tabConnection.dialect} · ${tabConnection.label}` : undefined,
+            };
+          })}
           activeTabId={activeTabId}
           onSelect={selectTab}
           onClose={closeTab}

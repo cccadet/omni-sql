@@ -681,6 +681,10 @@ select option {
 .omni-tab-bar > .fui-TabList { flex-shrink: 0; }
 .omni-tab-bar > .fui-Button { flex-shrink: 0; }
 .omni-tab-bar .fui-Tab { min-height: 32px; padding: 4px 10px; }
+.omni-tab-bar .fui-Tab:has(.omni-tab-subtitle) { min-height: 38px; max-width: 220px; }
+.omni-tab-label { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.15; }
+.omni-tab-title { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.omni-tab-subtitle { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--colorNeutralForeground3); }
 .omni-tab-bar .fui-Tab .fui-Button { width: 24px; min-width: 24px; height: 24px; min-height: 24px; padding: 0; }
 
 /* Results grid */
