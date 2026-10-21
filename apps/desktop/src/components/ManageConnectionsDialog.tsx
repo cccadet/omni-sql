@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  type CollisionDetection,
   useDraggable,
   useDroppable,
   useSensor,
@@ -64,6 +68,12 @@ export function connectionMoveFromDrag(activeId: string | number, overId: string
   const id = String(activeId);
   return { connectionIds: selected.has(id) ? [...selected] : [id], groupId };
 }
+
+/** The folder under the pointer wins; keyboard drags have no pointer, so fall back to overlap. */
+const folderCollision: CollisionDetection = (args) => {
+  const hits = pointerWithin(args);
+  return hits.length > 0 ? hits : rectIntersection(args);
+};
 
 type Folder = "all" | "root" | string;
 
@@ -212,6 +222,7 @@ export function ManageConnectionsDialog({
           <DialogContent className="omni-manage-content">
             <DndContext
               sensors={sensors}
+              collisionDetection={folderCollision}
               onDragStart={(event) => setDraggedId(String(event.active.id))}
               onDragCancel={() => setDraggedId(null)}
               onDragEnd={(event: DragEndEvent) => {
@@ -358,13 +369,17 @@ export function ManageConnectionsDialog({
                   )}
                 </div>
               </section>
-              <DragOverlay dropAnimation={null}>
-                {dragged && <div className="omni-manage-drag-ghost">
-                  <DialectIcon dialect={dragged.dialect} size={14} />
-                  {dragged.label}
-                  {dragCount > 1 && <span className="omni-manage-drag-count">+{dragCount - 1}</span>}
-                </div>}
-              </DragOverlay>
+              {/* The dialog surface is transformed, which would offset a fixed overlay rendered inside it. */}
+              {createPortal(
+                <DragOverlay dropAnimation={null} zIndex={1000000}>
+                  {dragged && <div className="omni-manage-drag-ghost">
+                    <DialectIcon dialect={dragged.dialect} size={14} />
+                    {dragged.label}
+                    {dragCount > 1 && <span className="omni-manage-drag-count">+{dragCount - 1}</span>}
+                  </div>}
+                </DragOverlay>,
+                document.body,
+              )}
             </DndContext>
           </DialogContent>
           <DialogActions className="omni-dialog-actions omni-mcp-dialog-actions omni-manage-actions">

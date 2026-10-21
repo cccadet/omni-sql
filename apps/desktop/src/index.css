@@ -1146,4 +1146,5 @@ button:focus-visible, select:focus-visible, [role="separator"]:focus-visible {
 .omni-manage-drag-handle:hover { background: var(--colorNeutralBackground1Hover); color: var(--colorNeutralForeground1); }
 .omni-manage-drag-ghost { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--colorBrandStroke1); border-radius: 6px; background: var(--colorNeutralBackground3); box-shadow: var(--shadow16); color: var(--colorNeutralForeground1); font-size: 12.5px; white-space: nowrap; cursor: grabbing; }
 .omni-manage-drag-count { padding: 0 6px; border-radius: 8px; background: var(--colorBrandBackground); color: var(--colorNeutralForegroundOnBrand); font-size: 11px; font-weight: 600; }
+.omni-mcp-dialog-actions.omni-manage-actions { margin: 0; }
 .omni-manage-footer-hint { flex: 1; color: var(--colorNeutralForeground3); font-size: 12px; }
