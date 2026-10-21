@@ -518,15 +518,20 @@ describe("App execution flow", () => {
 
     fireEvent.click(within(dialog).getByText("Refresh", { selector: "button" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("metadata.introspect", { connectionId: "conn-1" }));
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Switch connection/ }));
+  it("creates a connection folder from Manage connections and reloads folders", async () => {
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: /^Switch connection/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Manage connections…" }));
-    const manage = await screen.findByRole("dialog", { name: "Manage connections" });
-    fireEvent.click(await within(manage).findByRole("button", { name: "New folder" }));
+    // In jsdom, Fluent's focus manager leaves any dialog opened from a menu or popover aria-hidden
+    // (Settings from the app menu behaves the same), so look inside it with hidden elements included.
+    const manage = await screen.findByRole("dialog", { name: "Manage connections", hidden: true });
+    fireEvent.click(await within(manage).findByRole("button", { name: "New folder", hidden: true }));
     fireEvent.change(await within(manage).findByPlaceholderText("Folder name"), { target: { value: "Reporting" } });
-    fireEvent.click(within(manage).getByRole("button", { name: "Create folder" }));
+    fireEvent.click(within(manage).getByRole("button", { name: "Create folder", hidden: true }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("connectionGroup.create", { name: "Reporting" }));
-    expect(call).toHaveBeenCalledWith("connectionGroup.list", {});
+    await waitFor(() => expect(call.mock.calls.filter(([method]) => method === "connectionGroup.list").length).toBeGreaterThan(1));
   });
 
   it("introspects and loads metadata for the first saved connection", async () => {
