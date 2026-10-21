@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
   Button,
   Card,
   Input,
@@ -43,18 +33,14 @@ import {
   WarningRegular,
   CircleRegular,
   AddRegular,
-  EditRegular,
   DeleteRegular,
-  MoreVerticalRegular,
 } from "@fluentui/react-icons";
-import { DialectIcon } from "./DialectIcon";
 import { SidecarStatus } from "./SidecarStatus";
 import { DuckDbIcon } from "./DuckDbIcon";
 import type { DatasetRef } from "../lib/analysis";
 import { typeIcon } from "../lib/type-icon";
 import { backend, type ConnectionEntry, type RelationColumn, type RelationInfo } from "../lib/backend";
 import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
-import type { ConnectionHealth } from "./StatusBar";
 import { formatLastSyncedAt, formatSyncAge, getMetadataFreshness } from "../lib/metadata-freshness";
 import { useLanguage } from "../i18n";
 import { CreateTableDialog, TableStructureDialog } from "./TableDialogs";
@@ -62,7 +48,6 @@ import { CreateTableDialog, TableStructureDialog } from "./TableDialogs";
 export interface SidebarProps {
   open?: boolean;
   connections?: ConnectionEntry[];
-  connectionGroups?: { id: string; name: string }[];
   connection?: ConnectionEntry | null;
   connectionId?: string | null;
   relations?: RelationInfo[];
@@ -75,20 +60,12 @@ export interface SidebarProps {
   onDeleteLocalDataset?: (relationName: string) => void;
   onImportDatabaseTable?: () => void;
   onEditConnection?: (id: string) => void;
-  onDuplicateConnection?: (id: string) => void;
-  onRemoveConnection?: (id: string) => void;
   onRefreshMetadata?: () => void;
   onLoadS3Columns?: (schema: string, table: string) => Promise<RelationColumn[]>;
   s3Prefix?: string;
   duckLakeCandidates?: readonly string[];
   onS3PrefixChange?: (prefix: string) => void;
-  onSelectConnection?: (id: string) => void;
-  onCreateConnectionGroup?: (name: string) => Promise<void>;
-  onRenameConnectionGroup?: (id: string, name: string) => Promise<void>;
-  onDeleteConnectionGroup?: (id: string) => Promise<void>;
-  onMoveConnection?: (id: string, groupId: string | null) => Promise<void>;
   onOpenInNewTab?: (title: string, sql: string) => void;
-  health?: ConnectionHealth;
   metadataRefreshFailed?: boolean;
   metadataRefreshing?: boolean;
   onOpenAnalysis?: () => void;
@@ -105,66 +82,6 @@ interface SchemaGroup {
   tables: RelationInfo[];
   views: RelationInfo[];
   functions: FunctionDef[];
-}
-
-const ROOT_CONNECTIONS_DROP_ID = "connection-group:root";
-const connectionGroupDropId = (groupId: string) => `connection-group:${groupId}`;
-
-export function connectionGroupIdFromDrop(overId: string | number | null): string | null | undefined {
-  if (overId === null) return undefined;
-  const value = String(overId);
-  if (value === ROOT_CONNECTIONS_DROP_ID) return null;
-  const prefix = "connection-group:";
-  return value.startsWith(prefix) ? value.slice(prefix.length) : undefined;
-}
-
-export function connectionMoveFromDrag(activeId: string | number, overId: string | number | null) {
-  const groupId = connectionGroupIdFromDrop(overId);
-  return groupId === undefined ? null : { connectionId: String(activeId), groupId };
-}
-
-function DraggableConnectionButton({
-  id,
-  className,
-  selected,
-  onClick,
-  children,
-}: {
-  id: string;
-  className: string;
-  selected: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
-  return (
-    <button
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      type="button"
-      role="option"
-      aria-selected={selected}
-      className={className}
-      onClick={onClick}
-      style={{
-        opacity: isDragging ? 0.55 : undefined,
-        transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-        touchAction: "none",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ConnectionDropZone({ id, className, children }: { id: string; className: string; children: React.ReactNode }) {
-  const { isOver, setNodeRef } = useDroppable({ id });
-  return (
-    <div ref={setNodeRef} className={`${className}${isOver ? " drop-over" : ""}`}>
-      {children}
-    </div>
-  );
 }
 
 interface TreeNodeProps {
@@ -227,23 +144,24 @@ interface MenuItem {
   action: () => void;
 }
 
-interface MoveOption {
-  id: string | null;
-  label: string;
-}
-
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 640;
 const DEFAULT_WIDTH = 260;
 const WIDTH_KEY = "omni-sql:sidebarWidth";
-const MIN_CONNECTIONS_HEIGHT = 100;
-const MIN_OBJECTS_HEIGHT = 180;
-const DEFAULT_CONNECTIONS_HEIGHT = 160;
-/** Cap set by dragging the handle; until then the list sizes to its content (up to 45% of the sidebar). */
-const CONNECTIONS_HEIGHT_KEY = "omni-sql:connectionsMaxHeight";
 
 function relationKey(schema: string, name: string) {
   return `${schema}.${name}`;
+}
+
+/** Local analysis starts collapsed; the user's last toggle wins after that. */
+const ANALYSIS_EXPANDED_KEY = "omni-sql:localAnalysisExpanded";
+
+function loadAnalysisExpanded(): boolean {
+  try {
+    return localStorage.getItem(ANALYSIS_EXPANDED_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
 function loadWidth(): number {
@@ -256,20 +174,9 @@ function loadWidth(): number {
   }
 }
 
-function loadConnectionsHeight(): number | null {
-  try {
-    const raw = localStorage.getItem(CONNECTIONS_HEIGHT_KEY);
-    const value = raw !== null ? Number(raw) : NaN;
-    return Number.isFinite(value) ? Math.max(MIN_CONNECTIONS_HEIGHT, value) : null;
-  } catch {
-    return null;
-  }
-}
-
 export function Sidebar({
   open = true,
   connections = [],
-  connectionGroups = [],
   connection,
   connectionId,
   relations = [],
@@ -281,18 +188,11 @@ export function Sidebar({
   onDeleteLocalDataset,
   onImportDatabaseTable,
   onEditConnection,
-  onDuplicateConnection,
-  onRemoveConnection,
   onRefreshMetadata,
   onLoadS3Columns,
   s3Prefix = "",
   duckLakeCandidates = [],
   onS3PrefixChange,
-  onSelectConnection,
-  onCreateConnectionGroup,
-  onRenameConnectionGroup,
-  onDeleteConnectionGroup,
-  onMoveConnection,
   onOpenInNewTab,
   mongoSqlMode = false,
   metadataRefreshFailed = false,
@@ -310,38 +210,20 @@ export function Sidebar({
   const [formatFilter, setFormatFilter] = useState("");
   const [searchMatches, setSearchMatches] = useState<Set<string> | null>(null);
   const [width, setWidth] = useState(loadWidth);
-  const [storedConnectionsHeight] = useState(loadConnectionsHeight);
-  const [connectionsHeight, setConnectionsHeight] = useState(storedConnectionsHeight ?? DEFAULT_CONNECTIONS_HEIGHT);
-  const [connectionsUserSized, setConnectionsUserSized] = useState(storedConnectionsHeight !== null);
   const [resizing, setResizing] = useState(false);
-  const [resizingConnections, setResizingConnections] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [indexCache, setIndexCache] = useState<Record<string, { loading: boolean; error: string | null; indexes: IndexInfo[] }>>({});
   const [columnCache, setColumnCache] = useState<Record<string, { loading: boolean; error: string | null; columns: RelationColumn[] }>>({});
-  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; moveOptions?: MoveOption[]; moveConnectionId?: string; moveSubmenuOpen: boolean; moveSubmenuPosition?: { left: number; top: number } } | null>(null);
-  const [connectionsExpanded, setConnectionsExpanded] = useState(true);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [objectsExpanded, setObjectsExpanded] = useState(true);
-  const [analysisExpanded, setAnalysisExpanded] = useState(true);
+  const [analysisExpanded, setAnalysisExpanded] = useState(loadAnalysisExpanded);
   const [s3PrefixDraft, setS3PrefixDraft] = useState(s3Prefix);
 
   useEffect(() => setS3PrefixDraft(s3Prefix), [s3Prefix, connectionId]);
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(connectionId ?? null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(connectionGroups.map((group) => group.id)));
-  const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupOpen, setNewGroupOpen] = useState(false);
-  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
-  const [groupDraft, setGroupDraft] = useState("");
-  const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
-
-  const dragSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
-  );
   const [createTableSchema, setCreateTableSchema] = useState<string | null>(null);
   const [structureTable, setStructureTable] = useState<{ schema: string; table: string } | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const connectionsHeightRef = useRef(connectionsHeight);
 
   useEffect(() => {
     if (!open) return;
@@ -384,26 +266,6 @@ export function Sidebar({
       window.clearTimeout(timer);
     };
   }, [connectionId, search]);
-
-  useEffect(() => {
-    if (selectedConnectionId && !connections.some((item) => item.id === selectedConnectionId)) {
-      setSelectedConnectionId(connectionId ?? null);
-    }
-  }, [connectionId, connections, selectedConnectionId]);
-
-  useEffect(() => {
-    setExpandedGroups((current) => {
-      const next = new Set(current);
-      let changed = false;
-      connectionGroups.forEach((group) => {
-        if (!next.has(group.id)) {
-          next.add(group.id);
-          changed = true;
-        }
-      });
-      return changed ? next : current;
-    });
-  }, [connectionGroups]);
 
   const groups = useMemo<SchemaGroup[]>(() => {
     const map = new Map<string, SchemaGroup>();
@@ -510,23 +372,14 @@ export function Sidebar({
     }
   }, [connectionId, onOpenInNewTab]);
 
-  const openMenu = useCallback((e: React.MouseEvent, items: MenuItem[], moveOptions?: MoveOption[], moveConnectionId?: string) => {
+  const openMenu = useCallback((e: React.MouseEvent, items: MenuItem[]) => {
     e.preventDefault();
     const x = Math.min(e.clientX, window.innerWidth - 220);
     const y = Math.min(e.clientY, window.innerHeight - items.length * 28 - 16);
-    setMenu({ x, y, items, moveOptions, moveConnectionId, moveSubmenuOpen: false });
+    setMenu({ x, y, items });
   }, []);
 
   const closeMenu = useCallback(() => setMenu(null), []);
-
-  const openMoveSubmenu = useCallback((target: HTMLElement) => {
-    const { right: left, top } = target.getBoundingClientRect();
-    setMenu((current) => current ? {
-      ...current,
-      moveSubmenuOpen: true,
-      moveSubmenuPosition: { left, top },
-    } : current);
-  }, []);
 
   useEffect(() => {
     if (!menu) return;
@@ -576,103 +429,6 @@ export function Sidebar({
     }
   }, [width]);
 
-  const getMaxConnectionsHeight = useCallback(() => {
-    const measured = sidebarRef.current?.clientHeight ?? 0;
-    const available = measured > 0 ? measured : DEFAULT_CONNECTIONS_HEIGHT + MIN_OBJECTS_HEIGHT;
-    return Math.max(MIN_CONNECTIONS_HEIGHT, available - MIN_OBJECTS_HEIGHT);
-  }, []);
-
-  const setConnectionsHeightValue = useCallback((value: number) => {
-    const bounded = Math.min(getMaxConnectionsHeight(), Math.max(MIN_CONNECTIONS_HEIGHT, value));
-    connectionsHeightRef.current = bounded;
-    setConnectionsHeight(bounded);
-    setConnectionsUserSized(true);
-    try {
-      localStorage.setItem(CONNECTIONS_HEIGHT_KEY, String(bounded));
-    } catch {
-      // localStorage indisponível — altura só não persiste.
-    }
-  }, [getMaxConnectionsHeight]);
-
-  const onConnectionsResizeStart = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    setResizingConnections(true);
-    const startY = e.clientY;
-    const startHeight = connectionsHeightRef.current;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-
-    function onMove(event: PointerEvent) {
-      setConnectionsHeightValue(startHeight + event.clientY - startY);
-    }
-    function onUp() {
-      setResizingConnections(false);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    }
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }, [setConnectionsHeightValue]);
-
-  const onConnectionsResizeKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const step = 16;
-    const next = e.key === "ArrowUp" ? connectionsHeight - step : e.key === "ArrowDown" ? connectionsHeight + step : e.key === "Home" ? MIN_CONNECTIONS_HEIGHT : e.key === "End" ? getMaxConnectionsHeight() : null;
-    if (next === null) return;
-    e.preventDefault();
-    setConnectionsHeightValue(next);
-  }, [connectionsHeight, getMaxConnectionsHeight, setConnectionsHeightValue]);
-
-  const rootConnections = connections.filter((item) => !item.groupId || !connectionGroups.some((group) => group.id === item.groupId));
-  const moveOptions: MoveOption[] = [{ id: null, label: "Root" }, ...connectionGroups.map((group) => ({ id: group.id, label: group.name }))];
-  const renderConnection = (item: ConnectionEntry) => {
-    const isActive = item.id === connectionId;
-    const isSelected = item.id === selectedConnectionId;
-    return (
-      <div
-        key={item.id}
-        className={`omni-connection-row${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
-        onContextMenu={(event) => openMenu(event, [
-          { label: tr("editConnection"), action: () => onEditConnection?.(item.id) },
-          { label: tr("duplicateConnection"), action: () => onDuplicateConnection?.(item.id) },
-          { label: tr("removeConnection"), action: () => onRemoveConnection?.(item.id) },
-          { label: tr("moveTo"), action: () => undefined },
-        ], moveOptions, item.id)}
-      >
-        <DraggableConnectionButton
-          id={item.id}
-          className="omni-connection-item"
-          selected={isSelected}
-          onClick={() => { setSelectedConnectionId(item.id); if (item.dialect === "s3") onSelectConnection?.(item.id); }}
-        >
-          <DialectIcon dialect={item.dialect} size={13} />
-          <span>{item.label}</span>
-          {isActive && <span className="omni-active-marker" aria-label={tr("active")}>●</span>}
-        </DraggableConnectionButton>
-        {isSelected && !isActive && (
-          <button
-            type="button"
-            className="omni-activate-button"
-            onClick={() => onSelectConnection?.(item.id)}
-          >
-            {tr("activate")}
-          </button>
-        )}
-        <Button
-          icon={<MoreVerticalRegular fontSize={12} />}
-          appearance="transparent"
-          size="small"
-          className="omni-connection-overflow"
-          aria-label={tr("actionsFor").replace("{item}", item.label)}
-          onClick={(event) => openMenu(event, [
-            { label: tr("editConnection"), action: () => onEditConnection?.(item.id) },
-            { label: tr("duplicateConnection"), action: () => onDuplicateConnection?.(item.id) },
-            { label: tr("removeConnection"), action: () => onRemoveConnection?.(item.id) },
-            { label: tr("moveTo"), action: () => undefined },
-          ], moveOptions, item.id)}
-        />
-      </div>
-    );
-  };
-
   if (!open) return null;
 
   const isSearching = !!search.trim();
@@ -706,162 +462,6 @@ export function Sidebar({
         position: "relative",
       }}
     >
-      <section
-        className={`omni-connections-section${connectionsExpanded ? "" : " collapsed"}`}
-        style={connectionsExpanded ? { maxHeight: connectionsUserSized ? Math.min(connectionsHeight, getMaxConnectionsHeight()) : "45%" } : { height: 32 }}
-        aria-labelledby="omni-connections-heading"
-      >
-        <div className="omni-sidebar-section-header">
-          <Button
-            appearance="transparent"
-            size="small"
-            icon={connectionsExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
-            onClick={() => setConnectionsExpanded((value) => !value)}
-            aria-expanded={connectionsExpanded}
-            aria-controls="omni-connections-content"
-          >
-            <span id="omni-connections-heading" className="omni-sidebar-section-title">{tr("connections")}</span>
-            {connections.length > 0 && <span className="omni-sidebar-section-count">{connections.length}</span>}
-          </Button>
-          {connectionsExpanded && <div className="omni-connection-actions">
-            <Tooltip content={tr("newConnection")} relationship="label">
-              <Button icon={<AddRegular fontSize={12} />} appearance="transparent" size="small" onClick={onAddConnection} aria-label={tr("newConnection")} />
-            </Tooltip>
-            <Tooltip content={tr("newFolder")} relationship="label">
-              <Button
-                icon={(
-                  <span className="folder-add-icon" aria-hidden="true">
-                    <DatabaseRegular fontSize={12} />
-                    <AddRegular fontSize={8} />
-                  </span>
-                )}
-                appearance="transparent"
-                size="small"
-                onClick={() => setNewGroupOpen((value) => !value)}
-                aria-label={tr("newFolder")}
-              />
-            </Tooltip>
-          </div>}
-        </div>
-        {connectionsExpanded && (
-          <div id="omni-connections-content" className="omni-connections-content">
-            {newGroupOpen && (
-              <div className="omni-folder-create">
-                <Input
-                  value={newGroupName}
-                  placeholder={tr("folderName")}
-                  aria-label={tr("folderName")}
-                  onChange={(_, data) => setNewGroupName(data.value)}
-                  autoFocus
-                />
-                <Button
-                  size="small"
-                  appearance="primary"
-                  disabled={!newGroupName.trim()}
-                  onClick={() => {
-                    const name = newGroupName.trim();
-                    if (!name) return;
-                    void onCreateConnectionGroup?.(name);
-                    setNewGroupName("");
-                    setNewGroupOpen(false);
-                  }}
-                >
-                  {tr("createFolder")}
-                </Button>
-              </div>
-            )}
-            <DndContext
-              sensors={dragSensors}
-              onDragStart={(event) => setDraggedConnectionId(String(event.active.id))}
-              onDragCancel={() => setDraggedConnectionId(null)}
-              onDragEnd={(event: DragEndEvent) => {
-                setDraggedConnectionId(null);
-                const move = connectionMoveFromDrag(event.active.id, event.over?.id ?? null);
-                if (move) void onMoveConnection?.(move.connectionId, move.groupId);
-              }}
-            >
-            <div className="omni-connection-list" role="listbox" aria-label={tr("connections")}>
-              {connections.length === 0 ? (
-                <div className="omni-connections-empty">
-                  <Text size={200}>{tr("toolbar.noConnections")}</Text>
-                  <Button appearance="primary" size="small" icon={<AddRegular />} onClick={onAddConnection}>{tr("newConnection")}</Button>
-                  <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{tr("firstConnectionHint")}</Text>
-                </div>
-              ) : (
-                <>
-                  {connectionGroups.map((group) => {
-                    const members = connections.filter((item) => item.groupId === group.id);
-                    const expanded = expandedGroups.has(group.id);
-                    return (
-                      <ConnectionDropZone
-                        key={group.id}
-                        id={connectionGroupDropId(group.id)}
-                        className={`omni-connection-folder${draggedConnectionId ? " drop-ready" : ""}`}
-                      >
-                        <div className="omni-folder-row">
-                          <button
-                            type="button"
-                            className="omni-folder-toggle"
-                            aria-expanded={expanded}
-                            onClick={() => setExpandedGroups((current) => {
-                              const next = new Set(current);
-                              if (next.has(group.id)) next.delete(group.id); else next.add(group.id);
-                              return next;
-                            })}
-                          >
-                            {expanded ? <ChevronDownRegular fontSize={11} /> : <ChevronRightRegular fontSize={11} />}
-                            <span>{group.name}</span>
-                            <span className="omni-folder-count">{members.length}</span>
-                          </button>
-                          {renamingGroupId === group.id ? (
-                            <div className="omni-folder-edit">
-                              <Input value={groupDraft} onChange={(_, data) => setGroupDraft(data.value)} autoFocus />
-                              <Button size="small" appearance="transparent" onClick={() => {
-                                const name = groupDraft.trim();
-                                if (name) void onRenameConnectionGroup?.(group.id, name);
-                                setRenamingGroupId(null);
-                              }}>OK</Button>
-                            </div>
-                          ) : (
-                            <div className="omni-folder-actions">
-                              <Button size="small" appearance="transparent" onClick={() => { setRenamingGroupId(group.id); setGroupDraft(group.name); }} aria-label={`${group.name} ${tr("editConnection")}`} icon={<EditRegular fontSize={11} />} />
-                              <Button size="small" appearance="transparent" onClick={() => void onDeleteConnectionGroup?.(group.id)} aria-label={`${group.name} ${tr("removeConnection")}`} icon={<DeleteRegular fontSize={11} />} />
-                            </div>
-                          )}
-                        </div>
-                        {expanded && <div className="omni-folder-members">{members.map(renderConnection)}</div>}
-                      </ConnectionDropZone>
-                    );
-                  })}
-                  <ConnectionDropZone
-                    id={ROOT_CONNECTIONS_DROP_ID}
-                    className={`omni-root-connections${draggedConnectionId ? " drop-ready" : ""}`}
-                  >
-                    <div className="omni-root-label">{tr("rootConnections")}</div>
-                    {rootConnections.map(renderConnection)}
-                  </ConnectionDropZone>
-                </>
-              )}
-            </div>
-            </DndContext>
-          </div>
-        )}
-      </section>
-      {connectionsExpanded && (
-        <div
-          className={`connections-resize-handle${resizingConnections ? " resizing" : ""}`}
-          role="separator"
-          aria-orientation="horizontal"
-          aria-valuemin={MIN_CONNECTIONS_HEIGHT}
-          aria-valuemax={getMaxConnectionsHeight()}
-          aria-valuenow={connectionsHeight}
-          tabIndex={0}
-          aria-label={tr("resizeConnectionsPanel")}
-          title={tr("resizeConnectionsPanel")}
-          onPointerDown={onConnectionsResizeStart}
-          onKeyDown={onConnectionsResizeKeyDown}
-        />
-      )}
       <section className={`omni-sidebar-objects-section${objectsExpanded ? "" : " collapsed"}`}>
         <div className="omni-sidebar-section-header">
           <Button
@@ -893,6 +493,13 @@ export function Sidebar({
         </div>
         </div>
       {objectsExpanded && <>
+      {connections.length === 0 && (
+        <div className="omni-connections-empty">
+          <Text size={200}>{tr("toolbar.noConnections")}</Text>
+          <Button appearance="primary" size="small" icon={<AddRegular />} onClick={onAddConnection}>{tr("newConnection")}</Button>
+          <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{tr("firstConnectionHint")}</Text>
+        </div>
+      )}
       <div style={{ padding: 8 }}>
         {connection?.dialect === "s3" && <div className="omni-s3-objects-prefix">
           <Input size="small" value={s3PrefixDraft} onChange={(_, data) => setS3PrefixDraft(data.value)}
@@ -1261,7 +868,14 @@ export function Sidebar({
             appearance="transparent"
             size="small"
             icon={analysisExpanded ? <ChevronDownRegular fontSize={12} /> : <ChevronRightRegular fontSize={12} />}
-            onClick={() => setAnalysisExpanded((value) => !value)}
+            onClick={() => setAnalysisExpanded((value) => {
+              try {
+                localStorage.setItem(ANALYSIS_EXPANDED_KEY, String(!value));
+              } catch {
+                // localStorage indisponível — estado só não persiste.
+              }
+              return !value;
+            })}
             aria-expanded={analysisExpanded}
           >
             <span className="omni-sidebar-section-title">{tr("localAnalysis")}</span>
@@ -1320,33 +934,13 @@ export function Sidebar({
               closeMenu();
             }}
           />
-          <div
-            className="context-menu-container"
-            onMouseLeave={() => setMenu((current) => current?.moveSubmenuOpen ? { ...current, moveSubmenuOpen: false } : current)}
-          >
+          <div className="context-menu-container">
             <ul className="context-menu" style={{ left: menu.x, top: menu.y }}>
               {menu.items.map((item, i) => (
-                <li
-                  key={i}
-                  onMouseEnter={() => {
-                    if (item.label !== tr("moveTo")) {
-                      setMenu((current) => current?.moveSubmenuOpen ? { ...current, moveSubmenuOpen: false } : current);
-                    }
-                  }}
-                >
+                <li key={i}>
                   <button
                     type="button"
-                    className={item.label === tr("moveTo") ? "has-submenu" : undefined}
-                    onMouseEnter={(event) => {
-                      if (item.label === tr("moveTo") && menu.moveOptions) {
-                        openMoveSubmenu(event.currentTarget);
-                      }
-                    }}
-                    onClick={(event) => {
-                      if (item.label === tr("moveTo") && menu.moveOptions) {
-                        openMoveSubmenu(event.currentTarget);
-                        return;
-                      }
+                    onClick={() => {
                       // Finish unmounting the context menu before an action opens a
                       // dialog. Otherwise the menu's focus restoration can run after
                       // the dialog autofocus and steal focus from its first input.
@@ -1359,23 +953,6 @@ export function Sidebar({
                 </li>
               ))}
             </ul>
-            {menu.moveSubmenuOpen && menu.moveOptions && menu.moveConnectionId && menu.moveSubmenuPosition && (
-              <ul className="context-menu context-submenu" style={menu.moveSubmenuPosition}>
-                {menu.moveOptions.map((option) => (
-                  <li key={option.id ?? "root"}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void onMoveConnection?.(menu.moveConnectionId!, option.id);
-                        closeMenu();
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
         </>
       )}
