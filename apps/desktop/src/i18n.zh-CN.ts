@@ -595,4 +595,6 @@ export const simplifiedChinese = {
   minimizeWindow: "最小化",
   maximizeWindow: "最大化",
   closeWindow: "关闭",
+  completionForeignKeyTag: "外键",
+  mcpEditTab: "标签页",
 } satisfies Record<TranslationKey, string>;

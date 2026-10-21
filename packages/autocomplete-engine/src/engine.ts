@@ -37,6 +37,8 @@ export interface Suggestion {
 }
 
 const UNKNOWN_TYPE = "unknown";
+/** Tag on JOIN predicates derived from foreign keys; the desktop localizes it. */
+const FOREIGN_KEY_TAG = "foreign key";
 
 function qualifiedColumnRef(ref: NonNullable<Column["foreignKeyTo"]>): string {
   return [ref.schema, ref.table, ref.column].filter(Boolean).join(".");
@@ -433,7 +435,7 @@ function joinForeignKeySuggestions(ctx: ResolvedContext, meta: MetadataSource): 
       const predicate = `${name(sourceRef, key.column)} = ${name(targetRef, key.target.column)}`;
       if (seen.has(predicate) || (partial && !predicate.toLowerCase().includes(partial.toLowerCase()))) continue;
       seen.add(predicate);
-      matches.push({ kind: "keyword", label: predicate, detail: "chave estrangeira", insertText: predicate,
+      matches.push({ kind: "keyword", label: predicate, tag: FOREIGN_KEY_TAG, insertText: predicate,
         ...(partial ? { filterText: partial } : {}), relevance: 1000 });
     }
   };

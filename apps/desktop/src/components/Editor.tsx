@@ -74,6 +74,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const formatterRef = useRef<ReturnType<typeof configureFormatter> | null>(null);
   const autocompleteRef = useRef<AutocompleteCallback | null>(onAutocomplete ?? null);
   const dialectRef = useRef<DialectId>(dialect);
+  const tagLabelsRef = useRef<Record<string, string>>({ "foreign key": t("completionForeignKeyTag") });
   const providerRegistrationsRef = useRef<monaco.IDisposable[]>([]);
   const diagnosticsRef = useRef<readonly SqlDiagnostic[]>(diagnostics);
   const applyTranspiledRef = useRef<((diagnostic: SqlDiagnostic) => void) | undefined>(onApplyTranspiled);
@@ -90,6 +91,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   useEffect(() => {
     dialectRef.current = dialect;
   }, [dialect]);
+
+  useEffect(() => {
+    tagLabelsRef.current = { "foreign key": t("completionForeignKeyTag") };
+  }, [t]);
 
   const disposeProviderRegistrations = useCallback(() => {
     for (const registration of providerRegistrationsRef.current) registration.dispose();
@@ -271,7 +276,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       formatterRef.current = configureFormatter(monacoInstance, dialect, formatterSettings ?? DEFAULT_FORMATTER_SETTINGS, onFormatError);
 
       disposeProviderRegistrations();
-      const autocompleteRegistration = configureAutocomplete(monacoInstance, autocompleteRef, dialectRef);
+      const autocompleteRegistration = configureAutocomplete(monacoInstance, autocompleteRef, dialectRef, tagLabelsRef);
 
       const hoverRegistration = monacoInstance.languages.registerHoverProvider(LANGUAGE_ID, {
         provideHover(model, position) {

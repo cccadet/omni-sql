@@ -15,6 +15,7 @@ import { diffLines, type DiffLine } from "../lib/line-diff";
 
 export interface McpEditProposal {
   tabId: string;
+  tabTitle?: string;
   kind?: "execute";
   connectionId?: string;
   connectionLabel?: string;
@@ -46,6 +47,10 @@ export function McpEditDialog({
           <DialogTitle style={{ flexShrink: 0 }}><span aria-hidden className="omni-mcp-origin-badge">{t("mcpFromClient")}</span> {t(proposal?.kind === "execute" ? "mcpExecuteTitle" : "mcpEditTitle")}</DialogTitle>
           <DialogContent className="omni-mcp-edit-dialog-content">
             <Text>{proposal?.kind === "execute" ? t("mcpExecuteWarning") : `${t("mcpEditRationale")}: ${proposal?.rationale}`}</Text>
+            {proposal?.kind !== "execute" && (proposal?.tabTitle || proposal?.connectionLabel) && <div className="omni-mcp-edit-meta">
+              {proposal.tabTitle && <span>{t("mcpEditTab")}: {proposal.tabTitle}</span>}
+              {proposal.connectionLabel && <span>{t("activeConnection")}: {proposal.connectionLabel}</span>}
+            </div>}
             {proposal?.kind === "execute" && <Text>{t("activeConnection")}: {proposal.connectionLabel} · {t("mcpRowLimit")}: {proposal.limit}</Text>}
             <div className="omni-mcp-edit-grid">
               {diff ? <>

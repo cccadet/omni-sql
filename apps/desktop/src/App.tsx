@@ -1515,8 +1515,12 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
       }
       if (mcpProposalResolverRef.current) { resolve("rejected"); return; }
       mcpProposalResolverRef.current = resolve;
+      const { activeTab, activeConnection } = mcpStateRef.current;
+      const isActiveTab = activeTab?.id === args.tabId;
       setMcpProposal({
         tabId: args.tabId,
+        ...(isActiveTab ? { tabTitle: activeTab.title } : {}),
+        ...(isActiveTab && activeConnection ? { connectionLabel: `${activeConnection.label} (${DIALECT_LABELS[activeConnection.dialect] ?? activeConnection.dialect})` } : {}),
         originalSql: args.originalSql,
         proposedSql: args.sql,
         rationale: args.rationale,

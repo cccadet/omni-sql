@@ -231,8 +231,9 @@ test("autocomplete exposes tag as label description and documentation as markdow
     current: async () => [
       { kind: "column", label: "id", detail: "bigint", tag: "PK", documentation: "bigint · NOT NULL\nPrimary key", relevance: 100 },
       { kind: "column", label: "note", detail: "text", relevance: 100 },
+      { kind: "keyword", label: "o.customer_id = c.id", tag: "foreign key", relevance: 100 },
     ],
-  });
+  }, undefined, { current: { "foreign key": "chave estrangeira" } });
   if (!provider) throw new Error("completion provider was not registered");
   const result = await provider.provideCompletionItems(
     { getOffsetAt: () => 0, getWordUntilPosition: () => ({ startColumn: 1, endColumn: 1 }), getValue: () => "" } as never,
@@ -245,4 +246,5 @@ test("autocomplete exposes tag as label description and documentation as markdow
   assert.deepEqual(result.suggestions[0]?.documentation, { value: "bigint · NOT NULL\nPrimary key" });
   assert.equal(result.suggestions[1]?.label, "note");
   assert.equal(result.suggestions[1]?.documentation, undefined);
+  assert.deepEqual(result.suggestions[2]?.label, { label: "o.customer_id = c.id", description: "chave estrangeira" });
 });
