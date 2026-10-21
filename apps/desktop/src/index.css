@@ -985,6 +985,8 @@ button:focus-visible, select:focus-visible, [role="separator"]:focus-visible {
 .omni-mcp-edit-dialog-body.omni-mcp-edit-dialog-body { gap: 16px; padding: 24px; }
 .omni-mcp-edit-dialog-content.omni-mcp-edit-dialog-content { display: grid; gap: 16px; min-height: 0; overflow-y: auto; }
 .omni-mcp-status-dialog.omni-mcp-status-dialog { display: flex; flex-direction: column; width: min(680px, calc(100vw - 24px)); }
+.omni-mcp-dialog-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; }
+.omni-mcp-dialog-actions.omni-mcp-dialog-actions { justify-content: flex-end; margin: 0 -24px -24px; padding: 12px 20px; border-top: 1px solid var(--colorNeutralStroke2); }
 .omni-mcp-dialog-content.omni-mcp-dialog-content { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; }
 .omni-mcp-summary { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--colorNeutralStroke1); border-radius: 8px; background: var(--colorNeutralBackground2); }
 .omni-mcp-summary-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--colorNeutralBackground3); font-size: 18px; }

@@ -94,7 +94,10 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
     <Dialog open={open} onOpenChange={(_, data) => onOpenChange(data.open)}>
       <DialogSurface className="omni-standard-dialog omni-mcp-status-dialog">
         <DialogBody className="omni-dialog-body">
-          <DialogTitle action={<Button appearance="subtle" icon={<DismissRegular />} aria-label={t("close")} title={t("close")} onClick={() => onOpenChange(false)} />}>{t("mcpStatusTitle")}</DialogTitle>
+          <div className="omni-mcp-dialog-header">
+            <DialogTitle>{t("mcpStatusTitle")}</DialogTitle>
+            <Button appearance="subtle" size="small" icon={<DismissRegular />} aria-label={t("close")} title={t("close")} onClick={() => onOpenChange(false)} />
+          </div>
           <DialogContent className="omni-mcp-dialog-content">
             <section className="omni-mcp-summary" data-state={state} aria-label={label}>
               <span className="omni-mcp-status-dot" style={{ background: color }} />
@@ -177,7 +180,7 @@ export function McpStatusDialog({ open, onOpenChange, state, status, error }: Mc
               </div>
             )}
           </DialogContent>
-          <DialogActions className="omni-dialog-actions"><Button appearance="secondary" onClick={() => onOpenChange(false)}>{t("close")}</Button></DialogActions>
+          <DialogActions className="omni-dialog-actions omni-mcp-dialog-actions"><Button appearance="secondary" onClick={() => onOpenChange(false)}>{t("close")}</Button></DialogActions>
         </DialogBody>
       </DialogSurface>
     </Dialog>
