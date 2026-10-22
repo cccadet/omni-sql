@@ -630,4 +630,7 @@ export const simplifiedChinese = {
   deleteFolderConfirm: "删除文件夹“{name}”？其中的连接将移到“无文件夹”。",
   manageConnectionsHint: "将行拖到文件夹即可移动。删除文件夹会保留其中的连接，它们将移到“无文件夹”。",
   removeConnectionsConfirm: "移除 {count} 个连接？",
+  densityLabel: "密度",
+  densityComfortable: "舒适",
+  densityCompact: "紧凑",
 } satisfies Record<TranslationKey, string>;

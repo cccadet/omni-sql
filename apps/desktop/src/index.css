@@ -257,6 +257,18 @@ select option {
 .omni-toolbar-analysis-context > span { display: flex; flex-direction: column; line-height: 1.1; }
 .omni-toolbar-analysis-context small { color: var(--colorNeutralForeground3); font-size: 12px; }
 
+/* Compact density: one preference shared by the results grid and the sidebar. */
+:root[data-density="compact"] {
+  --omni-grid-head-py: 3px;
+  --omni-grid-cell-py: 1px;
+  --omni-grid-value-py: 0px;
+  --omni-grid-font: 11.5px;
+}
+:root[data-density="compact"] .omni-sidebar-section-header { flex-basis: 26px; height: 26px; }
+:root[data-density="compact"] .omni-sidebar-tree .obj-row { min-height: 20px; }
+:root[data-density="compact"] .omni-sidebar-objects-section,
+:root[data-density="compact"] .omni-sidebar-analysis-section { min-height: 26px; }
+
 /* Sidebar tree polish */
 .omni-sidebar-section-header {
   box-sizing: border-box;

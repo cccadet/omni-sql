@@ -788,7 +788,7 @@ export function ResultsGrid({
               </div> : <table
                 style={{
                   borderCollapse: "collapse",
-                  fontSize: 12,
+                  fontSize: "var(--omni-grid-font, 12px)",
                   minWidth: "100%",
                   tableLayout: "fixed",
                 }}
@@ -808,7 +808,7 @@ export function ResultsGrid({
                             aria-sort={sortColumn === col.index ? sortDirection : "none"}
                             title={`${t("connectionType")}: ${col.dataType}`}
                             style={{
-                              padding: "8px 10px",
+                              padding: "var(--omni-grid-head-py, 8px) 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
                               textAlign: "left",
                               background:
@@ -853,7 +853,7 @@ export function ResultsGrid({
                   {addingRow && (
                     <tr data-testid="new-row" style={{ background: tokens.colorPaletteYellowBackground2 }}>
                       {visibleColumns.map((col) => (
-                        <td key={`new:${col.index}`} style={{ padding: "4px 10px", borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>
+                        <td key={`new:${col.index}`} style={{ padding: "var(--omni-grid-cell-py, 4px) 10px", borderBottom: `1px solid ${tokens.colorNeutralStroke1}` }}>
                           {col.editable ? (
                             <Input
                               aria-label={`${t("newRowValue")} ${col.name}`}
@@ -921,7 +921,7 @@ export function ResultsGrid({
                             }}
                             data-column-focused={focusedColumnIndex === col.index || undefined}
                             style={{
-                              padding: "4px 10px",
+                              padding: "var(--omni-grid-cell-py, 4px) 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
                               whiteSpace: "nowrap",
                               background:
@@ -965,7 +965,7 @@ export function ResultsGrid({
                                   alignItems: "center",
                                   gap: 4,
                                   whiteSpace: "nowrap",
-                                  padding: "2px 0",
+                                  padding: "var(--omni-grid-value-py, 2px) 0",
                                   background: changeByCell.has(cellKey) ? tokens.colorPaletteYellowBackground1 : undefined,
                                   color: changeByCell.has(cellKey)
                                     ? tokens.colorPaletteYellowForeground2
