@@ -635,6 +635,9 @@ const english = {
   deleteFolderConfirm: "Delete folder “{name}”? Its connections move to No folder.",
   manageConnectionsHint: "Drag rows onto a folder to move them. Deleting a folder keeps its connections; they move to No folder.",
   removeConnectionsConfirm: "Remove {count} connections?",
+  densityLabel: "Density",
+  densityComfortable: "Comfortable",
+  densityCompact: "Compact",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -832,6 +835,9 @@ const portugueseBrazil = [
   "Excluir a pasta “{name}”? As conexões dela vão para Sem pasta.",
   "Arraste linhas até uma pasta para movê-las. Excluir uma pasta mantém as conexões; elas vão para Sem pasta.",
   "Remover {count} conexões?",
+  "Densidade",
+  "Confortável",
+  "Compacta",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

@@ -6,9 +6,11 @@ import { FluentProvider, createCSSRuleFromTheme } from "@fluentui/react-componen
 import App from "./App";
 import { useTheme } from "./theme";
 import { LanguageProvider } from "./i18n";
+import { useDensity } from "./lib/density";
 
 export function ThemedApp() {
   const { theme, name, toggle } = useTheme();
+  const { density, setDensity } = useDensity();
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", name);
@@ -18,7 +20,7 @@ export function ThemedApp() {
   return (
     <LanguageProvider>
       <FluentProvider theme={theme} data-theme={name}>
-        <App themeName={name} onToggleTheme={toggle} />
+        <App themeName={name} onToggleTheme={toggle} density={density} onDensityChange={setDensity} />
         <style>{createCSSRuleFromTheme("body", theme)}</style>
       </FluentProvider>
     </LanguageProvider>

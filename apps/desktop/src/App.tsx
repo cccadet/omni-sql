@@ -7,6 +7,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { check } from "@tauri-apps/plugin-updater";
 import { useEditorMonacoTheme, type ThemeName } from "./theme";
+import type { Density } from "./lib/density";
 import { useSession, makeTab } from "./hooks/useSession";
 import { useConnections } from "./hooks/useConnections";
 import { Toolbar } from "./components/Toolbar";
@@ -211,9 +212,11 @@ function diagnosticPosition(diagnostic: { start: number; end: number }): SqlExec
 export interface AppProps {
   themeName: ThemeName;
   onToggleTheme: () => void;
+  density?: Density;
+  onDensityChange?: (density: Density) => void;
 }
 
-export default function App({ themeName: name, onToggleTheme: toggle }: AppProps) {
+export default function App({ themeName: name, onToggleTheme: toggle, density, onDensityChange }: AppProps) {
   const { language, t } = useLanguage();
   const { requestCsvOptions, csvOptionsDialog } = useCsvOptions();
   const { tabs, activeTabId, setTabs, addTab, closeTab, selectTab, updateTabSql, renameTab, updateTab, getTabRevision, compareAndSwapTabSql } = useSession();
@@ -1984,6 +1987,8 @@ export default function App({ themeName: name, onToggleTheme: toggle }: AppProps
         onSave={onSaveFormatSettings}
         theme={name}
         onThemeChange={(next) => { if (next !== name) toggle(); }}
+        density={density}
+        onDensityChange={onDensityChange}
         mcpSummary={mcpState === "connected" ? t("mcpConnected") : mcpState === "error" ? t("mcpError") : mcpState === "listening" ? t("mcpListening") : t("mcpInactive")}
         onOpenMcp={() => { setFormatSettingsOpen(false); setMcpDialogOpen(true); }}
       />

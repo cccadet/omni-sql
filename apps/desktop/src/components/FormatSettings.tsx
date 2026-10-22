@@ -26,6 +26,7 @@ import {
 } from "../lib/format-sql";
 import type { DialectId } from "@omni-sql/ts-types";
 import { useLanguage, type Language } from "../i18n";
+import type { Density } from "../lib/density";
 
 export interface FormatSettingsProps {
   open: boolean;
@@ -35,6 +36,8 @@ export interface FormatSettingsProps {
   onSave: (settings: FormatterSettings) => void;
   theme?: "light" | "dark";
   onThemeChange?: (theme: "light" | "dark") => void;
+  density?: Density;
+  onDensityChange?: (density: Density) => void;
   /** Short MCP state shown under the "MCP server" section, e.g. "MCP ready · listening". */
   mcpSummary?: string;
   onOpenMcp?: () => void;
@@ -61,7 +64,7 @@ const logicalOperatorOptions = [
 
 const PREVIEW_SQL = `GRANT SELECT, UPDATE, DELETE, INSERT ON DW.TEST_TABLE TO DREMIO;\n\nSELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
 
-export function FormatSettings({ open, dialect, settings, onClose, onSave, theme, onThemeChange, mcpSummary, onOpenMcp }: FormatSettingsProps) {
+export function FormatSettings({ open, dialect, settings, onClose, onSave, theme, onThemeChange, density, onDensityChange, mcpSummary, onOpenMcp }: FormatSettingsProps) {
   const { t, language, setLanguage } = useLanguage();
   const [draft, setDraft] = useState<FormatterSettings>(() => ({ ...settings }));
   const [previewSql, setPreviewSql] = useState(PREVIEW_SQL);
@@ -138,6 +141,12 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave, theme
                 <Select aria-label={t("themeLabel")} value={theme} onChange={(_, data) => onThemeChange(data.value as "light" | "dark")}>
                   <option value="dark">{t("themeDark")}</option>
                   <option value="light">{t("themeLight")}</option>
+                </Select>
+              </Field>}
+              {density && onDensityChange && <Field label={t("densityLabel")} className="omni-settings-language-field">
+                <Select aria-label={t("densityLabel")} value={density} onChange={(_, data) => onDensityChange(data.value as Density)}>
+                  <option value="comfortable">{t("densityComfortable")}</option>
+                  <option value="compact">{t("densityCompact")}</option>
                 </Select>
               </Field>}
               </div>
