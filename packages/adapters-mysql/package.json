@@ -18,6 +18,6 @@
     "@omni-sql/ts-types": "workspace:*",
     "@omni-sql/dialect-descriptors": "workspace:*",
     "@omni-sql/adapters-core": "workspace:*",
-    "mysql2": "^3.11.0"
+    "mysql2": "^3.24.6"
   }
 }
