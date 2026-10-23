@@ -543,7 +543,13 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         for (const connection of connections) if (connection.dialect === "s3") delete next[connection.id];
         return next;
       });
-      updateTab(activeTab.id, { connectionId: "local-duckdb", sql: `SELECT * FROM "${dataset.relationName.replaceAll('"', '""')}" LIMIT 1000` });
+      const analysisTab = makeTab({
+        title: dataset.name ?? datasetName,
+        connectionId: "local-duckdb",
+        sql: `SELECT * FROM "${dataset.relationName.replaceAll('"', '""')}" LIMIT 1000`,
+      });
+      setTabs((previous) => [...previous, analysisTab]);
+      selectTab(analysisTab.id);
       setAnalysisImportOpen(false);
     } catch (error) {
       setAnalysisImportError(error instanceof Error ? error.message : String(error));
@@ -551,7 +557,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       setAnalysisImporting(false);
       setAnalysisImportOperationId(null);
     }
-  }, [activeConnectionId, activeTab.id, activeTab.queryLimit, activeTab.sql, activeTab.title, analysisImporting, analysisLoadOrigin, analysisSampleRows, analysisSelection, analysisSourceSql, connections, loadConnections, result, s3Catalog, updateTab]);
+  }, [activeConnectionId, activeTab.id, activeTab.queryLimit, activeTab.sql, activeTab.title, analysisImporting, analysisLoadOrigin, analysisSampleRows, analysisSelection, analysisSourceSql, connections, loadConnections, result, s3Catalog, selectTab, setTabs]);
 
   const activeDialect: DialectId = useMemo(
     () => {
