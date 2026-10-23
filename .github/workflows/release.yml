@@ -30,6 +30,16 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Require release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          notes="docs/releases/v$VERSION.md"
+          if [[ ! -s "$notes" ]]; then
+            echo "::error title=missing release notes::$notes is missing or empty; the GitHub Release body is read from it" >&2
+            exit 1
+          fi
 
   quality:
     name: Require successful CI for tagged commit

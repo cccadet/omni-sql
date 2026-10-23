@@ -110,6 +110,9 @@ coverage gates; it contains prerequisites, baseline handling and checkpoint deta
   `artifacts/release-integration` is uploaded even on failure.
 - Keep full integration and desktop lifecycle validation outside the per-edit/
   precommit loop unless the affected path requires them.
+- Before tagging, commit `docs/releases/vX.Y.Z.md` (user-facing notes ending with a
+  Full Changelog compare link); the release workflow uses it as the GitHub Release
+  body and fails without it.
 - After triggering a release, provide the workflow link; do not repeatedly poll
   in the same chat. Check again only when requested or in a later task. Releases
   historically take about 20 minutes; cold integration builds can add time.
