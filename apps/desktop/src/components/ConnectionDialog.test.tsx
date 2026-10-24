@@ -31,6 +31,31 @@ test("saves and restores an explicit environment without dropping SSL", async ()
   assert.deepEqual((add![1] as { config: ConnectionConfig }).config.options, { ssl: "require", environment: "production" });
 });
 
+test("MCP access defaults to read-only and saves an explicit choice", async () => {
+  vi.mocked(backend.call).mockResolvedValue({ connectionId: "saved-pg" });
+  const legacy: ConnectionConfig = { id: "saved-pg", label: "Warehouse", dialect: "postgres", endpoint: "localhost:5432/test", user: "u", options: { ssl: "require" } };
+  const access = () => screen.getByRole("radiogroup", { name: "MCP access" });
+  const configs = () => vi.mocked(backend.call).mock.calls.filter(([method]) => method === "connection.add").map(([, params]) => (params as { config: ConnectionConfig }).config);
+  // [stored before, option clicked, options saved]; a legacy connection without the setting is read-only.
+  for (const [before, label, options] of [
+    [undefined, null, { ssl: "require" }],
+    [undefined, "Off", { ssl: "require", mcpAccess: "off" }],
+    ["off", "Read and write", { ssl: "require", mcpAccess: "write" }],
+    ["write", "Read-only", { ssl: "require" }],
+  ] as const) {
+    const editing = { ...legacy, options: { ssl: "require", ...(before ? { mcpAccess: before } : {}) } };
+    const view = renderWithLanguage(<ConnectionDialog open editing={editing} onClose={close} onSaved={saved} />);
+    const shown = { off: "Off", read: "Read-only", write: "Read and write" }[before ?? "read"];
+    assert.equal(within(access()).getByRole("radio", { name: shown }).getAttribute("aria-checked"), "true");
+    if (label) fireEvent.click(within(access()).getByRole("radio", { name: label }));
+    const count = configs().length;
+    fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+    await waitFor(() => assert.equal(configs().length, count + 1));
+    assert.deepEqual(configs().at(-1)?.options, options);
+    view.unmount();
+  }
+});
+
 beforeEach(() => {
   vi.mocked(backend.call).mockReset();
   vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list" ? { configs: [] } : undefined);

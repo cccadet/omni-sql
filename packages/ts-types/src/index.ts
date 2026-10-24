@@ -126,6 +126,25 @@ export interface ConnectionConfig {
   readonly schemas?: readonly string[];
 }
 
+/**
+ * Per-connection MCP permission, persisted as `options.mcpAccess`.
+ * `off` hides the connection from MCP tools, `read` allows schema reads and
+ * read-only SQL, `write` keeps approved SQL unrestricted.
+ */
+export type McpAccess = "off" | "read" | "write";
+
+export const MCP_ACCESS_LEVELS: readonly McpAccess[] = ["off", "read", "write"];
+
+/** Default for connections without an explicit choice; writes are opt-in. */
+export const DEFAULT_MCP_ACCESS: McpAccess = "read";
+
+/** Missing or unknown values fall back to read-only; a missing connection has no access. */
+export function connectionMcpAccess(config: Pick<ConnectionConfig, "options"> | null | undefined): McpAccess {
+  if (!config) return "off";
+  const value = config.options?.mcpAccess;
+  return value === "off" || value === "write" ? value : DEFAULT_MCP_ACCESS;
+}
+
 export interface ConnectionGroup {
   readonly id: string;
   readonly name: string;
@@ -363,6 +382,7 @@ export interface McpToolResultByName {
     readonly error: SqlExecutionError | null;
   };
   explainSql: {
+    readonly connectionId: string;
     readonly textual: string;
     readonly format: ExplainResult["format"];
   };

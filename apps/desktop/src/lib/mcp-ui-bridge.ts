@@ -1,5 +1,7 @@
+import { analyzeReadOnlySql } from "@omni-sql/autocomplete-engine";
 import type {
   DialectId,
+  McpAccess,
   McpBridgeRequest,
   McpErrorCode,
   McpStatusResult,
@@ -10,6 +12,7 @@ import { MCP_DEFAULT_QUERY_LIMIT, MCP_MAX_ERROR_MESSAGE_BYTES } from "@omni-sql/
 import { backend } from "./backend";
 
 const POLL_WAIT_MS = 25_000;
+const MCP_ACCESS_DISABLED_MESSAGE = "MCP access is disabled for this connection; enable it in the connection settings";
 const RETRY_MS = 1_000;
 const PROPOSAL_SAFETY_WINDOW_MS = 1_000;
 
@@ -31,7 +34,7 @@ export interface McpUiState {
     mongoSqlMode?: boolean;
     latestSqlExecutionError?: McpToolResultByName["getLatestSqlExecutionError"]["error"];
   } | null;
-  activeConnection: { id: string; label: string; dialect: DialectId } | null;
+  activeConnection: { id: string; label: string; dialect: DialectId; mcpAccess: McpAccess } | null;
   editor: {
     getAllText: () => string;
     getSelectionOrCurrent: () => { sql: string; start: number };
@@ -141,6 +144,8 @@ export class McpUiBridge {
   async handleRequest(request: McpBridgeRequest): Promise<unknown> {
     if (request.expiresAt <= Date.now() + PROPOSAL_SAFETY_WINDOW_MS) throw new McpUiError("timeout", "MCP request expired");
     const state = this.handlers.readState();
+    // A tab bound to a connection without MCP access exposes nothing, not even its SQL text.
+    if (state.activeConnection?.mcpAccess === "off") throw new McpUiError("rejected", MCP_ACCESS_DISABLED_MESSAGE);
     switch (request.tool) {
       case "getActiveSql": {
         if (!state.activeTab) throw new McpUiError("unavailable", "No SQL tab is active");
@@ -186,6 +191,11 @@ export class McpUiBridge {
         const tab = state.activeTab;
         if (!connection || !tab) throw new McpUiError("unavailable", "No connected SQL tab is active");
         if (connection.dialect === "mongodb" && tab.mongoSqlMode) throw new McpUiError("unavailable", "Execute MongoDB SQL in the query editor; MCP cannot route this connection through DuckDB");
+        if (connection.mcpAccess === "read") {
+          // Refuse before asking for approval; the backend enforces the same rule again.
+          const analysis = analyzeReadOnlySql(request.args.sql, connection.dialect);
+          if (!analysis.readOnly) throw new McpUiError("rejected", `This connection allows read-only MCP access. ${analysis.reason}`);
+        }
         const outcome = await this.handlers.approveExecution({ sql: request.args.sql, limit: request.args.limit ?? MCP_DEFAULT_QUERY_LIMIT, tabId: tab.id, connectionId: connection.id, connectionLabel: connection.label, expiresAt: request.expiresAt });
         if (outcome !== "approved") throw new McpUiError(outcome === "stale" ? "stale" : "rejected", "SQL execution was not approved");
         const current = this.handlers.readState();

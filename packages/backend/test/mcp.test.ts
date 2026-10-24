@@ -89,11 +89,16 @@ test("MCP endpoint isolates tokens, rejects generic RPC, and bridges one UI resp
     assert.equal(status.result.queueSize, 0);
 
     // Mongo SQL reports DuckDB for editor text and MongoDB for the connection.
+    for (const config of [
+      { id: "mongo", label: "MongoDB", dialect: "mongodb", endpoint: "mongodb://127.0.0.1:27017/reports", user: "" },
+      { id: "local-duckdb", label: "Local DuckDB", dialect: "duckdb", endpoint: "local.duckdb", user: "" },
+      { id: "files", label: "S3", dialect: "s3", endpoint: "s3://files", user: "" },
+    ]) assert.equal((await rpc("connection.add", { config })).error, undefined, config.id);
     for (const [tool, result] of [
       ["getActiveSql", { sql: "SELECT * FROM reports", dialect: "duckdb" }],
       ["getActiveConnectionContext", { connectionId: "mongo", label: "MongoDB", dialect: "mongodb" }],
       ["getActiveSql", { sql: '{"collection":"reports","operation":"find"}', dialect: "mongodb" }],
-      ["getActiveConnectionContext", { connectionId: "local", label: "DuckDB", dialect: "duckdb" }],
+      ["getActiveConnectionContext", { connectionId: "local-duckdb", label: "DuckDB", dialect: "duckdb" }],
       ["getActiveSql", { sql: "SELECT * FROM files", dialect: "s3" }],
       ["getActiveConnectionContext", { connectionId: "files", label: "S3", dialect: "s3" }],
     ] as const) {

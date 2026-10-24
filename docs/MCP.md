@@ -31,6 +31,36 @@ metadados e resultados permitidos retornados pelas ferramentas ficam visíveis a
 cliente MCP local conectado; use a integração somente quando essa exposição for
 aceitável.
 
+## Permissão por conexão
+
+O cadastro de cada conexão tem o campo **Acesso via MCP**, salvo em
+`options.mcpAccess`:
+
+| Nível | Efeito |
+| --- | --- |
+| Desligado (`off`) | Nenhuma ferramenta responde para uma aba ligada a essa conexão, nem mesmo `getActiveSql`. |
+| Somente leitura (padrão) | Leitura de schema, índices e planos. `executeSql` aceita uma única instrução `SELECT`, `WITH`, `VALUES`, `TABLE`, `SHOW`, `DESCRIBE` ou `EXPLAIN` sem `ANALYZE`; no MongoDB, só `find` e `aggregate` sem `$out`/`$merge`. |
+| Leitura e escrita (`write`) | Comportamento anterior: qualquer SQL, sempre com aprovação no desktop. |
+
+Conexões sem escolha explícita, inclusive as já existentes, ficam em somente
+leitura. Conexões desconhecidas pelo backend são tratadas como desligadas.
+
+A regra vale em duas camadas. O desktop recusa antes de abrir o diálogo de
+aprovação. O backend repete a verificação em `mcp.ui.execute` e descarta
+qualquer resultado com `connectionId` de uma conexão desligada, então uma
+aprovação nunca amplia a permissão. Uma mudança no cadastro vale a partir do
+pedido seguinte.
+
+O modo somente leitura recusa palavras que escrevem, travam linhas ou mudam a
+sessão em qualquer ponto da instrução (`INSERT`, `DELETE` em CTE, `SELECT INTO`,
+`FOR UPDATE`, `CALL`, `EXEC`, `SET` etc.); strings, comentários, identificadores
+entre aspas e nomes qualificados como `t.comment` não contam. Funções com efeito
+colateral não são detectáveis pelo texto. Por isso PostgreSQL, MySQL e MariaDB
+executam a instrução numa transação somente leitura que é sempre desfeita: o
+banco recusa, por exemplo, `SELECT nextval(...)` ou uma função que faz `DELETE`.
+SQL Server, Oracle, JDBC e ODBC dependem só da verificação do texto. Em qualquer
+banco, prefira também um usuário com o mínimo de privilégios.
+
 O backend mantém autenticação separada para MCP, bind em loopback, requests e
 respostas limitados, allowlists por ferramenta e fila limitada. O descritor de
 runtime contém uma capacidade temporária da execução atual: não abra, copie ou

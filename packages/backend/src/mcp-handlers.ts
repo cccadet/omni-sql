@@ -14,6 +14,7 @@ import type {
   McpUiRespondResult,
 } from "@omni-sql/ts-types";
 import {
+  MCP_ACCESS_DISABLED_MESSAGE,
   MCP_MAX_ARGUMENT_BYTES,
   McpBridge,
   McpBridgeError,
@@ -38,7 +39,7 @@ import type {
 
 import type { Server } from "node:http";
 import { startMcpHttpServer, closeStreamableHttpServer, getHttpSessionCount } from "@omni-sql/mcp-server";
-import { handlers } from "./handlers.ts";
+import { handlers, mcpAccessFor, runReadOnlyQuery } from "./handlers.ts";
 
 let httpServer: Server | undefined;
 let startingHttp = false;
@@ -68,7 +69,7 @@ export function boundMcpQueryResult(connectionId: string, result: QueryResult, l
   return { ...output, rows };
 }
 
-export const mcpBridge = new McpBridge();
+export const mcpBridge = new McpBridge({ connectionAccess: mcpAccessFor });
 
 export function closeMcpBridge(): void {
   mcpBridge.close();
@@ -221,8 +222,14 @@ export const mcpHandlers: McpUiRouter = {
     const listenerId = requireText(params.listenerId, "listenerId", MCP_MAX_LISTENER_ID_BYTES);
     const connectionId = requireText(params.connectionId, "connectionId", 256);
     const { args, signal } = mcpBridge.approveExecution(id, listenerId);
-    const result = await handlers["query.run"]({ connectionId, sql: args.sql, limit: args.limit ?? MCP_DEFAULT_QUERY_LIMIT, executionRiskAccepted: true }, signal);
-    return boundMcpQueryResult(connectionId, result, args.limit ?? MCP_DEFAULT_QUERY_LIMIT);
+    const limit = args.limit ?? MCP_DEFAULT_QUERY_LIMIT;
+    // Desktop approval never widens the connection's MCP permission.
+    const access = mcpAccessFor(connectionId);
+    if (access === "off") throw new McpBridgeError("rejected", MCP_ACCESS_DISABLED_MESSAGE);
+    const result = access === "read"
+      ? await runReadOnlyQuery(connectionId, args.sql, limit, signal)
+      : await handlers["query.run"]({ connectionId, sql: args.sql, limit, executionRiskAccepted: true }, signal);
+    return boundMcpQueryResult(connectionId, result, limit);
   },
   async "mcp.ui.next"(params?: McpUiNextParams, context?: McpUiRequestContext): Promise<McpUiNextResult> {
     return mcpBridge.next(validateNextParams(params), context?.signal);

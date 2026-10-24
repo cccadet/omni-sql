@@ -18,6 +18,8 @@ export {
 } from "./engine.ts";
 export {
   analyzeExecutionRisk,
+  analyzeReadOnlySql,
+  type ReadOnlySqlAnalysis,
   type ExecutionRiskAnalysis,
   type ExecutionRiskFinding,
   type ExecutionRiskKind,

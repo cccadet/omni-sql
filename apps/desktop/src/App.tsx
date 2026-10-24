@@ -34,7 +34,7 @@ import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } 
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationColumn, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
-import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, type DialectId, type FunctionDef, type McpToolResultByName, type McpToolArgsByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
+import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, connectionMcpAccess, type DialectId, type FunctionDef, type McpToolResultByName, type McpToolArgsByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
@@ -604,7 +604,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       latestSqlExecutionError: activeTab.latestSqlExecutionError ?? null,
       mongoSqlMode: activeTab.mongoSqlMode,
     } : null,
-    activeConnection: activeConnection ? { id: activeConnection.id, label: activeConnection.label, dialect: activeConnection.dialect } : null,
+    activeConnection: activeConnection ? { id: activeConnection.id, label: activeConnection.label, dialect: activeConnection.dialect, mcpAccess: connectionMcpAccess(activeConnection) } : null,
     editor: editorRef.current,
   };
 
@@ -1517,7 +1517,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     if (mcpStateRef.current.activeConnection?.id !== connectionId) {
       throw new McpUiError("stale", "Active connection changed during SQL explain");
     }
-    return { textual: response.textual, format: response.format };
+    return { connectionId, textual: response.textual, format: response.format };
   }, []);
 
   const proposeMcpEdit = useCallback((args: { sql: string; rationale: string; tabId: string; originalSql: string; expiresAt?: number }) => {

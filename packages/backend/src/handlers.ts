@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { ListBucketsCommand, S3Client } from "@aws-sdk/client-s3";
-import type { ConnectionConfig, Relation, Database } from "@omni-sql/ts-types";
+import { connectionMcpAccess, type ConnectionConfig, type McpAccess, type Relation, type Database } from "@omni-sql/ts-types";
 import type { Adapter, QueryBatch } from "@omni-sql/adapters-core";
 import { registerAdapter, resolveAdapter } from "@omni-sql/adapters-core";
 import { PostgresAdapter } from "@omni-sql/adapters-pg";
@@ -16,6 +16,7 @@ import { MongoAdapter } from "./mongo-adapter.ts";
 import { OdbcAdapter } from "@omni-sql/adapters-odbc";
 import { dialectDescriptor, duckdbFunctions, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
+  analyzeReadOnlySql,
   autocompleteTier1,
   findStatement,
   tokenize,
@@ -322,6 +323,34 @@ function requireSession(id: string): Session {
   const s = sessions.get(id);
   if (!s) throw new Error(`connection not found: ${id}`);
   return s;
+}
+
+/**
+ * MCP permission of a saved connection. Local DuckDB and S3 have no adapter
+ * session, so their saved config comes from the cache; unknown connections deny access.
+ */
+export function mcpAccessFor(connectionId: string): McpAccess {
+  return connectionMcpAccess(sessions.get(connectionId)?.config ?? cache.getConnection(connectionId));
+}
+
+/**
+ * Runs SQL for MCP read access: rejects anything but one read-only statement,
+ * then uses the adapter's database-enforced read-only transaction when it has one.
+ */
+export async function runReadOnlyQuery(connectionId: string, sql: string, limit: number, signal?: AbortSignal): Promise<RunQueryResult> {
+  await connectionsRestored;
+  const s = requireSession(connectionId);
+  const analysis = analyzeReadOnlySql(sql, s.config.dialect);
+  if (!analysis.readOnly) throw new RpcValidationError(analysis.reason);
+  const adapter = s.adapter;
+  const run = adapter.runReadOnlyQuery ? adapter.runReadOnlyQuery.bind(adapter) : adapter.runQuery.bind(adapter);
+  try {
+    return await withCancellableSession(s, signal, () => run(sql, normalizeQueryLimit(limit)));
+  } catch (error) {
+    if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
+    if (s.config.dialect === "postgres") throw safePostgresDatabaseError(error) ?? error;
+    throw error;
+  }
 }
 
 export async function* streamAnalysisQuery(

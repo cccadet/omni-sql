@@ -483,12 +483,16 @@ export async function runQueryViaPool(
   sql: string,
   limit: number,
   onConnection?: (connection: PoolConnection) => (() => void) | undefined,
+  readOnly = false,
 ): Promise<QueryResult> {
   const t0 = Date.now();
   const connection = await pool.getConnection();
   let cleanup: (() => void) | undefined;
+  let discard = false;
   try {
     cleanup = onConnection?.(connection);
+    // multipleStatements stays disabled, so the statement cannot COMMIT and escape.
+    if (readOnly) await connection.query("START TRANSACTION READ ONLY");
     const prepared = prepareMysqlQuery(sql, limit);
     const queryOptions = {
       sql: prepared.sql,
@@ -525,8 +529,10 @@ export async function runQueryViaPool(
   } finally {
     try {
       cleanup?.();
+      if (readOnly) await connection.query("ROLLBACK").catch(() => { discard = true; });
     } finally {
-      connection.release();
+      if (discard) connection.destroy();
+      else connection.release();
     }
   }
 }

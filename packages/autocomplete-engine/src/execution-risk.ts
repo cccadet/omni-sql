@@ -89,6 +89,81 @@ function hasWhereForOperation(tokens: readonly Token[], operationIndex: number):
   return false;
 }
 
+export type ReadOnlySqlAnalysis =
+  | { readonly readOnly: true }
+  | { readonly readOnly: false; readonly reason: string };
+
+const READ_ONLY_LEADS = new Set(["SELECT", "WITH", "VALUES", "TABLE", "SHOW", "DESCRIBE", "DESC", "EXPLAIN"]);
+
+/** Words that write, lock, change session state or run other code, wherever they appear. */
+const NON_READ_WORDS = new Set([
+  "INSERT", "UPDATE", "DELETE", "MERGE", "UPSERT", "REPLACE", "TRUNCATE", "DROP", "CREATE", "ALTER", "RENAME",
+  "GRANT", "REVOKE", "CALL", "EXEC", "EXECUTE", "DO", "COPY", "LOCK", "UNLOCK", "VACUUM", "ANALYZE", "ANALYSE",
+  "REINDEX", "CLUSTER", "REFRESH", "IMPORT", "LOAD", "INTO", "OUTFILE", "DUMPFILE", "SET", "RESET", "BEGIN",
+  "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE", "PREPARE", "DEALLOCATE", "LISTEN", "NOTIFY", "UNLISTEN",
+  "DISCARD", "ATTACH", "DETACH", "PRAGMA", "INSTALL", "CHECKPOINT", "SHUTDOWN", "KILL", "PURGE", "FLUSH",
+  "HANDLER", "OPTIMIZE", "REPAIR", "DECLARE", "UPDLOCK", "XLOCK", "TABLOCKX", "HOLDLOCK",
+]);
+
+/** Same-named scalar functions that only read (`REPLACE(s, a, b)`, MySQL `INSERT(s, pos, len, t)`). */
+const READ_FUNCTIONS = new Set(["REPLACE", "INSERT"]);
+
+const MONGO_READ_OPERATIONS = new Set(["find", "aggregate"]);
+
+function analyzeMongoReadOnly(text: string): ReadOnlySqlAnalysis {
+  let query: unknown;
+  try { query = JSON.parse(text); } catch { return { readOnly: false, reason: "MongoDB query must be valid Extended JSON" }; }
+  if (!query || typeof query !== "object" || Array.isArray(query)) return { readOnly: false, reason: "MongoDB query must be an object" };
+  const { operation, pipeline } = query as { operation?: unknown; pipeline?: unknown };
+  if (typeof operation !== "string" || !MONGO_READ_OPERATIONS.has(operation)) {
+    return { readOnly: false, reason: "Read-only MongoDB access allows only find and aggregate" };
+  }
+  if (Array.isArray(pipeline) && pipeline.some((stage) => stage && typeof stage === "object" && ("$out" in stage || "$merge" in stage))) {
+    return { readOnly: false, reason: "Read-only MongoDB access rejects $out and $merge stages" };
+  }
+  return { readOnly: true };
+}
+
+/**
+ * Fail-closed check for MCP read-only access: one statement that starts with a
+ * read command and contains no writing, locking or session-changing word.
+ * Quoted identifiers and qualified names (`t.comment`) are not treated as
+ * commands. Database functions with side effects cannot be detected lexically;
+ * adapters add a database-enforced read-only transaction where supported.
+ */
+export function analyzeReadOnlySql(sql: string, dialect: DialectId): ReadOnlySqlAnalysis {
+  if (dialect === "mongodb") return analyzeMongoReadOnly(sql);
+  const descriptor = dialectDescriptor(dialect);
+  const tokens = codeTokens(sql, dialect);
+  const ranges = statementRanges(sql, tokens, descriptor.statementSeparator, descriptor.batchTerminator);
+  if (ranges.length === 0) return { readOnly: false, reason: "SQL is empty" };
+  if (ranges.length > 1) return { readOnly: false, reason: "Read-only access allows a single statement" };
+  const statement = ranges[0]!.tokens;
+  // Quoted identifiers keep their raw quote at `start`; only bare words can be commands.
+  const word = (token: Token | undefined): string | null =>
+    token && (token.type === "keyword" || token.type === "identifier") && /[A-Za-z_]/.test(sql[token.start] ?? "") ? upper(token) : null;
+
+  const lead = statement.find((token) => token.value !== "(");
+  const leadWord = word(lead);
+  if (!leadWord || !READ_ONLY_LEADS.has(leadWord)) return { readOnly: false, reason: `Read-only access does not allow ${leadWord ?? "this"} statements` };
+  if (leadWord === "EXPLAIN" && word(statement[statement.indexOf(lead!) + 1]) === "PLAN") {
+    return { readOnly: false, reason: "EXPLAIN PLAN writes to the plan table; use explainSql instead" };
+  }
+  for (let i = 0; i < statement.length; i++) {
+    const current = word(statement[i]);
+    if (!current || statement[i - 1]?.value === ".") continue;
+    const next = statement[i + 1];
+    if (current === "FOR" && ["UPDATE", "SHARE", "NO", "KEY"].includes(word(next) ?? "")) {
+      return { readOnly: false, reason: "Read-only access does not allow locking clauses" };
+    }
+    if (!NON_READ_WORDS.has(current)) continue;
+    if (READ_FUNCTIONS.has(current) && next?.value === "(") continue;
+    if (current === "SET" && ["CHARACTER", "CHARSET"].includes(word(statement[i - 1]) ?? "")) continue;
+    return { readOnly: false, reason: `Read-only access does not allow ${current}` };
+  }
+  return { readOnly: true };
+}
+
 /** Conservative, dialect-aware preflight for statements that can destroy data or schema. */
 export function analyzeExecutionRisk(sql: string, dialect: DialectId): ExecutionRiskAnalysis {
   if (dialect === "mongodb") {

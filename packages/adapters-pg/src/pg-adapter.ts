@@ -21,6 +21,7 @@ import {
   listSchemaNames,
   mapPgOidToDataType,
   runQueryViaPool,
+  runReadOnlyQueryViaPool,
   updateRowViaPool,
 } from "./introspection.ts";
 
@@ -105,6 +106,16 @@ export class PostgresAdapter extends CachedAdapter implements Adapter {
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
     return runQueryViaPool(this.pool, sql, limit, undefined, (client, query) => {
+      const activeQuery = { client, query, token: Symbol() };
+      this.activeQuery = activeQuery;
+      return () => {
+        if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
+      };
+    });
+  }
+
+  async runReadOnlyQuery(sql: string, limit: number): Promise<QueryResult> {
+    return runReadOnlyQueryViaPool(this.pool, sql, limit, (client, query) => {
       const activeQuery = { client, query, token: Symbol() };
       this.activeQuery = activeQuery;
       return () => {
