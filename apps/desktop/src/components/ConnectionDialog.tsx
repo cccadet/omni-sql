@@ -13,7 +13,7 @@ import {
   Text,
   tokens,
 } from "@fluentui/react-components";
-import type { ConnectionConfig } from "@omni-sql/ts-types";
+import { DEFAULT_MCP_ACCESS, connectionMcpAccess, type ConnectionConfig, type McpAccess } from "@omni-sql/ts-types";
 import { backend } from "../lib/backend";
 import { pickJarPath } from "../lib/file-io";
 import { listAnalysisS3 } from "../lib/analysis";
@@ -28,6 +28,12 @@ const ENVIRONMENTS = [
   { value: "staging", label: "environmentStaging" },
   { value: "production", label: "environmentProduction" },
 ] as const;
+
+const MCP_ACCESS_OPTIONS = [
+  { value: "off", label: "mcpAccessOff" },
+  { value: "read", label: "mcpAccessRead" },
+  { value: "write", label: "mcpAccessWrite" },
+] as const satisfies readonly { value: McpAccess; label: string }[];
 
 const DB_TYPES: readonly { mode: Mode; abbr: string; label?: string; color: string }[] = [
   { mode: "postgres", abbr: "PG", label: "PostgreSQL", color: "#336791" },
@@ -114,6 +120,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [mode, setMode] = useState<Mode>("postgres");
   const [label, setLabel] = useState("");
   const [environment, setEnvironment] = useState("");
+  const [mcpAccess, setMcpAccess] = useState<McpAccess>(DEFAULT_MCP_ACCESS);
   const [id, setId] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("5432");
@@ -155,6 +162,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setMongoUri(editingDialect === "mongodb" ? editing!.endpoint : "mongodb://localhost:27017/test");
     setLabel(editing?.label ?? "");
     setEnvironment(String(editing?.options?.environment ?? ""));
+    setMcpAccess(editing ? connectionMcpAccess(editing) : DEFAULT_MCP_ACCESS);
     setId(duplicating ? generateId() : editing?.id ?? "");
     setUser(isS3 ? "" : editing?.user ?? "");
     setS3AccessKey(isS3 ? editing?.user ?? "" : "");
@@ -247,6 +255,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   }, [mode, jdbcUrl, odbcEndpoint, mongoUri, s3BucketList, jarPath, driverClassName, user, host, ducklakeMappings]);
 
   const buildConfig = useCallback((): ConnectionConfig => {
+    // The default (read-only) is not persisted.
+    const shared = { ...(environment ? { environment } : {}), ...(mcpAccess !== DEFAULT_MCP_ACCESS ? { mcpAccess } : {}) };
     if (mode === "demo") {
       return {
         id: id || "demo",
@@ -254,19 +264,20 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
         dialect: "postgres",
         endpoint: "memory://local",
         user: user || "anon",
-        ...(environment ? { options: { environment } } : {}),
+        ...(Object.keys(shared).length > 0 ? { options: shared } : {}),
       };
     }
+    const options = buildOptions();
     return {
       id: id || generateId(),
       label: label || defaultLabel(),
       dialect: mode,
       endpoint: buildEndpoint(),
       user: mode === "s3" ? s3AccessKey.trim() : user,
-      options: environment ? { ...buildOptions(), environment } : buildOptions(),
+      options: Object.keys(shared).length > 0 ? { ...options, ...shared } : options,
       schemas: selectedSchemas.size > 0 ? [...selectedSchemas] : undefined,
     };
-  }, [mode, id, label, environment, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
+  }, [mode, id, label, environment, mcpAccess, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
 
   const onTest = async () => {
     if (mode === "demo") return;
@@ -427,6 +438,18 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 </div>
               </div>
             </div>
+
+            {mode !== "s3" && <div className="omni-connection-environment">
+              <span id="omni-connection-mcp-label" className="omni-connection-environment-label">{t("connectionMcpAccess")}</span>
+              <div role="radiogroup" aria-labelledby="omni-connection-mcp-label" className="omni-segmented" style={{ justifySelf: "start" }}>
+                {MCP_ACCESS_OPTIONS.map(({ value, label: key }) => (
+                  <button key={value} type="button" role="radio" aria-checked={mcpAccess === value} disabled={busy} onClick={() => { setMcpAccess(value); setTestResult(null); setError(null); }}>
+                    {t(key)}
+                  </button>
+                ))}
+              </div>
+              <Text size={200}>{t("mcpAccessHint")}</Text>
+            </div>}
 
             {mode === "mongodb" && <Field label="MongoDB URI">
               <Input value={mongoUri} onChange={(_, data) => setMongoUri(data.value)} placeholder="mongodb://localhost:27017/test?authSource=admin" disabled={busy} required />

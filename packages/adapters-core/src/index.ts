@@ -44,6 +44,12 @@ export interface Adapter {
 
   /** Execução de query para results grid. Delegates ao pool do adaptador. */
   runQuery(sql: string, limit: number): Promise<QueryResult>;
+  /**
+   * Optional database-enforced read-only execution: a single statement inside
+   * a read-only transaction that is always rolled back. Callers still validate
+   * the SQL first; this catches writes hidden behind functions.
+   */
+  runReadOnlyQuery?(sql: string, limit: number): Promise<QueryResult>;
   /** Optional large-result path. Batches remain bounded and are released by
    * returning from the async iterator. Implementations must close cursors in a
    * finally block when the consumer stops early or aborts. */

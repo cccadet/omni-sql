@@ -12,7 +12,7 @@ function setup(state: McpUiState, approveExecution: (args: unknown) => Promise<"
       connectionId,
       indexes: [{ name: "orders_pkey", unique: true, primary: true, columns: ["id"] }],
     })),
-    explainSql: vi.fn(async () => ({ textual: "Seq Scan on orders", format: "text" as const })),
+    explainSql: vi.fn(async (connectionId) => ({ connectionId, textual: "Seq Scan on orders", format: "text" as const })),
     proposeEdit: vi.fn(async () => "approved" as const),
     approveExecution,
     onStatus: vi.fn(),
@@ -54,7 +54,7 @@ describe("MCP UI bridge tools", () => {
   it("returns full active SQL and safe connection context", async () => {
     const bridge = setup({
       activeTab: { id: "tab-1", title: "Query", sql: "SELECT state" },
-      activeConnection: { id: "opaque-id", label: "Warehouse", dialect: "postgres" },
+      activeConnection: { id: "opaque-id", label: "Warehouse", dialect: "postgres", mcpAccess: "read" },
       editor: { getAllText: () => "SELECT current", getSelectionOrCurrent: () => ({ sql: "SELECT current", start: 0 }) },
     });
 
@@ -69,7 +69,7 @@ describe("MCP UI bridge tools", () => {
     let connectionId = "conn-1";
     let changeDuringRead = false;
     const bridge = new McpUiBridge({
-      readState: () => ({ activeTab: null, activeConnection: { id: connectionId, label: "DB", dialect: "postgres" }, editor: null }),
+      readState: () => ({ activeTab: null, activeConnection: { id: connectionId, label: "DB", dialect: "postgres", mcpAccess: "read" }, editor: null }),
       getSchemaSummary: vi.fn(async (id) => {
         if (id !== connectionId) throw new McpUiError("stale", "changed");
         if (changeDuringRead) connectionId = "conn-2";
@@ -92,7 +92,7 @@ describe("MCP UI bridge tools", () => {
   it("explains SQL and lists targeted indexes through the active connection", async () => {
     const bridge = setup({
       activeTab: { id: "tab-1", title: "Query", sql: "SELECT 1" },
-      activeConnection: { id: "conn-1", label: "DB", dialect: "postgres" },
+      activeConnection: { id: "conn-1", label: "DB", dialect: "postgres", mcpAccess: "read" },
       editor: null,
     });
 
@@ -101,7 +101,7 @@ describe("MCP UI bridge tools", () => {
       tool: "explainSql",
       args: { sql: "SELECT * FROM orders" },
       expiresAt: Date.now() + 60_000,
-    })).resolves.toEqual({ textual: "Seq Scan on orders", format: "text" });
+    })).resolves.toEqual({ connectionId: "conn-1", textual: "Seq Scan on orders", format: "text" });
     await expect(bridge.handleRequest({
       id: "2",
       tool: "getTableIndexes",
@@ -166,7 +166,7 @@ describe("MCP UI listener IDs", () => {
 
 describe("MCP SQL approval", () => {
   it("binds approval to the tab and connection and never sends SQL in the approval RPC", async () => {
-    const state: McpUiState = { activeTab: { id: "tab", title: "Query", sql: "SELECT original" }, activeConnection: { id: "connection", label: "Production", dialect: "postgres" }, editor: null };
+    const state: McpUiState = { activeTab: { id: "tab", title: "Query", sql: "SELECT original" }, activeConnection: { id: "connection", label: "Production", dialect: "postgres", mcpAccess: "write" }, editor: null };
     let approve!: (outcome: "approved") => void;
     const approval = vi.fn(() => new Promise<"approved">((resolve) => { approve = resolve; }));
     const bridge = setup(state, approval);
@@ -180,7 +180,7 @@ describe("MCP SQL approval", () => {
       expect(rpc).toHaveBeenCalledWith("mcp.ui.execute", { id: "request", listenerId: "test-listener", connectionId: "connection" });
       rpc.mockClear();
       const stale = bridge.handleRequest({ id: "stale", tool: "executeSql", args: { sql: "SELECT 1" }, expiresAt: Date.now() + 60_000 });
-      state.activeConnection = { id: "another", label: "Another", dialect: "postgres" };
+      state.activeConnection = { id: "another", label: "Another", dialect: "postgres", mcpAccess: "write" };
       approve("approved");
       await expect(stale).rejects.toMatchObject({ code: "stale" });
       expect(rpc).not.toHaveBeenCalled();
@@ -188,7 +188,7 @@ describe("MCP SQL approval", () => {
   });
 
   it("continues serving reads while execution awaits approval", async () => {
-    const state: McpUiState = { activeTab: { id: "tab", title: "Query", sql: "SELECT 1" }, activeConnection: { id: "connection", label: "DB", dialect: "postgres" }, editor: null };
+    const state: McpUiState = { activeTab: { id: "tab", title: "Query", sql: "SELECT 1" }, activeConnection: { id: "connection", label: "DB", dialect: "postgres", mcpAccess: "read" }, editor: null };
     let rejectApproval!: (outcome: "rejected") => void;
     const bridge = setup(state, () => new Promise<"rejected">((resolve) => { rejectApproval = resolve; }));
     let polls = 0;
@@ -209,8 +209,55 @@ describe("MCP SQL approval", () => {
   });
 });
 
+describe("MCP connection access", () => {
+  const request = (id: string, tool: string, args: Record<string, unknown> = {}) => ({ id, tool, args, expiresAt: Date.now() + 60_000 }) as Parameters<McpUiBridge["handleRequest"]>[0];
+
+  it("exposes nothing from a tab whose connection has MCP access off", async () => {
+    const approval = vi.fn(async () => "approved" as const);
+    const bridge = setup({ activeTab: { id: "tab", title: "Secrets", sql: "SELECT * FROM salaries" }, activeConnection: { id: "hr", label: "HR", dialect: "postgres", mcpAccess: "off" }, editor: null }, approval);
+    const rpc = vi.spyOn(backend, "call");
+    try {
+      for (const [tool, args] of [
+        ["getActiveSql", {}], ["getActiveConnectionContext", {}], ["getSchemaSummary", {}], ["getTableIndexes", { schema: "public", table: "salaries" }],
+        ["explainSql", { sql: "SELECT 1" }], ["getLatestSqlExecutionError", {}], ["proposeSqlEdit", { sql: "SELECT 2", rationale: "x" }], ["executeSql", { sql: "SELECT 1" }],
+      ] as const) {
+        await expect(bridge.handleRequest(request(tool, tool, args))).rejects.toMatchObject({ code: "rejected", message: expect.stringContaining("MCP access is disabled") });
+      }
+      expect(approval).not.toHaveBeenCalled();
+      expect(rpc).not.toHaveBeenCalled();
+    } finally { rpc.mockRestore(); }
+  });
+
+  it("read-only access refuses writes before asking for approval and lets reads through", async () => {
+    const approval = vi.fn(async () => "approved" as const);
+    const bridge = setup({ activeTab: { id: "tab", title: "Query", sql: "SELECT 1" }, activeConnection: { id: "ro", label: "Replica", dialect: "postgres", mcpAccess: "read" }, editor: null }, approval);
+    const rpc = vi.spyOn(backend, "call").mockResolvedValue({ rows: [] });
+    try {
+      for (const sql of ["DELETE FROM users", "UPDATE users SET admin = true", "DROP TABLE users", "SELECT 1; DELETE FROM users", "SELECT * FROM users FOR UPDATE"]) {
+        await expect(bridge.handleRequest(request(sql, "executeSql", { sql }))).rejects.toMatchObject({ code: "rejected", message: expect.stringContaining("read-only") });
+      }
+      expect(approval).not.toHaveBeenCalled();
+      expect(rpc).not.toHaveBeenCalled();
+      await bridge.handleRequest(request("read", "executeSql", { sql: "SELECT id FROM users" }));
+      expect(approval).toHaveBeenCalledOnce();
+      expect(rpc).toHaveBeenCalledWith("mcp.ui.execute", { id: "read", listenerId: "test-listener", connectionId: "ro" });
+    } finally { rpc.mockRestore(); }
+  });
+
+  it("read and write access still requires desktop approval for writes", async () => {
+    const approval = vi.fn(async () => "rejected" as const);
+    const bridge = setup({ activeTab: { id: "tab", title: "Query", sql: "SELECT 1" }, activeConnection: { id: "rw", label: "Dev", dialect: "postgres", mcpAccess: "write" }, editor: null }, approval);
+    const rpc = vi.spyOn(backend, "call");
+    try {
+      await expect(bridge.handleRequest(request("write", "executeSql", { sql: "DELETE FROM users" }))).rejects.toMatchObject({ code: "rejected" });
+      expect(approval).toHaveBeenCalledWith(expect.objectContaining({ sql: "DELETE FROM users" }));
+      expect(rpc).not.toHaveBeenCalled();
+    } finally { rpc.mockRestore(); }
+  });
+});
+
 it("reports DuckDB for MongoDB SQL tabs and prevents MCP from executing through the native adapter", async () => {
-  const bridge = setup({ activeTab: { id: "tab", title: "Mongo SQL", sql: "SELECT 1", mongoSqlMode: true }, activeConnection: { id: "mongo", label: "MongoDB", dialect: "mongodb" }, editor: null });
+  const bridge = setup({ activeTab: { id: "tab", title: "Mongo SQL", sql: "SELECT 1", mongoSqlMode: true }, activeConnection: { id: "mongo", label: "MongoDB", dialect: "mongodb", mcpAccess: "read" }, editor: null });
   await expect(bridge.handleRequest({ id: "mode", tool: "getActiveSql", args: {}, expiresAt: Date.now() + 60_000 })).resolves.toEqual({ sql: "SELECT 1", dialect: "duckdb" });
   await expect(bridge.handleRequest({ id: "execute", tool: "executeSql", args: { sql: '{"collection":"items","operation":"deleteMany","filter":{}}' }, expiresAt: Date.now() + 60_000 })).rejects.toThrow("query editor");
 });

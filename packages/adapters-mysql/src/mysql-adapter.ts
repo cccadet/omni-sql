@@ -103,16 +103,22 @@ export class MysqlAdapter extends CachedAdapter implements Adapter {
   }
 
   async runQuery(sql: string, limit: number): Promise<QueryResult> {
-    return runQueryViaPool(this.pool, sql, limit, (connection) => {
-      const activeQuery = {
-        threadId: connection.threadId,
-        token: Symbol(),
-      };
-      this.activeQuery = activeQuery;
-      return () => {
-        if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
-      };
-    });
+    return runQueryViaPool(this.pool, sql, limit, (connection) => this.trackQuery(connection));
+  }
+
+  async runReadOnlyQuery(sql: string, limit: number): Promise<QueryResult> {
+    return runQueryViaPool(this.pool, sql, limit, (connection) => this.trackQuery(connection), true);
+  }
+
+  private trackQuery(connection: PoolConnection): () => void {
+    const activeQuery = {
+      threadId: connection.threadId,
+      token: Symbol(),
+    };
+    this.activeQuery = activeQuery;
+    return () => {
+      if (this.activeQuery?.token === activeQuery.token) this.activeQuery = null;
+    };
   }
 
   async cancelRunning(): Promise<void> {

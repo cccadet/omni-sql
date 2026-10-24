@@ -236,8 +236,8 @@ test("MCP result schemas retain valid nested data and reject unsafe payloads", (
     },
   );
   assert.deepEqual(
-    validateMcpToolResult("explainSql", { textual: "Seq Scan on orders", format: "text" }),
-    { textual: "Seq Scan on orders", format: "text" },
+    validateMcpToolResult("explainSql", { connectionId: "connection-1", textual: "Seq Scan on orders", format: "text" }),
+    { connectionId: "connection-1", textual: "Seq Scan on orders", format: "text" },
   );
   assert.deepEqual(
     validateMcpToolResult("getLatestSqlExecutionError", { error: null }),
@@ -280,7 +280,7 @@ test("MCP result schemas retain valid nested data and reject unsafe payloads", (
     hasCode("invalid"),
   );
   assert.throws(
-    () => validateMcpToolResult("explainSql", { textual: "plan", format: "yaml" }),
+    () => validateMcpToolResult("explainSql", { connectionId: "connection-1", textual: "plan", format: "yaml" }),
     hasCode("invalid"),
   );
 

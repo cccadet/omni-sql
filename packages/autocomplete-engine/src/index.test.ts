@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mysqlDescriptor, oracleDescriptor, postgresDescriptor, sqlserverDescriptor } from "@omni-sql/dialect-descriptors";
 import type { DialectDescriptor } from "@omni-sql/dialect-descriptors";
 import { autocompleteTier1, type MetadataSource } from "./engine.ts";
-import { analyzeExecutionRisk } from "./execution-risk.ts";
+import { analyzeExecutionRisk, analyzeReadOnlySql } from "./execution-risk.ts";
 import { findStatement, resolveContext, type ScopeRef } from "./context.ts";
 import type { FunctionDef, Relation } from "@omni-sql/ts-types";
 
@@ -743,6 +743,77 @@ test("caso 8: EXISTS sugere a tabela interna e aliases da consulta externa", () 
   assert.ok(autocompleteTier1(sql, cursor, meta).some((item) => item.label === "user_id"));
   const outerCursor = sql.indexOf("g.id =") + "g.".length;
   assert.ok(autocompleteTier1(sql, outerCursor, meta).some((item) => item.label === "email"));
+});
+
+test("read-only SQL accepts single read statements across dialects", () => {
+  const accepted: Array<[string, Parameters<typeof analyzeReadOnlySql>[1]]> = [
+    ["SELECT id, email FROM users WHERE id = 1", "postgres"],
+    ["  -- recent orders\n  SELECT * FROM orders ORDER BY created_at DESC;", "postgres"],
+    ["WITH totals AS (SELECT user_id, sum(total) AS s FROM orders GROUP BY 1) SELECT * FROM totals", "postgres"],
+    ["(SELECT 1) UNION ALL (SELECT 2)", "postgres"],
+    ["VALUES (1), (2)", "postgres"],
+    ["EXPLAIN SELECT * FROM users", "postgres"],
+    ["SHOW TABLES", "mysql"],
+    ["DESCRIBE users", "mysql"],
+    ["SELECT TOP 10 * FROM dbo.users WITH (NOLOCK)", "sqlserver"],
+    ["SELECT * FROM users FETCH FIRST 5 ROWS ONLY", "oracle"],
+    // Strings, comments, quoted identifiers and qualified names are data, not commands.
+    ["SELECT 'DELETE FROM users' AS note -- DROP TABLE users", "postgres"],
+    ["SELECT \"update\", t.comment, t.set FROM audit t", "postgres"],
+    ["SELECT `delete` FROM audit", "mysql"],
+    ["SELECT [insert] FROM audit", "sqlserver"],
+    ["SELECT replace(name, 'a', 'b'), CAST(x AS CHAR CHARACTER SET utf8mb4) FROM users", "mysql"],
+    ["SELECT $$DELETE FROM users$$", "postgres"],
+    ['{"collection":"events","operation":"find","filter":{"status":"failed"}}', "mongodb"],
+    ['{"collection":"events","operation":"aggregate","pipeline":[{"$group":{"_id":"$status"}}]}', "mongodb"],
+  ];
+  for (const [sql, dialect] of accepted) assert.deepEqual(analyzeReadOnlySql(sql, dialect), { readOnly: true }, sql);
+});
+
+test("read-only SQL rejects writes, locks, session changes and statement smuggling", () => {
+  const rejected: Array<[string, Parameters<typeof analyzeReadOnlySql>[1], RegExp]> = [
+    ["", "postgres", /empty/],
+    ["-- only a comment", "postgres", /empty/],
+    ["INSERT INTO users VALUES (1)", "postgres", /INSERT/],
+    ["UPDATE users SET admin = true", "postgres", /UPDATE/],
+    ["DELETE FROM users", "postgres", /DELETE/],
+    ["MERGE INTO users u USING src s ON (u.id = s.id) WHEN MATCHED THEN DELETE", "oracle", /MERGE/],
+    ["TRUNCATE users", "postgres", /TRUNCATE/],
+    ["DROP TABLE users", "postgres", /DROP/],
+    ["CREATE TABLE copy AS SELECT * FROM users", "postgres", /CREATE/],
+    ["GRANT SELECT ON users TO public", "postgres", /GRANT/],
+    ["SELECT 1; DELETE FROM users", "postgres", /single statement/],
+    ["SELECT 1; COMMIT", "postgres", /single statement/],
+    ["SELECT 1\nGO\nDROP TABLE users", "sqlserver", /single statement/],
+    ["WITH gone AS (DELETE FROM users RETURNING *) SELECT * FROM gone", "postgres", /DELETE/],
+    ["WITH x AS (SELECT 1) UPDATE users SET admin = true", "sqlserver", /UPDATE/],
+    ["SELECT * INTO backup_users FROM users", "sqlserver", /INTO/],
+    ["SELECT * FROM users INTO OUTFILE '/tmp/users.csv'", "mysql", /INTO/],
+    ["SELECT * FROM users FOR UPDATE", "postgres", /locking/],
+    ["SELECT * FROM users FOR SHARE", "postgres", /locking/],
+    ["SELECT * FROM users FOR NO KEY UPDATE", "postgres", /locking/],
+    ["SELECT * FROM users LOCK IN SHARE MODE", "mysql", /LOCK/],
+    ["SELECT * FROM users WITH (UPDLOCK)", "sqlserver", /UPDLOCK/],
+    ["EXPLAIN ANALYZE DELETE FROM users", "postgres", /ANALYZE|DELETE/],
+    ["EXPLAIN (ANALYZE) SELECT * FROM users", "postgres", /ANALYZE/],
+    ["EXPLAIN PLAN FOR SELECT * FROM users", "oracle", /plan table/],
+    ["CALL refresh_totals()", "postgres", /CALL/],
+    ["EXEC sp_who", "sqlserver", /EXEC/],
+    ["SELECT 1 FROM users WHERE 1 = 1 AND EXEC('DROP TABLE users') = 0", "sqlserver", /EXEC/],
+    ["SET search_path TO evil", "postgres", /SET/],
+    ["BEGIN", "postgres", /BEGIN/],
+    ["DO $$ BEGIN DELETE FROM users; END $$", "postgres", /DO/],
+    ["COPY users TO '/tmp/users.csv'", "postgres", /COPY/],
+    ['{"collection":"events","operation":"deleteMany","filter":{}}', "mongodb", /find and aggregate/],
+    ['{"collection":"events","operation":"updateOne","filter":{},"update":{"$set":{"a":1}}}', "mongodb", /find and aggregate/],
+    ['{"collection":"events","operation":"aggregate","pipeline":[{"$merge":"copy"}]}', "mongodb", /\$merge/],
+    ["db.events.find()", "mongodb", /Extended JSON/],
+  ];
+  for (const [sql, dialect, reason] of rejected) {
+    const analysis = analyzeReadOnlySql(sql, dialect);
+    assert.equal(analysis.readOnly, false, sql);
+    assert.match((analysis as { reason: string }).reason, reason, sql);
+  }
 });
 
 test("execution risk detects destructive statements without matching comments or strings", () => {

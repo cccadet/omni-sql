@@ -633,4 +633,9 @@ export const simplifiedChinese = {
   densityLabel: "密度",
   densityComfortable: "舒适",
   densityCompact: "紧凑",
+  connectionMcpAccess: "MCP 访问",
+  mcpAccessOff: "关闭",
+  mcpAccessRead: "只读",
+  mcpAccessWrite: "读写",
+  mcpAccessHint: "控制通过 MCP 连接的 AI 代理可以对此连接执行的操作。只读仅允许读取架构和执行 SELECT 查询；写入仍需在桌面端批准。",
 } satisfies Record<TranslationKey, string>;

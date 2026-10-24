@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  McpAccess,
   McpBridgeRequest,
   McpBridgeResponse,
   McpErrorCode,
@@ -108,7 +109,11 @@ export interface McpBridgeOptions {
   listenerTtlMs?: number;
   maxUiWaitMs?: number;
   idFactory?: () => string;
+  /** Results bound to a connection whose access is `off` never reach the MCP client. */
+  connectionAccess?: (connectionId: string) => McpAccess;
 }
+
+export const MCP_ACCESS_DISABLED_MESSAGE = "MCP access is disabled for this connection; enable it in the connection settings";
 
 export function isMcpToolName(value: unknown): value is McpToolName {
   return typeof value === "string" && MCP_TOOL_NAMES.includes(value as McpToolName);
@@ -311,12 +316,13 @@ function validateTableIndexesResult(value: unknown): McpToolResultByName["getTab
 }
 
 function validateExplainSqlResult(value: unknown): McpToolResultByName["explainSql"] {
-  const result = resultObject(value, ["textual", "format"], ["textual", "format"], "explainSql result");
+  const result = resultObject(value, ["connectionId", "textual", "format"], ["connectionId", "textual", "format"], "explainSql result");
   const format = resultString(result.format, "explainSql.format");
   if (format !== "text" && format !== "json" && format !== "xml" && format !== "dot") {
     throw new McpBridgeError("invalid", "explainSql.format is invalid");
   }
   return {
+    connectionId: resultString(result.connectionId, "connectionId", MCP_MAX_CONNECTION_ID_BYTES),
     textual: resultString(result.textual, "explainSql.textual", MCP_MAX_STRING_BYTES, true),
     format,
   };
@@ -442,6 +448,7 @@ export class McpBridge {
   private readonly listenerTtlMs: number;
   private readonly maxUiWaitMs: number;
   private readonly idFactory: () => string;
+  private readonly connectionAccess: ((connectionId: string) => McpAccess) | undefined;
   private readonly queue: PendingRequest[] = [];
   private readonly pending = new Map<string, PendingRequest>();
   private readonly historyEntries: MutableHistoryEntry[] = [];
@@ -464,6 +471,7 @@ export class McpBridge {
       ? Math.min(options.maxUiWaitMs!, MCP_MAX_UI_WAIT_MS)
       : MCP_MAX_UI_WAIT_MS;
     this.idFactory = options.idFactory ?? randomUUID;
+    this.connectionAccess = options.connectionAccess;
   }
 
   async next(params: McpUiNextParams | undefined, signal?: AbortSignal): Promise<McpUiNextResult> {
@@ -588,6 +596,12 @@ export class McpBridge {
     if (response.ok) {
       try {
         const result = validateMcpToolResult(pending.request.tool, response.result);
+        const connectionId = (result as { connectionId?: unknown }).connectionId;
+        if (typeof connectionId === "string" && this.connectionAccess?.(connectionId) === "off") {
+          pending.reject(new McpBridgeError("rejected", MCP_ACCESS_DISABLED_MESSAGE));
+          this.settleHistory(response.id, { status: "error", code: "rejected", message: MCP_ACCESS_DISABLED_MESSAGE });
+          return { accepted: true };
+        }
         pending.resolve(result);
         this.settleHistory(response.id, { status: "completed" });
       } catch (error) {

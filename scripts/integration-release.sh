@@ -63,7 +63,7 @@ curl --silent --fail --header 'Authorization: Bearer integration-auth-token' "$O
   node ../../scripts/check-integration-tap.mjs "$artifact_dir/rpc.tap" 6
   node --test --test-reporter=tap ../../packages/backend/test/mongo.integration.test.ts | tee "$artifact_dir/mongo.tap"
   node ../../scripts/check-integration-tap.mjs "$artifact_dir/mongo.tap"
-  node --test --test-reporter=tap ../../packages/backend/test/security-postgres.integration.test.ts ../../packages/backend/test/security-row-update.integration.test.ts | tee "$artifact_dir/security.tap"
+  node --test --test-reporter=tap ../../packages/backend/test/security-postgres.integration.test.ts ../../packages/backend/test/security-row-update.integration.test.ts ../../packages/backend/test/security-mcp-readonly.integration.test.ts | tee "$artifact_dir/security.tap"
   node ../../scripts/check-integration-tap.mjs "$artifact_dir/security.tap"
   sh ./test-mongo-sql.sh | tee "$artifact_dir/mongo-sql.log"
   node ../../scripts/check-integration-tap.mjs "$artifact_dir/mongo-sql.log" --mongo-sql

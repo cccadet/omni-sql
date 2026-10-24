@@ -606,12 +606,52 @@ export async function runQueryViaPool(
   }
 }
 
+/**
+ * Runs one statement inside `BEGIN READ ONLY` and always rolls back. The
+ * extended protocol rejects extra statements, so `COMMIT; DELETE ...` cannot
+ * escape the read-only transaction.
+ */
+export async function runReadOnlyQueryViaPool(
+  pool: Pool,
+  sql: string,
+  limit: number,
+  onQuery?: (client: PoolClient, query: PgQuery) => (() => void) | undefined,
+): Promise<QueryResult> {
+  const t0 = Date.now();
+  const client = await pool.connect();
+  let discard = false;
+  try {
+    await client.query("BEGIN READ ONLY");
+    const res = await queryViaClient(client, { text: applyServerRowCap(sql, limit), queryMode: "extended" }, onQuery);
+    const cols: QueryResultColumn[] = (res.fields ?? []).map((f) => ({
+      name: f.name,
+      dataType: mapPgOidToDataType(f.dataTypeID),
+      nullable: true,
+    }));
+    const rows = res.rows.map((r) => cols.map((c) => (r as Record<string, unknown>)[c.name] ?? null));
+    return {
+      columns: cols,
+      rows: rows.slice(0, limit),
+      rowsMoreAvailable: rows.length > limit,
+      elapsedMs: Date.now() - t0,
+    };
+  } finally {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      discard = true;
+    }
+    client.release(discard);
+  }
+}
+
 function queryViaClient(
   client: PoolClient,
-  sql: string,
+  sql: string | { text: string; queryMode: "extended" },
   onQuery?: (client: PoolClient, query: PgQuery) => (() => void) | undefined,
 ): Promise<PgQueryResult> {
-  const query = new pg.Query(sql);
+  // queryMode is supported by pg at runtime but missing from QueryConfig typings.
+  const query = new pg.Query(sql as string);
   // Register active query before submit: cancellation cannot interleave with
   // this synchronous submission, and query object remains available to pg.cancel.
   const cleanup = onQuery?.(client, query);

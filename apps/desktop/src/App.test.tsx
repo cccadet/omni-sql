@@ -748,6 +748,11 @@ describe("App update event listener", () => {
 
 it("MCP execution shows connection and SQL and requires approval before the execution RPC", async () => {
   seedSession("SELECT original", 1000, "conn-1");
+  // Writes reach the approval dialog only on connections with read and write MCP access.
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "conn-1", label: "Local Postgres", dialect: "postgres", endpoint: "localhost", user: "user", options: { mcpAccess: "write" } }] })
+    : defaultCall(method, params, signal));
   const bridges: McpUiBridge[] = [];
   const start = vi.spyOn(McpUiBridge.prototype, "start").mockImplementation(function (this: McpUiBridge) { bridges.push(this); });
   try {
