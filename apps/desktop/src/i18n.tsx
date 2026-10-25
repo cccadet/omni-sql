@@ -643,6 +643,9 @@ const english = {
   mcpAccessRead: "Read-only",
   mcpAccessWrite: "Read and write",
   mcpAccessHint: "Controls what AI agents connected through MCP can do with this connection. Read-only allows schema reads and SELECT queries only; writes still require approval in the desktop.",
+  discardConnectionDraftTitle: "Discard unsaved changes?",
+  discardConnectionDraftBody: "The connection details you entered have not been saved and will be lost.",
+  keepEditing: "Keep editing",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -848,6 +851,9 @@ const portugueseBrazil = [
   "Somente leitura",
   "Leitura e escrita",
   "Define o que agentes de IA conectados via MCP podem fazer com esta conexão. Somente leitura permite apenas ler o schema e executar SELECT; escritas continuam exigindo aprovação no desktop.",
+  "Descartar alterações não salvas?",
+  "Os dados de conexão informados ainda não foram salvos e serão perdidos.",
+  "Continuar editando",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
