@@ -149,6 +149,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [selectedSchemas, setSelectedSchemas] = useState<Set<string>>(new Set());
   const [schemaSearch, setSchemaSearch] = useState("");
   const [schemasOpen, setSchemasOpen] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -204,6 +206,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setSelectedSchemas(new Set(editing?.schemas ?? []));
     setSchemaSearch("");
     setSchemasOpen((editing?.schemas?.length ?? 0) > 0);
+    setDirty(false);
+    setConfirmDiscard(false);
   }, [open, editing, duplicating]);
 
   useEffect(() => {
@@ -343,6 +347,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     const isDefaultPort = port === "" || ALL_MODES.some((m) => port === DEFAULT_PORTS[m]);
     const isDefaultDatabase = database === "" || ALL_MODES.some((m) => database === DEFAULT_DATABASES[m]);
     const isDefaultUser = user === "" || ALL_MODES.some((m) => user === DEFAULT_USERS[m]);
+    if (next !== mode) setDirty(true);
     setMode(next);
     if (next === "demo" || next === "jdbc-generic" || next === "odbc" || next === "s3") return;
     if (isDefaultPort) setPort(DEFAULT_PORTS[next]);
@@ -352,7 +357,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
   const pickJar = async () => {
     const picked = await pickJarPath();
-    if (picked) setJarPath(picked);
+    if (picked) { setJarPath(picked); setDirty(true); }
   };
 
   const toggleSchema = (name: string) => {
@@ -396,12 +401,19 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   }, [availableSchemas, selectedSchemas]);
   const normalizedSchemaSearch = schemaSearch.trim().toLocaleLowerCase();
   const visibleSchemas = schemaNames.filter((name) => name.toLocaleLowerCase().includes(normalizedSchemaSearch));
-  const selectSchemas = (names: readonly string[]) => setSelectedSchemas((current) => new Set([...current, ...names]));
+  const selectSchemas = (names: readonly string[]) => { setSelectedSchemas((current) => new Set([...current, ...names])); setDirty(true); };
+
+  // Outside clicks and Escape must not silently drop what was typed; Cancel stays an explicit discard.
+  const requestDismiss = () => {
+    if (busy) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
 
   return (
-    <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
+    <Dialog open={open} onOpenChange={(_, data) => { if (!data.open) requestDismiss(); }}>
       <DialogSurface className="omni-standard-dialog omni-connection-dialog">
-        <form className="omni-dialog-form" onSubmit={onSave} onChange={() => { setTestResult(null); setError(null); }}>
+        <form className="omni-dialog-form" onSubmit={onSave} onChange={() => { setTestResult(null); setError(null); setDirty(true); }}>
           <DialogTitle>{duplicating ? t("duplicateConnection") : editing ? t("editConnection") : t("newConnection")}</DialogTitle>
           <DialogBody className="omni-dialog-body">
             <div className="omni-dialog-step">{t("connectionStepType")}</div>
@@ -431,7 +443,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 <span id="omni-connection-environment-label" className="omni-connection-environment-label">{t("connectionEnvironment")}</span>
                 <div role="radiogroup" aria-labelledby="omni-connection-environment-label" className="omni-segmented omni-environment-segmented">
                   {ENVIRONMENTS.map(({ value, label: key }) => (
-                    <button key={value || "unset"} type="button" role="radio" aria-checked={environment === value} disabled={busy} data-environment={value || undefined} onClick={() => { setEnvironment(value); setTestResult(null); setError(null); }}>
+                    <button key={value || "unset"} type="button" role="radio" aria-checked={environment === value} disabled={busy} data-environment={value || undefined} onClick={() => { setEnvironment(value); setTestResult(null); setError(null); setDirty(true); }}>
                       {value && <span aria-hidden className="omni-environment-dot" />}{t(key)}
                     </button>
                   ))}
@@ -443,7 +455,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               <span id="omni-connection-mcp-label" className="omni-connection-environment-label">{t("connectionMcpAccess")}</span>
               <div role="radiogroup" aria-labelledby="omni-connection-mcp-label" className="omni-segmented" style={{ justifySelf: "start" }}>
                 {MCP_ACCESS_OPTIONS.map(({ value, label: key }) => (
-                  <button key={value} type="button" role="radio" aria-checked={mcpAccess === value} disabled={busy} onClick={() => { setMcpAccess(value); setTestResult(null); setError(null); }}>
+                  <button key={value} type="button" role="radio" aria-checked={mcpAccess === value} disabled={busy} onClick={() => { setMcpAccess(value); setTestResult(null); setError(null); setDirty(true); }}>
                     {t(key)}
                   </button>
                 ))}
@@ -545,9 +557,9 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                     </Label> : <Label>{t("ducklakeFilePath").replace("{kind}", mapping.kind === "sqlite" ? "SQLite" : "DuckDB")}
                       <Input value={mapping.path ?? ""} onChange={(_, data) => setDucklakeMappings((items) => items.map((item, i) => i === index ? { ...item, path: data.value } : item))} placeholder={t(mapping.kind === "sqlite" ? "ducklakeSqlitePathPlaceholder" : "ducklakeDuckdbPathPlaceholder")} disabled={busy} />
                     </Label>}
-                    <Button size="small" appearance="subtle" onClick={() => setDucklakeMappings((items) => items.filter((_, i) => i !== index))} disabled={busy}>{t("ducklakeRemoveCatalog")}</Button>
+                    <Button size="small" appearance="subtle" onClick={() => { setDucklakeMappings((items) => items.filter((_, i) => i !== index)); setDirty(true); }} disabled={busy}>{t("ducklakeRemoveCatalog")}</Button>
                   </div>)}
-                  <Button size="small" appearance="secondary" disabled={busy} onClick={() => setDucklakeMappings((items) => [...items, { prefix: bucketUris(s3BucketList)[0] ?? "", kind: "postgres" }])}>{t("ducklakeAddCatalog")}</Button>
+                  <Button size="small" appearance="secondary" disabled={busy} onClick={() => { setDucklakeMappings((items) => [...items, { prefix: bucketUris(s3BucketList)[0] ?? "", kind: "postgres" }]); setDirty(true); }}>{t("ducklakeAddCatalog")}</Button>
                 </div>
               </>
             )}
@@ -611,7 +623,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                           {t("selectAll")}
                         </Button>
                         {normalizedSchemaSearch && <Button type="button" appearance="subtle" size="small" onClick={() => selectSchemas(visibleSchemas)}>{t("selectVisible")}</Button>}
-                        <Button type="button" appearance="subtle" size="small" onClick={() => setSelectedSchemas(new Set())}>
+                        <Button type="button" appearance="subtle" size="small" onClick={() => { setSelectedSchemas(new Set()); setDirty(true); }}>
                           {t("useAllSchemas")}
                         </Button>
                       </div>
@@ -655,6 +667,18 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
           </DialogActions>
         </form>
       </DialogSurface>
+      <Dialog open={confirmDiscard} modalType="alert" onOpenChange={(_, data) => { if (!data.open) setConfirmDiscard(false); }}>
+        <DialogSurface className="omni-standard-dialog">
+          <DialogBody className="omni-dialog-body">
+            <DialogTitle>{t("discardConnectionDraftTitle")}</DialogTitle>
+            <Text>{t("discardConnectionDraftBody")}</Text>
+          </DialogBody>
+          <DialogActions className="omni-dialog-actions">
+            <Button appearance="subtle" onClick={() => { setConfirmDiscard(false); onClose(); }}>{t("discard")}</Button>
+            <Button appearance="primary" onClick={() => setConfirmDiscard(false)}>{t("keepEditing")}</Button>
+          </DialogActions>
+        </DialogSurface>
+      </Dialog>
     </Dialog>
   );
 }

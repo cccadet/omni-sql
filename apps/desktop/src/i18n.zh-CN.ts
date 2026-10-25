@@ -638,4 +638,7 @@ export const simplifiedChinese = {
   mcpAccessRead: "只读",
   mcpAccessWrite: "读写",
   mcpAccessHint: "控制通过 MCP 连接的 AI 代理可以对此连接执行的操作。只读仅允许读取架构和执行 SELECT 查询；写入仍需在桌面端批准。",
+  discardConnectionDraftTitle: "放弃未保存的更改？",
+  discardConnectionDraftBody: "您输入的连接信息尚未保存，将会丢失。",
+  keepEditing: "继续编辑",
 } satisfies Record<TranslationKey, string>;

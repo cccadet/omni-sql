@@ -357,3 +357,30 @@ test("saves a MongoDB URI and permits local anonymous connections", async () => 
   assert.equal(params.config.user, "");
   assert.equal(params.password, "");
 });
+
+test("asks before an outside click or Escape discards typed connection details", async () => {
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+  const backdrop = () => document.querySelector(".fui-DialogSurface__backdrop")!;
+  const dismiss = (how: "escape" | "backdrop") => how === "escape"
+    ? fireEvent.keyDown(document.querySelector(".omni-connection-dialog")!, { key: "Escape" })
+    : fireEvent.click(backdrop());
+  fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Warehouse" } });
+  for (const how of ["backdrop", "escape"] as const) {
+    dismiss(how);
+    await screen.findByRole("alertdialog", { name: "Discard unsaved changes?" });
+    fireEvent.click(await screen.findByRole("button", { name: "Keep editing" }));
+    await waitFor(() => assert.equal(screen.queryByRole("alertdialog"), null));
+    assert.equal(close.mock.calls.length, 0);
+    assert.equal((screen.getByPlaceholderText("My connection") as HTMLInputElement).value, "Warehouse");
+  }
+  dismiss("backdrop");
+  fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+  assert.equal(close.mock.calls.length, 1);
+});
+
+test("closes an untouched connection dialog without asking", () => {
+  renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
+  fireEvent.keyDown(screen.getByRole("dialog", { name: "New connection" }), { key: "Escape" });
+  assert.equal(close.mock.calls.length, 1);
+  assert.equal(screen.queryByRole("alertdialog"), null);
+});
