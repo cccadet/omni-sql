@@ -21,6 +21,11 @@ export async function exportCsvFile(contents: string): Promise<string | null> {
   return invoke<string | null>("write_csv_file", { contents });
 }
 
+/** Saves an omni-sql connection export through the native dialog; null when cancelled. */
+export async function exportConnectionsFile(contents: string): Promise<string | null> {
+  return invoke<string | null>("write_connections_file", { contents });
+}
+
 export async function openExportedFile(path: string): Promise<void> {
   await invoke("open_csv_file", { path });
 }

@@ -115,6 +115,9 @@ export interface ManageConnectionsDialogProps {
   groups: readonly ConnectionGroup[];
   usage: ConnectionUsage;
   onAdd: () => void;
+  onImport: () => void;
+  /** Resolves to the saved file path, or null when the save dialog was cancelled. */
+  onExport: (ids: string[]) => Promise<string | null>;
   onEdit: (id: string) => void;
   onDuplicate: (id: string) => void;
   onRemove: (ids: string[]) => Promise<void> | void;
@@ -131,6 +134,8 @@ export function ManageConnectionsDialog({
   groups,
   usage,
   onAdd,
+  onImport,
+  onExport,
   onEdit,
   onDuplicate,
   onRemove,
@@ -148,6 +153,7 @@ export function ManageConnectionsDialog({
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor));
 
   const groupIds = useMemo(() => new Set(groups.map((group) => group.id)), [groups]);
@@ -158,6 +164,7 @@ export function ManageConnectionsDialog({
     setSelected(new Set());
     setFilter("");
     setError(null);
+    setNotice(null);
   }, [open]);
 
   useEffect(() => {
@@ -181,6 +188,7 @@ export function ManageConnectionsDialog({
 
   const run = async (action: () => Promise<void> | void) => {
     setError(null);
+    setNotice(null);
     try {
       await action();
     } catch (failure) {
@@ -329,11 +337,20 @@ export function ManageConnectionsDialog({
                         </MenuList>
                       </MenuPopover>
                     </Menu>
+                    <Button size="small" onClick={() => {
+                      const ids = selectedRows.map((connection) => connection.id);
+                      void run(async () => {
+                        const path = await onExport(ids);
+                        if (path) setNotice(t("exportedConnections").replace("{count}", String(ids.length)).replace("{path}", path));
+                      });
+                    }}>{t("exportConnections")}</Button>
                     <Button size="small" className="omni-button-danger" onClick={() => void run(() => onRemove(selectedRows.map((connection) => connection.id)))}>{t("remove")}</Button>
                   </>}
+                  <Button size="small" onClick={() => leaveFor(onImport)}>{t("importConnections")}</Button>
                   <Button appearance="primary" size="small" icon={<AddRegular />} onClick={() => leaveFor(onAdd)}>{t("newConnection")}</Button>
                 </div>
                 {error && <div className="omni-mcp-error" role="alert">{error}</div>}
+                {notice && <div className="omni-manage-notice" role="status">{notice}</div>}
                 <div className="omni-manage-table-wrap">
                   {rows.length === 0 ? (
                     <div className="omni-empty-state">{needle ? t("noConnectionsMatch") : t("folderEmpty")}</div>

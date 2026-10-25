@@ -1207,16 +1207,19 @@ fn write_text_file<R: tauri::Runtime>(
     std::fs::write(selected_path, contents).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn write_csv_file<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
+/// Writes `contents` to a path chosen in the native save dialog; `None` when cancelled.
+fn save_with_dialog<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    filter: &str,
+    extension: &str,
+    file_name: &str,
     contents: String,
 ) -> Result<Option<String>, String> {
     let Some(selected) = app
         .dialog()
         .file()
-        .add_filter("CSV files", &["csv"])
-        .set_file_name("resultados.csv")
+        .add_filter(filter, &[extension])
+        .set_file_name(file_name)
         .blocking_save_file()
     else {
         return Ok(None);
@@ -1226,6 +1229,28 @@ fn write_csv_file<R: tauri::Runtime>(
         .map_err(|err| format!("selected file is unavailable: {err}"))?;
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+fn write_csv_file<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    contents: String,
+) -> Result<Option<String>, String> {
+    save_with_dialog(&app, "CSV files", "csv", "resultados.csv", contents)
+}
+
+#[tauri::command]
+fn write_connections_file<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    contents: String,
+) -> Result<Option<String>, String> {
+    save_with_dialog(
+        &app,
+        "omni-sql connections",
+        "json",
+        "omni-sql-connections.json",
+        contents,
+    )
 }
 
 fn validated_csv_path(path: String) -> Result<PathBuf, String> {
@@ -1737,6 +1762,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             write_text_file,
             write_csv_file,
+            write_connections_file,
             open_csv_file,
             reveal_csv_file,
             read_text_file,
