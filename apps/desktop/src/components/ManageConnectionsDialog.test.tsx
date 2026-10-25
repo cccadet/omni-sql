@@ -20,6 +20,8 @@ function renderDialog(overrides: Partial<ManageConnectionsDialogProps> = {}) {
     groups,
     usage: { laudos: Date.now() - 2 * 3_600_000 },
     onAdd: vi.fn(),
+    onImport: vi.fn(),
+    onExport: vi.fn().mockResolvedValue(null),
     onEdit: vi.fn(),
     onDuplicate: vi.fn(),
     onRemove: vi.fn(),
@@ -71,6 +73,20 @@ test("moves and removes the selected connections together", async () => {
 
   fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(props.onRemove).toHaveBeenCalledWith(["laudos", "billing"]));
+});
+
+test("exports the selected connections and reports where the file was saved", async () => {
+  const onExport = vi.fn().mockResolvedValueOnce("C:/backup/omni-sql-connections.json").mockResolvedValueOnce(null);
+  const { dialog } = renderDialog({ onExport });
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Select Orders" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Export" }));
+  await within(dialog).findByText("Exported 1 connections to C:/backup/omni-sql-connections.json (without passwords).");
+  expect(onExport).toHaveBeenCalledWith(["orders"]);
+
+  // Cancelling the save dialog clears the previous notice without reporting anything.
+  fireEvent.click(within(dialog).getByRole("button", { name: "Export" }));
+  await waitFor(() => expect(onExport).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(within(dialog).queryByText(/^Exported/)).toBeNull());
 });
 
 test("creates, renames and deletes folders", async () => {

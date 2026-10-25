@@ -17,6 +17,8 @@ import { DuckDbIcon } from "./components/DuckDbIcon";
 import { DIALECT_LABELS } from "./lib/dialect-labels";
 import { ConnectionSwitcher } from "./components/ConnectionSwitcher";
 import { ManageConnectionsDialog } from "./components/ManageConnectionsDialog";
+import { ConnectionImportDialog } from "./components/ConnectionImportDialog";
+import { buildConnectionExport } from "./lib/connection-import";
 import { loadConnectionUsage, recordConnectionUse } from "./lib/recent-connections";
 import { usesCustomTitleBar, WindowControls } from "./components/WindowControls";
 import { Editor, type EditorHandle } from "./components/Editor";
@@ -36,7 +38,7 @@ import { splitStatements } from "./lib/sql-statements";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, connectionMcpAccess, type DialectId, type FunctionDef, type McpToolResultByName, type McpToolArgsByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
-import { basenameNoExt, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
+import { basenameNoExt, exportConnectionsFile, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage } from "./i18n";
 import { useCsvOptions } from "./components/CsvOptionsDialog";
 import { McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
@@ -224,6 +226,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   const [connectionGroups, setConnectionGroups] = useState<ConnectionGroup[]>([]);
   const [connectionUsage, setConnectionUsage] = useState(loadConnectionUsage);
   const [manageConnectionsOpen, setManageConnectionsOpen] = useState(false);
+  const [connectionImportOpen, setConnectionImportOpen] = useState(false);
   const editorRef = useRef<EditorHandle | null>(null);
   const [resultsPercent, setResultsPercent] = useState(60);
   const resultsDrag = useRef<{ y: number; height: number; total: number } | null>(null);
@@ -2043,6 +2046,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         groups={connectionGroups}
         usage={connectionUsage}
         onAdd={onAddConnection}
+        onImport={() => setConnectionImportOpen(true)}
+        onExport={(ids) => exportConnectionsFile(buildConnectionExport(connections.filter((connection) => ids.includes(connection.id)), connectionGroups))}
         onEdit={onEditConnection}
         onDuplicate={onDuplicateConnection}
         onRemove={onRemoveConnections}
@@ -2050,6 +2055,13 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         onCreateGroup={onCreateConnectionGroup}
         onRenameGroup={onRenameConnectionGroup}
         onDeleteGroup={onDeleteConnectionGroup}
+      />
+      <ConnectionImportDialog
+        open={connectionImportOpen}
+        connections={connections}
+        groups={connectionGroups}
+        onClose={() => setConnectionImportOpen(false)}
+        onImported={async () => { await loadConnectionGroups(); await loadConnections(); }}
       />
       <McpEditDialog proposal={mcpProposal} onApply={applyMcpProposal} onReject={() => resolveMcpProposal("rejected")} />
       {csvOptionsDialog}
