@@ -2,7 +2,7 @@
 import { expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { basenameNoExt, exportCsvFile, openExportedFile, pickJarPath, pickOpenPath, pickSavePath, readSqlFile, revealExportedFile, writeSqlFile } from "./file-io";
+import { basenameNoExt, exportConnectionsFile, exportCsvFile, openExportedFile, pickJarPath, pickOpenPath, pickSavePath, readSqlFile, revealExportedFile, writeSqlFile } from "./file-io";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -42,6 +42,13 @@ it("uses the native CSV export command", async () => {
 
   await expect(exportCsvFile("id,name\n1,Ada")).resolves.toBe("/tmp/results.csv");
   expect(invoke).toHaveBeenCalledWith("write_csv_file", { contents: "id,name\n1,Ada" });
+});
+
+it("uses the native connection export command", async () => {
+  vi.mocked(invoke).mockResolvedValueOnce(null);
+
+  await expect(exportConnectionsFile("{}")).resolves.toBeNull();
+  expect(invoke).toHaveBeenCalledWith("write_connections_file", { contents: "{}" });
 });
 
 it("opens an exported CSV with the system application", async () => {
