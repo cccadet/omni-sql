@@ -14,6 +14,8 @@ import { MCP_MAX_ERROR_MESSAGE_BYTES } from "@omni-sql/ts-types";
 
 const editorMockState = vi.hoisted(() => ({
   selection: null as { sql: string; start: number } | null,
+  /** Text the mock cursor sits on when previewing a CTE. */
+  previewCte: "",
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn() }));
@@ -48,9 +50,10 @@ vi.mock("./components/Editor", async () => {
     value: string;
     onRun?: () => void;
     onRunAll?: () => void;
+    onPreviewCte?: (statement: string, offset: number) => void;
     onAutocomplete?: (cursor: number, sql: string) => Promise<{ label: string }[]>;
     diagnostics?: readonly { message: string }[];
-  }>(({ value, onRun, onRunAll, onAutocomplete, diagnostics }, ref) => {
+  }>(({ value, onRun, onRunAll, onPreviewCte, onAutocomplete, diagnostics }, ref) => {
     useImperativeHandle(ref, () => ({
       insertAtCursor: () => undefined,
       getRunTarget: () => ({ selectionText: null, cursorOffset: value.length, currentStatement: null }),
@@ -67,6 +70,7 @@ vi.mock("./components/Editor", async () => {
       createElement("textarea", { "aria-label": "SQL editor", readOnly: true, value }),
       createElement("button", { type: "button", "aria-label": "Editor run current", onClick: onRun }, "Editor run current"),
       createElement("button", { type: "button", "aria-label": "Editor run all", onClick: onRunAll }, "Editor run all"),
+      createElement("button", { type: "button", "aria-label": "Editor preview CTE", onClick: () => onPreviewCte?.(value, value.indexOf(editorMockState.previewCte)) }, "Editor preview CTE"),
       createElement("button", { type: "button", "aria-label": "Editor autocomplete", onClick: async (event: { currentTarget: HTMLButtonElement }) => {
         const button = event.currentTarget;
         const suggestions = await onAutocomplete?.(value.length, value);
@@ -126,6 +130,7 @@ beforeEach(() => {
   rejectBlockedQueryRun = null;
   updateCheckResult = { available: false };
   editorMockState.selection = null;
+  editorMockState.previewCte = "";
   vi.mocked(getVersion).mockResolvedValue("0.1.0");
   vi.mocked(listen).mockResolvedValue(() => undefined);
   vi.mocked(invoke).mockResolvedValue(undefined);
@@ -287,6 +292,36 @@ describe("App execution flow", () => {
     await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("analysis_export_query", {
       request: expect.objectContaining({ workspaceId: "local-duckdb", sql: "SELECT id FROM orders", path: "C:/tmp/orders.csv", format: "csv", delimiter: ";" }),
     }));
+  });
+
+  it("previews a CTE with its preceding CTEs without touching the editor or history", async () => {
+    const sql = "WITH a AS (SELECT 1 AS id), b AS (SELECT id FROM a) SELECT * FROM b WHERE";
+    seedSession(sql, 1000, "conn-1");
+    editorMockState.previewCte = "b AS";
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Editor preview CTE" }));
+
+    await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", {
+      connectionId: "conn-1",
+      sql: "WITH a AS (SELECT 1 AS id), b AS (SELECT id FROM a)\nSELECT * FROM b",
+      limit: 1000,
+    }, expect.any(AbortSignal)));
+    expect(await screen.findByText("Preview of CTE b")).toBeTruthy();
+    expect(await screen.findByText("42")).toBeTruthy();
+    expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe(sql);
+    expect(localStorage.getItem("omni-sql:history") ?? "[]").not.toContain("SELECT * FROM b");
+  });
+
+  it("refuses to preview a CTE when an included CTE changes data", async () => {
+    seedSession("WITH gone AS (DELETE FROM t RETURNING id), kept AS (SELECT 1) SELECT * FROM kept", 1000, "conn-1");
+    editorMockState.previewCte = "kept AS";
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Editor preview CTE" }));
+
+    expect(await screen.findByText(/CTE gone changes data/)).toBeTruthy();
+    expect(call.mock.calls.some(([method]) => method === "query.run")).toBe(false);
   });
 
   it("explains the selected statement instead of the whole editor", async () => {

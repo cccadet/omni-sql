@@ -35,6 +35,7 @@ import { ExecutionRiskDialog } from "./components/ExecutionRiskDialog";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationColumn, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
+import { buildCtePreview } from "./lib/cte-preview";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, connectionMcpAccess, type DialectId, type FunctionDef, type McpToolResultByName, type McpToolArgsByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
@@ -287,8 +288,10 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   } | null>(null);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variableNames, setVariableNames] = useState<string[]>([]);
-  const [runAfterVariables, setRunAfterVariables] = useState<{ sqls: string[]; label: string } | null>(null);
-  const [pendingRiskRun, setPendingRiskRun] = useState<{ sqls: string[]; label: string; analysis: ExecutionRiskAnalysis } | null>(null);
+  const [runAfterVariables, setRunAfterVariables] = useState<{ sqls: string[]; label: string; ctePreview?: string } | null>(null);
+  const [pendingRiskRun, setPendingRiskRun] = useState<{ sqls: string[]; label: string; analysis: ExecutionRiskAnalysis; ctePreview?: string } | null>(null);
+  /** Name of the CTE whose preview is in the results grid; null for normal runs. */
+  const [ctePreviewName, setCtePreviewName] = useState<string | null>(null);
   const [trustedWarningConnections, setTrustedWarningConnections] = useState(loadTrustedWarningConnections);
   const [diagnostics, setDiagnostics] = useState<SqlDiagnostic[]>([]);
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("unknown");
@@ -1023,11 +1026,11 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   }, []);
 
   const runSqlSequence = useCallback(
-    async (sqls: string[], label: string, executionRiskAccepted = false) => {
+    async (sqls: string[], label: string, executionRiskAccepted = false, ctePreview?: string) => {
       if (!activeConnectionId || !activeConnection || !activeTab) return;
       const variables = activeConnection.dialect === "mongodb" ? [] : extractVariablesUnion(sqls, activeDialect);
       if (variables.length > 0) {
-        setRunAfterVariables({ sqls, label });
+        setRunAfterVariables({ sqls, label, ctePreview });
         setVariableNames(variables);
         setVariablesOpen(true);
         return;
@@ -1037,7 +1040,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         ? { level: "none", findings: [] } : analyzeExecutionRisk(joinedSql, activeDialect);
       const warningTrusted = risk.level === "warning" && trustedWarningConnections.has(activeConnectionId);
       if (risk.level !== "none" && !executionRiskAccepted && !warningTrusted) {
-        setPendingRiskRun({ sqls, label, analysis: risk });
+        setPendingRiskRun({ sqls, label, analysis: risk, ctePreview });
         return;
       }
       const riskAccepted = executionRiskAccepted || warningTrusted;
@@ -1057,6 +1060,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       setRunning(true);
       setBusyMsg(label);
       setResult(null);
+      setCtePreviewName(ctePreview ?? null);
       setAnalysisSourceSql(null);
       setEditability(null);
       setPlanText(null);
@@ -1102,6 +1106,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         updateTab(activeTab.id, { error: null, latestSqlExecutionError: null });
         ++connectionHealthCheckRef.current;
         setConnectionHealth("online");
+        // A preview is generated SQL, not what the user wrote: keep it out of history and row editing.
+        if (ctePreview !== undefined) return;
         pushHistory(sqls.join(";\n"), true);
         if (activeDialect !== "s3" && activeDialect !== "duckdb" && activeDialect !== "mongodb") void backend
           .call<RowEditability>("query.analyzeEditability", { connectionId: activeConnectionId, sql: joinedSql })
@@ -1128,6 +1134,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
           error: e instanceof Error ? e.message : String(e),
           latestSqlExecutionError: executionError,
         });
+        // Diagnostic positions would point into the generated preview SQL, not the editor.
+        if (ctePreview !== undefined) return;
         const executedSql = sqls.join(";\n");
         if (activeDialect !== "s3" && activeDialect !== "duckdb" && activeDialect !== "mongodb") void backend
           .call<{ diagnostics: SqlDiagnostic[] }>("query.diagnose", {
@@ -1248,6 +1256,22 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     void runSqlSequence(sqls, t("runningAll"));
   }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, handleConvertMongo, t]);
 
+  const handlePreviewCte = useCallback((statement: string, offset: number) => {
+    if (!activeConnectionId) return;
+    if (activeDialect === "mongodb") { updateTab(activeTab.id, { error: t("ctePreviewMongo") }); return; }
+    const preview = buildCtePreview(statement, offset, activeDialect);
+    if (!preview.ok) {
+      const message = preview.reason === "data-modifying" ? t("ctePreviewDataModifying").replace("{name}", preview.cteName)
+        : preview.reason === "incomplete" ? t("ctePreviewIncomplete")
+        : preview.reason === "unsupported" ? t("ctePreviewUnsupported")
+        : t("ctePreviewNoCte");
+      setCtePreviewName(null);
+      updateTab(activeTab.id, { error: message });
+      return;
+    }
+    void runSqlSequence([preview.sql], t("ctePreviewRunning").replace("{name}", preview.cteName), false, preview.cteName);
+  }, [activeConnectionId, activeDialect, activeTab.id, runSqlSequence, updateTab, t]);
+
   const handleRunChoice = useCallback(
     (choice: "current" | "all") => {
       if (!pendingRun) return;
@@ -1270,7 +1294,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       setVariablesOpen(false);
       if (!runAfterVariables) return;
       const sqls = runAfterVariables.sqls.map((sql) => substituteVariables(sql, values, activeDialect));
-      void runSqlSequence(sqls, runAfterVariables.label);
+      void runSqlSequence(sqls, runAfterVariables.label, false, runAfterVariables.ctePreview);
       setRunAfterVariables(null);
     },
     [runAfterVariables, runSqlSequence, activeDialect],
@@ -1627,7 +1651,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       ...(enabled ? { mongoNativeText: activeTab.sql, sql: activeTab.mongoSqlText ?? "SELECT 1" }
         : { mongoSqlText: activeTab.sql, sql: activeTab.mongoNativeText ?? initialMongoQuery(activeConnection.endpoint, sidebarCache[activeConnection.id]?.relations) }),
       error: null, latestSqlExecutionError: null });
-    setResult(null); setEditability(null); setPlanText(null); setDiagnostics([]);
+    setResult(null); setCtePreviewName(null); setEditability(null); setPlanText(null); setDiagnostics([]);
   };
 
   const monacoTheme = useEditorMonacoTheme(name);
@@ -1804,6 +1828,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
             onChange={(sql) => updateTabSql(activeTab.id, sql)}
             onRun={handleRun}
             onRunAll={handleRunAll}
+            onPreviewCte={handlePreviewCte}
             onSave={onSaveTab}
             onCursorChange={setCursorPosition}
             onAutocomplete={handleAutocomplete}
@@ -1852,8 +1877,9 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         }}
       />
 
-      <section style={{ gridColumn: 2, gridRow: 5, minHeight: 0, overflow: "hidden" }}>
-        <ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} emptyState={{ target: activeConnection ? (activeDatabase ? `${activeConnection.label} · ${activeDatabase}` : activeConnection.label) : null, limit: activeTab.queryLimit, onOpenHistory: () => setHistoryOpen(true) }} />
+      <section style={{ gridColumn: 2, gridRow: 5, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {ctePreviewName !== null && <div className="omni-cte-preview-banner" role="status">{t("ctePreviewResult").replace("{name}", ctePreviewName)}</div>}
+        <div style={{ flex: 1, minHeight: 0 }}><ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} emptyState={{ target: activeConnection ? (activeDatabase ? `${activeConnection.label} · ${activeDatabase}` : activeConnection.label) : null, limit: activeTab.queryLimit, onOpenHistory: () => setHistoryOpen(true) }} /></div>
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 6 }}>
@@ -2014,7 +2040,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         onCancel={() => setPendingRiskRun(null)}
         onConfirm={(suppressWarningsForConnection) => {
           if (!pendingRiskRun) return;
-          const { sqls, label } = pendingRiskRun;
+          const { sqls, label, ctePreview } = pendingRiskRun;
           if (suppressWarningsForConnection && activeConnectionId) {
             setTrustedWarningConnections((current) => {
               const next = new Set(current).add(activeConnectionId);
@@ -2023,7 +2049,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
             });
           }
           setPendingRiskRun(null);
-          void runSqlSequence(sqls, label, true);
+          void runSqlSequence(sqls, label, true, ctePreview);
         }}
       />
 
