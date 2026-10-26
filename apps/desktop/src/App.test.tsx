@@ -24,6 +24,7 @@ vi.mock("./lib/backend", () => ({ backend: { call: vi.fn() } }));
 vi.mock("./theme", () => ({ useEditorMonacoTheme: () => "test-monaco-theme" }));
 vi.mock("./lib/file-io", () => ({
   basenameNoExt: (path: string) => path.split("/").at(-1)?.replace(/\.sql$/u, "") ?? path,
+  exportConnectionsFile: vi.fn(),
   pickOpenPath: vi.fn(),
   pickAnalysisExportPath: vi.fn(),
   pickAnalysisImportPath: vi.fn(),
