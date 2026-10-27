@@ -11,7 +11,15 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { backend, type ConnectionEntry, type ConnectionGroup } from "../lib/backend";
-import { ConnectionImportError, parseConnectionImport, relinkDucklakeCatalogs, type ImportCandidate, type ImportSource } from "../lib/connection-import";
+import {
+  ConnectionImportError,
+  decryptDbeaverCredentials,
+  parseConnectionImport,
+  relinkDucklakeCatalogs,
+  type DbeaverCredentials,
+  type ImportCandidate,
+  type ImportSource,
+} from "../lib/connection-import";
 import { DIALECT_LABELS } from "../lib/dialect-labels";
 import { useLanguage, type TranslationKey } from "../i18n";
 
@@ -31,6 +39,11 @@ export interface ConnectionImportDialogProps {
 export function ConnectionImportDialog({ open, connections, groups, onClose, onImported }: ConnectionImportDialogProps) {
   const { t } = useLanguage();
   const fileInput = useRef<HTMLInputElement>(null);
+  const credentialsInput = useRef<HTMLInputElement>(null);
+  // The DBeaver pair can be chosen in either order, so both are kept until the list is rebuilt.
+  const dbeaverText = useRef<string | null>(null);
+  const dbeaverCredentials = useRef<DbeaverCredentials | undefined>(undefined);
+  const [credentialsCount, setCredentialsCount] = useState<number | null>(null);
   const [source, setSource] = useState<ImportSource>("omni-sql");
   const [candidates, setCandidates] = useState<ImportCandidate[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -39,35 +52,64 @@ export function ConnectionImportDialog({ open, connections, groups, onClose, onI
   const [importedCount, setImportedCount] = useState<number | null>(null);
   const sourceInfo = SOURCES.find((option) => option.value === source)!;
 
-  useEffect(() => {
-    if (!open) return;
-    setCandidates(null);
-    setSelected(new Set());
-    setBusy(false);
-    setError(null);
-    setImportedCount(null);
-  }, [open]);
-
-  const chooseSource = (next: ImportSource) => {
-    setSource(next);
+  const forgetFiles = () => {
+    dbeaverText.current = null;
+    dbeaverCredentials.current = undefined;
+    setCredentialsCount(null);
     setCandidates(null);
     setSelected(new Set());
     setError(null);
     setImportedCount(null);
   };
 
+  useEffect(() => {
+    if (!open) return;
+    forgetFiles();
+    setBusy(false);
+  }, [open]);
+
+  const chooseSource = (next: ImportSource) => {
+    setSource(next);
+    forgetFiles();
+  };
+
+  const showCandidates = (contents: string) => {
+    const parsed = parseConnectionImport(source, contents, connections, dbeaverCredentials.current);
+    setCandidates(parsed);
+    // Duplicates stay visible but unchecked so re-importing the same file is a no-op by default.
+    setSelected(new Set(parsed.filter((candidate) => candidate.status === "ready").map((candidate) => candidate.sourceId)));
+  };
+
+  const failWith = (failure: unknown) => {
+    if (!(failure instanceof ConnectionImportError)) setError(String(failure));
+    else if (failure.code === "newer-version") setError(t("importNewerVersion"));
+    else if (failure.code === "invalid-credentials") setError(t("dbeaverInvalidCredentials"));
+    else setError(t(source === "dbeaver" ? "dbeaverInvalidFile" : "importInvalidOmniSqlFile"));
+  };
+
   const loadFile = async (file: File) => {
     setError(null);
     setImportedCount(null);
     try {
-      const parsed = parseConnectionImport(source, await file.text(), connections);
-      setCandidates(parsed);
-      // Duplicates stay visible but unchecked so re-importing the same file is a no-op by default.
-      setSelected(new Set(parsed.filter((candidate) => candidate.status === "ready").map((candidate) => candidate.sourceId)));
+      const contents = await file.text();
+      if (source === "dbeaver") dbeaverText.current = contents;
+      showCandidates(contents);
     } catch (failure) {
       setCandidates(null);
-      if (!(failure instanceof ConnectionImportError)) setError(String(failure));
-      else setError(failure.code === "newer-version" ? t("importNewerVersion") : t(source === "dbeaver" ? "dbeaverInvalidFile" : "importInvalidOmniSqlFile"));
+      failWith(failure);
+    }
+  };
+
+  const loadCredentials = async (file: File) => {
+    setError(null);
+    setImportedCount(null);
+    try {
+      const credentials = await decryptDbeaverCredentials(await file.arrayBuffer());
+      dbeaverCredentials.current = credentials;
+      setCredentialsCount(credentials.size);
+      if (dbeaverText.current !== null) showCandidates(dbeaverText.current);
+    } catch (failure) {
+      failWith(failure);
     }
   };
 
@@ -92,6 +134,7 @@ export function ConnectionImportDialog({ open, connections, groups, onClose, onI
         const id = `conn-${crypto.randomUUID()}`;
         const { connectionId } = await backend.call<{ connectionId: string }>("connection.add", {
           config: { ...relinkDucklakeCatalogs(candidate.config!, newIds), id },
+          ...(candidate.password ? { password: candidate.password } : {}),
         });
         newIds.set(candidate.sourceId, connectionId);
         if (candidate.folder) {
@@ -107,6 +150,10 @@ export function ConnectionImportDialog({ open, connections, groups, onClose, onI
       }
       setImportedCount(count);
       setCandidates(null);
+      // Decrypted credentials do not outlive the import.
+      dbeaverText.current = null;
+      dbeaverCredentials.current = undefined;
+      setCredentialsCount(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
       if (count > 0) setImportedCount(count);
@@ -143,7 +190,7 @@ export function ConnectionImportDialog({ open, connections, groups, onClose, onI
           </div>
           <Text>{t(sourceInfo.hint)}</Text>
           <Text size={200} style={{ color: tokens.colorNeutralForeground2, overflowWrap: "anywhere" }}>{t(sourceInfo.location)}</Text>
-          <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t("importPasswordsHint")}</Text>
+          <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>{t(source === "dbeaver" ? "dbeaverPasswordsHint" : "importPasswordsHint")}</Text>
           <input
             ref={fileInput}
             type="file"
@@ -156,9 +203,23 @@ export function ConnectionImportDialog({ open, connections, groups, onClose, onI
               if (file) void loadFile(file);
             }}
           />
-          <div>
+          <input
+            ref={credentialsInput}
+            type="file"
+            accept=".json,application/json"
+            aria-label={t("dbeaverChooseCredentials")}
+            hidden
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (file) void loadCredentials(file);
+            }}
+          />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Button onClick={() => fileInput.current?.click()} disabled={busy}>{t(sourceInfo.file)}</Button>
+            {source === "dbeaver" && <Button onClick={() => credentialsInput.current?.click()} disabled={busy}>{t("dbeaverChooseCredentials")}</Button>}
           </div>
+          {source === "dbeaver" && credentialsCount !== null && <Text size={200} role="status">{t("dbeaverCredentialsLoaded").replace("{count}", String(credentialsCount))}</Text>}
           {candidates && (candidates.length === 0 ? <Text>{t("importNoConnections")}</Text> : (
             <div className="connection-schema-list" style={{ maxHeight: 280 }}>
               {candidates.map((candidate) => {

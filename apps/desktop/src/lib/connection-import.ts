@@ -3,10 +3,11 @@ import type { ConnectionConfig, DialectId } from "@omni-sql/ts-types";
 /**
  * Connection import/export. Two sources are understood: omni-sql's own export
  * (another computer or an earlier backup) and DBeaver's `data-sources.json`
- * (workspace6/General/.dbeaver). Passwords never travel in either direction:
- * they stay in the keyring, and DBeaver keeps them encrypted in a separate
- * credentials file that is never read. Imported connections ask for them on
- * first use, like any connection saved without one.
+ * (workspace6/General/.dbeaver). omni-sql never exports passwords: they stay in
+ * the keyring. DBeaver keeps user names and passwords in a separate encrypted
+ * `credentials-config.json`; when the user adds that file to the import, they are
+ * decrypted in memory and handed to the keyring with the connection. Without it,
+ * imported connections ask for them on first use.
  */
 
 export type ImportSource = "omni-sql" | "dbeaver";
@@ -23,11 +24,14 @@ export interface ImportCandidate {
   /** Present unless status is "unsupported". */
   readonly config?: Omit<ConnectionConfig, "id">;
   readonly unsupportedReason?: "driver" | "address" | "invalid";
+  /** Only from DBeaver's credentials file; goes to the keyring through `connection.add`, never into the config. */
+  readonly password?: string;
 }
 
 export class ConnectionImportError extends Error {
-  constructor(readonly code: "invalid-file" | "newer-version") {
-    super(code === "invalid-file" ? "invalid connection import file" : "connection export from a newer omni-sql version");
+  constructor(readonly code: "invalid-file" | "newer-version" | "invalid-credentials") {
+    super(code === "newer-version" ? "connection export from a newer omni-sql version"
+      : code === "invalid-credentials" ? "invalid DBeaver credentials file" : "invalid connection import file");
   }
 }
 
@@ -50,11 +54,14 @@ export function endpointKey(config: Pick<ConnectionConfig, "dialect" | "endpoint
 
 function markDuplicates(candidates: ImportCandidate[], existing: readonly Pick<ConnectionConfig, "dialect" | "endpoint" | "user">[]): ImportCandidate[] {
   const known = new Set(existing.map(endpointKey));
+  // A candidate without a user (DBeaver keeps it in the encrypted file) matches any user at that endpoint.
+  const anyUser = new Set(existing.map((connection) => endpointKey({ ...connection, user: "" })));
   return candidates.map((candidate) => {
     if (!candidate.config) return candidate;
     const key = endpointKey(candidate.config);
-    const duplicate = known.has(key);
+    const duplicate = known.has(key) || (!candidate.config.user && anyUser.has(endpointKey(candidate.config)));
     known.add(key);
+    anyUser.add(endpointKey({ ...candidate.config, user: "" }));
     return duplicate ? { ...candidate, status: "duplicate" } : candidate;
   });
 }
@@ -225,7 +232,43 @@ function folderPath(folder: string, folders: Json): string {
   return parts.join(" / ");
 }
 
-export function parseDbeaverDataSources(source: string, existing: readonly Pick<ConnectionConfig, "dialect" | "endpoint" | "user">[]): ImportCandidate[] {
+/** User name and password DBeaver saved for each connection id. */
+export type DbeaverCredentials = ReadonlyMap<string, { readonly user?: string; readonly password?: string }>;
+
+// DBeaver encrypts credentials-config.json with AES-128-CBC and a key that ships with its source code
+// (a 16-byte IV followed by the ciphertext), so this is obfuscation, not protection.
+const DBEAVER_CREDENTIALS_KEY = "babb4a9f774ab853c96c2d653dfe544a";
+
+/** Values such as `${dbeaver.default-user}` are DBeaver variables, not real credentials. */
+const literal = (value: unknown): string => {
+  const result = typeof value === "string" ? value : "";
+  return result.startsWith("${") ? "" : result;
+};
+
+export async function decryptDbeaverCredentials(data: ArrayBuffer): Promise<DbeaverCredentials> {
+  try {
+    const keyBytes = Uint8Array.from(DBEAVER_CREDENTIALS_KEY.match(/../g)!, (byte) => Number.parseInt(byte, 16));
+    const key = await crypto.subtle.importKey("raw", keyBytes, "AES-CBC", false, ["decrypt"]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-CBC", iv: data.slice(0, 16) }, key, data.slice(16));
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(plain));
+    if (!isObject(parsed)) throw new Error("not an object");
+    return new Map(Object.entries(parsed).flatMap(([id, entry]) => {
+      const connection = isObject(entry) && isObject(entry["#connection"]) ? entry["#connection"] : null;
+      if (!connection) return [];
+      const user = literal(connection.user);
+      const password = literal(connection.password);
+      return [[id, { ...(user ? { user } : {}), ...(password ? { password } : {}) }] as const];
+    }));
+  } catch {
+    throw new ConnectionImportError("invalid-credentials");
+  }
+}
+
+export function parseDbeaverDataSources(
+  source: string,
+  existing: readonly Pick<ConnectionConfig, "dialect" | "endpoint" | "user">[],
+  credentials: DbeaverCredentials = new Map(),
+): ImportCandidate[] {
   const parsed = parseJson(source);
   if (!isObject(parsed) || !isObject(parsed.connections)) throw new ConnectionImportError("invalid-file");
   const folders = isObject(parsed.folders) ? parsed.folders : {};
@@ -254,14 +297,20 @@ export function parseDbeaverDataSources(source: string, existing: readonly Pick<
 
     const environment = ENVIRONMENTS[text(configuration.type).toLowerCase()];
     const options = { ...(sslEnabled(configuration) ? { ssl: "require" } : {}), ...(environment ? { environment } : {}) };
+    // Recent DBeaver versions keep the user only in the encrypted file; older ones wrote it into the configuration.
+    const saved = credentials.get(sourceId);
+    const authProperties = isObject(configuration["auth-properties"]) ? configuration["auth-properties"] : {};
+    const user = saved?.user ?? (literal(configuration.user) || literal(authProperties.user));
+    const password = saved?.password ?? (literal(authProperties.password) || undefined);
     return [{
       ...base,
       status: "ready",
+      ...(password ? { password } : {}),
       config: {
         label,
         dialect,
         endpoint: `${host}:${port || DEFAULT_PORTS[dialect]}/${database}`,
-        user: text(configuration.user),
+        user,
         ...(Object.keys(options).length > 0 ? { options } : {}),
       },
     }];
@@ -269,6 +318,11 @@ export function parseDbeaverDataSources(source: string, existing: readonly Pick<
   return markDuplicates(candidates, existing);
 }
 
-export function parseConnectionImport(source: ImportSource, contents: string, existing: readonly Pick<ConnectionConfig, "dialect" | "endpoint" | "user">[]): ImportCandidate[] {
-  return source === "omni-sql" ? parseOmniSqlExport(contents, existing) : parseDbeaverDataSources(contents, existing);
+export function parseConnectionImport(
+  source: ImportSource,
+  contents: string,
+  existing: readonly Pick<ConnectionConfig, "dialect" | "endpoint" | "user">[],
+  credentials?: DbeaverCredentials,
+): ImportCandidate[] {
+  return source === "omni-sql" ? parseOmniSqlExport(contents, existing) : parseDbeaverDataSources(contents, existing, credentials);
 }
