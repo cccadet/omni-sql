@@ -6,7 +6,7 @@ import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import type { DialectId, SqlDiagnostic } from "@omni-sql/ts-types";
 import { DEFAULT_FORMATTER_SETTINGS, type FormatterSettings } from "../lib/format-sql";
 import { splitStatements, statementAt, type SqlStatement } from "../lib/sql-statements";
-import { findCteClause } from "../lib/cte-preview";
+import { registerCtePreview } from "../lib/cte-preview-editor";
 import {
   configureAutocomplete,
   type AutocompleteCallback,
@@ -322,44 +322,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           };
         },
       });
-      const previewCteAt = (offset: number) => {
-        const model = editorRef.current?.getModel();
-        if (!model) return;
-        const statement = statementAt(splitStatements(model.getValue(), dialectRef.current), offset);
-        if (statement) onPreviewCteRef.current?.(statement.text, offset - statement.start);
-      };
-      const codeLensRegistration = monacoInstance.languages.registerCodeLensProvider(LANGUAGE_ID, {
-        provideCodeLenses(model) {
-          const lenses: monaco.languages.CodeLens[] = [];
-          if (!onPreviewCteRef.current || dialectRef.current === "mongodb") return { lenses, dispose: () => undefined };
-          for (const statement of splitStatements(model.getValue(), dialectRef.current)) {
-            for (const cte of findCteClause(statement.text, dialectRef.current)?.ctes ?? []) {
-              const offset = statement.start + cte.nameStart;
-              const { lineNumber, column } = model.getPositionAt(offset);
-              lenses.push({
-                range: { startLineNumber: lineNumber, startColumn: column, endLineNumber: lineNumber, endColumn: column },
-                command: { id: "omni-preview-cte", title: ctePreviewLensLabelRef.current.replace("{name}", cte.name), arguments: [offset] },
-              });
-            }
-          }
-          return { lenses, dispose: () => undefined };
-        },
+      const ctePreviewRegistrations = registerCtePreview(monacoInstance, editor, {
+        languageId: LANGUAGE_ID,
+        dialect: dialectRef,
+        onPreview: onPreviewCteRef,
+        lensLabel: ctePreviewLensLabelRef,
+        actionLabel: t("ctePreviewAction"),
       });
-      const previewCommandRegistration = monacoInstance.editor.registerCommand("omni-preview-cte", (_accessor, offset?: number) => {
-        if (typeof offset === "number") previewCteAt(offset);
-      });
-      providerRegistrationsRef.current = [autocompleteRegistration, hoverRegistration, codeActionRegistration, codeLensRegistration, previewCommandRegistration];
-      editor.addAction({
-        id: "omni-preview-cte-at-cursor",
-        label: t("ctePreviewAction"),
-        keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.Enter],
-        contextMenuGroupId: "navigation",
-        run: (target) => {
-          const position = target.getPosition();
-          const model = target.getModel();
-          if (position && model) previewCteAt(model.getOffsetAt(position));
-        },
-      });
+      providerRegistrationsRef.current = [autocompleteRegistration, hoverRegistration, codeActionRegistration, ...ctePreviewRegistrations];
       monacoInstance.editor.registerCommand("omni-apply-transpile", (_accessor, suppliedDiagnostic?: SqlDiagnostic) => {
         const editor = editorRef.current;
         const model = editor?.getModel();

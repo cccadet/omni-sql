@@ -51,10 +51,12 @@ function keywordAt(sql: string, i: number, keyword: string): boolean {
   return readWord(sql, i)?.toUpperCase() === keyword;
 }
 
+const CLOSING_QUOTE: Readonly<Record<string, string>> = { '"': '"', "[": "]", "`": "`" };
+
 /** Reads a plain, "double", [bracket] or `backtick` identifier. Returns the offset after it. */
 function readIdentifier(sql: string, i: number): number | null {
   const open = sql[i];
-  const close = open === '"' ? '"' : open === "[" ? "]" : open === "`" ? "`" : null;
+  const close = open === undefined ? undefined : CLOSING_QUOTE[open];
   if (close) {
     let j = i + 1;
     while (j < sql.length) {
@@ -149,34 +151,34 @@ export function findCteClause(sql: string, dialect?: DialectId): CteClause | nul
   for (const withStart of topLevelWithKeywords(sql, dialect)) {
     let i = skipTrivia(sql, withStart + 4, dialect);
     if (keywordAt(sql, i, "RECURSIVE")) i = skipTrivia(sql, i + "RECURSIVE".length, dialect);
-    if (!readCteHeader(sql, i, dialect)) continue;
-
-    const ctes: CteDefinition[] = [];
-    let incomplete = false;
-    let unsupported = false;
-    for (;;) {
-      const header = readCteHeader(sql, i, dialect);
-      if (!header) { incomplete = true; break; }
-      let j = skipTrivia(sql, header.afterAs, dialect);
-      if (keywordAt(sql, j, "NOT")) j = skipTrivia(sql, j + 3, dialect);
-      if (keywordAt(sql, j, "MATERIALIZED")) j = skipTrivia(sql, j + "MATERIALIZED".length, dialect);
-      if (sql[j] !== "(") { incomplete = true; break; }
-      const end = matchParen(sql, j, dialect);
-      if (end === null) { incomplete = true; break; }
-      ctes.push({
-        name: sql.slice(i, header.nameEnd),
-        nameStart: i,
-        end,
-        dataModifying: hasDataModifyingKeyword(sql, j, end, dialect),
-      });
-      i = skipTrivia(sql, end, dialect);
-      if (keywordAt(sql, i, "SEARCH") || keywordAt(sql, i, "CYCLE")) { unsupported = true; break; }
-      if (sql[i] !== ",") break;
-      i = skipTrivia(sql, i + 1, dialect);
-    }
-    return { start: withStart, ctes, incomplete, unsupported };
+    if (readCteHeader(sql, i, dialect)) return { start: withStart, ...readCteList(sql, i, dialect) };
   }
   return null;
+}
+
+/** Reads one CTE starting at its name, or null when it is not complete yet. */
+function readCteDefinition(sql: string, i: number, dialect?: DialectId): CteDefinition | null {
+  const header = readCteHeader(sql, i, dialect);
+  if (!header) return null;
+  let j = skipTrivia(sql, header.afterAs, dialect);
+  if (keywordAt(sql, j, "NOT")) j = skipTrivia(sql, j + 3, dialect);
+  if (keywordAt(sql, j, "MATERIALIZED")) j = skipTrivia(sql, j + "MATERIALIZED".length, dialect);
+  const end = sql[j] === "(" ? matchParen(sql, j, dialect) : null;
+  if (end === null) return null;
+  return { name: sql.slice(i, header.nameEnd), nameStart: i, end, dataModifying: hasDataModifyingKeyword(sql, j, end, dialect) };
+}
+
+function readCteList(sql: string, i: number, dialect?: DialectId): Omit<CteClause, "start"> {
+  const ctes: CteDefinition[] = [];
+  for (;;) {
+    const cte = readCteDefinition(sql, i, dialect);
+    if (!cte) return { ctes, incomplete: true, unsupported: false };
+    ctes.push(cte);
+    i = skipTrivia(sql, cte.end, dialect);
+    if (keywordAt(sql, i, "SEARCH") || keywordAt(sql, i, "CYCLE")) return { ctes, incomplete: false, unsupported: true };
+    if (sql[i] !== ",") return { ctes, incomplete: false, unsupported: false };
+    i = skipTrivia(sql, i + 1, dialect);
+  }
 }
 
 /**
