@@ -1,6 +1,6 @@
 import { assert, test } from "vitest";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
-import { buildConnectionExport, ConnectionImportError, parseDbeaverDataSources, parseOmniSqlExport, relinkDucklakeCatalogs } from "./connection-import";
+import { buildConnectionExport, ConnectionImportError, decryptDbeaverCredentials, parseDbeaverDataSources, parseOmniSqlExport, relinkDucklakeCatalogs } from "./connection-import";
 
 // Shape written by DBeaver 23.x/24.x in workspace6/General/.dbeaver/data-sources.json.
 const dataSources = JSON.stringify({
@@ -98,4 +98,56 @@ test("re-links DuckLake catalogs to connections imported in the same batch", () 
   const relinked = relinkDucklakeCatalogs(lake, new Map([["pg-1", "conn-new"]]));
   assert.deepEqual(JSON.parse(String(relinked.options?.ducklakeMappings)), [{ prefix: "s3://lake/main", kind: "postgres", connectionId: "conn-new" }]);
   assert.equal(relinkDucklakeCatalogs(lake, new Map()).options?.ducklakeMappings, lake.options?.ducklakeMappings);
+});
+
+// Same layout DBeaver writes: 16-byte IV + AES-128-CBC of { <connection id>: { "#connection": { user, password } } }.
+async function encryptCredentials(content: unknown): Promise<ArrayBuffer> {
+  const key = await crypto.subtle.importKey("raw", Uint8Array.from("babb4a9f774ab853c96c2d653dfe544a".match(/../g)!, (byte) => Number.parseInt(byte, 16)), "AES-CBC", false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(16));
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-CBC", iv }, key, new TextEncoder().encode(JSON.stringify(content))));
+  const file = new Uint8Array(16 + cipher.length);
+  file.set(iv);
+  file.set(cipher, 16);
+  return file.buffer;
+}
+
+// Recent DBeaver versions write no user in data-sources.json: it lives in the encrypted credentials file.
+const modernSource = JSON.stringify({
+  folders: {},
+  connections: {
+    "postgres-jdbc-1": { provider: "postgresql", driver: "postgres-jdbc", name: "omni_test", "save-password": true,
+      configuration: { host: "localhost", port: "5432", database: "omni_test", configurationType: "MANUAL", type: "dev", "auth-model": "native" } },
+    "postgres-jdbc-2": { provider: "postgresql", driver: "postgres-jdbc", name: "Variables", configuration: { host: "vars", database: "d", user: "${dbeaver.default-user}" } },
+  },
+});
+
+test("reads the user and password DBeaver saved in its encrypted credentials file", async () => {
+  const credentials = await decryptDbeaverCredentials(await encryptCredentials({
+    "postgres-jdbc-1": { "#connection": { user: "omni", password: "s3cret" } },
+    "postgres-jdbc-2": { "#connection": { user: "${dbeaver.default-user}" } },
+    "unrelated": { "#network/ssh_tunnel": { user: "ignored" } },
+  }));
+  assert.deepEqual([...credentials.keys()], ["postgres-jdbc-1", "postgres-jdbc-2"]);
+
+  const [saved, variables] = parseDbeaverDataSources(modernSource, [], credentials);
+  assert.deepEqual([saved?.config?.user, saved?.password], ["omni", "s3cret"]);
+  // The password never enters the config that is persisted.
+  assert.notInclude(JSON.stringify(saved?.config), "s3cret");
+  assert.deepEqual([variables?.config?.user, variables?.password], ["", undefined]);
+
+  const [withoutFile] = parseDbeaverDataSources(modernSource, []);
+  assert.deepEqual([withoutFile?.config?.user, withoutFile?.password], ["", undefined]);
+});
+
+test("rejects credential files that are not DBeaver's", async () => {
+  for (const data of [new ArrayBuffer(0), new TextEncoder().encode("{}").buffer, new Uint8Array(48).buffer]) {
+    let code: string | undefined;
+    await decryptDbeaverCredentials(data).catch((failure: ConnectionImportError) => { code = failure.code; });
+    assert.equal(code, "invalid-credentials");
+  }
+});
+
+test("a DBeaver connection without a user matches an existing one at the same endpoint", () => {
+  const [candidate] = parseDbeaverDataSources(modernSource, [{ dialect: "postgres", endpoint: "localhost:5432/omni_test", user: "omni" }]);
+  assert.equal(candidate?.status, "duplicate");
 });

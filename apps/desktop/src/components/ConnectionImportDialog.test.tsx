@@ -100,3 +100,36 @@ test("explains when the chosen file does not match the selected source", async (
   choose("Choose data-sources.json", "{}");
   await screen.findByText("This is not a DBeaver data-sources.json file.");
 });
+
+test("imports the DBeaver user and password from credentials-config.json, in either order", async () => {
+  const source = JSON.stringify({ connections: { pg: { provider: "postgresql", name: "Orders", configuration: { host: "pg", port: "5432", database: "orders" } } } });
+  const key = await crypto.subtle.importKey("raw", Uint8Array.from("babb4a9f774ab853c96c2d653dfe544a".match(/../g)!, (byte) => Number.parseInt(byte, 16)), "AES-CBC", false, ["encrypt"]);
+  const iv = new Uint8Array(16).fill(7);
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-CBC", iv }, key, new TextEncoder().encode(JSON.stringify({ pg: { "#connection": { user: "app", password: "s3cret" } } }))));
+  const encrypted = new Uint8Array(16 + cipher.length);
+  encrypted.set(iv);
+  encrypted.set(cipher, 16);
+  const credentialsFile = new File([encrypted], "credentials-config.json");
+  // jsdom's File has no arrayBuffer().
+  Object.defineProperty(credentialsFile, "arrayBuffer", { value: async () => encrypted.buffer });
+
+  renderDialog();
+  fireEvent.click(screen.getByRole("radio", { name: "DBeaver" }));
+  fireEvent.change(screen.getByLabelText("Add credentials-config.json"), { target: { files: [credentialsFile] } });
+  await screen.findByText("Credentials read for 1 DBeaver connections.");
+  choose("Choose data-sources.json", source);
+  fireEvent.click(await screen.findByRole("button", { name: "Import 1" }));
+  await screen.findByText("Imported 1 connections.");
+
+  const [added] = calls("connection.add") as Added[];
+  assert.deepEqual([added?.config.label, (added?.config as { user?: string }).user, added?.password], ["Orders", "app", "s3cret"]);
+});
+
+test("explains when credentials-config.json cannot be decrypted", async () => {
+  renderDialog();
+  fireEvent.click(screen.getByRole("radio", { name: "DBeaver" }));
+  const file = new File(["not encrypted"], "credentials-config.json");
+  Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode("not encrypted").buffer });
+  fireEvent.change(screen.getByLabelText("Add credentials-config.json"), { target: { files: [file] } });
+  await screen.findByText("This is not a readable DBeaver credentials-config.json file.");
+});
