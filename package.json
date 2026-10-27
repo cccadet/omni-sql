@@ -26,7 +26,7 @@
     "seed:test-connections": "tsx ./docker/test-dbs/register-connections.ts",
     "verify:push": "python3 ./scripts/verify-push.py",
     "coverage:native": "bash ./scripts/coverage-native.sh",
-    "verify:release": "bash ./scripts/pre-release.sh"
+    "test:integration": "bash ./scripts/integration-release.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

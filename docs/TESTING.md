@@ -27,33 +27,31 @@ Daily test-selection rules live in [CLAUDE.md](../CLAUDE.md).
   successful checkpoint; it is for diagnosis, not final validation.
 - The pre-push hook runs `pnpm typecheck`, `pnpm lint` and `pnpm test:fast` for
   branches other than `main`. Pushes to `main` run `pnpm verify:push`, which uses
-  the cached checkpoint. A `v*` release tag runs `scripts/pre-release.sh`. Manual release validation and the hook
-  share the same successful checkpoint; do not rerun approved checks needlessly.
+  the cached checkpoint. A `v*` release tag only checks that its release notes
+  exist in the tagged commit; CI on `main` already ran the full gate.
 - Release validation tests PostgreSQL/MySQL/MariaDB/SQL Server/Oracle and JDBC
   through adapters and HTTP JSON-RPC, MongoDB through HTTP/SQL translation,
   and ODBC in an isolated SQLite container. Security regressions run with the
   real database fixtures. S3 coverage runs in an isolated container using a
   random loopback port. CI uses the same JVM/Rust coverage generator.
 - CI runs full TypeScript coverage once and reuses its reports for SonarCloud.
-  Release publication requires successful CI (including SonarCloud) for the exact
-  tagged commit on the default branch, followed by tagged verification, real
-  database integration and builds. Release integration runs independently of
-  optional local hooks and does not repeat native coverage. Evidence is saved
-  under `artifacts/release-integration` and uploaded even on failure.
+  On pushes to `main`, CI also runs real database integration in parallel
+  (PRs skip it). Release publication requires that CI run to succeed for the
+  exact tagged commit on the default branch, then only builds. Integration runs
+  independently of optional local hooks and does not repeat native coverage.
+  Evidence is saved under `artifacts/release-integration` and uploaded even on failure.
 
 
 ## Commands and evidence
 
 - `pnpm test:coverage`: overall TypeScript line coverage >=80%; this alone does not predict the Sonar gate.
 - `pnpm coverage:native`: JVM JaCoCo and Rust LCOV, including isolated S3 fixtures.
-- `pnpm verify:release`: coverage checkpoint plus real database integration.
-- `bash scripts/integration-release.sh`: integration only, without regenerating coverage.
+- `pnpm test:integration`: real database integration only, without regenerating coverage (CI runs it on `main`).
 
 The integration runner saves TAP results, logs, commit/working-tree state and tool/fixture versions.
 It rejects empty, failing, cancelled and TODO suites and unexpected skips.
 The RPC suite allows exactly six unsupported JDBC cases; the Rust Mongo SQL gate
 requires the named integration test to execute and pass.
-A fresh run removes old evidence. The local release cache requires successful
-metadata and all expected evidence files. The workflow uploads evidence even on failure.
+A fresh run removes old evidence. The CI workflow uploads evidence even on failure.
 
 See [BUILDING.md](BUILDING.md#release-flow) for host dependencies and release artifacts.
