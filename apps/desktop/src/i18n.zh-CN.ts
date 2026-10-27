@@ -666,4 +666,13 @@ export const simplifiedChinese = {
   importSelected: "导入 {count} 个",
   exportConnections: "导出",
   exportedConnections: "已将 {count} 个连接导出到 {path}（不含密码）。",
+  ctePreviewLens: "▶ 预览 {name}",
+  ctePreviewAction: "预览 CTE 结果",
+  ctePreviewRunning: "正在预览 CTE {name}…",
+  ctePreviewResult: "CTE {name} 的预览",
+  ctePreviewNoCte: "请将光标放在 WITH 子句中的某个 CTE 上以进行预览。",
+  ctePreviewIncomplete: "WITH 子句不完整：请检查每个 CTE 都有 AS 且主体已闭合。",
+  ctePreviewUnsupported: "CTE 预览不支持 SEARCH 或 CYCLE 子句。",
+  ctePreviewDataModifying: "CTE {name} 会修改数据（INSERT、UPDATE、DELETE 或 MERGE），因此不执行预览。",
+  ctePreviewMongo: "MongoDB 不支持 CTE 预览。",
 } satisfies Record<TranslationKey, string>;

@@ -671,6 +671,15 @@ const english = {
   importSelected: "Import {count}",
   exportConnections: "Export",
   exportedConnections: "Exported {count} connections to {path} (without passwords).",
+  ctePreviewLens: "▶ Preview {name}",
+  ctePreviewAction: "Preview CTE results",
+  ctePreviewRunning: "Previewing CTE {name}…",
+  ctePreviewResult: "Preview of CTE {name}",
+  ctePreviewNoCte: "Place the cursor on a CTE of a WITH clause to preview it.",
+  ctePreviewIncomplete: "The WITH clause is incomplete: check that each CTE has AS and a closed body.",
+  ctePreviewUnsupported: "CTE preview does not support SEARCH or CYCLE clauses.",
+  ctePreviewDataModifying: "CTE {name} changes data (INSERT, UPDATE, DELETE or MERGE), so the preview is not run.",
+  ctePreviewMongo: "CTE preview is not available for MongoDB.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -904,6 +913,15 @@ const portugueseBrazil = [
   "Importar {count}",
   "Exportar",
   "{count} conexões exportadas para {path} (sem senhas).",
+  "▶ Prévia {name}",
+  "Pré-visualizar resultado da CTE",
+  "Pré-visualizando a CTE {name}…",
+  "Prévia da CTE {name}",
+  "Coloque o cursor sobre uma CTE de uma cláusula WITH para pré-visualizá-la.",
+  "A cláusula WITH está incompleta: verifique se cada CTE tem AS e o corpo fechado.",
+  "A prévia de CTE não suporta as cláusulas SEARCH ou CYCLE.",
+  "A CTE {name} altera dados (INSERT, UPDATE, DELETE ou MERGE), então a prévia não é executada.",
+  "A prévia de CTE não está disponível para MongoDB.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

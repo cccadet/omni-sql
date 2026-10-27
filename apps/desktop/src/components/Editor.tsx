@@ -6,6 +6,7 @@ import type { Suggestion } from "@omni-sql/autocomplete-engine";
 import type { DialectId, SqlDiagnostic } from "@omni-sql/ts-types";
 import { DEFAULT_FORMATTER_SETTINGS, type FormatterSettings } from "../lib/format-sql";
 import { splitStatements, statementAt, type SqlStatement } from "../lib/sql-statements";
+import { registerCtePreview } from "../lib/cte-preview-editor";
 import {
   configureAutocomplete,
   type AutocompleteCallback,
@@ -37,6 +38,8 @@ export interface EditorProps {
   onChange?: (value: string) => void;
   onRun?: () => void;
   onRunAll?: () => void;
+  /** Preview the CTE at `offset`, relative to `statement` (the statement text that contains it). */
+  onPreviewCte?: (statement: string, offset: number) => void;
   onSave?: () => void;
   onCursorChange?: (position: { line: number; column: number }) => void;
   onAutocomplete?: AutocompleteCallback;
@@ -55,6 +58,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     onChange,
     onRun,
     onRunAll,
+    onPreviewCte,
     onSave,
     onCursorChange,
     onAutocomplete,
@@ -81,6 +85,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const onRunRef = useRef<EditorActionCallback>({ current: onRun });
   const onRunAllRef = useRef<EditorActionCallback>({ current: onRunAll });
   const onSaveRef = useRef<EditorActionCallback>({ current: onSave });
+  const onPreviewCteRef = useRef(onPreviewCte);
+  const ctePreviewLensLabelRef = useRef(t("ctePreviewLens"));
   const onFormatRef = useRef<EditorActionCallback>({ current: undefined });
   const formatterSettingsRef = useRef(formatterSettings ?? DEFAULT_FORMATTER_SETTINGS);
 
@@ -94,6 +100,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
   useEffect(() => {
     tagLabelsRef.current = { "foreign key": t("completionForeignKeyTag") };
+    ctePreviewLensLabelRef.current = t("ctePreviewLens");
   }, [t]);
 
   const disposeProviderRegistrations = useCallback(() => {
@@ -197,7 +204,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     onRunAllRef.current.current = onRunAll;
     onSaveRef.current.current = onSave;
     onFormatRef.current.current = handleFormat;
-  }, [onRun, onRunAll, onSave, handleFormat]);
+    onPreviewCteRef.current = onPreviewCte;
+  }, [onRun, onRunAll, onSave, handleFormat, onPreviewCte]);
 
   useEffect(() => {
     if (monacoRef.current) {
@@ -314,7 +322,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           };
         },
       });
-      providerRegistrationsRef.current = [autocompleteRegistration, hoverRegistration, codeActionRegistration];
+      const ctePreviewRegistrations = registerCtePreview(monacoInstance, editor, {
+        languageId: LANGUAGE_ID,
+        dialect: dialectRef,
+        onPreview: onPreviewCteRef,
+        lensLabel: ctePreviewLensLabelRef,
+        actionLabel: t("ctePreviewAction"),
+      });
+      providerRegistrationsRef.current = [autocompleteRegistration, hoverRegistration, codeActionRegistration, ...ctePreviewRegistrations];
       monacoInstance.editor.registerCommand("omni-apply-transpile", (_accessor, suppliedDiagnostic?: SqlDiagnostic) => {
         const editor = editorRef.current;
         const model = editor?.getModel();
