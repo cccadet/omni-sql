@@ -52,8 +52,7 @@ Use pnpm 11.17.0 (`package.json#packageManager`) and Node 22.
   and monaco-config.test.ts; not a completion gate)
 - Precommit: `pnpm precommit` (staged whitespace and TS/JS lint only)
 - Before push: `pnpm verify:push` (TS/Rust/JVM coverage and new-code preflight)
-- Before release: `pnpm verify:release` (coverage checkpoint + real database integration)
-- Integration only: `bash scripts/integration-release.sh` (no coverage regeneration)
+- Database integration (optional locally; CI runs it on `main`): `pnpm test:integration`
 - Coverage only: `pnpm test:coverage` (TS), `pnpm coverage:native` (Rust/JVM/S3)
 - Dev: `pnpm dev:frontend` (1420), `pnpm dev:backend` (41920),
   `CARGO_BUILD_JOBS=2 pnpm dev:tauri`
@@ -84,7 +83,8 @@ Single tests:
   or unresolved concerns; do not repeat approved checks needlessly.
 - Shared contracts require consumer checks; Rust/JVM changes require native checks.
   Driver, persistence and protocol changes require affected-path integration.
-  Reserve all-database integration for release or changes affecting all adapters.
+  All-database integration runs in CI on `main`; run it locally only for changes
+  affecting all adapters.
 - Required integrations fail on missing fixtures/prerequisites and unexpected skips.
   Optional external tests may skip locally; report skips accurately.
 - Generate integration/E2E evidence automatically: command, commit/working-tree
@@ -104,18 +104,17 @@ coverage gates; it contains prerequisites, baseline handling and checkpoint deta
 - Reuse successful checkpoints when code/configuration, reports and baseline are
   unchanged. Never silently substitute HEAD/latest tag for a missing Sonar baseline;
   `--base` requires an established reference, and `--reports-only` is diagnostic only.
-- Release requires successful CI/Sonar for the exact tagged commit on the default
-  branch, then tagged verification, real database integration and builds. Integration
-  runs independently of local hooks, without repeating native coverage; evidence in
-  `artifacts/release-integration` is uploaded even on failure.
+- CI on `main` runs typecheck, lint, coverage, SonarCloud and real database
+  integration; evidence in `artifacts/release-integration` is uploaded even on
+  failure. Release requires that CI run to succeed for the exact tagged commit,
+  then only builds. Wait for CI on `main` before pushing the tag.
 - Keep full integration and desktop lifecycle validation outside the per-edit/
   precommit loop unless the affected path requires them.
 - Before tagging, commit `docs/releases/vX.Y.Z.md` (user-facing notes ending with a
   Full Changelog compare link); the release workflow uses it as the GitHub Release
   body and fails without it.
 - After triggering a release, provide the workflow link; do not repeatedly poll
-  in the same chat. Check again only when requested or in a later task. Releases
-  historically take about 20 minutes; cold integration builds can add time.
+  in the same chat. Check again only when requested or in a later task.
 
 ## Conventions and constraints
 

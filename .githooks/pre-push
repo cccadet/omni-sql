@@ -1,24 +1,28 @@
 #!/bin/sh
-# Release tags run the full release gate, pushes to main run verify:push, and
-# any other branch gets the light check. Bypass in an emergency: git push --no-verify
+# Release tags only check their notes (CI already ran the full gate for the
+# commit), pushes to main run verify:push, and any other branch gets the light
+# check. Bypass in an emergency: git push --no-verify
 set -eu
-release=0
 full=0
-push=0
+branch=0
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
-  push=1
   case "$local_ref" in
-    refs/tags/v*) release=1 ;;
+    refs/tags/v*)
+      tag=${local_ref#refs/tags/}
+      commit=$(git rev-parse "$local_sha^{commit}")
+      if ! git cat-file -e "$commit:docs/releases/$tag.md" 2>/dev/null; then
+        echo "Release blocked: docs/releases/$tag.md is missing from the tagged commit." >&2
+        exit 1
+      fi
+      continue ;;
   esac
+  branch=1
   case "$remote_ref" in
     refs/heads/main) full=1 ;;
   esac
 done
-[ "$push" -eq 0 ] && exit 0
-if [ "$release" -eq 1 ]; then
-  exec bash "$(git rev-parse --show-toplevel)/scripts/pre-release.sh"
-fi
+[ "$branch" -eq 0 ] && exit 0
 if [ "$full" -eq 1 ]; then
   pnpm verify:push
 else
