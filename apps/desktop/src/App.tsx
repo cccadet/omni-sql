@@ -35,12 +35,12 @@ import { ExecutionRiskDialog } from "./components/ExecutionRiskDialog";
 import { loadFormatterSettings, saveFormatterSettings, type FormatterSettings } from "./lib/format-sql";
 import { backend, type ConnectionEntry, type ConnectionGroup, type RelationColumn, type RelationInfo, type SqlDiagnostic } from "./lib/backend";
 import { splitStatements } from "./lib/sql-statements";
-import { buildCtePreview } from "./lib/cte-preview";
+import { buildCtePreview, type CtePreview } from "./lib/cte-preview";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
 import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, connectionMcpAccess, type DialectId, type FunctionDef, type McpToolResultByName, type McpToolArgsByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, exportConnectionsFile, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
-import { useLanguage } from "./i18n";
+import { useLanguage, type TranslationKey } from "./i18n";
 import { useCsvOptions } from "./components/CsvOptionsDialog";
 import { McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
@@ -211,6 +211,13 @@ function diagnosticPosition(diagnostic: { start: number; end: number }): SqlExec
   if (!Number.isSafeInteger(diagnostic.end) || diagnostic.end < diagnostic.start) return { start: diagnostic.start };
   return { start: diagnostic.start, end: diagnostic.end };
 }
+
+const CTE_PREVIEW_ERRORS = {
+  "no-cte": "ctePreviewNoCte",
+  incomplete: "ctePreviewIncomplete",
+  unsupported: "ctePreviewUnsupported",
+  "data-modifying": "ctePreviewDataModifying",
+} as const satisfies Record<Extract<CtePreview, { ok: false }>["reason"], TranslationKey>;
 
 export interface AppProps {
   themeName: ThemeName;
@@ -1261,10 +1268,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     if (activeDialect === "mongodb") { updateTab(activeTab.id, { error: t("ctePreviewMongo") }); return; }
     const preview = buildCtePreview(statement, offset, activeDialect);
     if (!preview.ok) {
-      const message = preview.reason === "data-modifying" ? t("ctePreviewDataModifying").replace("{name}", preview.cteName)
-        : preview.reason === "incomplete" ? t("ctePreviewIncomplete")
-        : preview.reason === "unsupported" ? t("ctePreviewUnsupported")
-        : t("ctePreviewNoCte");
+      const message = t(CTE_PREVIEW_ERRORS[preview.reason]).replace("{name}", "cteName" in preview ? preview.cteName : "");
       setCtePreviewName(null);
       updateTab(activeTab.id, { error: message });
       return;
@@ -1658,6 +1662,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
 
   const sidebarData = activeConnectionId ? sidebarCache[activeConnectionId] : undefined;
   const activeDatabase = connectionDatabase(activeConnection);
+  let resultsTarget: string | null = null;
+  if (activeConnection) resultsTarget = activeDatabase ? `${activeConnection.label} · ${activeDatabase}` : activeConnection.label;
 
   return (
     <div
@@ -1878,8 +1884,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       />
 
       <section style={{ gridColumn: 2, gridRow: 5, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        {ctePreviewName !== null && <div className="omni-cte-preview-banner" role="status">{t("ctePreviewResult").replace("{name}", ctePreviewName)}</div>}
-        <div style={{ flex: 1, minHeight: 0 }}><ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} emptyState={{ target: activeConnection ? (activeDatabase ? `${activeConnection.label} · ${activeDatabase}` : activeConnection.label) : null, limit: activeTab.queryLimit, onOpenHistory: () => setHistoryOpen(true) }} /></div>
+        {ctePreviewName !== null && <output className="omni-cte-preview-banner">{t("ctePreviewResult").replace("{name}", ctePreviewName)}</output>}
+        <div style={{ flex: 1, minHeight: 0 }}><ResultsGrid running={running} result={result} error={activeTab.error} planText={planText} editability={editability} relations={sidebarData?.relations ?? []} onLookupRelated={(source, value) => backend.call<QueryResult>("relation.lookup", { connectionId: activeConnectionId, source, value })} onCellEdit={handleCellEdit} onInsertRow={handleInsertRow} onExportFullCsv={activeDialect === "duckdb" && result && analysisSourceSql ? exportFullLocalCsv : undefined} emptyState={{ target: resultsTarget, limit: activeTab.queryLimit, onOpenHistory: () => setHistoryOpen(true) }} /></div>
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 6 }}>
