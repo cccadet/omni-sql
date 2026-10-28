@@ -259,7 +259,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
   const handleBeforeMount = useCallback<BeforeMount>((monacoInstance) => {
     monacoInstance.languages.json.jsonDefaults.setDiagnosticsOptions({
-      validate: true,
+      // Commands are separated by `;`, which the JSON validator flags; the backend validates each command on run.
+      validate: false,
       schemas: [{ uri: "omni://mongodb/query", fileMatch: ["*"], schema: {
         type: "object", required: ["collection", "operation"], additionalProperties: false,
         properties: {
