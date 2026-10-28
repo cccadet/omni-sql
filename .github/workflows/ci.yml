@@ -32,6 +32,11 @@ jobs:
       - name: Verify
         run: python3 scripts/verify-push.test.py && node --test scripts/*.test.mjs && pnpm -r typecheck && pnpm -r lint && pnpm test:coverage
 
+      # Installer builds run only at release or when packaging changes, so bundle
+      # the frontend here to catch Vite failures before tagging.
+      - name: Build desktop frontend
+        run: pnpm --filter desktop build
+
       - name: Upload TypeScript coverage
         uses: actions/upload-artifact@v4
         with:
@@ -171,6 +176,20 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
+
+      # Without this, every coverage run recompiles all instrumented Rust
+      # dependencies (most of the job's ~20 minutes). cargo llvm-cov only cleans
+      # workspace artifacts, so cached dependencies stay valid. Main saves the
+      # cache and PRs restore it.
+      - name: Cache instrumented Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target/llvm-cov-target
+          key: cargo-llvm-cov-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock', 'apps/desktop/src-tauri/Cargo.toml') }}
+          restore-keys: cargo-llvm-cov-${{ runner.os }}-
 
       - name: Setup Node
         uses: actions/setup-node@v4

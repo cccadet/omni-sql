@@ -51,7 +51,9 @@ Use pnpm 11.17.0 (`package.json#packageManager`) and Node 22.
 - Fast feedback: `pnpm test:fast` (packages + desktop libraries; excludes components
   and monaco-config.test.ts; not a completion gate)
 - Precommit: `pnpm precommit` (staged whitespace and TS/JS lint only)
-- Before push: `pnpm verify:push` (TS/Rust/JVM coverage and new-code preflight)
+- Before push: the pre-push hook runs typecheck/lint/`test:fast` on branches; PR CI
+  runs coverage and SonarCloud. Run `pnpm verify:push` locally only to diagnose
+  coverage (the hook runs it for direct pushes to `main`).
 - Database integration (optional locally; CI runs it on `main`): `pnpm test:integration`
 - Coverage only: `pnpm test:coverage` (TS), `pnpm coverage:native` (Rust/JVM/S3)
 - Dev: `pnpm dev:frontend` (1420), `pnpm dev:backend` (41920),
@@ -107,7 +109,12 @@ coverage gates; it contains prerequisites, baseline handling and checkpoint deta
 - CI on `main` runs typecheck, lint, coverage, SonarCloud and real database
   integration; evidence in `artifacts/release-integration` is uploaded even on
   failure. Release requires that CI run to succeed for the exact tagged commit,
-  then only builds. Wait for CI on `main` before pushing the tag.
+  then only builds; its quality job waits for that run, so push the tag right
+  after merging. Installer builds run only at release, plus on PRs that change
+  packaging inputs (Windows/macOS preflight paths) or by manual dispatch.
+- Avoid duplicate runs: put release notes in the PR so the merge commit is the
+  tagged commit, do not re-run local checks the hook or CI already ran, and do
+  not push follow-up commits to `main` just for notes.
 - Keep full integration and desktop lifecycle validation outside the per-edit/
   precommit loop unless the affected path requires them.
 - Before tagging, commit `docs/releases/vX.Y.Z.md` (user-facing notes ending with a
