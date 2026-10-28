@@ -1237,10 +1237,9 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     if (activeDialect === "mongodb") {
       const text = editorRef.current?.getAllText() ?? activeTab.sql;
       if (mongoCommandSql(text) !== null) { void handleConvertMongo(); return; }
-      if (activeTab.mongoSqlMode) { void runSqlSequence([text], t("running")); return; }
-      // Native mode: `;` separates JSON commands; run the selection or the one under the cursor.
+      // Native mode (SQL mode uses the duckdb path): `;` separates JSON commands; run the selection or the one under the cursor.
       const target = editorRef.current?.getSelectionOrCurrent().sql ?? text;
-      if (!target.trim()) return;
+      if (splitStatements(target, activeDialect).length === 0) return;
       void runSqlSequence([target], t("running")); return;
     }
     const target = editorRef.current?.getSelectionOrCurrent();
@@ -1253,14 +1252,13 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     const sqls = target?.sql ? [target.sql] : statements.map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
     void runSqlSequence(sqls, t("running"));
-  }, [activeConnectionId, activeDialect, activeTab.sql, activeTab.mongoSqlMode, runSqlSequence, handleConvertMongo, t]);
+  }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, handleConvertMongo, t]);
 
   const handleRunAll = useCallback(() => {
     if (!activeConnectionId) return;
     if (activeDialect === "mongodb") {
       const text = editorRef.current?.getAllText() ?? activeTab.sql;
       if (mongoCommandSql(text) !== null) { void handleConvertMongo(); return; }
-      if (activeTab.mongoSqlMode) { void runSqlSequence([text], t("runningAll")); return; }
       const commands = splitStatements(text, activeDialect).map((s) => s.text);
       if (commands.length === 0) return;
       void runSqlSequence(commands, t("runningAll")); return;
@@ -1268,7 +1266,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     const sqls = editorRef.current?.getStatements().map((s) => s.text) ?? splitStatements(activeTab.sql, activeDialect).map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
     void runSqlSequence(sqls, t("runningAll"));
-  }, [activeConnectionId, activeDialect, activeTab.sql, activeTab.mongoSqlMode, runSqlSequence, handleConvertMongo, t]);
+  }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, handleConvertMongo, t]);
 
   const handlePreviewCte = useCallback((statement: string, offset: number) => {
     if (!activeConnectionId) return;
