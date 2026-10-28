@@ -1,11 +1,25 @@
 name: macOS preflight
 
+# The release workflow builds both DMGs for every tag, so main pushes do not
+# rebuild them. PRs build them only when packaging inputs change; React/TypeScript
+# bundling is covered by CI. Run it manually for anything else.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+    paths:
+      - apps/desktop/src-tauri/**
+      - apps/desktop/package.json
+      - apps/desktop/vite.config.ts
+      - packages/*/package.json
+      - packages/backend/build.mjs
+      - services/jvm-sidecar/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/prepare-resources.mjs
+      - scripts/verify-macos-bundle.sh
+      - .github/workflows/macos-preflight.yml
 
 permissions:
   contents: read

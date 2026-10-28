@@ -72,8 +72,10 @@ Linux x64 and macOS arm64/x64. Published assets include Windows `.exe`, Linux
 `.deb`, macOS `.dmg` and updater archives/signatures, `latest.json`, and
 `SHA256SUMS`.
 
-Wait for CI on `main` to pass before pushing the tag; the tag's pre-push hook
-only checks that `docs/releases/vX.Y.Z.md` exists in the tagged commit.
+Put the release notes in the PR and push the tag on the merge commit right after
+merging: the release's quality job waits for that commit's CI on `main` and
+fails if it fails. The tag's pre-push hook only checks that
+`docs/releases/vX.Y.Z.md` exists in the tagged commit.
 To run database integration locally (optional), use `pnpm test:integration`
 with Java 21, Node 22, pnpm, Rust and Docker available. On Linux, install the
 Tauri build dependencies above and `unixodbc-dev`; the MongoDB SQL integration
