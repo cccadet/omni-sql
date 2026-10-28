@@ -348,7 +348,11 @@ fn ducklake_relation(schema: Option<&str>, table: Option<&str>) -> Result<String
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum DuckLakeCatalog {
-    Postgres { host: String, port: u16, database: String, user: String, password: Option<String> },
+    Postgres {
+        host: String, port: u16, database: String, user: String, password: Option<String>,
+        #[serde(rename = "metadataSchema", default, skip_serializing_if = "Option::is_none")]
+        metadata_schema: Option<String>,
+    },
     Sqlite { path: String },
     Duckdb { path: String },
 }
@@ -356,9 +360,13 @@ pub enum DuckLakeCatalog {
 fn attach_ducklake(remote: &Connection, catalog: &DuckLakeCatalog, alias: &str) -> Result<(), String> {
     let quote = |value: &str| format!("'{}'", value.replace('\'', "''"));
     let attach = match catalog {
-        DuckLakeCatalog::Postgres { host, port, database, user, password } => {
+        DuckLakeCatalog::Postgres { host, port, database, user, password, metadata_schema } => {
             if [host, database, user].iter().any(|value| value.is_empty() || value.len() > 256 || value.chars().any(char::is_control)) {
                 return Err("invalid PostgreSQL DuckLake catalog".into());
+            }
+            let metadata_schema = metadata_schema.as_deref().map(str::trim).filter(|value| !value.is_empty());
+            if metadata_schema.is_some_and(|value| value.len() > 128 || value.chars().any(char::is_control)) {
+                return Err("invalid DuckLake metadata schema".into());
             }
             remote.execute_batch("INSTALL postgres; LOAD postgres;")
                 .map_err(|error| format!("failed to load PostgreSQL support: {error}"))?;
@@ -366,7 +374,8 @@ fn attach_ducklake(remote: &Connection, catalog: &DuckLakeCatalog, alias: &str) 
             let secret = format!("CREATE SECRET {secret_name} (TYPE postgres, HOST {}, PORT {}, DATABASE {}, USER {}{})",
                 quote(host), port, quote(database), quote(user), password.as_ref().map_or(String::new(), |value| format!(", PASSWORD {}", quote(value))));
             remote.execute_batch(&secret).map_err(|_| "failed to configure PostgreSQL DuckLake credentials".to_string())?;
-            format!("ATTACH 'ducklake:postgres:' AS {} (META_SECRET {secret_name}, READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote_identifier(alias))
+            let schema = metadata_schema.map_or(String::new(), |value| format!(", METADATA_SCHEMA {}", quote(value)));
+            format!("ATTACH 'ducklake:postgres:' AS {} (META_SECRET {secret_name}{schema}, READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote_identifier(alias))
         }
         DuckLakeCatalog::Sqlite { path } | DuckLakeCatalog::Duckdb { path } => {
             if path.is_empty() || path.len() > 2048 || path.chars().any(char::is_control) { return Err("invalid DuckLake catalog path".into()); }
