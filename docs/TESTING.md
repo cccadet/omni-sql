@@ -28,7 +28,9 @@ Daily test-selection rules live in [CLAUDE.md](../CLAUDE.md).
   latest tag. `--reports-only` inspects existing reports and does not record a
   successful checkpoint; it is for diagnosis, not final validation.
 - The pre-push hook runs `pnpm typecheck`, `pnpm lint` and `pnpm test:fast` for
-  branches other than `main`. Pushes to `main` run `pnpm verify:push`, which uses
+  branches other than `main`. `test:fast` runs the desktop libraries with
+  Vitest's `threads` pool: on Windows, `forks` workers with jsdom often time out
+  while starting, which failed pushes without any failing test. Pushes to `main` run `pnpm verify:push`, which uses
   the cached checkpoint. A `v*` release tag only checks that its release notes
   exist in the tagged commit; CI on `main` already ran the full gate.
 - Release validation tests PostgreSQL/MySQL/MariaDB/SQL Server/Oracle and JDBC
