@@ -1,13 +1,26 @@
 name: Windows x64 preflight
 
+# The release workflow builds the installer for every tag, so main pushes do not
+# rebuild it. PRs build it only when packaging inputs change; React/TypeScript
+# bundling is covered by CI. Run it manually for anything else.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
+    paths:
+      - apps/desktop/src-tauri/**
+      - apps/desktop/package.json
+      - apps/desktop/vite.config.ts
+      - packages/*/package.json
+      - packages/backend/build.mjs
+      - services/jvm-sidecar/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/prepare-resources.mjs
+      - scripts/stop-runtime.test.ps1
+      - .github/workflows/windows-preflight.yml
 
 permissions:
   contents: read
