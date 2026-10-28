@@ -124,7 +124,13 @@ describe("Sidebar", () => {
     expect(within(dialog).getByText("s3://base (2)")).toBeTruthy();
     expect(within(dialog).getByText("Common prefix: s3://base/ducklake/gold")).toBeTruthy();
     expect(within(dialog).getByText("s3://other/business/visits")).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Configure catalog" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    fireEvent.keyDown(await screen.findByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Configure catalog" }));
     expect(onEditConnection).toHaveBeenCalledWith(s3.id);
   });
   it("shows S3 formats and filters tables from the icon menu", async () => {
