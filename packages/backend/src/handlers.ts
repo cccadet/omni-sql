@@ -663,7 +663,9 @@ export const handlers: BackendRpcRouter = {
           const prefix = mapping.prefix;
           return typeof prefix === "string" && buckets.some((bucket) => prefix === bucket || prefix.startsWith(`${bucket}/`))
             && (mapping.kind === "postgres" ? typeof mapping.connectionId === "string" && !!mapping.connectionId
-              : (mapping.kind === "sqlite" || mapping.kind === "duckdb") && typeof mapping.path === "string" && !!mapping.path.trim());
+              && (mapping.metadataSchema === undefined || (typeof mapping.metadataSchema === "string"
+                && mapping.metadataSchema.length <= 128 && !/\p{Cc}/u.test(mapping.metadataSchema)))
+              :(mapping.kind === "sqlite" || mapping.kind === "duckdb") && typeof mapping.path === "string" && !!mapping.path.trim());
         })) throw new Error("invalid DuckLake mappings");
       }
       const endpoint = config.options?.endpoint;
@@ -762,8 +764,9 @@ export const handlers: BackendRpcRouter = {
         const port = Number(pg.endpoint.slice(colon + 1, slash));
         const database = pg.endpoint.slice(slash + 1);
         if (!host || !database || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error("invalid PostgreSQL DuckLake endpoint");
+        const metadataSchema = typeof entry.metadataSchema === "string" ? entry.metadataSchema.trim() : "";
         return { prefix, catalog: { kind: "postgres" as const, host, port, database, user: pg.user,
-          password: await readStoredPassword(pg, "reading DuckLake catalog credentials") } };
+          password: await readStoredPassword(pg, "reading DuckLake catalog credentials"), ...(metadataSchema ? { metadataSchema } : {}) } };
       }
       if ((entry.kind === "sqlite" || entry.kind === "duckdb") && typeof entry.path === "string" && entry.path.trim()) {
         return { prefix, catalog: { kind: entry.kind as "sqlite" | "duckdb", path: entry.path } };
