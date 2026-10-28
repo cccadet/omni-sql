@@ -357,6 +357,15 @@ pub enum DuckLakeCatalog {
     Duckdb { path: String },
 }
 
+fn postgres_ducklake_attach(alias: &str, secret_name: &str, metadata_schema: Option<&str>) -> Result<String, String> {
+    let metadata_schema = metadata_schema.map(str::trim).filter(|value| !value.is_empty());
+    if metadata_schema.is_some_and(|value| value.len() > 128 || value.chars().any(char::is_control)) {
+        return Err("invalid DuckLake metadata schema".into());
+    }
+    let schema = metadata_schema.map_or(String::new(), |value| format!(", METADATA_SCHEMA '{}'", value.replace('\'', "''")));
+    Ok(format!("ATTACH 'ducklake:postgres:' AS {} (META_SECRET {secret_name}{schema}, READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote_identifier(alias)))
+}
+
 fn attach_ducklake(remote: &Connection, catalog: &DuckLakeCatalog, alias: &str) -> Result<(), String> {
     let quote = |value: &str| format!("'{}'", value.replace('\'', "''"));
     let attach = match catalog {
@@ -364,18 +373,14 @@ fn attach_ducklake(remote: &Connection, catalog: &DuckLakeCatalog, alias: &str) 
             if [host, database, user].iter().any(|value| value.is_empty() || value.len() > 256 || value.chars().any(char::is_control)) {
                 return Err("invalid PostgreSQL DuckLake catalog".into());
             }
-            let metadata_schema = metadata_schema.as_deref().map(str::trim).filter(|value| !value.is_empty());
-            if metadata_schema.is_some_and(|value| value.len() > 128 || value.chars().any(char::is_control)) {
-                return Err("invalid DuckLake metadata schema".into());
-            }
+            let secret_name = format!("omni_pg_{alias}");
+            let attach = postgres_ducklake_attach(alias, &secret_name, metadata_schema.as_deref())?;
             remote.execute_batch("INSTALL postgres; LOAD postgres;")
                 .map_err(|error| format!("failed to load PostgreSQL support: {error}"))?;
-            let secret_name = format!("omni_pg_{alias}");
             let secret = format!("CREATE SECRET {secret_name} (TYPE postgres, HOST {}, PORT {}, DATABASE {}, USER {}{})",
                 quote(host), port, quote(database), quote(user), password.as_ref().map_or(String::new(), |value| format!(", PASSWORD {}", quote(value))));
             remote.execute_batch(&secret).map_err(|_| "failed to configure PostgreSQL DuckLake credentials".to_string())?;
-            let schema = metadata_schema.map_or(String::new(), |value| format!(", METADATA_SCHEMA {}", quote(value)));
-            format!("ATTACH 'ducklake:postgres:' AS {} (META_SECRET {secret_name}{schema}, READ_ONLY, CREATE_IF_NOT_EXISTS false)", quote_identifier(alias))
+            attach
         }
         DuckLakeCatalog::Sqlite { path } | DuckLakeCatalog::Duckdb { path } => {
             if path.is_empty() || path.len() > 2048 || path.chars().any(char::is_control) { return Err("invalid DuckLake catalog path".into()); }
@@ -3216,6 +3221,19 @@ fn now_ms() -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn postgres_ducklake_attach_passes_an_optional_quoted_metadata_schema() {
+        let base = "ATTACH 'ducklake:postgres:' AS \"omni_lake\" (META_SECRET omni_pg_omni_lake";
+        assert_eq!(postgres_ducklake_attach("omni_lake", "omni_pg_omni_lake", None).unwrap(),
+            format!("{base}, READ_ONLY, CREATE_IF_NOT_EXISTS false)"));
+        assert_eq!(postgres_ducklake_attach("omni_lake", "omni_pg_omni_lake", Some("  ")).unwrap(),
+            format!("{base}, READ_ONLY, CREATE_IF_NOT_EXISTS false)"));
+        assert_eq!(postgres_ducklake_attach("omni_lake", "omni_pg_omni_lake", Some(" lake's meta ")).unwrap(),
+            format!("{base}, METADATA_SCHEMA 'lake''s meta', READ_ONLY, CREATE_IF_NOT_EXISTS false)"));
+        assert!(postgres_ducklake_attach("omni_lake", "omni_pg_omni_lake", Some("bad\nschema")).is_err());
+        assert!(postgres_ducklake_attach("omni_lake", "omni_pg_omni_lake", Some(&"s".repeat(129))).is_err());
+    }
 
     #[test]
     fn queries_s3_csv_parquet_delta_and_iceberg_without_snapshot() {
