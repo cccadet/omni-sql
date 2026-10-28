@@ -1,6 +1,22 @@
 // @vitest-environment node
 import { expect, test } from "vitest";
-import { detectS3Tables, discoverS3Tables, duckLakeCandidatePrefixes, resolveDuckLakeSource, type DuckLakeCatalog } from "./s3-sources";
+import { detectS3Tables, discoverS3Tables, duckLakeCandidatePrefixes, groupDuckLakeCandidates, resolveDuckLakeSource, type DuckLakeCatalog } from "./s3-sources";
+
+test("DuckLake candidates group by bucket with their common directory prefix", () => {
+  expect(groupDuckLakeCandidates([
+    "s3://lake/ducklake/gold/sales/orders",
+    "s3://lake/ducklake/gold/control/cursor",
+    "s3://lake/ducklake/goldfish/items",
+    "s3://other/business/visits",
+    "s3://spread/a/one",
+    "s3://spread/b/two",
+  ])).toEqual([
+    { bucket: "s3://lake", commonPrefix: "s3://lake/ducklake",
+      prefixes: ["s3://lake/ducklake/gold/control/cursor", "s3://lake/ducklake/gold/sales/orders", "s3://lake/ducklake/goldfish/items"] },
+    { bucket: "s3://other", commonPrefix: "s3://other/business/visits", prefixes: ["s3://other/business/visits"] },
+    { bucket: "s3://spread", commonPrefix: "s3://spread", prefixes: ["s3://spread/a/one", "s3://spread/b/two"] },
+  ]);
+});
 
 test("DuckLake candidates are unique and sorted alphabetically across case and accents", () => {
   expect(duckLakeCandidatePrefixes([

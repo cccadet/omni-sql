@@ -3,6 +3,12 @@ import { flushSync } from "react-dom";
 import {
   Button,
   Card,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
   Input,
   Menu,
   MenuItem,
@@ -39,6 +45,7 @@ import { SidecarStatus } from "./SidecarStatus";
 import { DuckDbIcon } from "./DuckDbIcon";
 import type { DatasetRef } from "../lib/analysis";
 import { typeIcon } from "../lib/type-icon";
+import { groupDuckLakeCandidates } from "../lib/s3-sources";
 import { backend, type ConnectionEntry, type RelationColumn, type RelationInfo } from "../lib/backend";
 import type { FunctionDef, IndexInfo, ObjectDefinitionKind } from "@omni-sql/ts-types";
 import { formatLastSyncedAt, formatSyncAge, getMetadataFreshness } from "../lib/metadata-freshness";
@@ -208,6 +215,8 @@ export function Sidebar({
   const { t: tr } = useLanguage();
   const [search, setSearch] = useState("");
   const [formatFilter, setFormatFilter] = useState("");
+  const [duckLakeDialogOpen, setDuckLakeDialogOpen] = useState(false);
+  const duckLakeGroups = useMemo(() => groupDuckLakeCandidates(duckLakeCandidates), [duckLakeCandidates]);
   const [searchMatches, setSearchMatches] = useState<Set<string> | null>(null);
   const [width, setWidth] = useState(loadWidth);
   const [resizing, setResizing] = useState(false);
@@ -507,10 +516,34 @@ export function Sidebar({
             placeholder={tr("s3PrefixPlaceholder")} aria-label={tr("s3PrefixLabel")} />
           <Button size="small" onClick={() => onS3PrefixChange?.(s3PrefixDraft)}>{tr("s3ListPrefix")}</Button>
         </div>}
-        {connection?.dialect === "s3" && duckLakeCandidates.length > 0 && <div className="omni-s3-limit">
-          {tr("ducklakeDetectedHint").replace("{buckets}", duckLakeCandidates.join(", "))}
-          <Button size="small" appearance="subtle" onClick={() => connectionId && onEditConnection?.(connectionId)}>{tr("configureCatalog")}</Button>
+        {connection?.dialect === "s3" && duckLakeCandidates.length > 0 && <div className="omni-s3-limit omni-ducklake-summary">
+          <WarningRegular fontSize={14} />
+          <span className="omni-ducklake-summary-text" title={tr("ducklakeDetectedSummary").replace("{count}", String(duckLakeCandidates.length))}>
+            {tr("ducklakeDetectedSummary").replace("{count}", String(duckLakeCandidates.length))}
+          </span>
+          <Button size="small" appearance="subtle" onClick={() => setDuckLakeDialogOpen(true)}>{tr("ducklakeDetectedView")}</Button>
         </div>}
+        <Dialog open={duckLakeDialogOpen && duckLakeCandidates.length > 0} onOpenChange={(_, data) => setDuckLakeDialogOpen(data.open)}>
+          <DialogSurface style={{ width: "min(720px, calc(100vw - 24px))", maxWidth: "none" }}>
+            <DialogBody>
+              <DialogTitle>{tr("ducklakeDetectedTitle")}</DialogTitle>
+              <DialogContent style={{ display: "grid", gap: 12, maxHeight: "60vh", overflowY: "auto" }}>
+                <Text size={200}>{tr("ducklakeDetectedDialogHint")}</Text>
+                {duckLakeGroups.map((group) => <section key={group.bucket} style={{ display: "grid", gap: 4 }}>
+                  <Text weight="semibold">{group.bucket} ({group.prefixes.length})</Text>
+                  {group.commonPrefix !== group.bucket && group.prefixes.length > 1 && <Text size={200}>{tr("ducklakeCommonPrefix").replace("{prefix}", group.commonPrefix)}</Text>}
+                  <ul style={{ margin: 0, paddingLeft: 18, fontFamily: tokens.fontFamilyMonospace, fontSize: 12, wordBreak: "break-all" }}>
+                    {group.prefixes.map((prefix) => <li key={prefix}>{prefix}</li>)}
+                  </ul>
+                </section>)}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setDuckLakeDialogOpen(false)}>{tr("close")}</Button>
+                <Button appearance="primary" onClick={() => { setDuckLakeDialogOpen(false); if (connectionId) onEditConnection?.(connectionId); }}>{tr("configureCatalog")}</Button>
+              </DialogActions>
+            </DialogBody>
+          </DialogSurface>
+        </Dialog>
         {connection?.dialect === "s3" && <Button size="small" appearance="outline" icon={<LinkRegular fontSize={14} />} style={{ width: "100%", marginBottom: 10 }} onClick={onImportDatabaseTable}>{tr("addTableToJoin")}</Button>}
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <Input

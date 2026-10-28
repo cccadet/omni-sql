@@ -78,10 +78,12 @@ test("DuckLake mappings resolve PostgreSQL credentials and retain table override
     await handlers["connection.add"]({ config: { id: s3Id, label: "Lake data", dialect: "s3",
       endpoint: "s3://bucket", user: "", options: { ducklakeMappings: JSON.stringify([
         { prefix: "s3://bucket", kind: "postgres", connectionId: pgId },
+        { prefix: "s3://bucket/lake2", kind: "postgres", connectionId: pgId, metadataSchema: " lake_meta " },
         { prefix: "s3://bucket/main/orders", kind: "sqlite", path: "C:/lake/catalog.sqlite" },
       ]) } } });
     assert.deepEqual((await handlers["connection.s3Credentials"]({ connectionId: s3Id })).ducklakeMappings, [
       { prefix: "s3://bucket", catalog: { kind: "postgres", host: "127.0.0.1", port: 5432, database: "lake", user: "reader", password: "pg-secret" } },
+      { prefix: "s3://bucket/lake2", catalog: { kind: "postgres", host: "127.0.0.1", port: 5432, database: "lake", user: "reader", password: "pg-secret", metadataSchema: "lake_meta" } },
       { prefix: "s3://bucket/main/orders", catalog: { kind: "sqlite", path: "C:/lake/catalog.sqlite" } },
     ]);
   } finally {

@@ -138,7 +138,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [availableBuckets, setAvailableBuckets] = useState<string[] | null>(null);
   const [s3Region, setS3Region] = useState("");
   const [s3Endpoint, setS3Endpoint] = useState("");
-  const [ducklakeMappings, setDucklakeMappings] = useState<{ prefix: string; kind: "postgres" | "sqlite" | "duckdb"; connectionId?: string; path?: string }[]>([]);
+  const [ducklakeMappings, setDucklakeMappings] = useState<{ prefix: string; kind: "postgres" | "sqlite" | "duckdb"; connectionId?: string; path?: string; metadataSchema?: string }[]>([]);
   const [postgresConnections, setPostgresConnections] = useState<ConnectionConfig[]>([]);
   const [jarPath, setJarPath] = useState("");
   const [driverClassName, setDriverClassName] = useState("");
@@ -230,7 +230,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     if (mode === "odbc") return { timeout: 30 };
     if (mode === "s3") return { region: s3Region.trim(), endpoint: s3Endpoint.trim(),
       buckets: JSON.stringify(bucketUris(s3BucketList)),
-      ducklakeMappings: JSON.stringify(ducklakeMappings.map((mapping) => ({ ...mapping, prefix: mapping.prefix.trim().replace(/\/$/, ""), path: mapping.path?.trim() }))) };
+      ducklakeMappings: JSON.stringify(ducklakeMappings.map((mapping) => ({ ...mapping, prefix: mapping.prefix.trim().replace(/\/$/, ""), path: mapping.path?.trim(), metadataSchema: mapping.metadataSchema?.trim() || undefined }))) };
     return ssl ? { ssl: "require" } : undefined;
   }, [mode, jarPath, driverClassName, ssl, s3BucketList, s3Region, s3Endpoint, ducklakeMappings]);
 
@@ -548,13 +548,16 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                         <option value="postgres">PostgreSQL</option><option value="sqlite">SQLite</option><option value="duckdb">DuckDB</option>
                       </select>
                     </Label>
-                    {mapping.kind === "postgres" ? <Label>{t("ducklakePostgresConnection")}
+                    {mapping.kind === "postgres" ? <><Label>{t("ducklakePostgresConnection")}
                       <select aria-label={t("ducklakePostgresConnectionNumber").replace("{index}", String(index + 1))} value={mapping.connectionId ?? ""} disabled={busy}
                         onChange={(event) => setDucklakeMappings((items) => items.map((item, i) => i === index ? { ...item, connectionId: event.target.value } : item))}>
                         <option value="">{t("ducklakeSelectConnection")}</option>
                         {postgresConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.label}</option>)}
                       </select>
-                    </Label> : <Label>{t("ducklakeFilePath").replace("{kind}", mapping.kind === "sqlite" ? "SQLite" : "DuckDB")}
+                    </Label>
+                    <Label>{t("ducklakeMetadataSchema")}
+                      <Input value={mapping.metadataSchema ?? ""} onChange={(_, data) => setDucklakeMappings((items) => items.map((item, i) => i === index ? { ...item, metadataSchema: data.value } : item))} placeholder="public" disabled={busy} />
+                    </Label></> :<Label>{t("ducklakeFilePath").replace("{kind}", mapping.kind === "sqlite" ? "SQLite" : "DuckDB")}
                       <Input value={mapping.path ?? ""} onChange={(_, data) => setDucklakeMappings((items) => items.map((item, i) => i === index ? { ...item, path: data.value } : item))} placeholder={t(mapping.kind === "sqlite" ? "ducklakeSqlitePathPlaceholder" : "ducklakeDuckdbPathPlaceholder")} disabled={busy} />
                     </Label>}
                     <Button size="small" appearance="subtle" onClick={() => { setDucklakeMappings((items) => items.filter((_, i) => i !== index)); setDirty(true); }} disabled={busy}>{t("ducklakeRemoveCatalog")}</Button>

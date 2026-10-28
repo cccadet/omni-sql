@@ -10,7 +10,7 @@ export interface S3TableSource {
 }
 
 export type DuckLakeCatalog =
-  | { kind: "postgres"; host: string; port: number; database: string; user: string; password?: string }
+  | { kind: "postgres"; host: string; port: number; database: string; user: string; password?: string; metadataSchema?: string }
   | { kind: "sqlite" | "duckdb"; path: string };
 
 export interface DuckLakeMapping { prefix: string; catalog: DuckLakeCatalog }
@@ -27,6 +27,27 @@ export function resolveDuckLakeSource<T extends S3TableSource>(source: T, creden
 export function duckLakeCandidatePrefixes(objects: readonly string[]): string[] {
   return [...new Set(objects.filter((uri) => /\/ducklake-[^/]+\.parquet$/i.test(uri))
     .map((uri) => uri.slice(0, uri.lastIndexOf("/"))))].sort((a, b) => a.localeCompare(b));
+}
+
+export interface DuckLakeCandidateGroup { bucket: string; commonPrefix: string; prefixes: string[] }
+
+export function groupDuckLakeCandidates(prefixes: readonly string[]): DuckLakeCandidateGroup[] {
+  const byBucket = new Map<string, string[]>();
+  for (const prefix of new Set(prefixes)) {
+    const bucket = prefix.match(/^s3:\/\/[^/]+/)?.[0];
+    if (bucket) byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), prefix]);
+  }
+  return [...byBucket].map(([bucket, items]) => {
+    const sorted = items.sort((a, b) => a.localeCompare(b));
+    let common = sorted[0]!.split("/");
+    for (const item of sorted.slice(1)) {
+      const parts = item.split("/");
+      let length = 0;
+      while (length < common.length && common[length] === parts[length]) length++;
+      common = common.slice(0, length);
+    }
+    return { bucket, commonPrefix: common.length > 3 ? common.join("/") : bucket, prefixes: sorted };
+  }).sort((a, b) => a.bucket.localeCompare(b.bucket));
 }
 
 export function detectS3Tables(objects: readonly string[]): S3TableSource[] {

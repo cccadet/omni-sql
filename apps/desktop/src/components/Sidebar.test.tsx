@@ -112,6 +112,27 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Abrir bucket.sales em nova aba" }));
     expect(onOpenInNewTab).toHaveBeenCalledWith("sales", 'SELECT * FROM "bucket"."sales" LIMIT 1000');
   });
+  it("summarizes DuckLake candidates and lists them grouped by bucket in a dialog", async () => {
+    const s3 = { ...connection, dialect: "s3" as const };
+    const onEditConnection = vi.fn();
+    renderSidebar({ connection: s3, connections: [s3], relations: [], functions: [], onEditConnection, duckLakeCandidates: [
+      "s3://base/ducklake/gold/orders", "s3://base/ducklake/gold/customers", "s3://other/business/visits",
+    ] });
+    expect(screen.queryByText("s3://base/ducklake/gold/orders")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog", { name: "Possible DuckLake prefixes" });
+    expect(within(dialog).getByText("s3://base (2)")).toBeTruthy();
+    expect(within(dialog).getByText("Common prefix: s3://base/ducklake/gold")).toBeTruthy();
+    expect(within(dialog).getByText("s3://other/business/visits")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    fireEvent.keyDown(await screen.findByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Configure catalog" }));
+    expect(onEditConnection).toHaveBeenCalledWith(s3.id);
+  });
   it("shows S3 formats and filters tables from the icon menu", async () => {
     const s3 = { ...connection, dialect: "s3" as const };
     renderSidebar({ connection: s3, connections: [s3], relations: [
