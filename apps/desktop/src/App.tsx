@@ -1237,7 +1237,10 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     if (activeDialect === "mongodb") {
       const text = editorRef.current?.getAllText() ?? activeTab.sql;
       if (mongoCommandSql(text) !== null) { void handleConvertMongo(); return; }
-      void runSqlSequence([text], t("running")); return;
+      // Native mode (SQL mode uses the duckdb path): `;` separates JSON commands; run the selection or the one under the cursor.
+      const target = editorRef.current?.getSelectionOrCurrent().sql ?? text;
+      if (splitStatements(target, activeDialect).length === 0) return;
+      void runSqlSequence([target], t("running")); return;
     }
     const target = editorRef.current?.getSelectionOrCurrent();
     const sql = target?.sql ?? activeTab.sql;
@@ -1256,7 +1259,9 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     if (activeDialect === "mongodb") {
       const text = editorRef.current?.getAllText() ?? activeTab.sql;
       if (mongoCommandSql(text) !== null) { void handleConvertMongo(); return; }
-      void runSqlSequence([text], t("runningAll")); return;
+      const commands = splitStatements(text, activeDialect).map((s) => s.text);
+      if (commands.length === 0) return;
+      void runSqlSequence(commands, t("runningAll")); return;
     }
     const sqls = editorRef.current?.getStatements().map((s) => s.text) ?? splitStatements(activeTab.sql, activeDialect).map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;

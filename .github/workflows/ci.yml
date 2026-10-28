@@ -82,6 +82,52 @@ jobs:
       - name: cargo check
         run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
 
+  integration:
+    name: Real database integration
+    # Release tags require this CI run to succeed, so integration runs once per
+    # main commit instead of again at release time. PRs skip it to save runners.
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libayatana-appindicator3-dev unixodbc-dev
+
+      - name: Run database integration
+        run: bash scripts/integration-release.sh
+
+      - name: Preserve integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-${{ github.sha }}
+          path: artifacts/release-integration
+          if-no-files-found: error
+          retention-days: 14
+
   sonarcloud:
     name: SonarCloud analysis
     needs: verify-ts

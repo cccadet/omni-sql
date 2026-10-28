@@ -864,6 +864,58 @@ it.each([false, true])("resolves MongoDB CTE completion from SQL mode or /mongo 
   expect(call).toHaveBeenCalledWith("completion.get", { connectionId: "mongo-1", sql, cursor: sql.length }, undefined);
 });
 
+it("splits native MongoDB commands on `;` for run current and run all", async () => {
+  const first = '{"collection":"a","operation":"find","filter":{"n":"x;y"}}';
+  const second = '{"collection":"b","operation":"find"}';
+  seedSession(`${first};\n\n${second};`, 100, "mongo-1");
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "mongo-1", label: "MongoDB test", dialect: "mongodb", endpoint: "mongodb://localhost/test", user: "" }] })
+    : defaultCall(method, params, signal));
+  editorMockState.selection = { sql: second, start: first.length + 3 };
+  try {
+    renderApp();
+    const runCurrent = await screen.findByRole("button", { name: "Editor run current" });
+    fireEvent.click(runCurrent);
+    await waitFor(() => expect(call).toHaveBeenCalledWith("query.run", expect.objectContaining({ connectionId: "mongo-1", sql: second }), expect.any(AbortSignal)));
+    await waitFor(() => expect(screen.queryByText("Running…")).toBeNull());
+    call.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Editor run all" }));
+    await waitFor(() => expect(call.mock.calls.filter(([method]) => method === "query.run").map(([, params]) => (params as { sql: string }).sql)).toEqual([first, second]));
+  } finally { editorMockState.selection = null; }
+});
+
+it.each(["Editor run current", "Editor run all"])("does not send an empty native MongoDB command with %s", async (action) => {
+  seedSession(" ;\n ; ", 100, "mongo-1");
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "mongo-1", label: "MongoDB test", dialect: "mongodb", endpoint: "mongodb://localhost/test", user: "" }] })
+    : defaultCall(method, params, signal));
+  renderApp();
+  await screen.findByRole("radio", { name: "SQL" });
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: action })); });
+  expect(call.mock.calls.some(([method]) => method === "query.run")).toBe(false);
+  expect(screen.queryByText(/Extended JSON/)).toBeNull();
+});
+
+it("runs each statement separately in MongoDB SQL mode with Run all", async () => {
+  const sql = "SELECT 1;\nSELECT 2";
+  seedSession(sql, 100, "mongo-1");
+  const session = JSON.parse(localStorage.getItem("omni-sql:session")!);
+  session.tabs[0].mongoSqlMode = true;
+  localStorage.setItem("omni-sql:session", JSON.stringify(session));
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "mongo-1", label: "MongoDB test", dialect: "mongodb", endpoint: "mongodb://localhost/test", user: "" }] })
+    : defaultCall(method, params, signal));
+  vi.mocked(invoke).mockImplementation(async (command) => command === "analysis_query_mongo"
+    ? { columns: [{ name: "n", dataType: "BIGINT", nullable: false }], rows: [[2]], rowsMoreAvailable: false } : undefined);
+  renderApp();
+  await screen.findByRole("radio", { name: "SQL" });
+  fireEvent.click(screen.getByRole("button", { name: "Editor run all" }));
+  await waitFor(() => expect(call.mock.calls.filter(([method]) => method === "query.mongoSqlPlan").map(([, params]) => (params as { sql: string }).sql)).toEqual(["SELECT 1", "SELECT 2"]));
+});
+
 it("runs a Mongo SQL WHERE through the native driver without changing the editor", async () => {
   const sql = "SELECT * FROM base_laudos.padronizacao WHERE id_guia = '52712827'";
   seedSession(sql, 100, "mongo-1");
