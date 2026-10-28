@@ -121,6 +121,9 @@ body {
 .omni-s3-format.is-iceberg { color: var(--colorPaletteTealForeground2); }
 .omni-s3-empty { display: flex; align-items: center; gap: 8px; padding: 12px 8px; color: var(--colorNeutralForeground3); font-size: 12px; line-height: 1.5; }
 .omni-s3-limit { padding: 8px; color: var(--colorNeutralForeground2); font-size: 12px; line-height: 1.4; }
+.omni-ducklake-summary { display: flex; align-items: center; gap: 6px; padding: 4px 0 4px 8px; }
+.omni-ducklake-summary > svg { flex: none; color: var(--colorPaletteYellowForeground1); }
+.omni-ducklake-summary-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 820px) {
   .omni-analysis-body { grid-template-columns: 190px minmax(0, 1fr); }

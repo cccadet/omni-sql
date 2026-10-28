@@ -121,6 +121,31 @@ test("registers multiple S3 buckets without choosing a format", async () => {
   assert.deepEqual(config.options, { region: "us-east-1", endpoint: "http://127.0.0.1:9000", buckets: '["s3://bucket","s3://bucket-two"]', ducklakeMappings: "[]" });
 });
 
+test("restores and saves the DuckLake PostgreSQL metadata schema", async () => {
+  vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
+    ? { configs: [{ id: "pg-lake", label: "Lake catalog", dialect: "postgres", endpoint: "db:5432/lake", user: "reader" }] }
+    : { connectionId: "s3-lake" });
+  renderWithLanguage(<ConnectionDialog open editing={{ id: "s3-lake", label: "Lake", dialect: "s3", endpoint: "s3://bucket", user: "", options: {
+    buckets: '["s3://bucket"]', ducklakeMappings: JSON.stringify([
+      { prefix: "s3://bucket/gold", kind: "postgres", connectionId: "pg-lake", metadataSchema: "lake_meta" },
+      { prefix: "s3://bucket/silver", kind: "postgres", connectionId: "pg-lake" },
+      { prefix: "s3://bucket/raw", kind: "sqlite", path: "C:/lake/catalog.sqlite" },
+    ]) } }} onClose={close} onSaved={saved} />);
+  const schemas = screen.getAllByRole("textbox", { name: "Metadata schema (optional)" });
+  assert.deepEqual(schemas.map((input) => (input as HTMLInputElement).value), ["lake_meta", ""]);
+  assert.equal((await screen.findAllByRole("option", { name: "Lake catalog" })).length, 2);
+  fireEvent.change(schemas[0]!, { target: { value: "  " } });
+  fireEvent.change(schemas[1]!, { target: { value: " silver_meta " } });
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.equal(saved.mock.calls.length, 1));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  assert.deepEqual(JSON.parse(String((add![1] as { config: ConnectionConfig }).config.options?.ducklakeMappings)), [
+    { prefix: "s3://bucket/gold", kind: "postgres", connectionId: "pg-lake" },
+    { prefix: "s3://bucket/silver", kind: "postgres", connectionId: "pg-lake", metadataSchema: "silver_meta" },
+    { prefix: "s3://bucket/raw", kind: "sqlite", path: "C:/lake/catalog.sqlite" },
+  ]);
+});
+
 test("loads S3 buckets and saves the selected ones", async () => {
   vi.mocked(backend.call).mockImplementation(async (method) => {
     if (method === "connection.list") return { configs: [] };
