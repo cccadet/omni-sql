@@ -47,9 +47,6 @@ importers:
       '@monaco-editor/react':
         specifier: ^4.7.0
         version: 4.7.0(monaco-editor@0.52.2)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@omni-sql/adapters-core':
-        specifier: workspace:*
-        version: link:../../packages/adapters-core
       '@omni-sql/autocomplete-engine':
         specifier: workspace:*
         version: link:../../packages/autocomplete-engine
@@ -108,9 +105,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
-      eslint-plugin-react-hooks:
-        specifier: ^5.2.0
-        version: 5.2.0(eslint@9.39.4(supports-color@7.2.0))
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1
