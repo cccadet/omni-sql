@@ -90,10 +90,6 @@ export function registerOmniThemes(monacoInstance: typeof monaco): void {
   });
 }
 
-export function getOmniThemeName(isDark: boolean): string {
-  return isDark ? OMNISQL_DARK : OMNISQL_LIGHT;
-}
-
 export function mapKind(k: Suggestion["kind"]): monaco.languages.CompletionItemKind {
   switch (k) {
     case "schema":
