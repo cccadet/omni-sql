@@ -843,6 +843,32 @@ it("keeps MongoDB native/SQL text per tab and falls back to DuckDB for unsupport
   expect(tag.getAttribute("aria-checked")).toBe("true");
 });
 
+it("runs S3 DuckLake queries with only the referenced catalog table", async () => {
+  seedSession('SELECT * FROM "replicacao-totvs"."srespuni__pat_proced" LIMIT 1000', 1000, "s3-1");
+  const catalog = { kind: "sqlite" as const, path: "/tmp/lake.sqlite" };
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "s3-1", label: "Lake", dialect: "s3", endpoint: "s3://replicacao-totvs", user: "", options: { region: "us-east-1" } }] })
+    : method === "connection.s3Credentials"
+      ? Promise.resolve({ accessKeyId: "", ducklakeMappings: [{ prefix: "s3://replicacao-totvs/lake", catalog }] })
+      : defaultCall(method, params, signal));
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "analysis_list_s3") return ["s3://replicacao-totvs/lake/ducklake-1.parquet"];
+    if (command === "analysis_list_ducklake") {
+      return ["pat_proced", "other_a", "other_b"].map((name) => ({ schema: "srespuni", name, uri: "s3://replicacao-totvs/lake" }));
+    }
+    if (command === "analysis_list_datasets") return [];
+    if (command === "analysis_query_s3_catalog") return { columns: [{ name: "n", dataType: "BIGINT", nullable: false }], rows: [[1]], rowsMoreAvailable: false };
+    return undefined;
+  });
+  renderApp();
+  fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+
+  await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("analysis_query_s3_catalog", { request: expect.objectContaining({
+    sources: [expect.objectContaining({ schema: "replicacao-totvs", name: "srespuni__pat_proced", format: "ducklake", catalog })],
+  }) }));
+});
+
 it.each([false, true])("resolves MongoDB CTE completion from SQL mode or /mongo (command=%s)", async (command) => {
   const sql = "WITH x AS (SELECT name FROM items) SELECT x.";
   seedSession(command ? `/mongo\n${sql}` : sql, 100, "mongo-1");

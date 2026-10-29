@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, test } from "vitest";
-import { detectS3Tables, discoverS3Tables, duckLakeCandidatePrefixes, groupDuckLakeCandidates, resolveDuckLakeSource, type DuckLakeCatalog } from "./s3-sources";
+import { detectS3Tables, discoverS3Tables, duckLakeCandidatePrefixes, groupDuckLakeCandidates, resolveDuckLakeSource, selectReferencedS3Sources, type DuckLakeCatalog } from "./s3-sources";
 
 test("DuckLake candidates group by bucket with their common directory prefix", () => {
   expect(groupDuckLakeCandidates([
@@ -69,4 +69,17 @@ test("DuckLake catalog mappings resolve mixed buckets and table overrides", asyn
   expect(resolveDuckLakeSource({ ...sources[1]!, catalog: undefined }, { accessKeyId: "", ducklakeMappings: [
     { prefix: "s3://bucket", catalog: postgres }, { prefix: "s3://bucket/main/customers", catalog: sqlite },
   ] }).catalog).toEqual(sqlite);
+});
+
+test("S3 queries send only the catalog tables they reference, even in catalogs above the engine limit", () => {
+  const catalog = Array.from({ length: 600 }, (_, index) => ({ schema: "replicacao-totvs", name: `srespuni__t${index}` }));
+  catalog.push({ schema: "replicacao-totvs", name: "srespuni__pat_proced" }, { schema: "replicacao-totvs", name: "Mixed\"Case" });
+
+  expect(selectReferencedS3Sources(catalog, 'SELECT * FROM "replicacao-totvs"."srespuni__pat_proced" LIMIT 1000').map((source) => source.name))
+    .toEqual(["srespuni__pat_proced"]);
+  expect(selectReferencedS3Sources(catalog, 'SELECT * FROM srespuni__t1 a JOIN "mixed""case" b ON true').map((source) => source.name))
+    .toEqual(["srespuni__t1", "Mixed\"Case"]);
+  expect(() => selectReferencedS3Sources(catalog, "SELECT 1")).toThrow(/602 tabelas/);
+  expect(selectReferencedS3Sources(catalog.slice(0, 2), "SELECT 1")).toHaveLength(2);
+  expect(() => selectReferencedS3Sources([], "SELECT * FROM srespuni__pat_proced")).toThrow(/Nenhuma tabela/);
 });
