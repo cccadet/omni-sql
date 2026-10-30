@@ -326,7 +326,7 @@ fn native_menu(app: &AppHandle, language: &str) -> tauri::Result<Menu<tauri::Wry
 /// means the signed installer must not replace this copy in place.
 const PORTABLE_MARKER: &str = ".portable";
 
-fn has_portable_marker(executable_dir: &Path) -> bool {
+fn has_portable_marker(executable_dir: &std::path::Path) -> bool {
     executable_dir.join(PORTABLE_MARKER).is_file()
 }
 
