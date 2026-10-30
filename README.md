@@ -84,6 +84,7 @@ Download the package for your platform from the **[latest GitHub release](https:
 | Platform | Package | Status |
 | --- | --- | --- |
 | Windows 10/11 x64 | `.exe` installer | Available |
+| Windows 10/11 x64 | `x64-portable.zip` archive | Available |
 | Debian/Ubuntu amd64 | `.deb` package | Available |
 | macOS 15+ Apple Silicon / Intel | `.dmg` installer | Included starting with v0.7.1 |
 | Linux ARM, AppImage, RPM | — | Not packaged yet |
@@ -92,6 +93,30 @@ Release assets include a `SHA256SUMS` file so downloads can be verified. End use
 do not need to install Node.js, Java, or Rust. Native database connections do not
 require a separate database client or vendor client SDK; generic JDBC and ODBC
 require the database drivers described above.
+
+### Windows portable archive
+
+The portable archive runs without an installer or administrator rights. Extract
+the whole `omni-sql` folder (running it from inside the ZIP does not work) and
+start `omni-sql.exe`. It needs the Microsoft Edge WebView2 Runtime, which ships
+with Windows 11 and current Windows 10 installations.
+
+The portable copy keeps its data in your Windows profile, exactly like the
+installed app, so both share connections, history and settings:
+
+| Data | Location |
+| --- | --- |
+| Tabs, history, theme and editor settings | `%LOCALAPPDATA%\dev.omnisql` (WebView storage) |
+| Logs | `%LOCALAPPDATA%\dev.omnisql\logs` |
+| Local DuckDB analysis and runtime cache | `%APPDATA%\dev.omnisql` |
+| Connections and metadata cache | `%USERPROFILE%\.local\share\omni-sql` |
+| Passwords | Windows Credential Manager |
+
+Copying the folder to another machine or Windows account therefore does not move
+connections or passwords. When an update is available, the portable copy opens the
+release page instead of running the installer: close omni-sql, extract the new
+archive and replace the old folder. To remove it, delete the folder, and the
+locations above if you no longer need the data.
 
 ### macOS first launch
 

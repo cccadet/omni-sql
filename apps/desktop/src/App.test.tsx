@@ -5,6 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { check } from "@tauri-apps/plugin-updater";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import App from "./App";
 import { McpUiBridge } from "./lib/mcp-ui-bridge";
 import { LanguageProvider } from "./i18n";
@@ -22,6 +23,7 @@ vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => undefined) }));
 vi.mock("./lib/backend", () => ({ backend: { call: vi.fn() } }));
 vi.mock("./theme", () => ({ useEditorMonacoTheme: () => "test-monaco-theme" }));
 vi.mock("./lib/file-io", () => ({
@@ -720,6 +722,26 @@ describe("App update event listener", () => {
     const prepareIndex = vi.mocked(invoke).mock.calls.findIndex(([command]) => command === "prepare_update_install");
     expect(vi.mocked(invoke).mock.invocationCallOrder[prepareIndex] ?? Infinity).toBeLessThan(install.mock.invocationCallOrder[0] ?? -1);
     expect(screen.getByText("Installing update…")).toBeTruthy();
+  });
+
+  it("opens the release page instead of installing over a portable Windows copy", async () => {
+    updateCheckResult = {
+      available: true,
+      version: "v0.2.10",
+      releaseUrl: "https://github.com/cccadet/omni-sql/releases/tag/v0.2.10",
+    };
+    vi.stubGlobal("navigator", { ...window.navigator, userAgent: "Windows" });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.mocked(invoke).mockImplementation(async (command) => command === "is_portable_install" ? true : undefined);
+
+    renderApp();
+    await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("is_portable_install"));
+    fireEvent.click(await screen.findByRole("button", { name: "Update v0.2.10 available" }));
+
+    await waitFor(() => expect(openUrl).toHaveBeenCalledWith("https://github.com/cccadet/omni-sql/releases/tag/v0.2.10"));
+    expect(window.confirm).toHaveBeenCalledWith("Version v0.2.10 is available. Open GitHub Releases?");
+    expect(check).not.toHaveBeenCalled();
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith("prepare_update_install");
   });
 
   it("keeps the update available when installation is declined", async () => {

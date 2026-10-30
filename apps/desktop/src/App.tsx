@@ -304,6 +304,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("unknown");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateCheckStatus, setUpdateCheckStatus] = useState<UpdateCheckStatus | null>(null);
+  // Portable copies cannot be replaced by the installer, so updates open the release page.
+  const [portableInstall, setPortableInstall] = useState(false);
   const [mcpStatus, setMcpStatus] = useState<McpStatusResult | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [mcpStarted, setMcpStarted] = useState(false);
@@ -361,6 +363,9 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     void getVersion()
       .then((currentVersion) => backend.call<UpdateInfo>("update.check", { currentVersion }))
       .then(setUpdateInfo)
+      .catch(() => undefined);
+    void invoke<boolean>("is_portable_install")
+      .then((portable) => setPortableInstall(portable === true))
       .catch(() => undefined);
   }, []);
 
@@ -1902,7 +1907,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 6 }}>
-        <StatusBar compactConnection connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} mcpOpen={mcpDialogOpen} onMcpOpenChange={setMcpDialogOpen} />
+        <StatusBar compactConnection connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() && !portableInstall ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} mcpOpen={mcpDialogOpen} onMcpOpenChange={setMcpDialogOpen} />
       </div>
 
       {dialogOpen && <ConnectionDialog

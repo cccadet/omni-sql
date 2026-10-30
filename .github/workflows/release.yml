@@ -69,7 +69,9 @@ jobs:
           - os: windows-latest
             target: windows-x64
             bundles: nsis
-            bundle-paths: apps/desktop/src-tauri/target/release/bundle/nsis
+            bundle-paths: |
+              apps/desktop/src-tauri/target/release/bundle/nsis
+              apps/desktop/src-tauri/target/release/bundle/portable
           - os: ubuntu-22.04
             target: linux-x64
             bundles: deb
@@ -148,6 +150,42 @@ jobs:
             --bundles "${{ matrix.bundles }}" \
             --config "$RUNNER_TEMP/tauri-version.json"
 
+      # The portable copy is the installer's payload plus a marker that makes
+      # the app open the release page instead of running the installer.
+      - name: Create Windows portable archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $release = "apps/desktop/src-tauri/target/release"
+          $stage = Join-Path $env:RUNNER_TEMP "omni-sql"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item "$release/app.exe" "$stage/omni-sql.exe"
+          Copy-Item "$release/resources" "$stage/resources" -Recurse
+          New-Item -ItemType File "$stage/.portable" | Out-Null
+          $output = New-Item -ItemType Directory -Force "$release/bundle/portable"
+          $archive = Join-Path $output "omni-sql_${env:VERSION}_x64-portable.zip"
+          Compress-Archive -Path $stage -DestinationPath $archive -CompressionLevel Optimal
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+          try {
+            $entries = $zip.Entries.FullName -replace '\\', '/'
+          } finally {
+            $zip.Dispose()
+          }
+          foreach ($required in @(
+            "omni-sql/omni-sql.exe",
+            "omni-sql/.portable",
+            "omni-sql/resources/runtime/node/node.exe",
+            "omni-sql/resources/runtime/jre/bin/java.exe",
+            "omni-sql/resources/backend/index.mjs",
+            "omni-sql/resources/sidecar/omni-sql-sidecar.jar"
+          )) {
+            if ($entries -notcontains $required) { throw "Portable archive is missing $required" }
+          }
+
       - name: Verify macOS installer and distinguish updater architectures
         if: runner.os == 'macOS'
         shell: bash
@@ -196,7 +234,7 @@ jobs:
               exit 1
             fi
             cp "$file" "release-assets/$name"
-          done < <(find release-files -type f \( -name '*.deb' -o -name '*.exe' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.sig' \) -print0 | sort -z)
+          done < <(find release-files -type f \( -name '*.deb' -o -name '*.exe' -o -name '*.zip' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.sig' \) -print0 | sort -z)
 
       - name: Create updater manifest
         env:
