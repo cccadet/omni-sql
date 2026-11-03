@@ -230,14 +230,19 @@ export function ResultsGrid({
     return relations.find((relation) => relation.schema === editability.table?.schema && relation.name === editability.table.name) ?? null;
   }, [editability, relations]);
 
-  const foreignKeyColumns = useMemo(() => {
+  const sourceColumns = useMemo(() => {
     const resultColumns = result?.columns ?? [];
     return resultColumns.map((column, index) => {
       const sourceName = editability?.selectStar ? column.name : editability?.columns[index]?.sourceColumn;
       if (!sourceName || resultColumns.filter((item) => item.name === column.name).length !== 1) return null;
-      return sourceRelation?.columns?.find((item) => item.name === sourceName)?.foreignKeyTo ?? null;
+      return sourceRelation?.columns?.find((item) => item.name === sourceName) ?? null;
     });
   }, [result?.columns, editability, sourceRelation]);
+
+  const foreignKeyColumns = useMemo(
+    () => sourceColumns.map((column) => column?.foreignKeyTo ?? null),
+    [sourceColumns],
+  );
 
   const lookupRelated = useCallback(async (columnIndex: number, value: unknown) => {
     const target = foreignKeyColumns[columnIndex];
@@ -798,6 +803,7 @@ export function ResultsGrid({
                     {visibleColumns.map((col) => (
                       (() => {
                         const typeLabel = columnTypeLabel(col.dataType);
+                        const description = sourceColumns[col.index]?.description?.trim();
                         return (
                           <th
                             key={`${col.key}:${col.index}`}
@@ -806,7 +812,7 @@ export function ResultsGrid({
                             data-column-focused={focusedColumnIndex === col.index || undefined}
                             onClick={() => handleSort(col.index)}
                             aria-sort={sortColumn === col.index ? sortDirection : "none"}
-                            title={`${t("connectionType")}: ${col.dataType}`}
+                            title={`${t("connectionType")}: ${col.dataType}${description ? `\n${description}` : ""}`}
                             style={{
                               padding: "var(--omni-grid-head-py, 8px) 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
