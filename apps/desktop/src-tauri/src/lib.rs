@@ -322,8 +322,27 @@ fn native_menu(app: &AppHandle, language: &str) -> tauri::Result<Menu<tauri::Wry
         .build()
 }
 
+/// Marker shipped beside the executable in the portable ZIP. Its presence
+/// means the signed installer must not replace this copy in place.
+const PORTABLE_MARKER: &str = ".portable";
+
+fn has_portable_marker(executable_dir: &std::path::Path) -> bool {
+    executable_dir.join(PORTABLE_MARKER).is_file()
+}
+
+#[tauri::command]
+fn is_portable_install() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(has_portable_marker))
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 fn prepare_update_install(app: AppHandle) -> Result<(), String> {
+    if is_portable_install() {
+        return Err("portable copies are updated from the release page".to_string());
+    }
     stop_managed_sidecars(&app)?;
     remove_mcp_runtime_descriptor(&app);
     Ok(())
@@ -1769,6 +1788,7 @@ pub fn run() {
             get_sidecar_status,
             get_sidecar_diagnostics,
             get_managed_processes,
+            is_portable_install,
             stop_managed_process,
             restart_managed_processes,
             get_auth_token,
@@ -2484,6 +2504,25 @@ mod tests {
         assert_ne!(new, old);
         assert_eq!(fs::read(&old).unwrap(), b"old runtime");
         assert_eq!(fs::read(&new).unwrap(), b"new runtime");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn portable_marker_requires_a_file_beside_the_executable() {
+        let directory = std::env::temp_dir().join(format!(
+            "omni-sql-portable-test-{}-{}",
+            std::process::id(),
+            generate_auth_token().unwrap()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        assert!(!has_portable_marker(&directory));
+
+        fs::create_dir(directory.join(PORTABLE_MARKER)).unwrap();
+        assert!(!has_portable_marker(&directory));
+
+        fs::remove_dir(directory.join(PORTABLE_MARKER)).unwrap();
+        fs::write(directory.join(PORTABLE_MARKER), b"").unwrap();
+        assert!(has_portable_marker(&directory));
         fs::remove_dir_all(directory).unwrap();
     }
 

@@ -452,6 +452,20 @@ test("opens a foreign key in the related tab without starting cell editing", asy
   expect(screen.getByDisplayValue("42")).toBeTruthy();
 });
 
+test("shows the source column description in the header hint", () => {
+  render(<LanguageProvider><ResultsGrid
+    result={{ ...result, columns: [{ name: "status", dataType: "varchar", nullable: true }, { name: "total", dataType: "numeric", nullable: true }], rows: [["open", 10]] }}
+    editability={{ editable: false, reason: null, table: { schema: "public", name: "orders" }, pkColumns: [], selectStar: true, columns: [] }}
+    relations={[{ schema: "public", name: "orders", kind: "table", columns: [
+      { name: "status", dataType: "varchar", nullable: true, isPrimaryKey: false, description: "Order lifecycle state" },
+      { name: "total", dataType: "numeric", nullable: true, isPrimaryKey: false },
+    ] }]}
+  /></LanguageProvider>);
+  const [status, total] = screen.getAllByRole("columnheader");
+  expect(status?.getAttribute("title")).toMatch(/varchar\nOrder lifecycle state$/);
+  expect(total?.getAttribute("title")).toMatch(/numeric$/);
+});
+
 test("adds a row from an empty editable result and omits untouched columns", async () => {
   const insertRow = vi.fn().mockResolvedValue(undefined);
   render(
