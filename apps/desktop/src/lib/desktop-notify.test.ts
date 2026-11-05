@@ -1,4 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const tauri = vi.hoisted(() => ({
+  requestUserAttention: vi.fn(async () => undefined),
+  sendNotification: vi.fn(),
+}));
+vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ requestUserAttention: tauri.requestUserAttention }),
+  UserAttentionType: { Critical: 1, Informational: 2 },
+}));
+vi.mock("@tauri-apps/plugin-notification", () => ({
+  isPermissionGranted: async () => true,
+  requestPermission: async () => "granted",
+  sendNotification: tauri.sendNotification,
+}));
+
 import {
   loadDesktopNotificationsEnabled,
   notifyDesktop,
@@ -49,6 +65,31 @@ describe("notifyDesktop", () => {
   it("never throws when the plugin fails", async () => {
     const d = deps({ requestAttention: async () => { throw new Error("no window"); }, send: () => { throw new Error("boom"); } });
     expect(await notifyDesktop({ title: "T", body: "B" }, d)).toBe(false);
+  });
+});
+
+describe("notifyDesktop default wiring", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("uses window focus to decide and goes through the Tauri plugins", async () => {
+    tauri.sendNotification.mockClear();
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    expect(await notifyDesktop({ title: "T", body: "B" })).toBe(false);
+    expect(tauri.sendNotification).not.toHaveBeenCalled();
+
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    expect(await notifyDesktop({ title: "T", body: "B" })).toBe(true);
+    expect(tauri.sendNotification).toHaveBeenCalledWith({ title: "T", body: "B" });
+    expect(tauri.requestUserAttention).toHaveBeenCalledWith(1);
+  });
+
+  it("respects the saved setting", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    saveDesktopNotificationsEnabled(false);
+    tauri.sendNotification.mockClear();
+    expect(await notifyDesktop({ title: "T", body: "B" })).toBe(false);
+    expect(tauri.sendNotification).not.toHaveBeenCalled();
   });
 });
 
