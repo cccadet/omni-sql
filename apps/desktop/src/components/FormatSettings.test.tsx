@@ -102,3 +102,17 @@ test("switches settings tabs without losing formatting controls", () => {
   expect((screen.getByRole("textbox", { name: "Input SQL" }) as HTMLTextAreaElement).value).toBe("SELECT id FROM users");
   expect(screen.queryByRole("combobox", { name: "Language" })).toBeNull();
 });
+
+test("toggles desktop notifications from the general settings immediately", () => {
+  const onChange = vi.fn();
+  render(
+    <LanguageProvider>
+      <FormatSettings open dialect="postgres" settings={DEFAULT_FORMATTER_SETTINGS} onClose={vi.fn()} onSave={vi.fn()} desktopNotifications onDesktopNotificationsChange={onChange} />
+    </LanguageProvider>,
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Language" }));
+  const toggle = screen.getByRole("checkbox", { name: "Desktop notifications" });
+  expect(toggle).toHaveProperty("checked", true);
+  fireEvent.click(toggle);
+  expect(onChange).toHaveBeenCalledWith(false);
+});
