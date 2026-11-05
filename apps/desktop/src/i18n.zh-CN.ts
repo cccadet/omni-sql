@@ -684,4 +684,9 @@ export const simplifiedChinese = {
   ctePreviewUnsupported: "CTE 预览不支持 SEARCH 或 CYCLE 子句。",
   ctePreviewDataModifying: "CTE {name} 会修改数据（INSERT、UPDATE、DELETE 或 MERGE），因此不执行预览。",
   ctePreviewMongo: "MongoDB 不支持 CTE 预览。",
+  desktopNotifications: "桌面通知",
+  desktopNotificationsHint: "当 Omni SQL 在后台时，若 MCP 客户端请求批准或运行 10 秒以上的查询完成，将显示系统通知并闪烁任务栏。",
+  mcpApprovalNotificationBody: "MCP 客户端正在等待您在 Omni SQL 中批准。",
+  queryFinishedNotification: "查询已完成",
+  queryFailedNotification: "查询失败",
 } satisfies Record<TranslationKey, string>;
