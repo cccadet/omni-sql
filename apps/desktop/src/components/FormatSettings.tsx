@@ -38,6 +38,8 @@ export interface FormatSettingsProps {
   onThemeChange?: (theme: "light" | "dark") => void;
   density?: Density;
   onDensityChange?: (density: Density) => void;
+  desktopNotifications?: boolean;
+  onDesktopNotificationsChange?: (enabled: boolean) => void;
   /** Short MCP state shown under the "MCP server" section, e.g. "MCP ready · listening". */
   mcpSummary?: string;
   onOpenMcp?: () => void;
@@ -64,7 +66,7 @@ const logicalOperatorOptions = [
 
 const PREVIEW_SQL = `GRANT SELECT, UPDATE, DELETE, INSERT ON DW.TEST_TABLE TO DREMIO;\n\nSELECT id, name, email FROM users WHERE active = 1 AND created_at >= '2024-01-01' ORDER BY created_at DESC LIMIT 100;`;
 
-export function FormatSettings({ open, dialect, settings, onClose, onSave, theme, onThemeChange, density, onDensityChange, mcpSummary, onOpenMcp }: FormatSettingsProps) {
+export function FormatSettings({ open, dialect, settings, onClose, onSave, theme, onThemeChange, density, onDensityChange, desktopNotifications, onDesktopNotificationsChange, mcpSummary, onOpenMcp }: FormatSettingsProps) {
   const { t, language, setLanguage } = useLanguage();
   const [draft, setDraft] = useState<FormatterSettings>(() => ({ ...settings }));
   const [previewSql, setPreviewSql] = useState(PREVIEW_SQL);
@@ -149,6 +151,16 @@ export function FormatSettings({ open, dialect, settings, onClose, onSave, theme
                   <option value="compact">{t("densityCompact")}</option>
                 </Select>
               </Field>}
+              {desktopNotifications !== undefined && onDesktopNotificationsChange && <div className="omni-settings-language-field">
+                <Checkbox
+                  checked={desktopNotifications}
+                  label={t("desktopNotifications")}
+                  onChange={(_, data) => onDesktopNotificationsChange(data.checked === true)}
+                />
+                <Text size={200} style={{ display: "block", color: tokens.colorNeutralForeground2 }}>
+                  {t("desktopNotificationsHint")}
+                </Text>
+              </div>}
               </div>
             ) : section === "editor" ? (
               <div className="omni-settings-section">

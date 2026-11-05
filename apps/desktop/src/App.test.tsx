@@ -10,6 +10,8 @@ import App from "./App";
 import { McpUiBridge } from "./lib/mcp-ui-bridge";
 import { LanguageProvider } from "./i18n";
 import { backend } from "./lib/backend";
+import { notifyDesktop } from "./lib/desktop-notify";
+import type * as DesktopNotifyModule from "./lib/desktop-notify";
 import { pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { MCP_MAX_ERROR_MESSAGE_BYTES } from "@omni-sql/ts-types";
 
@@ -25,6 +27,10 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => undefined) }));
 vi.mock("./lib/backend", () => ({ backend: { call: vi.fn() } }));
+vi.mock("./lib/desktop-notify", async (importOriginal) => ({
+  ...(await importOriginal<typeof DesktopNotifyModule>()),
+  notifyDesktop: vi.fn(async () => true),
+}));
 vi.mock("./theme", () => ({ useEditorMonacoTheme: () => "test-monaco-theme" }));
 vi.mock("./lib/file-io", () => ({
   basenameNoExt: (path: string) => path.split("/").at(-1)?.replace(/\.sql$/u, "") ?? path,
@@ -384,6 +390,27 @@ describe("App execution flow", () => {
     await waitFor(() => expect(call).toHaveBeenCalledWith("query.cancel", { connectionId: "conn-1" }));
     expect(call.mock.calls.filter(([method]) => method === "query.cancel")).toHaveLength(1);
     expect(rejectBlockedQueryRun).toBeTruthy();
+  });
+
+  it("notifies on the desktop when a long query fails, but not for a quick one", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      renderApp();
+      await connectToDatabase();
+      fireEvent.click(screen.getByRole("button", { name: "Run" }));
+      expect(await screen.findByText("42")).toBeTruthy();
+      expect(notifyDesktop).not.toHaveBeenCalled();
+
+      blockQueryRun = true;
+      fireEvent.click(screen.getByRole("button", { name: "Run" }));
+      expect(await screen.findByTestId("query-running-indicator")).toBeTruthy();
+      await waitFor(() => expect(rejectBlockedQueryRun).toBeTruthy());
+      now += 11_000;
+      await act(async () => { rejectBlockedQueryRun!(new Error("statement timeout")); });
+
+      await waitFor(() => expect(notifyDesktop).toHaveBeenCalledWith({ title: "Query failed", body: expect.stringContaining("Local Postgres") }));
+    } finally { clock.mockRestore(); }
   });
 
   it("restores a persisted connection from the listed connections", async () => {
@@ -823,6 +850,8 @@ it("MCP execution shows connection and SQL and requires approval before the exec
     const dialog = await screen.findByRole("dialog", { name: "Approve SQL execution" });
     expect(within(dialog).getByText(/Local Postgres/)).toBeTruthy();
     expect(within(dialog).getByDisplayValue("DELETE FROM users")).toBeTruthy();
+    // A user away from the window must still learn that an approval is waiting before it expires.
+    expect(notifyDesktop).toHaveBeenCalledWith({ title: "Approve SQL execution", body: expect.stringContaining("Local Postgres") });
     expect(call.mock.calls.some(([method]) => method === "mcp.ui.execute")).toBe(false);
     const run = await within(dialog).findByRole("button", { name: "Run" });
     await act(async () => { fireEvent.click(run); await pending; });

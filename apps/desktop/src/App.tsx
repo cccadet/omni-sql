@@ -8,6 +8,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { check } from "@tauri-apps/plugin-updater";
 import { useEditorMonacoTheme, type ThemeName } from "./theme";
 import type { Density } from "./lib/density";
+import { LONG_QUERY_NOTIFY_MS, loadDesktopNotificationsEnabled, notifyDesktop, saveDesktopNotificationsEnabled } from "./lib/desktop-notify";
 import { useSession, makeTab } from "./hooks/useSession";
 import { useConnections } from "./hooks/useConnections";
 import { Toolbar } from "./components/Toolbar";
@@ -277,6 +278,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
   const [formatSettingsOpen, setFormatSettingsOpen] = useState(false);
+  const [desktopNotifications, setDesktopNotifications] = useState(loadDesktopNotificationsEnabled);
   const [commandLibraryOpen, setCommandLibraryOpen] = useState(false);
   const [formatterSettings, setFormatterSettings] = useState<FormatterSettings>(loadFormatterSettings);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number } | null>(null);
@@ -1083,6 +1085,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       setAnalysisSourceSql(null);
       setEditability(null);
       setPlanText(null);
+      const startedAt = Date.now();
+      let outcome: "ok" | "error" | null = null;
       try {
         let lastResult: QueryResult | null = null;
         for (const sql of sqls) {
@@ -1121,6 +1125,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
           }, activeQuery.abortController.signal);
         }
         if (!lastResult) return;
+        outcome = "ok";
         setResult(lastResult);
         setAnalysisSourceSql(sqls.at(-1) ?? null);
         updateTab(activeTab.id, { error: null, latestSqlExecutionError: null });
@@ -1149,6 +1154,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
           });
       } catch (e) {
         if (activeQueryRef.current !== activeQuery) return;
+        if (!activeQuery.cancelPromise) outcome = "error";
         const executionError = sqlExecutionErrorFrom(e);
         updateTab(activeTab.id, {
           error: e instanceof Error ? e.message : String(e),
@@ -1174,6 +1180,9 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       } finally {
         activeQuery.finished = true;
         finishQuery(activeQuery);
+        if (outcome && Date.now() - startedAt >= LONG_QUERY_NOTIFY_MS) {
+          void notifyDesktop({ title: t(outcome === "ok" ? "queryFinishedNotification" : "queryFailedNotification"), body: `${activeTab.title} · ${activeConnection.label}` });
+        }
       }
     },
     [activeConnectionId, activeConnection, activeDialect, activeTab, discoverS3Catalog, finishQuery, pushHistory, s3Catalog, trustedWarningConnections, updateTab, t],
@@ -1589,16 +1598,18 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         expiresAt: args.expiresAt,
         revision: getTabRevision(args.tabId),
       });
+      void notifyDesktop({ title: t("mcpEditTitle"), body: t("mcpApprovalNotificationBody") });
     });
-  }, [getTabRevision]);
+  }, [getTabRevision, t]);
 
   const approveMcpExecution = useCallback((args: { sql: string; limit: number; tabId: string; connectionId: string; connectionLabel: string; expiresAt: number }) => {
     return new Promise<"approved" | "rejected" | "stale">((resolve) => {
       if (mcpProposalResolverRef.current || args.expiresAt <= Date.now() + MCP_PROPOSAL_SAFETY_WINDOW_MS) { resolve("rejected"); return; }
       mcpProposalResolverRef.current = resolve;
       setMcpProposal({ kind: "execute", tabId: args.tabId, connectionId: args.connectionId, connectionLabel: args.connectionLabel, limit: args.limit, expiresAt: args.expiresAt, originalSql: editorRef.current?.getAllText() ?? mcpStateRef.current.activeTab?.sql ?? "", proposedSql: args.sql, rationale: "", revision: getTabRevision(args.tabId) });
+      void notifyDesktop({ title: t("mcpExecuteTitle"), body: `${t("mcpApprovalNotificationBody")}\n${args.connectionLabel}` });
     });
-  }, [getTabRevision]);
+  }, [getTabRevision, t]);
 
   const resolveMcpProposal = useCallback((outcome: "approved" | "rejected" | "stale") => {
     const resolver = mcpProposalResolverRef.current;
@@ -2048,6 +2059,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         onThemeChange={(next) => { if (next !== name) toggle(); }}
         density={density}
         onDensityChange={onDensityChange}
+        desktopNotifications={desktopNotifications}
+        onDesktopNotificationsChange={(enabled) => { setDesktopNotifications(enabled); saveDesktopNotificationsEnabled(enabled); }}
         mcpSummary={mcpState === "connected" ? t("mcpConnected") : mcpState === "error" ? t("mcpError") : mcpState === "listening" ? t("mcpListening") : t("mcpInactive")}
         onOpenMcp={() => { setFormatSettingsOpen(false); setMcpDialogOpen(true); }}
       />
