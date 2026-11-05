@@ -689,6 +689,11 @@ const english = {
   ctePreviewUnsupported: "CTE preview does not support SEARCH or CYCLE clauses.",
   ctePreviewDataModifying: "CTE {name} changes data (INSERT, UPDATE, DELETE or MERGE), so the preview is not run.",
   ctePreviewMongo: "CTE preview is not available for MongoDB.",
+  desktopNotifications: "Desktop notifications",
+  desktopNotificationsHint: "While Omni SQL is in the background, show a system notification and flash the taskbar when an MCP client asks for approval or a query that ran for 10 seconds or more finishes.",
+  mcpApprovalNotificationBody: "An MCP client is waiting for your approval in Omni SQL.",
+  queryFinishedNotification: "Query finished",
+  queryFailedNotification: "Query failed",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -937,6 +942,11 @@ const portugueseBrazil = [
   "A prévia de CTE não suporta as cláusulas SEARCH ou CYCLE.",
   "A CTE {name} altera dados (INSERT, UPDATE, DELETE ou MERGE), então a prévia não é executada.",
   "A prévia de CTE não está disponível para MongoDB.",
+  "Notificações na área de trabalho",
+  "Com o Omni SQL em segundo plano, mostra uma notificação do sistema e pisca a barra de tarefas quando um cliente MCP pede aprovação ou termina uma consulta que levou 10 segundos ou mais.",
+  "Um cliente MCP está aguardando sua aprovação no Omni SQL.",
+  "Consulta concluída",
+  "Consulta falhou",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
