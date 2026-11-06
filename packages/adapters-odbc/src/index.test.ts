@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
 import { OdbcAdapter, buildOdbcConnectionString } from "./index.ts";
+import { lazyOdbcDriver } from "./odbc-adapter.ts";
 
 const config: ConnectionConfig = {
   id: "odbc-test", label: "Mock ODBC", dialect: "odbc", endpoint: "Test DSN", user: "alice",
@@ -127,4 +128,19 @@ test("ODBC classifies driver errors without exposing passwords", async () => {
   assert.doesNotMatch(status.message ?? "", /secret/u);
   await assert.rejects(adapter.connect(), (error: unknown) =>
     error instanceof Error && "causeTag" in error && error.causeTag === "driver-missing");
+});
+
+test("a missing unixODBC library fails only the ODBC connection, with an install hint, and is retried", async () => {
+  let attempts = 0;
+  const driver = lazyOdbcDriver(async () => {
+    attempts++;
+    if (attempts === 1) throw new Error("libodbc.so.2: cannot open shared object file: No such file or directory");
+    return { connect: async () => ({ close: async () => undefined }) } as unknown as Parameters<typeof lazyOdbcDriver>[0] extends (() => Promise<infer T>) | undefined ? T : never;
+  });
+  const adapter = new OdbcAdapter(config, "secret", driver);
+  const failed = await adapter.test();
+  assert.equal(failed.ok, false);
+  assert.match(failed.message ?? "", /libodbc2/u);
+  assert.equal((await adapter.test()).ok, true);
+  assert.equal(attempts, 2);
 });

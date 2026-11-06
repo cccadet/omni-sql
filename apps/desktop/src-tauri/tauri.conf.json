@@ -43,6 +43,14 @@
         "installerHooks": "installer-hooks.nsh"
       }
     },
+    "linux": {
+      "deb": {
+        "depends": ["libodbc2"]
+      },
+      "rpm": {
+        "depends": ["unixODBC"]
+      }
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }

@@ -1,4 +1,4 @@
-import odbc from "odbc";
+import type odbc from "odbc";
 import type { ConnectionConfig, ExplainResult, FunctionDef, IndexInfo, QueryResult, Relation } from "@omni-sql/ts-types";
 import { odbcDescriptor } from "@omni-sql/dialect-descriptors";
 import { AdapterError, CachedAdapter, type Adapter, type QueryBatch, type QueryStreamOptions, type RowInsertSpec, type RowUpdateSpec, type TestResult } from "@omni-sql/adapters-core";
@@ -6,6 +6,22 @@ import { AdapterError, CachedAdapter, type Adapter, type QueryBatch, type QueryS
 type OdbcConnection = odbc.Connection;
 type OdbcResult = odbc.Result<Record<string, unknown>>;
 type OdbcConnector = Pick<typeof odbc, "connect">;
+
+// The native binding links against libodbc (unixODBC). Loading it lazily keeps a
+// missing system library from crashing the whole backend at startup: only ODBC
+// connections fail, with an actionable message.
+export function lazyOdbcDriver(load: () => Promise<OdbcConnector> = async () => (await import("odbc")).default): OdbcConnector {
+  let loaded: Promise<OdbcConnector> | undefined;
+  const resolve = (): Promise<OdbcConnector> => {
+    loaded ??= load().catch((error: unknown) => {
+      loaded = undefined;
+      throw new AdapterError("driver-missing", odbcLoadMessage(error), { cause: error });
+    });
+    return loaded;
+  };
+  return { connect: (async (...args: Parameters<OdbcConnector["connect"]>) => (await resolve()).connect(...args)) as OdbcConnector["connect"] };
+}
+const defaultOdbcDriver = lazyOdbcDriver();
 
 interface TableRef { catalog: string | null; schema: string | null; displaySchema: string; name: string; kind: "table" | "view"; description?: string; }
 
@@ -17,7 +33,7 @@ export class OdbcAdapter extends CachedAdapter implements Adapter {
   private readonly timeout: number;
   private readonly driver: OdbcConnector;
 
-  constructor(config: ConnectionConfig, password?: string, driver: OdbcConnector = odbc) {
+  constructor(config: ConnectionConfig, password?: string, driver: OdbcConnector = defaultOdbcDriver) {
     super(config);
     if (!config.endpoint.trim()) throw new AdapterError("credentials", "ODBC requer um DSN ou connection string");
     this.connectionString = buildOdbcConnectionString(config.endpoint, config.user, password);
@@ -178,7 +194,14 @@ function compareStrings(left: string, right: string): number { return left.local
 function emptyResult(): OdbcResult { const result = [] as unknown as OdbcResult; result.count = 0; result.columns = []; result.statement = ""; result.parameters = []; result.return = 0; return result; }
 function jsonSafe(value: unknown): unknown { if (typeof value === "bigint") return value.toString(); if (value instanceof Date) return value.toISOString(); return value; }
 function safeOdbcMessage(error: unknown): string { const message = error instanceof Error ? error.message : String(error); return message.replace(/(?:PWD|PASSWORD)\s*=\s*(?:\{(?:[^}]|\}\})*\}|[^;]*)/giu, "PWD=***"); }
+function odbcLoadMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return /libodbc/iu.test(detail)
+    ? `unixODBC não encontrado (${detail}). Instale o pacote libodbc2 (Debian/Ubuntu) ou unixODBC (Fedora/RHEL).`
+    : `não foi possível carregar o driver ODBC: ${detail}`;
+}
 function classifyOdbcError(error: unknown): AdapterError {
+  if (error instanceof AdapterError) return error;
   const message = safeOdbcMessage(error);
   const states = (error as { odbcErrors?: readonly { state?: string }[] } | null)?.odbcErrors?.map((item) => item.state ?? "") ?? [];
   const state = states.join(" ");
