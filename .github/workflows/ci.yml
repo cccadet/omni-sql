@@ -9,6 +9,12 @@ permissions:
   contents: read
   pull-requests: read
 
+# A new push to a PR supersedes its previous run. Main runs are keyed by commit
+# and never cancelled, because each tagged commit needs its own successful run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verify-ts:
     name: Typecheck, lint, tests and coverage
@@ -60,6 +66,10 @@ jobs:
 
   cargo-check:
     name: cargo check (Tauri shell)
+    # On main, the SonarCloud job compiles the crate and its tests with
+    # cargo llvm-cov, which already covers this check. PRs keep it for fast
+    # feedback and for fork PRs, where SonarCloud does not run.
+    if: github.event_name != 'push' || github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
