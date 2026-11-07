@@ -1,4 +1,4 @@
-import { assert, beforeEach, test, vi } from "vitest";
+import { assert, beforeEach, onTestFinished, test, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
@@ -6,6 +6,7 @@ import { ConnectionDialog } from "./ConnectionDialog";
 import { LanguageProvider } from "../i18n";
 import { backend } from "../lib/backend";
 import { listAnalysisS3 } from "../lib/analysis";
+import { ENVIRONMENTS_KEY, resetEnvironmentsCache } from "../lib/environments";
 
 const renderWithLanguage = (ui: React.ReactElement) => render(<LanguageProvider>{ui}</LanguageProvider>);
 
@@ -29,6 +30,42 @@ test("saves and restores an explicit environment without dropping SSL", async ()
   await waitFor(() => assert.equal(saved.mock.calls.length, 1));
   const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
   assert.deepEqual((add![1] as { config: ConnectionConfig }).config.options, { ssl: "require", environment: "production" });
+});
+
+test("edits the environment list from the connection dialog and saves a custom environment", async () => {
+  localStorage.removeItem(ENVIRONMENTS_KEY);
+  resetEnvironmentsCache();
+  onTestFinished(() => { localStorage.removeItem(ENVIRONMENTS_KEY); resetEnvironmentsCache(); });
+  vi.mocked(backend.call).mockReset().mockResolvedValue({ connectionId: "saved-pg" });
+  renderWithLanguage(<ConnectionDialog open editing={{ id: "saved-pg", label: "Warehouse", dialect: "postgres", endpoint: "localhost:5432/test", user: "u", options: { environment: "staging" } }} onClose={close} onSaved={saved} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Environments…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Environments" });
+  const names = () => within(dialog).getAllByRole("textbox", { name: "Environment name" }) as HTMLInputElement[];
+  fireEvent.change(names()[2]!, { target: { value: "Prod" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Remove environment Staging" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "New environment" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+  assert.ok(within(dialog).getByRole("alert").textContent?.includes("needs a name"));
+  fireEvent.change(names()[2]!, { target: { value: "QA" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() => assert.equal(screen.queryByRole("dialog", { name: "Environments" }), null));
+
+  const environment = screen.getByRole("radiogroup", { name: "Environment" });
+  assert.deepEqual(within(environment).getAllByRole("radio").map((radio) => radio.textContent), ["Not specified", "Development", "Prod", "QA"]);
+  // The removed Staging environment no longer applies to this connection.
+  assert.equal(within(environment).getByRole("radio", { name: "Not specified" }).getAttribute("aria-checked"), "true");
+  fireEvent.click(within(environment).getByRole("radio", { name: "QA" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.ok(vi.mocked(backend.call).mock.calls.some(([method]) => method === "connection.add")));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  const savedEnvironment = (add![1] as { config: ConnectionConfig }).config.options?.environment;
+  assert.match(String(savedEnvironment), /^env-/);
+  assert.deepEqual(JSON.parse(localStorage.getItem(ENVIRONMENTS_KEY)!), [
+    { id: "development", color: "green" },
+    { id: "production", name: "Prod", color: "red" },
+    { id: savedEnvironment, name: "QA", color: "yellow" },
+  ]);
 });
 
 test("MCP access defaults to read-only and saves an explicit choice", async () => {
