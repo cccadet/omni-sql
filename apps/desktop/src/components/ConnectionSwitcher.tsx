@@ -25,29 +25,12 @@ import type { ConnectionHealth } from "./StatusBar";
 import type { ConnectionEntry, ConnectionGroup } from "../lib/backend";
 import { DIALECT_LABELS } from "../lib/dialect-labels";
 import { recentConnectionIds, type ConnectionUsage } from "../lib/recent-connections";
-import { useLanguage, type TranslationKey } from "../i18n";
+import { useEnvironments } from "../lib/environments";
+import { useLanguage } from "../i18n";
+import { EnvironmentBadge, environmentName, findConnectionEnvironment } from "./Environments";
 
 const COLLAPSED_FOLDERS_KEY = "omni-sql:collapsedConnectionFolders";
 const ROOT_FOLDER = "__root__";
-
-export type ConnectionEnvironment = "development" | "staging" | "production";
-
-export function connectionEnvironment(connection: ConnectionEntry): ConnectionEnvironment | null {
-  const value = connection.options?.environment;
-  return value === "development" || value === "staging" || value === "production" ? value : null;
-}
-
-export const ENVIRONMENT_LABEL_KEYS: Record<ConnectionEnvironment, TranslationKey> = {
-  development: "environmentDevelopment",
-  staging: "environmentStaging",
-  production: "environmentProduction",
-};
-
-export function EnvironmentBadge({ connection }: { connection: ConnectionEntry }) {
-  const { t } = useLanguage();
-  const environment = connectionEnvironment(connection);
-  return environment ? <span className="omni-environment-badge" data-environment={environment}>{t(ENVIRONMENT_LABEL_KEYS[environment])}</span> : null;
-}
 
 function loadCollapsedFolders(): Set<string> {
   try {
@@ -111,6 +94,7 @@ export function ConnectionSwitcher({
   const [highlighted, setHighlighted] = useState(0);
   const [collapsed, setCollapsed] = useState(loadCollapsedFolders);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const environments = useEnvironments();
   const activeConnection = connections.find((connection) => connection.id === activeConnectionId) ?? null;
 
   useEffect(() => {
@@ -136,13 +120,13 @@ export function ConnectionSwitcher({
     const needle = query.trim().toLocaleLowerCase();
     const matches = (connection: ConnectionEntry) => {
       if (!needle) return true;
-      const environment = connectionEnvironment(connection);
+      const environment = findConnectionEnvironment(connection, environments);
       return [
         connection.label,
         connection.endpoint,
         DIALECT_LABELS[connection.dialect] ?? connection.dialect,
         connection.groupId ? groupName.get(connection.groupId) ?? "" : "",
-        environment ? t(ENVIRONMENT_LABEL_KEYS[environment]) : "",
+        environment ? environmentName(environment, t) : "",
       ].some((value) => value.toLocaleLowerCase().includes(needle));
     };
     const result: Section[] = [];
@@ -163,7 +147,7 @@ export function ConnectionSwitcher({
       result.push({ key: "folder:root", title, folderId: groups.length > 0 ? ROOT_FOLDER : undefined, collapsed: !needle && collapsed.has(ROOT_FOLDER), items: loose });
     }
     return result;
-  }, [collapsed, connections, groupName, groups, query, t, usage]);
+  }, [collapsed, connections, environments, groupName, groups, query, t, usage]);
 
   const options = useMemo(() => sections.flatMap((section) => section.collapsed ? [] : section.items.map((connection) => ({ section: section.key, connection }))), [sections]);
   const highlightedIndex = Math.min(highlighted, Math.max(options.length - 1, 0));

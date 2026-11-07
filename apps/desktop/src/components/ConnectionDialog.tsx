@@ -18,16 +18,11 @@ import { backend } from "../lib/backend";
 import { pickJarPath } from "../lib/file-io";
 import { listAnalysisS3 } from "../lib/analysis";
 import { s3Buckets } from "../lib/s3-buckets";
+import { useEnvironments } from "../lib/environments";
 import { useLanguage } from "../i18n";
+import { EnvironmentDot, EnvironmentsDialog, environmentName } from "./Environments";
 
 type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "s3" | "mongodb" | "demo";
-
-const ENVIRONMENTS = [
-  { value: "", label: "environmentUnset" },
-  { value: "development", label: "environmentDevelopment" },
-  { value: "staging", label: "environmentStaging" },
-  { value: "production", label: "environmentProduction" },
-] as const;
 
 const MCP_ACCESS_OPTIONS = [
   { value: "off", label: "mcpAccessOff" },
@@ -120,6 +115,10 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [mode, setMode] = useState<Mode>("postgres");
   const [label, setLabel] = useState("");
   const [environment, setEnvironment] = useState("");
+  const [environmentsOpen, setEnvironmentsOpen] = useState(false);
+  const environments = useEnvironments();
+  // An id whose environment was removed counts as unset, so saving drops it.
+  const selectedEnvironment = environments.some((option) => option.id === environment) ? environment : "";
   const [mcpAccess, setMcpAccess] = useState<McpAccess>(DEFAULT_MCP_ACCESS);
   const [id, setId] = useState("");
   const [host, setHost] = useState("");
@@ -260,7 +259,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
   const buildConfig = useCallback((): ConnectionConfig => {
     // The default (read-only) is not persisted.
-    const shared = { ...(environment ? { environment } : {}), ...(mcpAccess !== DEFAULT_MCP_ACCESS ? { mcpAccess } : {}) };
+    const shared = { ...(selectedEnvironment ? { environment: selectedEnvironment } : {}), ...(mcpAccess !== DEFAULT_MCP_ACCESS ? { mcpAccess } : {}) };
     if (mode === "demo") {
       return {
         id: id || "demo",
@@ -281,7 +280,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
       options: Object.keys(shared).length > 0 ? { ...options, ...shared } : options,
       schemas: selectedSchemas.size > 0 ? [...selectedSchemas] : undefined,
     };
-  }, [mode, id, label, environment, mcpAccess, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
+  }, [mode, id, label, selectedEnvironment, mcpAccess, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
 
   const onTest = async () => {
     if (mode === "demo") return;
@@ -440,13 +439,19 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                 <Input value={label} onChange={(_, data) => setLabel(data.value)} placeholder={t("connectionNamePlaceholder")} disabled={busy} required style={{ marginTop: 4 }} />
               </Field>
               <div className="omni-connection-environment">
-                <span id="omni-connection-environment-label" className="omni-connection-environment-label">{t("connectionEnvironment")}</span>
+                <div className="omni-connection-environment-header">
+                  <span id="omni-connection-environment-label" className="omni-connection-environment-label">{t("connectionEnvironment")}</span>
+                  <Button type="button" appearance="transparent" size="small" className="omni-connection-environment-edit" disabled={busy} onClick={() => setEnvironmentsOpen(true)}>{t("manageEnvironmentsEllipsis")}</Button>
+                </div>
                 <div role="radiogroup" aria-labelledby="omni-connection-environment-label" className="omni-segmented omni-environment-segmented">
-                  {ENVIRONMENTS.map(({ value, label: key }) => (
-                    <button key={value || "unset"} type="button" role="radio" aria-checked={environment === value} disabled={busy} data-environment={value || undefined} onClick={() => { setEnvironment(value); setTestResult(null); setError(null); setDirty(true); }}>
-                      {value && <span aria-hidden className="omni-environment-dot" />}{t(key)}
-                    </button>
-                  ))}
+                  {[null, ...environments].map((option) => {
+                    const value = option?.id ?? "";
+                    return (
+                      <button key={value || "unset"} type="button" role="radio" aria-checked={selectedEnvironment === value} disabled={busy} onClick={() => { setEnvironment(value); setTestResult(null); setError(null); setDirty(true); }}>
+                        {option ? <><EnvironmentDot color={option.color} />{environmentName(option, t)}</> : t("environmentUnset")}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -669,6 +674,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
             </Button>
           </DialogActions>
         </form>
+        <EnvironmentsDialog open={environmentsOpen} onClose={() => setEnvironmentsOpen(false)} />
       </DialogSurface>
       <Dialog open={confirmDiscard} modalType="alert" onOpenChange={(_, data) => { if (!data.open) setConfirmDiscard(false); }}>
         <DialogSurface className="omni-standard-dialog">
