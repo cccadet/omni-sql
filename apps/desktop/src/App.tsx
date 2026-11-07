@@ -21,6 +21,7 @@ import { ManageConnectionsDialog } from "./components/ManageConnectionsDialog";
 import { ConnectionImportDialog } from "./components/ConnectionImportDialog";
 import { buildConnectionExport } from "./lib/connection-import";
 import { loadConnectionUsage, recordConnectionUse } from "./lib/recent-connections";
+import { sortByName } from "./lib/sort-by-name";
 import { usesCustomTitleBar, WindowControls } from "./components/WindowControls";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { ResultsGrid } from "./components/ResultsGrid";
@@ -455,7 +456,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   const loadConnectionGroups = useCallback(async () => {
     try {
       const result = await backend.call<{ groups: ConnectionGroup[] }>("connectionGroup.list", {});
-      setConnectionGroups(result.groups);
+      setConnectionGroups(sortByName(result.groups, (group) => group.name));
     } catch {
       setConnectionGroups([]);
     }
