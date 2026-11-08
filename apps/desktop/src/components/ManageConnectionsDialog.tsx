@@ -43,7 +43,7 @@ import {
   TextBulletListLtrRegular,
 } from "@fluentui/react-icons";
 import { DialectIcon } from "./DialectIcon";
-import { EnvironmentBadge } from "./ConnectionSwitcher";
+import { EnvironmentBadge, EnvironmentsDialog } from "./Environments";
 import type { ConnectionEntry, ConnectionGroup } from "../lib/backend";
 import { DIALECT_LABELS } from "../lib/dialect-labels";
 import { formatUsageAge, type ConnectionUsage } from "../lib/recent-connections";
@@ -154,6 +154,7 @@ export function ManageConnectionsDialog({
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [environmentsOpen, setEnvironmentsOpen] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor));
 
   const groupIds = useMemo(() => new Set(groups.map((group) => group.id)), [groups]);
@@ -346,6 +347,7 @@ export function ManageConnectionsDialog({
                     }}>{t("exportConnections")}</Button>
                     <Button size="small" className="omni-button-danger" onClick={() => void run(() => onRemove(selectedRows.map((connection) => connection.id)))}>{t("remove")}</Button>
                   </>}
+                  <Button size="small" onClick={() => setEnvironmentsOpen(true)}>{t("manageEnvironmentsEllipsis")}</Button>
                   <Button size="small" onClick={() => leaveFor(onImport)}>{t("importConnections")}</Button>
                   <Button appearance="primary" size="small" icon={<AddRegular />} onClick={() => leaveFor(onAdd)}>{t("newConnection")}</Button>
                 </div>
@@ -426,6 +428,7 @@ export function ManageConnectionsDialog({
             <Button appearance="secondary" onClick={onClose}>{t("close")}</Button>
           </DialogActions>
         </DialogBody>
+        <EnvironmentsDialog open={environmentsOpen} onClose={() => setEnvironmentsOpen(false)} connections={connections} />
       </DialogSurface>
     </Dialog>
   );

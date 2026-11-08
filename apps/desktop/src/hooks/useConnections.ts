@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { backend, type ConnectionEntry } from "../lib/backend";
+import { sortByName } from "../lib/sort-by-name";
 
 export function useConnections() {
   const [connections, setConnections] = useState<ConnectionEntry[]>([]);
@@ -11,7 +12,7 @@ export function useConnections() {
     setError(null);
     try {
       const result = await backend.call<{ configs: ConnectionEntry[] }>("connection.list", {});
-      setConnections(result.configs);
+      setConnections(sortByName(result.configs, (connection) => connection.label));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
