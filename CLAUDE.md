@@ -20,6 +20,8 @@ packages/metadata-cache      SQLite (node:sqlite), last_synced_at
 packages/backend             Node HTTP JSON-RPC, MongoDB driver/SQL translation
 packages/mcp-server          MCP stdio and authenticated Streamable HTTP
 services/jvm-sidecar         Kotlin/JVM + Calcite: scope, editability, JDBC HTTP
+apps/docs                    Astro Starlight docs site generated from docs/ (pages.mjs maps pages)
+website                      Static landing page; Pages serves it with the docs under /docs
 ```
 Drivers: `pg`, `mysql2/promise` (MySQL/MariaDB), `mssql`/Tedious,
 `oracledb` thin mode, generic JDBC, `odbc`, and `mongodb`.
@@ -39,7 +41,7 @@ Local desktop app; several processes cooperate over loopback:
 - **Local analysis** runs in Rust/DuckDB (`local.duckdb`); the backend streams relational rows to Rust as bounded NDJSON.
 - **MCP server** (stdio or authenticated HTTP `:41922`) bridges to the backend; SQL edits/execution require desktop approval and results are bounded.
 
-Deeper detail: `docs/ARCHITECTURE.md`, `docs/MCP.md`, `docs/MONGODB.md`, `docs/RUST_DATA_ENGINE_PLAN.md`.
+Deeper detail: `docs/ARCHITECTURE.md` (including the local analysis engine), `docs/MCP.md`, `docs/MONGODB.md`; index in `docs/README.md`.
 
 ## Commands
 

@@ -1,247 +1,158 @@
-# Integração MCP local
+# MCP integration
 
-Omni SQL fornece servidor MCP local via STDIO (padrão). O servidor conversa
-somente com o backend autenticado em `127.0.0.1:41920`; não é um endpoint remoto
-por padrão. Streamable HTTP é opt-in e escuta apenas em loopback.
+omni-sql includes a local MCP server that lets compatible AI clients work with
+the SQL tab you have open. It uses STDIO by default and talks only to the
+authenticated backend on `127.0.0.1:41920`. Streamable HTTP is opt-in and
+listens on loopback only.
 
-## Capacidades e limites
+![Review an SQL edit proposed through MCP before applying it](images/mcp-sql-proposal.png)
 
-As oito ferramentas expostas são:
+```text
+AI client ──MCP (STDIO or HTTP)──▶ local MCP server ──▶ backend ──▶ active desktop tab
+                                                         edits and execution require approval
+```
 
-1. `getActiveSql`: lê SQL e dialeto da conexão da aba ativa; o dialeto é
-   `null` quando a aba não tem conexão.
-2. `getActiveConnectionContext`: retorna contexto seguro da conexão ativa,
-   sem senha ou credenciais.
-3. `getSchemaSummary`: retorna schemas, relações e colunas da conexão ativa.
-   Aceita `schema`, `table`, `offset` e `limit` (até 100 relações; padrão 50).
-   Quando há mais relações, retorna `nextOffset` para a próxima página.
-4. `getTableIndexes`: retorna os índices de uma tabela da conexão ativa.
-5. `explainSql`: gera um plano sem executar a query, usando a conexão ativa.
-6. `getLatestSqlExecutionError`: retorna último erro de execução da aba ativa.
-7. `proposeSqlEdit`: apresenta proposta de edição para aprovação explícita no
-   desktop; rejeita estado obsoleto.
-8. `executeSql`: executa o SQL somente depois de aprovação explícita no desktop,
-   mostrando a conexão e o SQL. Aceita `sql` e `limit` (padrão 100; máximo 1.000).
-   Retorna colunas, linhas, tempo, quantidade afetada quando disponível e
-   `truncated`/`rowsMoreAvailable`. A resposta SQL é limitada a 256 KiB.
+## Tools
 
-Não há ferramentas dedicadas a ler conexões arbitrárias, credenciais da
-configuração do IDE, descritores, arquivos, shell ou processos. SQL, nomes de schema,
-metadados e resultados permitidos retornados pelas ferramentas ficam visíveis ao
-cliente MCP local conectado; use a integração somente quando essa exposição for
-aceitável.
-
-## Permissão por conexão
-
-O cadastro de cada conexão tem o campo **Acesso via MCP**, salvo em
-`options.mcpAccess`:
-
-| Nível | Efeito |
+| Tool | What it does |
 | --- | --- |
-| Desligado (`off`) | Nenhuma ferramenta responde para uma aba ligada a essa conexão, nem mesmo `getActiveSql`. |
-| Somente leitura (padrão) | Leitura de schema, índices e planos. `executeSql` aceita uma única instrução `SELECT`, `WITH`, `VALUES`, `TABLE`, `SHOW`, `DESCRIBE` ou `EXPLAIN` sem `ANALYZE`; no MongoDB, só `find` e `aggregate` sem `$out`/`$merge`. |
-| Leitura e escrita (`write`) | Comportamento anterior: qualquer SQL, sempre com aprovação no desktop. |
+| `getActiveSql` | SQL and dialect of the active tab (dialect is `null` without a connection) |
+| `getActiveConnectionContext` | Safe connection context, without passwords or credentials |
+| `getSchemaSummary` | Schemas, relations and columns; accepts `schema`, `table`, `offset`, `limit` (default 50, max 100) and returns `nextOffset` when more exist |
+| `getTableIndexes` | Indexes of one table |
+| `explainSql` | Query plan without executing the query |
+| `getLatestSqlExecutionError` | Latest execution error in the active tab |
+| `proposeSqlEdit` | Before/after proposal that you apply or reject in the desktop; stale proposals are rejected |
+| `executeSql` | Runs SQL after desktop approval; accepts `sql` and `limit` (default 100, max 1,000) and returns columns, rows, timing, affected count and `truncated`/`rowsMoreAvailable`, capped at 256 KiB |
 
-Conexões sem escolha explícita, inclusive as já existentes, ficam em somente
-leitura. Conexões desconhecidas pelo backend são tratadas como desligadas.
+There are no tools to read other connections, stored credentials, files, the
+shell or processes. SQL, schema names, metadata and permitted results returned
+by the tools are visible to the connected client; use the integration only when
+that exposure is acceptable.
 
-A regra vale em duas camadas. O desktop recusa antes de abrir o diálogo de
-aprovação. O backend repete a verificação em `mcp.ui.execute` e descarta
-qualquer resultado com `connectionId` de uma conexão desligada, então uma
-aprovação nunca amplia a permissão. Uma mudança no cadastro vale a partir do
-pedido seguinte.
+## Per-connection access
 
-O modo somente leitura recusa palavras que escrevem, travam linhas ou mudam a
-sessão em qualquer ponto da instrução (`INSERT`, `DELETE` em CTE, `SELECT INTO`,
-`FOR UPDATE`, `CALL`, `EXEC`, `SET` etc.); strings, comentários, identificadores
-entre aspas e nomes qualificados como `t.comment` não contam. Funções com efeito
-colateral não são detectáveis pelo texto. Por isso PostgreSQL, MySQL e MariaDB
-executam a instrução numa transação somente leitura que é sempre desfeita: o
-banco recusa, por exemplo, `SELECT nextval(...)` ou uma função que faz `DELETE`.
-SQL Server, Oracle, JDBC e ODBC dependem só da verificação do texto. Em qualquer
-banco, prefira também um usuário com o mínimo de privilégios.
+Each connection has an **MCP access** setting (`options.mcpAccess`):
 
-O backend mantém autenticação separada para MCP, bind em loopback, requests e
-respostas limitados, allowlists por ferramenta e fila limitada. O descritor de
-runtime contém uma capacidade temporária da execução atual: não abra, copie ou
-cole seu conteúdo.
+| Level | Effect |
+| --- | --- |
+| Off | No tool answers for a tab on this connection, not even `getActiveSql` |
+| Read-only (default) | Schema, indexes and plans. `executeSql` accepts one `SELECT`, `WITH`, `VALUES`, `TABLE`, `SHOW`, `DESCRIBE` or `EXPLAIN` (without `ANALYZE`); on MongoDB only `find` and `aggregate` without `$out`/`$merge` |
+| Read and write | Any SQL, always with desktop approval |
 
-## Streamable HTTP e Secure MCP Tunnel
+Connections without an explicit choice are read-only; unknown connections are
+treated as Off. The desktop refuses disallowed SQL before showing the approval
+dialog, and the backend checks again, so an approval never widens a
+connection's permission. Changes apply from the next request.
 
-No desktop, abra **MCP > Configuração > HTTP**, informe um token separado de
-pelo menos 16 caracteres e a porta (padrão 41922), e clique em **Iniciar HTTP**.
-Configure o cliente com o endpoint exibido e o header `Authorization: Bearer`
-usando esse token. O token não é persistido nem incluído nas configurações
-copiadas. **Parar HTTP** encerra as sessões; fechar o Omni SQL encerra o listener.
+Read-only mode rejects statements that write, lock rows or change the session
+anywhere in the text (`INSERT`, a `DELETE` inside a CTE, `SELECT INTO`,
+`FOR UPDATE`, `CALL`, `EXEC`, `SET`, …), ignoring strings, comments and quoted
+identifiers. Side-effecting functions cannot be detected from text, so on
+PostgreSQL, MySQL and MariaDB the statement also runs inside a read-only
+transaction that is always rolled back. SQL Server, Oracle, JDBC and ODBC rely on
+the text check alone; use a least-privilege database user anyway.
 
-O endpoint MCP público local é `http://127.0.0.1:41922/mcp` na porta padrão.
-`http://127.0.0.1:41920/mcp` é a ponte interna e não aceita o protocolo MCP.
-Para um tunnel, informe sua origem HTTPS na lista de origens permitidas; o
-host correspondente também será aceito. Sem configuração, o listener gerenciado
-pelo desktop aceita hosts locais e não aceita requests com `Origin` externo.
+## Approvals
 
-O painel distingue disponibilidade do desktop, pedidos em andamento e sessões
-HTTP. O indicador **MCP em atividade** significa atividade, não prova que um
-cliente STDIO continua conectado. O histórico registra todas as ferramentas,
-tempo e resultado; não guarda as linhas retornadas. Uma aprovação pendente não
-bloqueia as ferramentas de leitura.
+`executeSql` can change data and structure. An approval is bound to the request
+and connection, cannot be replayed and expires with the request (120 s).
+Rejecting, switching tab or connection before approving, or cancelling the
+request starts no SQL. MCP cancellation and timeouts reach the adapter when it
+supports cancellation; cancelling does not undo statements already committed.
 
-`executeSql` pode modificar dados e estrutura. A aprovação está vinculada ao
-pedido e à conexão, não pode ser repetida e expira junto com o pedido (120 s).
-Rejeição, troca de aba/conexão antes da aprovação e pedidos já cancelados não
-iniciam SQL. Notificações MCP de cancelamento e timeout são propagados ao
-adapter quando ele suporta cancelamento. Cancelar não desfaz comandos já
-confirmados no banco. Objetos e valores bigint em células são convertidos para
-texto JSON/string para o transporte.
+While omni-sql is in the background, approval requests show a desktop
+notification (Settings → General → Desktop notifications). The MCP panel shows
+desktop availability, pending requests, HTTP sessions and a history of tool
+calls (timing and outcome, never returned rows). A pending approval does not
+block read tools.
 
-O launcher separado também continua disponível. Para habilitar:
+## Connecting a client (STDIO)
 
-```bash
-OMNI_SQL_MCP_HTTP_TOKEN='<segredo separado>' \
-  node dist/index.js '<descritor>' --transport streamable-http
-```
+1. Start omni-sql and wait for **MCP** to show as ready in the status bar.
+2. Open the **MCP** status item and copy the generated `command` and `args`.
+   In development, build the server first with
+   `pnpm --filter @omni-sql/mcp-server build`.
+3. Paste them into your client exactly as generated. `command` is the Node
+   runtime, `args[0]` the MCP server entry point and `args[1]` a temporary
+   runtime descriptor. Do not add a working directory or reorder arguments.
 
-`OMNI_SQL_MCP_HTTP_TOKEN` autentica entrada HTTP. Não reutilize token do
-descritor: ele autentica ponte local com backend. Host CLI/env não-loopback é
-rejeitado; sessões têm limite pequeno e expiram por inatividade.
+The descriptor holds a capability for the current run only: do not open, copy or
+share its contents. It is regenerated on every start, so copy a fresh
+configuration after restarting omni-sql. Never paste tokens, passwords or
+connection strings into a client configuration.
 
-Secure MCP Tunnel deve ser único limite público: fornecer HTTPS/autenticação
-pública, injetar `Authorization: Bearer <OMNI_SQL_MCP_HTTP_TOKEN>` no upstream e
-nunca expor segredo. Encaminhar para `http://127.0.0.1:41922/mcp` preservando
-métodos `POST`, `GET`, `DELETE`, headers `Mcp-Session-Id`,
-`Mcp-Protocol-Version`, `Last-Event-ID`, `Accept` e `Content-Type`, além de
-SSE/chunked streaming sem buffering ou reescrita. Não adicionar OAuth aqui;
-tunnel possui HTTPS/auth pública. No launcher separado, headers `Host`/`Origin` encaminhados são validados pelo
-formato. No listener gerenciado pelo desktop, os domínios encaminhados precisam
-estar na lista configurada. Ambos exigem bearer.
-
-## Inicialização e launcher real
-
-1. Inicie o Omni SQL. O menu de status MCP não fornece configuração válida antes
-   de o backend estar pronto.
-2. Em desenvolvimento, construa o servidor se necessário:
-
-   ```bash
-   pnpm --filter @omni-sql/mcp-server build
-   ```
-
-3. Abra o menu de status MCP no IDE e copie os campos gerados `command` e
-   `args`.
-
-O contrato retornado pelo comando nativo do IDE é exatamente este objeto; os
- valores abaixo são placeholders, não configuração para colar:
-
-```json
-{
-  "command": "<valor absoluto gerado pelo IDE>",
-  "args": [
-    "<args[0] absoluto: entrada do servidor MCP>",
-    "<args[1] absoluto: descritor de runtime>"
-  ]
-}
-```
-
-`command` aponta para o Node escolhido pelo runtime (Node local absoluto em
-desenvolvimento, Node empacotado em release). `args[0]` aponta para o JavaScript
-MCP (build do workspace em desenvolvimento, recurso empacotado em release).
-`args[1]` aponta para o descritor temporário da execução. Não há `cwd` no
-contrato; não adicione um. Não substitua caminhos, ordem dos argumentos ou
-valores gerados por exemplos fixos.
-
-O descritor e a configuração deixam de estar disponíveis quando Omni SQL
-encerra. Reinicie o IDE e copie uma nova configuração depois de cada execução.
-
-## Configuração do Codex
-
-Inicie Omni SQL, copie a configuração do menu de status MCP e use exatamente os
-campos gerados. Em TOML, a tradução conceitual é:
+**Codex** (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.omni_sql]
-command = "<command copiado do IDE>"
-args = ["<args[0] copiado do IDE>", "<args[1] copiado do IDE>"]
+command = "<command>"
+args = ["<args[0]>", "<args[1]>"]
 ```
 
-Alternativa pela CLI, usando exatamente o comando e os argumentos gerados:
+or `codex mcp add omni-sql -- "<command>" "<args[0]>" "<args[1]>"`.
+See [Codex MCP](https://developers.openai.com/codex/extend/mcp).
 
-```bash
-codex mcp add omni-sql -- "<command copiado>" \
-  "<args[0] copiado>" "<args[1] copiado>"
-codex mcp list
-```
-
-Use os campos copiados do menu, não valores inventados. Não cole tokens, senhas,
-strings de conexão ou conteúdo do descritor.
-
-Referência: [Codex — MCP](https://developers.openai.com/codex/extend/mcp).
-
-## Configuração do Claude Desktop
-
-Inicie Omni SQL e copie os campos gerados `command` e `args` no menu de status
-MCP da UI. No Claude Desktop, abra **Settings > Developer > Edit Config** e
-adicione esta entrada ao JSON:
+**Claude Desktop** (**Settings → Developer → Edit Config**):
 
 ```json
 {
   "mcpServers": {
     "omni-sql": {
-      "command": "<command copiado da UI do Omni SQL>",
-      "args": ["<args[0] copiado>", "<args[1] copiado>"]
+      "command": "<command>",
+      "args": ["<args[0]>", "<args[1]>"]
     }
   }
 }
 ```
 
-Se arquivo já tiver `mcpServers`, mescle `omni-sql` dentro desse objeto; não crie
-uma segunda chave `mcpServers`. No Windows, cada barra invertida em caminho JSON
-deve ser escrita duas vezes (`\\`). Salve, encerre completamente Claude Desktop
-e abra-o novamente. Em **Connectors**, Omni SQL deve aparecer como **Running**.
-Se não aparecer, consulte **Developer logs** para erro de launcher ou caminho.
-Gere e copie sempre valores atuais da UI. Nunca copie ou exponha conteúdo do
-descritor de runtime, token do descritor, token HTTP ou qualquer segredo; apenas
-campos gerados do launcher entram na configuração.
+Merge into an existing `mcpServers` object rather than adding a second one, and
+double each backslash in Windows paths. Restart Claude Desktop completely; the
+server should appear as **Running** under **Connectors** (otherwise check the
+developer logs).
 
-## ChatGPT Desktop versus navegador
+**ChatGPT Desktop:** in its apps/connectors settings choose **STDIO** and paste
+the command and arguments. ChatGPT in the browser cannot reach a local STDIO
+server; it needs a remote HTTPS integration, which is outside this feature.
 
-Codex e ChatGPT Desktop podem iniciar este servidor STDIO local. No ChatGPT
-Desktop, use a tela de configuração de apps/conectores disponível na versão
-instalada; a UI pode variar. Escolha **STDIO** e copie diretamente:
+## Streamable HTTP
 
-- **Command:** campo `command` gerado.
-- **Arguments:** array `args` gerado, sem alterar ordem.
-- **Working directory:** não é necessário; use somente `command` e `args` gerados.
+In the desktop, open **MCP → Configuration → HTTP**, enter a token of at least
+16 characters and a port (default 41922), and choose **Start HTTP**. Configure
+the client with the displayed endpoint (`http://127.0.0.1:41922/mcp`) and an
+`Authorization: Bearer <token>` header. The token is not persisted or included
+in copied configurations. **Stop HTTP** ends the sessions; closing omni-sql
+stops the listener. `http://127.0.0.1:41920/mcp` is the internal bridge and does
+not speak MCP.
 
-Copie a configuração gerada pelo menu de status depois de iniciar Omni SQL;
-valores reais variam entre desenvolvimento e release. Não cole tokens, senhas,
-strings de conexão ou conteúdo do descritor. ChatGPT no navegador não consegue
-conectar a um servidor STDIO local; ele exige uma integração remota via HTTPS,
-fora deste recurso. Consulte
-[Apps SDK — conectar ao ChatGPT](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt).
+By default the listener accepts local hosts only and rejects requests with an
+external `Origin`. To put it behind a tunnel, add the tunnel's HTTPS origin to
+the allowed origins.
 
-## Verificação
+A standalone launcher is also available:
 
 ```bash
-pnpm verify
+OMNI_SQL_MCP_HTTP_TOKEN='<separate secret>' \
+  node dist/index.js '<descriptor>' --transport streamable-http
 ```
 
-Além do comando acima, valide manualmente:
+`OMNI_SQL_MCP_HTTP_TOKEN` authenticates HTTP clients; never reuse the
+descriptor's token. Non-loopback hosts are rejected, and sessions are few and
+expire when idle.
 
-1. Inicie Omni SQL, abra uma aba SQL conectada e confirme que **MCP** aparece
-   como pronto na barra de status.
-2. Inicie o launcher STDIO com o `command` e os `args` copiados da UI.
-3. Liste as oito ferramentas e chame `getActiveSql`; confira SQL e dialeto.
-4. Chame `proposeSqlEdit` com `sql` e `rationale`. O desktop deve mostrar a
-   comparação antes/depois sem alterar a aba automaticamente.
-5. Aplique ou rejeite no desktop e confira o retorno `approved` no cliente MCP.
+A secure tunnel must be the only public boundary: it terminates HTTPS and public
+authentication, injects `Authorization: Bearer <OMNI_SQL_MCP_HTTP_TOKEN>`
+upstream without exposing it, and forwards to `http://127.0.0.1:41922/mcp`
+preserving `POST`/`GET`/`DELETE`, the `Mcp-Session-Id`, `Mcp-Protocol-Version`,
+`Last-Event-ID`, `Accept` and `Content-Type` headers, and SSE/chunked streaming
+without buffering.
 
-Exemplo de argumentos para uma proposta segura e fácil de reconhecer:
+## Verifying the setup
 
-```json
-{
-  "sql": "SELECT id, name FROM customers ORDER BY name;",
-  "rationale": "Make the selected columns and ordering explicit."
-}
-```
-
-`proposeSqlEdit` substitui o conteúdo da aba somente depois de **Aplicar**. Se a
-aba mudar enquanto o diálogo estiver aberto, a proposta é rejeitada como obsoleta.
+1. Open a connected SQL tab and confirm **MCP** is ready in the status bar.
+2. From the client, list the eight tools and call `getActiveSql`.
+3. Call `proposeSqlEdit` with, for example,
+   `{"sql": "SELECT id, name FROM customers ORDER BY name;", "rationale": "Make the columns and order explicit."}`.
+   The desktop shows a diff without changing the tab.
+4. Apply or reject it and check the result returned to the client. If the tab
+   changes while the dialog is open, the proposal is rejected as stale.

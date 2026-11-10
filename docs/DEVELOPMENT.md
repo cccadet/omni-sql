@@ -1,46 +1,71 @@
 # Development
 
-Install the prerequisites in [Building](BUILDING.md), then run `pnpm install`
-from the repository root. Package scripts are the command reference.
+Install the host dependencies in [Building](BUILDING.md#host-dependencies), then
+run `pnpm install` from the repository root. Package scripts are the command
+reference; [CLAUDE.md](../CLAUDE.md) lists the common ones, including how to run
+a single test.
 
-## Choose a workflow
+## Workflows
 
 | Command | Purpose |
 | --- | --- |
 | `pnpm dev:frontend` | React/Vite in a browser, port 1420 |
 | `pnpm dev:backend` | Authenticated Node HTTP JSON-RPC, port 41920 |
-| `pnpm dev:tauri` | Native desktop; starts frontend and sidecars |
+| `pnpm dev:tauri` | Native desktop; starts the frontend and sidecars |
 
 Run frontend and backend separately for browser development. Limit local Rust
-builds to two jobs: `CARGO_BUILD_JOBS=2 pnpm dev:tauri` in Bash, or set
-`$env:CARGO_BUILD_JOBS='2'` before running `pnpm dev:tauri` in PowerShell.
+builds to two jobs: `CARGO_BUILD_JOBS=2 pnpm dev:tauri` in Bash, or
+`$env:CARGO_BUILD_JOBS='2'` before `pnpm dev:tauri` in PowerShell.
+
+To get test databases and seed matching connections, see
+[docker/test-dbs](../docker/test-dbs/README.md).
 
 ## JVM sidecar
 
-Build the JAR when CTE column resolution or JDBC is needed:
+Build the JAR when you need CTE column resolution or JDBC:
 
 ```bash
 cd services/jvm-sidecar
-./bootstrap.sh             # first time, if the wrapper is absent
-./gradlew jar
+./bootstrap.sh             # first time, if the Gradle wrapper is absent
+./gradlew jar              # gradlew.bat jar on Windows
 ```
 
-On Windows, use `gradlew.bat jar` after bootstrap. The output is
-`services/jvm-sidecar/build/libs/omni-sql-sidecar.jar`. Rebuild it after JVM
-changes and restart Tauri. The shell runs the JAR directly; `gradlew run` can
-leave a daemon holding port 41921. Without the JAR, basic autocomplete continues,
-but CTE resolution and JDBC are unavailable. See the [sidecar guide](../services/jvm-sidecar/README.md)
-and [Troubleshooting](TROUBLESHOOTING.md).
+The output is `services/jvm-sidecar/build/libs/omni-sql-sidecar.jar`. Rebuild it
+after JVM changes and restart Tauri, which runs the JAR directly. Avoid
+`gradlew run`: its daemon can keep port 41921 busy. Without the JAR, basic
+autocomplete still works, but CTE resolution and JDBC are unavailable.
 
-## Validation
+## Checks
 
-Run affected package checks once after a coherent change, as described in
-[Contributing](../CONTRIBUTING.md). `pnpm verify` checks all TypeScript packages.
-For Rust changes, run `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`
-with `CARGO_BUILD_JOBS=2`; for JVM changes, run the wrapper's `test` task.
-[Testing](TESTING.md) covers integration evidence, coverage and push/release gates.
+Run affected typecheck, lint and tests once after a coherent change;
+`pnpm verify` checks all TypeScript packages. For Rust changes run
+`CARGO_BUILD_JOBS=2 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`;
+for JVM changes run `./gradlew test`. [Testing](TESTING.md) covers hooks,
+coverage, integration and CI.
 
-Desktop MCP processes may not inherit shell initialization from Node version
-managers such as fnm. Ensure both Node and npm are reachable through the MCP
-server's `env.PATH`, using a stable installation directory rather than a temporary
-`fnm_multishells` path. Restart the client after changing its MCP environment.
+## Documentation site
+
+The site at https://cccadet.github.io/omni-sql/docs/ is built with Astro
+Starlight from the Markdown in `docs/`, which stays the single source.
+`apps/docs/pages.mjs` maps each file to a page and a sidebar section; add an
+entry there when you add a page. `scripts/sync-docs.mjs` copies the files into
+the site, moves the `# Title` into frontmatter, rewrites links between mapped
+pages, and sends other repository links to GitHub.
+
+```bash
+pnpm --filter @omni-sql/docs build   # sync + build into apps/docs/dist
+pnpm --filter @omni-sql/docs dev     # sync once, then a live dev server
+pnpm --filter @omni-sql/docs test    # link-rewriting tests
+```
+
+Astro needs Node 22.23.4 or newer. The Pages workflow builds the docs on every
+push to `main` that touches `docs/`, `apps/docs/` or `website/`, and publishes
+them under `/docs` next to the landing page. Portuguese pages fall back to
+English until a translation exists.
+
+## MCP clients during development
+
+Desktop MCP clients may not inherit shell setup from Node version managers such
+as fnm. Make Node reachable through the MCP server's `env.PATH` using a stable
+installation directory, not a temporary `fnm_multishells` path, and restart the
+client after changing it. See [MCP.md](MCP.md) for client setup.

@@ -1,38 +1,10 @@
-# Building
+# Building and releasing
 
-## Prepare and validate resources
+## Host dependencies
 
-Release-style builds bundle Node, a JRE, the backend, and the JVM sidecar.
-Prepare them on the host that will be built:
-
-```bash
-pnpm install --frozen-lockfile
-pnpm prepare:resources
-pnpm validate:resources
-```
-
-The resource preparer rejects a different target. Native Node addons must be
-built for the target host; source builds do not cross-build portable runtime
-resources. Staged files are:
-
-```text
-apps/desktop/src-tauri/resources/backend/index.mjs
-apps/desktop/src-tauri/resources/runtime/node/node       # node.exe on Windows
-apps/desktop/src-tauri/resources/runtime/jre/bin/java
-apps/desktop/src-tauri/resources/sidecar/omni-sql-sidecar.jar
-```
-
-`prepare:resources` builds and stages the sidecar JAR through the Gradle
-wrapper. If resources are prepared or validated manually, the expected source
-artifact is `services/jvm-sidecar/build/libs/omni-sql-sidecar.jar`; create it
-with `services/jvm-sidecar/gradlew jar` (or `gradlew.bat jar`) when needed.
-
-## Host build dependencies
-
-All platforms require Node 22+, pnpm 11.17.0 (pinned in `package.json`),
-Rust stable, Java 21+ and the Cargo Tauri CLI 2.x
-(`cargo install tauri-cli --version "^2.0" --locked`). Use pnpm scripts to run
-the desktop. `services/jvm-sidecar/bootstrap.sh` supplies the Gradle wrapper if absent.
+All platforms need Node 22+, pnpm 11.17.0 (pinned in `package.json`), Rust
+stable, Java 21+ and the Tauri CLI 2.x
+(`cargo install tauri-cli --version "^2.0" --locked`).
 
 Ubuntu 22.04:
 
@@ -41,56 +13,64 @@ sudo apt-get update
 sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libfuse2 xdg-utils file libayatana-appindicator3-dev unixodbc-dev
 ```
 
-Windows requires [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-and [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/),
-plus Node 22, pnpm 11.17.0, Rust stable, and JDK 21.
+Windows needs [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+and the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+
+## Bundled resources
+
+Release builds bundle Node, a JRE, the backend and the JVM sidecar. Prepare them
+on the host you are building for:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm prepare:resources
+pnpm validate:resources
+```
+
+`prepare:resources` builds the sidecar JAR with the Gradle wrapper and stages:
+
+```text
+apps/desktop/src-tauri/resources/backend/index.mjs
+apps/desktop/src-tauri/resources/runtime/node/node       # node.exe on Windows
+apps/desktop/src-tauri/resources/runtime/jre/bin/java
+apps/desktop/src-tauri/resources/sidecar/omni-sql-sidecar.jar
+```
+
+Builds target the host platform and architecture only: native Node addons cannot
+be reused across architectures, so cross-target preparation is rejected.
+
+The backend bundle (`pnpm --filter @omni-sql/backend build`, producing
+`packages/backend/dist/index.mjs`) inlines pure JavaScript drivers. Its
+`external-layout.json` lists the native packages copied beside it:
+`@napi-rs/keyring`, `oracledb`, `odbc` and `@polyglot-sql/sdk` (with its WASM).
 
 ## Tauri build
-
-Backend-only packaging uses `pnpm --filter @omni-sql/backend build`, producing
-`packages/backend/dist/index.mjs`. Its `external-layout.json` lists resources
-copied beside the bundle: `@napi-rs/keyring`, `oracledb`, `odbc` and
-`@polyglot-sql/sdk` (including its WASM). Pure JavaScript drivers are bundled;
-Node, Java and database servers remain separate runtime dependencies.
 
 ```bash
 pnpm build:tauri
 ```
 
-The Tauri configuration runs resource preparation, resource validation, and
-the desktop Vite build before bundling. Outputs are under
-`apps/desktop/src-tauri/target/release/bundle/` (`deb` on Linux and Windows
-installer formats such as `nsis`).
+This runs resource preparation, validation and the Vite build, then bundles.
+Outputs land in `apps/desktop/src-tauri/target/release/bundle/`.
 
-## Release flow
+## Release workflow
 
-The release workflow accepts tags matching exactly `vX.Y.Z`. It requires
-successful CI for the exact tagged commit on the default branch, then builds.
-That CI run covers typecheck, lint, coverage, SonarCloud and real database
-integration, so the release does not repeat them. Builds run on Windows x64,
-Linux x64 and macOS arm64/x64. Published assets include Windows `.exe`, Linux
-`.deb`, macOS `.dmg` and updater archives/signatures, `latest.json`, and
-`SHA256SUMS`.
+1. Put user-facing notes in `docs/releases/vX.Y.Z.md` (see the
+   [template](releases/TEMPLATE.md)), ending with a Full Changelog compare link,
+   inside the PR so the merge commit is the tagged commit.
+2. After merging, push the tag `vX.Y.Z` on the merge commit right away.
+3. The workflow waits for CI on `main` for that exact commit (typecheck, lint,
+   coverage, SonarCloud, database integration), then builds on Windows x64,
+   Linux x64 and macOS arm64/x64. It fails without the release notes file.
 
-Put the release notes in the PR and push the tag on the merge commit right after
-merging: the release's quality job waits for that commit's CI on `main` and
-fails if it fails. The tag's pre-push hook only checks that
-`docs/releases/vX.Y.Z.md` exists in the tagged commit.
-To run database integration locally (optional), use `pnpm test:integration`
-with Java 21, Node 22, pnpm, Rust and Docker available. On Linux, install the
-Tauri build dependencies above and `unixodbc-dev`; the MongoDB SQL integration
-also compiles Rust code. Evidence (TAP results, logs, commit/working-tree state
-and tool/fixture versions) is saved under `artifacts/release-integration` and
-uploaded by CI even on failure. Required suites reject missing fixtures and
-unexpected skips; the RPC suite permits only its six existing unsupported JDBC
-scenarios.
+Published assets: Windows `.exe` and `x64-portable.zip`, Linux `.deb`, macOS
+`.dmg`, updater archives and signatures, `latest.json` and `SHA256SUMS`. The
+release notes become the GitHub Release body.
 
-The Windows build requires the `TAURI_SIGNING_PRIVATE_KEY` repository secret.
-Set it to the complete contents of the updater private key. If that key has a
-password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep an offline backup:
-losing the private key prevents existing installations from accepting future
-updates. The public key embedded in `tauri.conf.json` is safe to commit.
+Versioning: features bump the minor version and reset the patch; fixes-only
+releases bump the patch. Never overwrite a pushed release tag.
 
-Source builds target the host platform and architecture only. Cross-target
-resource preparation is rejected because native Node addons cannot be reused
-across architectures.
+The updater needs the `TAURI_SIGNING_PRIVATE_KEY` repository secret (the full
+private key) and, if the key has a password, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Keep an offline backup: losing the key prevents existing installations from
+accepting updates. The public key in `tauri.conf.json` is safe to commit.

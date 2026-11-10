@@ -10,6 +10,11 @@ links use `releases/latest` so they follow the current published release.
 Changes under `website/` pushed to `main` automatically deploy through the Pages
 workflow; verify the workflow and live page after publishing.
 
+The same workflow builds the documentation site from `apps/docs` and serves it
+at `/omni-sql/docs/` (see [Development](../docs/DEVELOPMENT.md#documentation-site)).
+Links from this page to the docs use those site paths; the Portuguese page links
+to `/omni-sql/docs/pt/`.
+
 The page leads with the PostgreSQL + CSV local-analysis example in `docs/demo/`.
 Its result table repeats that example's fictional data; it is not a live database
 connection. Keep both aligned when changing the demo. The three primary benefits

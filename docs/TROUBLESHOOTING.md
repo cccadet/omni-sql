@@ -1,72 +1,75 @@
 # Troubleshooting
 
-## Build prerequisites
+## Using the app
 
-Confirm Node `>=22`, pnpm `11.17.0`, Rust stable, Tauri 2, and JDK 21. On
-Ubuntu install the exact Tauri packages from
-[`BUILDING.md`](BUILDING.md). On Windows install Visual Studio Build
-Tools and WebView2. Re-run `pnpm install --frozen-lockfile` after changing
-checkout state.
+### Connections fail
 
-## Gradle `PKIX path building failed`
+- Check host, port, database, user, password and TLS settings with the
+  database vendor's own client first.
+- Read the error in the UI and the logs (on Windows,
+  `%LOCALAPPDATA%\dev.omnisql\logs`). Diagnostics deliberately omit sensitive
+  driver details.
+- Generic JDBC needs a readable driver JAR, the exact driver class name, a
+  compatible JDBC URL and a running sidecar. `driver-missing`, credential,
+  network and SQL-state errors identify the usual causes.
+- ODBC needs a 64-bit driver for the target database; the driver manager alone
+  is not enough.
 
-This usually means corporate SSL inspection CA is trusted by Windows but not
-the JDK. Do not disable certificate validation. Point Gradle's Java process at
-the Windows root trust store:
+### Linux: the editor stays on "Loading..."
 
-```bash
-JAVA_OPTS=-Djavax.net.ssl.trustStoreType=Windows-ROOT ./gradlew jar
-```
+The backend could not start. On v0.21.0 this happened when `libodbc.so.2` was
+missing; install `libodbc2` (`sudo apt install libodbc2`) or upgrade. Current
+packages depend on it, and a missing ODBC library only affects ODBC connections.
 
-In PowerShell:
+### Analytical import rejected a value
+
+The driver cannot preserve the value's precision. Cast the column to text in the
+source SQL; see [type fidelity](LOCAL-ANALYSIS.md#type-fidelity).
+
+### MCP client cannot connect
+
+Copy a fresh configuration from the **MCP** status bar item after each start:
+runtime paths change every run. See [MCP.md](MCP.md#verifying-the-setup).
+
+## Development
+
+### Build prerequisites
+
+Confirm Node `>=22`, pnpm `11.17.0`, Rust stable, Tauri CLI 2 and JDK 21, plus
+the platform packages in [BUILDING.md](BUILDING.md#host-dependencies). Re-run
+`pnpm install --frozen-lockfile` after switching branches.
+
+### Gradle `PKIX path building failed`
+
+A corporate SSL inspection CA is usually trusted by Windows but not the JDK. Do
+not disable certificate validation; point Gradle at the Windows trust store:
 
 ```powershell
 $env:JAVA_OPTS='-Djavax.net.ssl.trustStoreType=Windows-ROOT'
 .\gradlew.bat jar
 ```
 
-This workaround is for Windows trust configuration; use your organization's
-approved JDK trust-store procedure on other platforms.
+On other platforms, follow your organization's JDK trust-store procedure.
 
-## Sidecar missing or unavailable
+### Sidecar missing or unavailable
 
-The desktop app can start without
-`services/jvm-sidecar/build/libs/omni-sql-sidecar.jar`. Autocomplete then uses
-tier 1 and omits CTE column resolution. For tier 2, run the wrapper `jar`
-task, then restart Tauri. Check that `127.0.0.1:41921` is free. Use
-an authenticated health request to `http://127.0.0.1:41921/health` with
-`Authorization: Bearer <per-run token>`. Standalone sidecar startup requires
+Without `services/jvm-sidecar/build/libs/omni-sql-sidecar.jar` the app still
+starts, but CTE column completion and JDBC are unavailable. Build it with the
+wrapper's `jar` task and restart Tauri. Do not start it with `gradlew run`
+while using Tauri; the Gradle daemon can hold the port.
+
+Health checks need the per-run token: `GET http://127.0.0.1:41921/health` with
+`Authorization: Bearer <token>`. Standalone startup requires
 `OMNI_SQL_AUTH_TOKEN`; Tauri supplies it automatically. Keep tokens out of logs.
 
-Do not start the sidecar with `gradlew run` while using Tauri. Build the JAR and
-let Tauri run `java -jar`; this avoids an orphan Gradle daemon holding the
-port.
+### Ports
 
-## Ports and backend
+The backend uses `127.0.0.1:41920`, the sidecar `41921` and optional MCP HTTP
+`41922`. Tauri refuses to reuse an occupied port: stop the old omni-sql process
+instead of attaching to an unknown service.
 
-The backend uses `127.0.0.1:41920`; the JVM sidecar uses `127.0.0.1:41921`.
-Tauri refuses to reuse an occupied port. Stop an old omni-sql process rather
-than attaching to an unknown service. Check backend health at
-`http://127.0.0.1:41920/health` with the per-run authorization token available
-to the desktop shell.
+### Missing release resources
 
-## Connections and drivers
-
-- Verify host, port, database, username, password, and TLS settings with the
-  database vendor's client first.
-- Native adapters require their database server to be reachable and use their
-  documented driver behavior; inspect the UI error and sanitized backend logs.
-  Diagnostic output intentionally omits sensitive driver details.
-- JDBC requires a readable driver JAR, exact driver class name, compatible
-  JDBC URL, and a running sidecar. `driver-missing`, credentials, network, and
-  SQL-state errors identify common failure classes.
-- Generic JDBC does not provide `EXPLAIN`, definitions, or complete portable
-  metadata. Use the native adapter when one exists.
-
-## Release package contents
-
-Release builds need prepared, validated resources and the sidecar JAR. The
-bundle includes backend, native Node runtime, normalized JRE, and sidecar under
-the Tauri resources directory. If a release build reports missing resources,
-run `pnpm prepare:resources` and `pnpm validate:resources` on the target host;
-source builds do not cross-build another host's native runtime.
+If a release build reports missing resources, run `pnpm prepare:resources` and
+`pnpm validate:resources` on the target host; another host's native runtime
+cannot be reused.

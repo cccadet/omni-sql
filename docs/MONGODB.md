@@ -1,107 +1,129 @@
-# MongoDB nativo e conversão de SQL
+# MongoDB
 
-Para reproduzir uma busca, uma agregação e a expansão de um array com dados fictícios, veja [Consultar MongoDB com SQL no Omni-sql](TUTORIAL-MONGODB-SQL.md).
+A MongoDB connection has two editor modes: **native** (Extended JSON) and
+**SQL** (read-only). For a hands-on walkthrough with fictional data, see the
+[tutorial](TUTORIAL-MONGODB-SQL.md) (in Portuguese).
 
-No modo nativo, as consultas usam Extended JSON. Banco e coleção são campos separados:
+## Native mode
+
+Queries are Extended JSON envelopes; database and collection are separate fields:
 
 ```json
 {
-  "database": "base_laudos",
-  "collection": "padronizacao",
+  "database": "shop",
+  "collection": "orders",
   "operation": "find",
-  "filter": {"id_guia": "52712827"}
+  "filter": {"order_id": "52712827"}
 }
 ```
 
-O autocomplete sugere operações, bancos, coleções, campos, operadores e estágios comuns de agregação. Os campos vêm dos metadados carregados, que amostram até 100 documentos por coleção.
+`find`, `aggregate` and explicit write operations are supported. Separate
+several commands with `;` as in SQL: **Run** executes the selection or the
+command under the cursor, **Run all** executes them in order. A `;` inside a
+string or comment does not split a command.
 
-A tabela mostra ObjectIds como texto e datas BSON em ISO 8601 UTC (`Z`), sem os envelopes `$oid` e `$date`. Números BSON também aparecem sem envelopes, preservando todos os dígitos, inclusive dentro de arrays e objetos. O filtro e a ordenação usam os valores exibidos. Ao passar o mouse sobre uma célula estruturada, o valor original aparece; a edição e a exportação CSV preservam o Extended JSON original.
+Autocomplete suggests operations, databases, collections, fields, operators and
+common aggregation stages. Fields come from metadata, which samples up to 100
+documents per collection; refresh metadata to reload cached types.
 
-No caminho nativo, os tipos das colunas são inferidos dos documentos retornados; a barra lateral usa a amostra de até 100 documentos já carregada. ObjectId, datas, textos, booleanos, números e binários têm tipos próprios. Listas mostram o tipo dos elementos (`VARCHAR[]`, por exemplo). Nulos e listas vazias não substituem um tipo conhecido; tipos numéricos diferentes são indicados como `NUMERIC`, e tipos incompatíveis ou desconhecidos como `JSON`. Essa inferência descreve os valores observados, não impõe um esquema à coleção. No caminho DuckDB, os tipos continuam vindo dos metadados da consulta executada.
+### Results
 
-Atualize os metadados para recarregar tipos que já estavam em cache na barra lateral. A importação de resultados estruturados em “Analisar localmente” mantém o snapshot em JSON, preservando os envelopes BSON e a precisão numérica.
+Switch between **Table** and **Documents**. The document view is read-only and
+lets you expand nested objects and arrays with BSON type labels.
 
-## `/mongo`: converter SELECT para JSON nativo
+The table shows ObjectIds as text, BSON dates as ISO 8601 UTC and numbers
+without `$oid`/`$date`/`$numberLong` envelopes, keeping every digit. Filtering
+and sorting use the displayed values; hovering a structured cell shows the
+original. Editing and CSV export keep the original Extended JSON, and
+**Analyze locally** stores structured results as JSON snapshots.
 
-No editor de uma conexão MongoDB em modo nativo, escreva:
+Column types are inferred from the returned documents: lists show their element
+type (`VARCHAR[]`), nulls and empty lists do not override a known type, mixed
+numeric types become `NUMERIC`, and incompatible types become `JSON`. This
+describes the observed values; it does not impose a schema.
+
+## `/mongo`: convert a SELECT to native JSON
+
+In native mode, write SQL with or without a `/mongo` prefix and choose
+**Convert SQL to MongoDB** (or **Ctrl+Enter** / **Cmd+Enter**). The SQL is
+replaced by native JSON without running it.
 
 ```sql
 /mongo
-SELECT status, COUNT(*) AS total, SUM(valor) AS soma
-FROM base_laudos.padronizacao
-WHERE id_guia IN ('52712827', '52712828')
+SELECT status, COUNT(*) AS total, SUM(amount) AS sum_amount
+FROM shop.orders
+WHERE order_id IN ('52712827', '52712828')
 GROUP BY status
 HAVING COUNT(*) > 1
 ORDER BY total DESC
 LIMIT 20
 ```
 
-Clique em **Converter SQL para MongoDB** ou pressione **Ctrl+Enter** (Command+Enter no macOS). O comando substitui o SQL por JSON nativo, sem executar a consulta. Uma execução posterior usa o driver MongoDB. O botão também aceita SQL sem o prefixo `/mongo`.
+Supported:
 
-A conversão suporta:
+- One collection in `FROM db.collection` (without a database, the connection
+  URI's database is used).
+- `SELECT *`, fields and output aliases.
+- `=`, `<>`, `!=`, `<`, `<=`, `>`, `>=`, `AND`, `OR`, `NOT`, parentheses,
+  `IN`, `NOT IN`, `IS NULL`, `IS NOT NULL`.
+- `GROUP BY` one or more fields with `COUNT(*)`, `COUNT(field)`, `SUM`, `AVG`,
+  `MIN`, `MAX`; `HAVING` (including unselected aggregates); `ORDER BY` fields or
+  aliases; a non-negative integer `LIMIT`.
+- A non-recursive CTE with `ORDER BY … LIMIT 1` joined back to the same
+  collection with `INNER JOIN` on `AND`-combined equalities of selected keys
+  (for "latest row" lookups). Add `_id` to the `ORDER BY` to break ties.
 
-- Uma coleção em `FROM banco.colecao`; sem banco explícito, usa o banco da URI da conexão.
-- `SELECT *`, seleção de campos e aliases de saída.
-- Comparações `=`, `<>`, `!=`, `<`, `<=`, `>`, `>=`; `AND`, `OR`, `NOT`, parênteses, `IN`, `NOT IN`, `IS NULL` e `IS NOT NULL`.
-- `GROUP BY` com um ou vários campos; `COUNT(*)`, `COUNT(campo)`, `SUM`, `AVG`, `MIN` e `MAX`.
-- `HAVING`, inclusive agregações não selecionadas, e `ORDER BY` com campos ou aliases.
-- `LIMIT` inteiro não negativo, incluindo zero.
+Simple queries become `find`; aliases, aggregates and `LIMIT` use `aggregate`.
+The UI row limit still applies. Missing values behave as nulls; `COUNT(field)`
+skips them and `SUM` of only nulls is null. Comparisons follow MongoDB's native
+types and ordering: there is no type coercion or array expansion, and integers
+beyond JavaScript's safe range are rejected.
 
-Consultas simples geram `find`. Aliases, agregações e `LIMIT` usam `aggregate`. O limite de linhas da interface continua limitando os resultados, mesmo quando o SQL contém `LIMIT`.
+Not supported: other joins and CTEs, subqueries, scalar functions, window
+functions, `DISTINCT`, `OFFSET`, `LIKE`, aggregate modifiers and explicit
+`NULLS FIRST/LAST`. The conversion explains why and keeps your SQL.
 
-Valores ausentes são tratados como nulos em filtros e agrupamentos. `COUNT(campo)` ignora nulos/ausentes; `SUM` retorna nulo quando todos os valores são nulos. Uma agregação global sem linhas retorna uma linha, com contagem zero e as demais agregações nulas.
+## SQL mode
 
-A conversão destina-se a campos escalares com tipos compatíveis; não expande arrays nem faz coerção de tipos. Comparações e ordenação seguem os tipos e a ordenação nativa do MongoDB. Strings que representam números continuam sendo strings. Números inteiros fora da precisão segura de JavaScript são rejeitados.
+SQL mode is read-only and needs no manual conversion. Supported SELECTs run
+natively in MongoDB; other queries run in DuckDB. Explain shows the plan of the
+engine that was chosen.
 
-Uma CTE não recursiva com `ORDER BY` e `LIMIT 1` pode ser ligada à mesma coleção com um `INNER JOIN`. O `ON` deve usar igualdades entre campos qualificados pelos aliases, combinadas com `AND`; as chaves devem estar selecionadas na CTE. A consulta externa seleciona e filtra os campos da coleção original:
+Queries on one collection, with an equality or `list_contains` filter on the
+collection read and a linear chain of CTEs, combine both engines: MongoDB
+filters and fetches the needed fields, and DuckDB receives a typed snapshot to
+run `UNNEST`, functions, remaining filters, sorting and aggregation. Lists of
+structs and lists of strings keep their types (`item.codes[1]`,
+`unnest(item.codes)`); ObjectId becomes text, dates become UTC `TIMESTAMP`,
+Int64 keeps its precision, and Decimal128 and binary become text (binary as
+Base64).
 
 ```sql
-/mongo
-WITH busca_ultima AS (
-  SELECT id_guia, data_evento
-  FROM base_laudos.padronizacao
-  ORDER BY data_evento DESC
-  LIMIT 1
+WITH expanded AS (
+  SELECT event_id, unnest(steps) AS step
+  FROM demo.events
+  WHERE event_id = 'demo-001'
 )
-SELECT id_guia, data_evento, exames
-FROM base_laudos.padronizacao p
-JOIN busca_ultima bu
-  ON p.id_guia = bu.id_guia AND p.data_evento = bu.data_evento
-WHERE p.status = 'ok';
+SELECT event_id, step.name, step.duration_ms
+FROM expanded
+ORDER BY step.duration_ms DESC;
 ```
 
-A tradução escolhe as chaves da última linha antes do join e do filtro externo. Todos os documentos com essas chaves são recuperados, inclusive duplicados; chaves nulas ou ausentes não correspondem. Empates no `ORDER BY` seguem a ordenação do MongoDB; adicione `_id` como segundo campo para desempatar quando necessário.
+In this combined path, equality uses MongoDB's native match (it matches a
+scalar or an array element and can use an index), and `list_contains(field, 'x')`
+is sent as `$elemMatch`. Only safe predicates are pushed down: residual filters
+stay in DuckDB, parts of an `OR` are not extracted, and filters do not move
+across `LIMIT`, aggregates or windows. Explain shows the native plan, the number
+of documents transferred and the DuckDB plan.
 
-Outros joins e CTEs, subconsultas, funções escalares, janelas, `DISTINCT`, `OFFSET`, `LIKE`, modificadores de agregação e `NULLS FIRST/LAST` explícitos não são suportados. A conversão mostra o motivo e preserva o SQL original. Se o editor, a conexão ou o modo mudar durante a conversão, o resultado não sobrescreve a edição atual.
+Limits: the preview limit applies to the final result. The filtered source is
+capped at 100,000 documents, 16 MiB and 60 seconds of MongoDB execution;
+exceeding a cap fails explicitly instead of returning a partial aggregate.
 
-O modo **SQL** executa SELECTs suportados diretamente no MongoDB, sem exigir conversão manual para JSON. Consultas mais complexas usam DuckDB. O plano de execução acompanha o motor escolhido.
+Queries outside the combined path use DuckDB's Mongo extension directly. There,
+a field inferred as a list cannot be compared to text with `=`; use
+`list_contains(field, 'value')`, which may run as a local filter over many
+documents. Check Explain to see whether a filter reached the Mongo scan.
 
-Consultas com uma única coleção, um filtro de igualdade ou `list_contains` na leitura da coleção e uma sequência linear de CTEs podem combinar os dois motores. O driver nativo filtra no MongoDB e busca os campos necessários; o DuckDB recebe um snapshot tipado e executa `UNNEST`, funções, filtros restantes, ordenação e agregações. `exames` mantém o tipo de lista de estruturas e `codigos` mantém o tipo de lista de textos, permitindo `exame.codigos[1]` e `unnest(exame.codigos)`. ObjectId vira texto, datas viram TIMESTAMP em UTC e Int64 mantém a precisão. Decimal128 e dados binários ficam como texto para evitar perda de precisão (binários em base64).
-
-O limite de prévia é aplicado ao resultado final, depois da expansão e da análise. A fonte filtrada tem limites independentes de 100.000 documentos, 16 MiB e 60 segundos de execução no MongoDB. Ao exceder o limite de documentos ou bytes, a consulta falha explicitamente; não retorna uma contagem ou agregação parcial. Uma guia inexistente retorna zero linhas usando uma amostra de até 100 documentos para definir as colunas. Uma coleção vazia ou valores sem informação suficiente para inferir a estrutura podem continuar exigindo ajuste do esquema.
-
-O planejador só antecipa predicados seguros na leitura da coleção. Ele preserva filtros residuais e não extrai apenas uma parte de um `OR`. Não move filtros externos através de `LIMIT`, agregações ou janelas. Consultas com outras topologias, como múltiplas leituras, joins e subconsultas, continuam nos caminhos existentes. No caminho combinado, Explain mostra o plano nativo, a quantidade de documentos transferidos e o plano DuckDB; essa explicação também lê a fonte filtrada para resolver os tipos.
-
-Veja [consultas de teste com exames](examples/mongodb-exames.sql) para primeiro código, todos os códigos, descrição, filtro por código, contagem e limite final.
-
-Nesse modo, a igualdade usa a busca nativa do MongoDB: encontra tanto um valor escalar quanto um elemento de array e pode aproveitar o índice do campo.
-
-```sql
-SELECT * FROM base_laudos.padronizacao
-WHERE id_guia = '52712827';
-```
-
-`list_contains(id_guia, '52712827')` também é enviado ao MongoDB, com `$elemMatch`, para buscar especificamente em arrays. Os limites de resultados e o cancelamento continuam disponíveis em ambos os caminhos.
-
-Nas consultas que continuam usando diretamente a extensão Mongo do DuckDB (fora do caminho combinado acima), um campo inferido como array não pode ser comparado diretamente a um texto com `=`. Para buscar um elemento, use `list_contains`:
-
-```sql
-SELECT * FROM base_laudos.padronizacao
-WHERE list_contains(id_guia, '52712827');
-```
-
-Essa consulta serve para `id_guia` inferido como uma lista de textos (`VARCHAR[]`). Os tipos dos valores devem corresponder aos tipos dos elementos da lista.
-
-Na extensão, `list_contains` pode permanecer como filtro local e ler muitos documentos. Use Explain para verificar o filtro na leitura Mongo; uma CTE não garante que o filtro seja enviado ao servidor.
-
-Os metadados do resultado preservam o tipo dos elementos das listas, inclusive listas aninhadas. Quando o DuckDB informa os tipos de uma conversão inválida, a mensagem mostra o tipo fornecido e o tipo esperado, por exemplo `VARCHAR` e `VARCHAR[]`. Esses tipos vêm da inferência da extensão sobre documentos amostrados.
+See [example queries](examples/mongodb-exames.sql) for more patterns over
+nested arrays.
