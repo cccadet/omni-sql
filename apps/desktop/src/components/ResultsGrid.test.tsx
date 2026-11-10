@@ -519,3 +519,34 @@ test("surfaces messages and plans for result and error states", async () => {
   fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
   expect(screen.getByText("query failed")).toBeTruthy();
 });
+
+test("resizes result columns by dragging or using the keyboard on the header divider, without sorting", () => {
+  render(<LanguageProvider><ResultsGrid result={result} /></LanguageProvider>);
+  const table = screen.getByRole("table");
+  const handle = screen.getByRole("separator", { name: "Resize column id" });
+  expect(table.querySelector("colgroup")).toBeNull();
+
+  act(() => {
+    handle.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 100 }));
+    handle.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 180 }));
+    handle.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 180 }));
+  });
+  fireEvent.click(handle);
+  const widths = () => Array.from(table.querySelectorAll("col"), (col) => col.style.width);
+  // jsdom has no layout, so unmeasured columns start from the 150px default.
+  expect(widths()).toEqual(["230px", "150px"]);
+  expect(table.style.width).toBe("380px");
+  expect(handle.getAttribute("aria-valuenow")).toBe("230");
+  expect(screen.getAllByRole("columnheader")[0]!.getAttribute("aria-sort")).toBe("none");
+
+  // Moving after release must not keep resizing.
+  act(() => { handle.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 400 })); });
+  expect(widths()[0]).toBe("230px");
+
+  fireEvent.keyDown(handle, { key: "ArrowLeft" });
+  expect(widths()[0]).toBe("214px");
+  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize column payload" }), { key: "ArrowLeft", shiftKey: true });
+  expect(widths()).toEqual(["214px", "86px"]);
+  for (let index = 0; index < 20; index++) fireEvent.keyDown(handle, { key: "ArrowLeft" });
+  expect(widths()[0]).toBe("48px");
+});

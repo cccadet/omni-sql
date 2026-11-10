@@ -453,6 +453,10 @@ select option {
 .omni-results-resize-handle { cursor: row-resize; touch-action: none; position: relative; background: var(--colorNeutralBackground1); }
 .omni-results-resize-handle::after { content: ""; position: absolute; top: 2px; left: 0; right: 0; height: 2px; background: var(--colorNeutralStroke2); }
 .omni-results-resize-handle:hover::after, .omni-results-resize-handle:focus-visible::after { background: var(--colorBrandStroke1); }
+.omni-col-resize-handle { position: absolute; top: 0; right: 0; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; z-index: 2; }
+.omni-col-resize-handle::after { content: ""; position: absolute; top: 20%; bottom: 20%; right: 0; width: 1px; background: var(--colorNeutralStroke2); }
+.omni-col-resize-handle:hover::after, .omni-col-resize-handle:focus-visible::after { top: 0; bottom: 0; width: 3px; background: var(--colorBrandStroke1); }
+.omni-col-resize-handle:focus-visible { outline: none; }
 .omni-results-grid table {
   font-size: 12px;
 }

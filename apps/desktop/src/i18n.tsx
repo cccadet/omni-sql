@@ -716,6 +716,7 @@ const english = {
   colorBlue: "Blue",
   colorTeal: "Teal",
   colorGray: "Gray",
+  resizeColumn: "Resize column {column}",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -991,6 +992,7 @@ const portugueseBrazil = [
   "Azul",
   "Verde-azulado",
   "Cinza",
+  "Redimensionar coluna {column}",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
