@@ -1,330 +1,116 @@
-# omni-sql — Test Databases
+# Test databases
 
-Containers Docker + smoke test que valida os 4 adaptadores reais do omni-sql
-(`PostgresAdapter`, `MysqlAdapter`, `MssqlAdapter`, `OracleAdapter`) contra
-dados fictícios.
+Docker fixtures with fictional data for adapter smoke tests and integration
+tests. This folder is a pnpm workspace package, so tests use the current
+`packages/adapters-*` sources without a rebuild.
 
-## Bancos suportados
+For the full, evidence-producing run use `pnpm test:integration` from the
+repository root (see [Testing](../../docs/TESTING.md)). The commands below are
+for investigating one path by hand.
 
-| Dialeto       | Imagem                          | Porta | Usuário / Senha      |
-|---------------|---------------------------------|-------|----------------------|
-| PostgreSQL    | `postgres:16`                   | 5432  | `omni` / `omni`      |
-| MySQL         | `mysql:8`                       | 3306  | `omni` / `omni`      |
-| MariaDB       | `mariadb:11.4`                  | 3307  | `omni` / `omni`      |
-| SQL Server    | `mssql/server:2022-latest`      | 1433  | `sa` / `Omni!2024`   |
-| Oracle XE     | `gvenzl/oracle-xe:21-slim`      | 1521  | `OMNI` / `omni`      |
-| MongoDB       | `mongo:8`                      | 27017 | `omni_root` / `omni_root` (admin) |
-| H2 (JDBC)     | build local (`./jdbc-h2/`)      | 9092  | `omni` / `omni`      |
+## Services
 
-> **H2** é o banco "JDBC custom": não há adaptador nativo no omni-sql, então a
-> conexão só é possível via dialeto `jdbc-generic` (`options.jarPath` +
-> `options.driverClassName`). A imagem é buildada localmente a partir de
-> `eclipse-temurin:21-jre` + jar oficial do Maven Central, e roda o H2 em modo
-> servidor TCP. No boot, o container copia o jar do driver para
-> `./drivers/h2.jar` (bind mount) — o sidecar JVM roda no host e carrega esse
-> arquivo. O primeiro `docker compose up -d` demora mais por causa do build.
+| Service | Image | Port | User / password |
+| --- | --- | --- | --- |
+| `postgres` | `postgres:16` | 5432 | `omni` / `omni` (database `omni_test`) |
+| `mysql` | `mysql:8` | 3306 | `omni` / `omni` (database `omni_test`) |
+| `mariadb` | `mariadb:11.4` | 3307 | `omni` / `omni` |
+| `mssql` | `mssql/server:2022-latest` | 1433 | `sa` / `Omni!2024` (database `omni_test`) |
+| `oracle` | `gvenzl/oracle-xe:21-slim` | 1521 | `OMNI` / `omni` (service `XEPDB1`) |
+| `mongo` | `mongo:8` | 27017 | `omni_root` / `omni_root` (admin) |
+| `h2` | local build (`./jdbc-h2/`) | 9092 | `omni` / `omni` |
+| `minio` + `minio-fixtures` | MinIO | 9000 | `omni_test` / `omni_test_secret` |
 
-> Oracle XE requer aceitação da Oracle License Agreement. O `gvenzl/oracle-xe:21-slim`
-> é a imagem mais leve (~2GB). Ao usar, você aceita os termos da Oracle.
+Using the Oracle image means accepting the Oracle license; it is the slowest to
+become healthy. H2 has no native adapter and is reached through generic JDBC:
+on start, the container copies its driver to `./drivers/h2.jar` for the
+host-side JVM sidecar.
 
-## Validação completa
+Every relational database gets the same schema: `customers`, `products`,
+`orders` and `order_items` with PKs/FKs, the `order_summary` view, a
+`get_customer_total(customer_id)` function (not on H2) and indexes on
+`orders.customer_id` and `order_items.order_id`.
 
-Na raiz do repositório, execute `bash scripts/integration-release.sh`. O runner
-sobe fixtures, inicia o sidecar autenticado, executa as suítes e salva evidências.
-Veja [Testing](../../docs/TESTING.md) para pré-requisitos e gates. Os comandos
-abaixo são úteis para investigação manual de um caminho específico.
-
-## Quick start
-
-Os testes são arquivos TypeScript executados pelo `tsx`. Isso é necessário
-principalmente no Node 22, que pode não aceitar `.ts` diretamente com
-`node --test`.
+## Smoke tests
 
 ```bash
+pnpm install                 # once, at the repository root
 cd docker/test-dbs
-
-# Na raiz do monorepo, instalar dependências uma vez
-cd ../..
-pnpm install
-
-# Voltar para esta pasta
-cd docker/test-dbs
-
-# Subir todos os bancos
 docker compose up -d
-
-# Aguardar os healthchecks (~30-60s para Oracle)
-docker compose ps
-
-# Rodar smoke test em todos os bancos
+docker compose ps            # wait until healthy
 pnpm exec tsx --test ./smoke-test.ts
-
-# Derrubar tudo, incluindo os volumes e os dados de teste
-docker compose down -v
 ```
 
-O comando deve mostrar quatro suites (`PostgreSQL`, `MySQL`, `SQL Server` e
-`Oracle XE`) e os testes individuais dentro de cada suite.
+The smoke test drives the real PostgreSQL, MySQL, SQL Server and Oracle adapters
+through connection, introspection, schemas, tables, columns with PK/FK,
+functions, queries (joins, aggregates, CASE, correlated subquery), explain,
+indexes, view/function definitions and close. Run one database with
+`--test-name-pattern=PostgreSQL` (or `MySQL`, `'SQL Server'`, `'Oracle XE'`).
 
-## S3 no editor principal
+`docker compose down -v` removes the containers and data; use it to recreate a
+database initialized with bad data. Ports 5432, 3306, 3307, 1433, 1521, 9092,
+27017 and 9000 must be free.
 
-O Compose inclui MinIO e uma imagem de fixtures que grava CSV, Parquet,
-Delta Lake e Iceberg no bucket `omni-test`, além de CSV no bucket `omni-extra`.
-A suíte Rust consulta as fontes pelo DuckDB, junta os dois buckets com uma tabela
-local e verifica que a consulta S3 não cria um snapshot persistente.
+## Integration tests
+
+From this folder, with the containers up:
 
 ```bash
-docker compose up --build -d minio minio-fixtures
-docker compose logs minio-fixtures # aguardar "S3 fixtures ready"
-
-# Na raiz de apps/desktop/src-tauri, com o endpoint publicado em localhost:9000:
-OMNI_SQL_RUN_S3_INTEGRATION=1 \
-AWS_ACCESS_KEY_ID=omni_test AWS_SECRET_ACCESS_KEY=omni_test_secret \
-AWS_DEFAULT_REGION=us-east-1 \
-cargo test --lib data_engine::tests -- --nocapture
+pnpm test:integration          # backend JSON-RPC suite with all databases
+pnpm test:integration:mongo    # MongoDB only (native and SQL)
+pnpm test:integration:h2       # H2/JDBC only
 ```
 
-Se o registro do MinIO responder 401 ao baixar a imagem, use o servidor S3
-compatível Moto com os mesmos buckets, credenciais e porta:
+Tests isolate SQLite and the keyring in a temporary folder. The MongoDB SQL path
+needs Rust and downloads DuckDB's community Mongo extension. Point at another
+MongoDB with `OMNI_SQL_TEST_MONGO_URI` (no credentials in the URI),
+`OMNI_SQL_TEST_MONGO_ADMIN_USER` and `OMNI_SQL_TEST_MONGO_ADMIN_PASSWORD`.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.s3-moto.yml up --build -d minio minio-fixtures
-```
-
-No Windows PowerShell, defina as quatro variáveis com `$env:NOME='valor'`
-antes de executar `cargo test`. O primeiro teste pode baixar extensões assinadas
-do DuckDB. Na IDE, use **Nova conexão → S3**, informe `s3://omni-test` e
-`s3://omni-extra` (um por linha), a região `us-east-1` e o endpoint
-`http://127.0.0.1:9000`, Access Key ID `omni_test` e Secret Access Key
-`omni_test_secret`. Selecione a conexão em **Connections**; os buckets aparecem
-como schemas em **Objects**. Clique duas vezes numa tabela para abrir um SELECT.
-
-| Formato | URI de teste |
-|---|---|
-| CSV | `s3://omni-test/csv/orders.csv` |
-| Parquet | `s3://omni-test/parquet/orders.parquet` |
-| Delta | `s3://omni-test/delta/orders` |
-| Iceberg | `s3://omni-test/iceberg/orders/metadata/current.metadata.json` |
-| CSV (segundo bucket) | `s3://omni-extra/csv/customers.csv` |
-
-## Testes por banco
-
-Os filtros abaixo executam apenas a suite do banco escolhido. Os containers
-correspondentes precisam estar ativos.
-
-### PostgreSQL
-
-```bash
-docker compose up -d postgres
-pnpm exec tsx --test --test-name-pattern=PostgreSQL ./smoke-test.ts
-```
-
-Configuração usada pelo teste:
-
-- Host/porta: `127.0.0.1:5432`
-- Banco: `omni_test`
-- Usuário/senha: `omni` / `omni`
-- Schema: `public`
-
-### MySQL
-
-```bash
-docker compose up -d mysql
-pnpm exec tsx --test --test-name-pattern=MySQL ./smoke-test.ts
-```
-
-Configuração usada pelo teste:
-
-- Host/porta: `127.0.0.1:3306`
-- Banco: `omni_test`
-- Usuário/senha: `omni` / `omni`
-
-### SQL Server
-
-```bash
-docker compose up -d mssql
-pnpm exec tsx --test --test-name-pattern='SQL Server' ./smoke-test.ts
-```
-
-Configuração usada pelo teste:
-
-- Host/porta: `127.0.0.1:1433`
-- Usuário/senha: `sa` / `Omni!2024`
-- Banco: `omni_test`
-
-### Oracle XE
-
-```bash
-docker compose up -d oracle
-pnpm exec tsx --test --test-name-pattern='Oracle XE' ./smoke-test.ts
-```
-
-Configuração usada pelo teste:
-
-- Host/porta: `127.0.0.1:1521`
-- Service: `XEPDB1`
-- Usuário/senha: `OMNI` / `omni`
-
-O Oracle XE é o banco mais lento para inicializar. Aguarde o status
-`healthy` antes de executar o teste:
-
-```bash
-docker compose ps oracle
-```
-
-### H2 (JDBC genérico)
-
-```bash
-docker compose up -d h2   # inclui h2-init, que semeia os dados
-OMNI_SQL_RUN_INTEGRATION=1 pnpm exec tsx --test --test-name-pattern=JDBC ./integration-test.ts
-# ou: pnpm test:integration:h2
-```
-
-Configuração usada pelo teste:
-
-- JDBC URL: `jdbc:h2:tcp://127.0.0.1:9092/./omni_test`
-- Usuário/senha: `omni` / `omni`
-- `options.jarPath`: `./drivers/h2.jar` (copiado pelo container no boot)
-- `options.driverClassName`: `org.h2.Driver`
-- Schema: `PUBLIC`
-
-**Pré-requisito extra:** o sidecar JVM precisa estar no ar na porta 41921 com
-o mesmo `OMNI_SQL_AUTH_TOKEN` do teste — é ele quem carrega o jar e fala JDBC
-(endpoints `/jdbc/*`):
+H2 needs the JVM sidecar on port 41921 with the test token:
 
 ```bash
 cd services/jvm-sidecar && ./gradlew jar
 OMNI_SQL_AUTH_TOKEN=integration-auth-token java -jar build/libs/omni-sql-sidecar.jar
 ```
 
-O H2 roda o **mesmo teste de integração** dos demais bancos, com seis
-exceções puladas por design do `JdbcAdapter` (`DatabaseMetaData` não é
-confiável entre drivers JDBC arbitrários): `query.explain`, CREATE TABLE nativo,
-`metadata.listFunctions`,
-`metadata.listIndexes` e os dois `metadata.getDefinition`. Pelo mesmo motivo
-o seed `init/05-h2.sql` não cria a função `get_customer_total` (H2 2.x não tem
-funções SQL-bodied).
+Six cases are skipped by design for JDBC (`query.explain`, native CREATE TABLE,
+`metadata.listFunctions`, `metadata.listIndexes` and both `metadata.getDefinition`).
 
-## Cadastrar conexões no Tauri
+## S3
 
-Com o Tauri/backend já rodando, cadastre as conexões de teste no
-backend persistente:
+MinIO fixtures write CSV, Parquet, Delta and Iceberg to bucket `omni-test` and
+CSV to `omni-extra`:
 
 ```bash
-pnpm -w run seed:test-connections
+docker compose up --build -d minio minio-fixtures
+docker compose logs minio-fixtures   # wait for "S3 fixtures ready"
+
+# from apps/desktop/src-tauri
+OMNI_SQL_RUN_S3_INTEGRATION=1 \
+AWS_ACCESS_KEY_ID=omni_test AWS_SECRET_ACCESS_KEY=omni_test_secret \
+AWS_DEFAULT_REGION=us-east-1 \
+cargo test --lib data_engine::tests -- --nocapture
 ```
 
-Para cadastrar apenas alguns dialetos:
+If pulling MinIO fails with 401, add `-f docker-compose.yml -f docker-compose.s3-moto.yml`
+to use the S3-compatible Moto server with the same buckets and credentials.
+
+In the app, create an **S3** connection with buckets `s3://omni-test` and
+`s3://omni-extra`, region `us-east-1`, endpoint `http://127.0.0.1:9000` and the
+credentials above. Test URIs: `s3://omni-test/csv/orders.csv`,
+`s3://omni-test/parquet/orders.parquet`, `s3://omni-test/delta/orders`,
+`s3://omni-test/iceberg/orders/metadata/current.metadata.json` and
+`s3://omni-extra/csv/customers.csv`.
+
+## Seed connections into the app
+
+With the backend running:
 
 ```bash
+pnpm -w run seed:test-connections            # all dialects
 pnpm -w run seed:test-connections -- pg mysql
 ```
 
-O script usa as credenciais padrão do `docker-compose.yml`. Elas podem ser
-substituídas por `OMNI_SQL_TEST_PG_PASSWORD`, `OMNI_SQL_TEST_MYSQL_PASSWORD`,
-`OMNI_SQL_TEST_MSSQL_PASSWORD` e `OMNI_SQL_TEST_ORACLE_PASSWORD`. Para outro
-endpoint do backend, use `OMNI_SQL_BACKEND_URL`.
-
-## Teste de integração
-
-O teste de integração valida o fluxo de conexão persistida no backend, além
-dos adaptadores. Execute-o com todos os bancos disponíveis:
-
-```bash
-docker compose up -d
-pnpm test:integration
-```
-
-A integração inclui MongoDB autenticado pelo HTTP JSON-RPC e SQL via DuckDB,
-com verificação de SELECT, EXPLAIN e bloqueio de INSERT, DROP e CREATE.
-O caminho SQL exige Rust e acesso ao download da extensão comunitária Mongo.
-
-Para executar apenas MongoDB (nativo e SQL):
-
-```bash
-docker compose up -d --wait mongo
-pnpm test:integration:mongo
-```
-
-Os testes isolam o SQLite e o keyring em uma pasta temporária. Eles recriam
-a coleção `items` e o usuário `omni_mongo_test` no banco de teste.
-Para outro container, configure `OMNI_SQL_TEST_MONGO_URI` (sem credenciais na URI),
-`OMNI_SQL_TEST_MONGO_ADMIN_USER` e `OMNI_SQL_TEST_MONGO_ADMIN_PASSWORD`.
-A validação de release também sobe o Mongo e executa esses dois caminhos.
-
-## Diagnóstico
-
-Ver status e healthcheck dos bancos:
-
-```bash
-docker compose ps
-```
-
-Ver logs de um banco:
-
-```bash
-docker compose logs postgres
-docker compose logs mysql
-docker compose logs mssql
-docker compose logs oracle
-```
-
-Se um banco já tiver sido inicializado com dados incorretos, recrie os
-volumes:
-
-```bash
-docker compose down -v
-docker compose up -d
-```
-
-As portas `5432`, `3306`, `3307`, `1433`, `1521` e `9092` precisam estar livres no host.
-
-## Schema de teste
-
-Todos os bancos recebem o mesmo schema:
-
-```
-customers   (id PK, name, email UNIQUE, city, created_at)
-products    (id PK, name, price, category)
-orders      (id PK, customer_id FK→customers, order_date, total)
-order_items (id PK, order_id FK→orders, product_id FK→products, quantity, unit_price)
-```
-
-Mais:
-- **View:** `order_summary` (join de orders + customers com count de itens)
-- **Função/SP:** `get_customer_total(customer_id)` → retorna o total gasto
-- **Índices:** em `orders.customer_id` e `order_items.order_id`
-
-## O que o smoke test valida
-
-O teste importa os adaptadores reais (`@omni-sql/adapters-*`) e exercita a
-mesma interface que o backend consome:
-
-| #  | Teste                          | Método do Adaptador         |
-|----|--------------------------------|-----------------------------|
-| 1  | Conexão                        | `test()`                    |
-| 2  | Introspecção completa          | `introspect()`              |
-| 3  | Listar schemas disponíveis     | `listAvailableSchemas()`    |
-| 4  | Schemas em cache               | `listSchemas()`             |
-| 5  | Listar tabelas                 | `listTables()`              |
-| 6  | Listar colunas (PK, tipos)     | `listColumns()`             |
-| 7  | Colunas com FK                 | `listColumns()`             |
-| 8  | Listar funções/SPs             | `listFunctions()`           |
-| 9  | SELECT literal                 | `runQuery()`                |
-| 10 | COUNT                          | `runQuery()`                |
-| 11 | JOIN orders + customers        | `runQuery()`                |
-| 12 | SUM + GROUP BY                 | `runQuery()`                |
-| 13 | CASE expression                | `runQuery()`                |
-| 14 | Subquery correlacionada        | `runQuery()`                |
-| 15 | EXPLAIN / EXPLAIN PLAN         | `explain()`                 |
-| 16 | Listar índices                 | `listIndexes()`             |
-| 17 | Definição de view              | `getDefinition("view")`     |
-| 18 | Definição de função/SP         | `getDefinition("function")` |
-| 19 | Close gracioso                 | `close()`                   |
-
-## Dependências
-
-Este pacote é parte do workspace pnpm (entrada `docker/*` no
-`pnpm-workspace.yaml`). Os adaptadores são resolvidos via `workspace:*`,
-então qualquer mudança nos pacotes `packages/adapters-*` é refletida
-automaticamente nos testes — sem rebuild necessário.
+Override passwords with `OMNI_SQL_TEST_PG_PASSWORD`, `OMNI_SQL_TEST_MYSQL_PASSWORD`,
+`OMNI_SQL_TEST_MSSQL_PASSWORD` and `OMNI_SQL_TEST_ORACLE_PASSWORD`, and the
+backend URL with `OMNI_SQL_BACKEND_URL`.

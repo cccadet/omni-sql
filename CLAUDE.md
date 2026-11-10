@@ -39,7 +39,7 @@ Local desktop app; several processes cooperate over loopback:
 - **Local analysis** runs in Rust/DuckDB (`local.duckdb`); the backend streams relational rows to Rust as bounded NDJSON.
 - **MCP server** (stdio or authenticated HTTP `:41922`) bridges to the backend; SQL edits/execution require desktop approval and results are bounded.
 
-Deeper detail: `docs/ARCHITECTURE.md`, `docs/MCP.md`, `docs/MONGODB.md`, `docs/RUST_DATA_ENGINE_PLAN.md`.
+Deeper detail: `docs/ARCHITECTURE.md` (including the local analysis engine), `docs/MCP.md`, `docs/MONGODB.md`; index in `docs/README.md`.
 
 ## Commands
 
