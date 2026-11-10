@@ -20,6 +20,8 @@ packages/metadata-cache      SQLite (node:sqlite), last_synced_at
 packages/backend             Node HTTP JSON-RPC, MongoDB driver/SQL translation
 packages/mcp-server          MCP stdio and authenticated Streamable HTTP
 services/jvm-sidecar         Kotlin/JVM + Calcite: scope, editability, JDBC HTTP
+apps/docs                    Astro Starlight docs site generated from docs/ (pages.mjs maps pages)
+website                      Static landing page; Pages serves it with the docs under /docs
 ```
 Drivers: `pg`, `mysql2/promise` (MySQL/MariaDB), `mssql`/Tedious,
 `oracledb` thin mode, generic JDBC, `odbc`, and `mongodb`.

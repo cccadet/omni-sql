@@ -4,6 +4,8 @@ omni-sql embeds DuckDB for local analysis. Import query results, local files and
 S3 objects as datasets, then query and join them with DuckDB SQL in the
 **Local DuckDB** tab or in **Analyze locally**.
 
+![PostgreSQL sales result imported into DuckDB and joined with a local targets CSV](images/release-visuals/local-analysis-demo.gif)
+
 ## Importing data
 
 | Source | How |

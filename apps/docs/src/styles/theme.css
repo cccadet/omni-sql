@@ -1,0 +1,52 @@
+/* omni-sql brand: graphite surfaces with the landing page's gold accent. */
+:root {
+  --sl-color-accent-low: #3a2c08;
+  --sl-color-accent: #c98a00;
+  --sl-color-accent-high: #ffd06a;
+  --sl-color-white: #f4f4f2;
+  --sl-color-gray-1: #e6e7e9;
+  --sl-color-gray-2: #c7c9cd;
+  --sl-color-gray-3: #9a9ea5;
+  --sl-color-gray-4: #5d6168;
+  --sl-color-gray-5: #303338;
+  --sl-color-gray-6: #151719;
+  --sl-color-black: #0c0d0f;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #fff1c9;
+  --sl-color-accent: #8a5d00;
+  --sl-color-accent-high: #4a3200;
+  --sl-color-white: #0c0d0f;
+  --sl-color-gray-1: #191b1e;
+  --sl-color-gray-2: #303338;
+  --sl-color-gray-3: #555a62;
+  --sl-color-gray-4: #8a8f97;
+  --sl-color-gray-5: #c7c9cd;
+  --sl-color-gray-6: #eceded;
+  --sl-color-gray-7: #f6f6f5;
+  --sl-color-black: #ffffff;
+}
+
+/* Gold buttons need dark text in both themes. */
+.sl-link-button.primary {
+  background: #ffbd2e;
+  border-color: #ffbd2e;
+  color: #191308;
+}
+.sl-link-button.primary:hover {
+  background: #ffd06a;
+  color: #191308;
+}
+
+/* The logo artwork has its own dark square; soften its edges in the hero. */
+.hero img {
+  border-radius: 28px;
+}
+
+/* Wide screenshots and GIFs: keep them inside the content column. */
+.sl-markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}

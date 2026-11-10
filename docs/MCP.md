@@ -5,6 +5,8 @@ the SQL tab you have open. It uses STDIO by default and talks only to the
 authenticated backend on `127.0.0.1:41920`. Streamable HTTP is opt-in and
 listens on loopback only.
 
+![Review an SQL edit proposed through MCP before applying it](images/mcp-sql-proposal.png)
+
 ```text
 AI client ──MCP (STDIO or HTTP)──▶ local MCP server ──▶ backend ──▶ active desktop tab
                                                          edits and execution require approval

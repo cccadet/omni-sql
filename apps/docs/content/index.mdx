@@ -1,0 +1,49 @@
+---
+title: omni-sql documentation
+description: Learn to query databases and files, analyze results locally with DuckDB, and connect AI assistants.
+template: splash
+editUrl: https://github.com/cccadet/omni-sql/edit/main/apps/docs/content/index.mdx
+hero:
+  tagline: An open-source SQL IDE with local DuckDB analysis for PostgreSQL, MySQL, MariaDB, SQL Server, Oracle and MongoDB.
+  image:
+    file: ../../assets/omni-sql.svg
+    alt: omni-sql logo
+  actions:
+    - text: Get started
+      link: /omni-sql/docs/start/install/
+      icon: right-arrow
+    - text: Download
+      link: https://github.com/cccadet/omni-sql/releases/latest
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+<CardGrid stagger>
+  <Card title="Analyze files locally" icon="document">
+    Import CSV, Parquet or JSON, or the result of any query, into embedded
+    DuckDB and join them with SQL.
+  </Card>
+  <Card title="One editor, many databases" icon="seti:db">
+    Metadata- and CTE-aware completion, quick fixes and execution plans for six
+    databases, plus experimental JDBC and ODBC.
+  </Card>
+  <Card title="Connections that scale" icon="list-format">
+    Folders, custom environments, and import from DBeaver. Passwords stay in
+    the OS keyring.
+  </Card>
+  <Card title="AI assistants, with approval" icon="approve-check-circle">
+    A local MCP server for Codex, Claude Desktop and ChatGPT Desktop. Every
+    edit and execution waits for you.
+  </Card>
+</CardGrid>
+
+## Where to go next
+
+<CardGrid>
+  <LinkCard title="Installation" href="/omni-sql/docs/start/install/" description="Packages for Windows, Linux and macOS." />
+  <LinkCard title="Getting started" href="/omni-sql/docs/start/getting-started/" description="From a file or a connection to your first query." />
+  <LinkCard title="Local analysis" href="/omni-sql/docs/guides/local-analysis/" description="Imports, samples, S3, exports and provenance." />
+  <LinkCard title="MCP integration" href="/omni-sql/docs/guides/mcp/" description="Connect an AI client safely." />
+</CardGrid>

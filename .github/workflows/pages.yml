@@ -1,10 +1,13 @@
-name: Deploy landing page
+name: Deploy website and docs
 
 on:
   push:
     branches: [main]
     paths:
       - "website/**"
+      - "docs/**"
+      - "apps/docs/**"
+      - "omni-sql.svg"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -27,13 +30,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install docs dependencies
+        run: pnpm install --frozen-lockfile --filter @omni-sql/docs
+
+      - name: Build docs
+        run: pnpm --filter @omni-sql/docs build
+
+      - name: Assemble site
+        # The landing page is served at the root and the docs under /docs.
+        run: |
+          mkdir -p _site
+          cp -R website/. _site/
+          cp -R apps/docs/dist _site/docs
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload landing page
+      - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: website
+          path: _site
 
       - name: Deploy
         id: deployment

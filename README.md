@@ -2,7 +2,7 @@
 <h1 align="center">omni-sql</h1>
 <p align="center"><strong>Query CSV and Parquet in your SQL IDE, locally.</strong></p>
 <p align="center">An open-source SQL workspace with DuckDB analysis and native connections to<br />PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, and MongoDB.</p>
-<p align="center"><a href="https://github.com/cccadet/omni-sql/releases/latest"><strong>Download omni-sql</strong></a> · <a href="#quick-start">Quick start</a> · <a href="docs/DATABASE-SUPPORT.md">Database support</a> · <a href="docs/README.md">Documentation</a></p>
+<p align="center"><a href="https://github.com/cccadet/omni-sql/releases/latest"><strong>Download omni-sql</strong></a> · <a href="#quick-start">Quick start</a> · <a href="docs/DATABASE-SUPPORT.md">Database support</a> · <a href="https://cccadet.github.io/omni-sql/docs/">Documentation</a></p>
 <p align="center"><strong>Runs locally · No account required · No separate runtime or database client to install</strong></p>
 <p align="center">
   <a href="https://github.com/cccadet/omni-sql/actions/workflows/ci.yml"><img src="https://github.com/cccadet/omni-sql/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" /></a>
@@ -131,9 +131,10 @@ you can use omni-sql alongside them.
 
 ## Documentation
 
-The [documentation index](docs/README.md) lists user guides (installation, local
-analysis, databases, MongoDB, MCP, troubleshooting) and contributor guides
-(development, building, testing, architecture).
+Read the **[documentation site](https://cccadet.github.io/omni-sql/docs/)**:
+installation, getting started, the SQL editor, connections, local analysis,
+MongoDB, MCP, shortcuts, troubleshooting and contributor guides. The same pages
+are in [docs/](docs/README.md).
 
 Built with Tauri, React, Fluent UI, Monaco Editor, TypeScript, Rust, and Kotlin.
 The interface is available in English, Portuguese and Simplified Chinese.

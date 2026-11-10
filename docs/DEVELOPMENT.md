@@ -43,6 +43,26 @@ Run affected typecheck, lint and tests once after a coherent change;
 for JVM changes run `./gradlew test`. [Testing](TESTING.md) covers hooks,
 coverage, integration and CI.
 
+## Documentation site
+
+The site at https://cccadet.github.io/omni-sql/docs/ is built with Astro
+Starlight from the Markdown in `docs/`, which stays the single source.
+`apps/docs/pages.mjs` maps each file to a page and a sidebar section; add an
+entry there when you add a page. `scripts/sync-docs.mjs` copies the files into
+the site, moves the `# Title` into frontmatter, rewrites links between mapped
+pages, and sends other repository links to GitHub.
+
+```bash
+pnpm --filter @omni-sql/docs build   # sync + build into apps/docs/dist
+pnpm --filter @omni-sql/docs dev     # sync once, then a live dev server
+pnpm --filter @omni-sql/docs test    # link-rewriting tests
+```
+
+Astro needs Node 22.23.4 or newer. The Pages workflow builds the docs on every
+push to `main` that touches `docs/`, `apps/docs/` or `website/`, and publishes
+them under `/docs` next to the landing page. Portuguese pages fall back to
+English until a translation exists.
+
 ## MCP clients during development
 
 Desktop MCP clients may not inherit shell setup from Node version managers such
