@@ -711,4 +711,5 @@ export const simplifiedChinese = {
   colorBlue: "蓝色",
   colorTeal: "青色",
   colorGray: "灰色",
+  resizeColumn: "调整列 {column} 的宽度",
 } satisfies Record<TranslationKey, string>;

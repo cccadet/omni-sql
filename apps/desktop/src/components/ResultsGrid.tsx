@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   Button,
   Card,
@@ -46,6 +47,12 @@ import { exportCsvFile, openExportedFile, revealExportedFile } from "../lib/file
 import { formatDuration } from "../lib/format-duration";
 import { readableBsonValue } from "../lib/bson-value";
 import { useCsvOptions } from "./CsvOptionsDialog";
+
+const MIN_COLUMN_WIDTH = 48;
+const MAX_COLUMN_WIDTH = 1600;
+const DEFAULT_COLUMN_WIDTH = 150;
+/** Horizontal cell padding (10px each side) plus room for the resize handle. */
+const COLUMN_HORIZONTAL_PADDING = 28;
 
 export interface ResultsGridProps {
   result?: QueryResult | null;
@@ -189,6 +196,9 @@ export function ResultsGrid({
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFinder, setColumnFinder] = useState("");
   const [hiddenColumnIndexes, setHiddenColumnIndexes] = useState<ReadonlySet<number>>(() => new Set());
+  // Column widths in px keyed by result column index. Empty = natural (auto) layout;
+  // once the user resizes, every visible column gets a fixed width so it can shrink.
+  const [columnWidths, setColumnWidths] = useState<Readonly<Record<number, number>>>({});
   const [sortColumn, setSortColumn] = useState<number | undefined>(undefined);
   const [sortDirection, setSortDirection] = useState<"ascending" | "descending">("ascending");
   const [page, setPage] = useState(0);
@@ -218,6 +228,7 @@ export function ResultsGrid({
     setColumnFinder("");
     setFocusedColumnIndex(null);
     setHiddenColumnIndexes(new Set());
+    setColumnWidths({});
     if (error) {
       setActiveTab("messages");
     } else if (result) {
@@ -517,6 +528,73 @@ export function ResultsGrid({
     () => columns.filter((column) => !hiddenColumnIndexes.has(column.index)),
     [columns, hiddenColumnIndexes],
   );
+  const columnsSized = Object.keys(columnWidths).length > 0;
+  const widthOf = (columnIndex: number) => columnWidths[columnIndex] ?? DEFAULT_COLUMN_WIDTH;
+  const tableWidth = columnsSized ? visibleColumns.reduce((sum, column) => sum + widthOf(column.index), 0) : undefined;
+
+  // Freeze the rendered widths of all visible columns so later changes only affect one column.
+  const measureColumnWidths = useCallback((): Record<number, number> => {
+    const measured: Record<number, number> = { ...columnWidths };
+    for (const column of visibleColumns) {
+      if (measured[column.index] !== undefined) continue;
+      const header = gridScrollRef.current?.querySelector<HTMLTableCellElement>(`th[data-column-index="${column.index}"]`);
+      measured[column.index] = Math.max(MIN_COLUMN_WIDTH, Math.round(header?.getBoundingClientRect().width || DEFAULT_COLUMN_WIDTH));
+    }
+    return measured;
+  }, [columnWidths, visibleColumns]);
+
+  const setColumnWidth = useCallback((columnIndex: number, width: number) => {
+    setColumnWidths((current) => ({ ...current, [columnIndex]: Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, Math.round(width))) }));
+  }, []);
+
+  const startColumnResize = useCallback((event: ReactPointerEvent<HTMLElement>, columnIndex: number) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const measured = measureColumnWidths();
+    const startWidth = measured[columnIndex] ?? DEFAULT_COLUMN_WIDTH;
+    const startX = event.clientX;
+    setColumnWidths(measured);
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    handle.setPointerCapture?.(pointerId);
+    const previousCursor = document.body.style.cursor;
+    document.body.style.cursor = "col-resize";
+    const onMove = (moveEvent: PointerEvent) => setColumnWidth(columnIndex, startWidth + moveEvent.clientX - startX);
+    const onEnd = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onEnd);
+      handle.removeEventListener("pointercancel", onEnd);
+      if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+      document.body.style.cursor = previousCursor;
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onEnd);
+    handle.addEventListener("pointercancel", onEnd);
+  }, [measureColumnWidths, setColumnWidth]);
+
+  // Double-click: fit the column to its widest rendered header/cell content.
+  const autoFitColumn = useCallback((columnIndex: number) => {
+    const grid = gridScrollRef.current;
+    if (!grid) return;
+    let width = MIN_COLUMN_WIDTH;
+    grid.querySelectorAll<HTMLElement>(`th[data-column-index="${columnIndex}"] > .omni-result-sort, td[data-column-index="${columnIndex}"] > div`).forEach((element) => {
+      width = Math.max(width, element.scrollWidth + COLUMN_HORIZONTAL_PADDING);
+    });
+    setColumnWidths({ ...measureColumnWidths() });
+    setColumnWidth(columnIndex, width);
+  }, [measureColumnWidths, setColumnWidth]);
+
+  const resizeColumnByKeyboard = useCallback((event: ReactKeyboardEvent<HTMLElement>, columnIndex: number) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const measured = measureColumnWidths();
+    setColumnWidths(measured);
+    const step = event.shiftKey ? 64 : 16;
+    setColumnWidth(columnIndex, (measured[columnIndex] ?? DEFAULT_COLUMN_WIDTH) + (event.key === "ArrowRight" ? step : -step));
+  }, [measureColumnWidths, setColumnWidth]);
+
   const gridCanEdit = columns.some((column) => column.editable);
   const gridKeyboardHelp = t(gridCanEdit ? "gridKeyboardHint" : "gridReadOnlyKeyboardHint");
   const focusableCell = activeCell && pageRows.some(({ rowIndex }) => rowIndex === activeCell.row)
@@ -794,10 +872,13 @@ export function ResultsGrid({
                 style={{
                   borderCollapse: "collapse",
                   fontSize: "var(--omni-grid-font, 12px)",
-                  minWidth: "100%",
+                  ...(columnsSized ? { width: tableWidth } : { minWidth: "100%" }),
                   tableLayout: "fixed",
                 }}
               >
+                {columnsSized && <colgroup>
+                  {visibleColumns.map((col) => <col key={`${col.key}:${col.index}`} style={{ width: widthOf(col.index) }} />)}
+                </colgroup>}
                 <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
                   <tr>
                     {visibleColumns.map((col) => (
@@ -825,6 +906,8 @@ export function ResultsGrid({
                               cursor: "pointer",
                               fontWeight: 600,
                               verticalAlign: "middle",
+                              position: "relative",
+                              overflow: columnsSized ? "hidden" : undefined,
                             }}
                           >
                             <Button appearance="transparent" size="small" className="omni-result-sort"
@@ -849,6 +932,20 @@ export function ResultsGrid({
                               )}
                               {sortColumn === col.index && <span aria-hidden="true">{sortDirection === "ascending" ? " ▲" : " ▼"}</span>}
                             </Button>
+                            <span
+                              className="omni-col-resize-handle"
+                              role="separator"
+                              aria-orientation="vertical"
+                              aria-label={t("resizeColumn").replace("{column}", col.name)}
+                              aria-valuenow={columnsSized ? widthOf(col.index) : undefined}
+                              aria-valuemin={MIN_COLUMN_WIDTH}
+                              aria-valuemax={MAX_COLUMN_WIDTH}
+                              tabIndex={0}
+                              onPointerDown={(event) => startColumnResize(event, col.index)}
+                              onClick={(event) => event.stopPropagation()}
+                              onDoubleClick={(event) => { event.stopPropagation(); autoFitColumn(col.index); }}
+                              onKeyDown={(event) => resizeColumnByKeyboard(event, col.index)}
+                            />
                           </th>
                         );
                       })()
@@ -930,6 +1027,7 @@ export function ResultsGrid({
                               padding: "var(--omni-grid-cell-py, 4px) 10px",
                               borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
                               whiteSpace: "nowrap",
+                              overflow: columnsSized ? "hidden" : undefined,
                               background:
                                 focusedColumnIndex === col.index
                                   ? tokens.colorPaletteYellowBackground2
@@ -979,7 +1077,7 @@ export function ResultsGrid({
                                   borderRadius: 2,
                                 }}
                               >
-                                <span title={cellValue != null && typeof cellValue === "object" ? serializeCellValue(cellValue) : undefined} style={{ fontVariantNumeric: "tabular-nums" }}>{serializeCellValue(cellValue, true)}</span>
+                                <span title={cellValue != null && typeof cellValue === "object" ? serializeCellValue(cellValue) : undefined} style={{ fontVariantNumeric: "tabular-nums", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{serializeCellValue(cellValue, true)}</span>
                                 {cellValue != null && foreignKeyColumns[col.index] && onLookupRelated && (typeof cellValue === "string" || typeof cellValue === "number" || typeof cellValue === "boolean") && (
                                   <Button size="small" appearance="subtle" icon={<OpenRegular fontSize={12} />}
                                     aria-label={`${t("openRelated")}: ${serializeCellValue(cellValue)}`}
