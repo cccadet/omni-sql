@@ -6,9 +6,56 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildMcp, extract, gradleInvocation, pnpmCommand, pnpmInvocation, runGradle, runPnpm, stageMacosNativeLibraries, stageMcp, stageNode } from "./prepare-resources.mjs";
+import { assertNoDistrustedRoots, buildMcp, distrustedAliases, extract, gradleInvocation, pnpmCommand, pnpmInvocation, removeDistrustedRoots, runGradle, runPnpm, stageMacosNativeLibraries, stageMcp, stageNode } from "./prepare-resources.mjs";
 
 const script = fileURLToPath(new URL("./prepare-resources.mjs", import.meta.url));
+
+const trustedRoots = {
+  "cn_emsign_root_ca__g1,o_emudhra_technologies_limited,ou_emsign_pki,c_in [jdk]": "CN=emSign Root CA - G1, O=eMudhra Technologies Limited, OU=emSign PKI, C=IN",
+  "cn_emsign_ecc_root_ca__c3,o_emudhra_inc,ou_emsign_pki,c_us [jdk]": "CN=emSign ECC Root CA - C3, O=eMudhra Inc, OU=emSign PKI, C=US",
+  "comodoaaaca [jdk]": "CN=AAA Certificate Services, O=Comodo CA Limited, L=Salford, ST=Greater Manchester, C=GB",
+  "cn_comodo_rsa_certification_authority,o_comodo_ca_limited [jdk]": "CN=COMODO RSA Certification Authority, O=COMODO CA Limited, L=Salford, ST=Greater Manchester, C=GB",
+  "cn_digicert_global_root_g2,ou_wwwdigicertcom,o_digicert_inc,c_us [jdk]": "CN=DigiCert Global Root G2, OU=www.digicert.com, O=DigiCert Inc, C=US",
+};
+const keystoreListing = (roots) => Object.entries(roots).map(([alias, owner]) => `Alias name: ${alias}\r\nEntry type: trustedCertEntry\r\n\r\nOwner: ${owner}\r\nIssuer: ${owner}\r\n`).join("*******************************************\r\n");
+function fakeKeytool(roots, { ignoreDeletes = false } = {}) {
+  const store = { ...roots }; const calls = [];
+  const run = (binary, args, options) => {
+    calls.push({ binary, args, options });
+    if (args.includes("-delete")) { if (!ignoreDeletes) delete store[args[args.indexOf("-alias") + 1]]; return ""; }
+    return keystoreListing(store);
+  };
+  return { store, calls, run };
+}
+
+test("selects eMudhra and Comodo AAA roots by subject, ignoring other Comodo and unrelated roots", () => {
+  assert.deepEqual(distrustedAliases(keystoreListing(trustedRoots)), [
+    "cn_emsign_root_ca__g1,o_emudhra_technologies_limited,ou_emsign_pki,c_in [jdk]",
+    "cn_emsign_ecc_root_ca__c3,o_emudhra_inc,ou_emsign_pki,c_us [jdk]",
+    "comodoaaaca [jdk]",
+  ]);
+});
+
+test("removes distrusted roots from the staged JRE trust store with its own keytool", () => {
+  const keytool = fakeKeytool(trustedRoots);
+  const jreHome = path.join("res", "runtime", "jre");
+  assert.equal(removeDistrustedRoots(jreHome, keytool.run, "win32").length, 3);
+  assert.deepEqual(Object.keys(keytool.store), [
+    "cn_comodo_rsa_certification_authority,o_comodo_ca_limited [jdk]",
+    "cn_digicert_global_root_g2,ou_wwwdigicertcom,o_digicert_inc,c_us [jdk]",
+  ]);
+  for (const call of keytool.calls) {
+    assert.equal(call.binary, path.join(jreHome, "bin", "keytool.exe"));
+    assert.ok(call.args.includes("-cacerts"));
+    assert.ok(call.args.includes("-J-Duser.language=en"));
+  }
+});
+
+test("fails when a distrusted root survives deletion or validation", () => {
+  assert.throws(() => removeDistrustedRoots("jre", fakeKeytool(trustedRoots, { ignoreDeletes: true }).run, "linux"), /still trusts distrusted roots: cn_emsign_root_ca__g1/);
+  assert.throws(() => assertNoDistrustedRoots("jre", fakeKeytool(trustedRoots).run, "linux"), /still trusts distrusted roots/);
+  assert.doesNotThrow(() => assertNoDistrustedRoots("jre", fakeKeytool({}).run, "linux"));
+});
 
 test("selects the Windows pnpm launcher", () => {
   assert.equal(pnpmCommand("win32"), "pnpm.cmd");
