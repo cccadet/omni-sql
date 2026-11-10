@@ -50,6 +50,7 @@ function main() {
   }
   stageNode(output, target, path.join(downloads, "node-extract"));
   stageJre(output, target, path.join(downloads, "jre-extract"));
+  for (const alias of removeDistrustedRoots(path.join(output, "runtime/jre"))) console.log(`[omni-sql] removed distrusted JRE root: ${alias}`);
   stageBackend(output);
   buildMcp({ cwd: root, stdio: "inherit" });
   stageMcp(output);
@@ -165,6 +166,36 @@ function stageJre(out, targetName, extracted) {
   const java = targetName.startsWith("windows") ? "java.exe" : "java"; if (!fs.existsSync(path.join(home, `bin/${java}`))) fail(`JRE archive has no bin/${java}`); fs.cpSync(home, destination, { recursive: true, dereference: true });
   if (java === "java") fs.chmodSync(path.join(destination, "bin/java"), 0o755);
 }
+// Trust anchors removed from the bundled JRE per the OpenJDK eMudhra advisory
+// (JDK-8395690 / CVE-2026-114820). Matched by subject, not alias or version, so
+// a Temurin build that still ships any of them is cleaned and validation fails
+// if one survives.
+export const DISTRUSTED_ROOT_OWNERS = [/\bO=eMudhra\b/i, /^CN=AAA Certificate Services, O=Comodo CA Limited\b/i];
+export function distrustedAliases(listing, owners = DISTRUSTED_ROOT_OWNERS) {
+  const aliases = []; let alias;
+  for (const line of listing.split(/\r?\n/)) {
+    const name = /^Alias name: (.*)$/.exec(line); if (name) { alias = name[1]; continue; }
+    const owner = /^Owner: (.*)$/.exec(line);
+    if (owner && alias !== undefined && owners.some((pattern) => pattern.test(owner[1]))) { aliases.push(alias); alias = undefined; }
+  }
+  return aliases;
+}
+function keytool(jreHome, args, run, platform) {
+  const binary = path.join(jreHome, "bin", platform === "win32" ? "keytool.exe" : "keytool");
+  // The staged JRE's own keytool resolves -cacerts to that JRE's trust store.
+  // English locale keeps the "Alias name:"/"Owner:" labels parseable.
+  return run(binary, ["-J-Duser.language=en", "-J-Duser.country=US", ...args, "-cacerts", "-storepass", "changeit"], { encoding: "utf8" });
+}
+export function assertNoDistrustedRoots(jreHome, run = execFileSync, platform = process.platform) {
+  const remaining = distrustedAliases(keytool(jreHome, ["-list", "-v"], run, platform));
+  if (remaining.length) fail(`bundled JRE still trusts distrusted roots: ${remaining.join("; ")}`);
+}
+export function removeDistrustedRoots(jreHome, run = execFileSync, platform = process.platform) {
+  const removed = distrustedAliases(keytool(jreHome, ["-list", "-v"], run, platform));
+  for (const alias of removed) keytool(jreHome, ["-delete", "-alias", alias], run, platform);
+  assertNoDistrustedRoots(jreHome, run, platform);
+  return removed;
+}
 function stageBackend(out) {
   runPnpm(["--filter", "@omni-sql/backend", "build"], { cwd: root, stdio: "inherit" });
   const source = path.join(root, "packages/backend/dist"); const destination = path.join(out, "backend"); if (!fs.existsSync(path.join(source, "index.mjs"))) fail("backend build did not produce dist/index.mjs");
@@ -242,6 +273,6 @@ export function stageMacosNativeLibraries(out, run = execFileSync) {
   }
 }
 function findFile(dir, wanted) { for (const item of fs.readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, item.name); if (item.isFile() && item.name.toLowerCase() === wanted.toLowerCase()) return p; if (item.isDirectory()) { const found = findFile(p, wanted); if (found) return found; } } return undefined; }
-function validate(dir, targetName) { const binary = targetName.startsWith("windows") ? "node.exe" : "node"; const java = targetName.startsWith("windows") ? "java.exe" : "java"; const required = [path.join(dir, "backend/index.mjs"), path.join(dir, "mcp-server/index.js"), path.join(dir, "mcp-server/package.json"), path.join(dir, `runtime/node/${binary}`), path.join(dir, `runtime/jre/bin/${java}`), path.join(dir, "sidecar/omni-sql-sidecar.jar"), path.join(dir, "runtime-manifest.json"), path.join(dir, "licenses")]; for (const p of required) if (!fs.existsSync(p)) fail(`missing required resource ${path.relative(dir, p)}`); }
+function validate(dir, targetName) { const binary = targetName.startsWith("windows") ? "node.exe" : "node"; const java = targetName.startsWith("windows") ? "java.exe" : "java"; const required = [path.join(dir, "backend/index.mjs"), path.join(dir, "mcp-server/index.js"), path.join(dir, "mcp-server/package.json"), path.join(dir, `runtime/node/${binary}`), path.join(dir, `runtime/jre/bin/${java}`), path.join(dir, "sidecar/omni-sql-sidecar.jar"), path.join(dir, "runtime-manifest.json"), path.join(dir, "licenses")]; for (const p of required) if (!fs.existsSync(p)) fail(`missing required resource ${path.relative(dir, p)}`); assertNoDistrustedRoots(path.join(dir, "runtime/jre")); }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
