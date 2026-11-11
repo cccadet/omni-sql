@@ -78,7 +78,11 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
       await this.connect();
       return { ok: true, latencyMs: Date.now() - t0 };
     } catch (e) {
-      return { ok: false, latencyMs: Date.now() - t0, message: (e as Error).message };
+      return {
+        ok: false,
+        latencyMs: Date.now() - t0,
+        message: connectionFailureMessage(e, this.poolConfig.options?.trustServerCertificate === true),
+      };
     }
   }
 
@@ -246,6 +250,40 @@ export class MssqlAdapter extends CachedAdapter implements Adapter {
 
 // ─────────────────────────── Wire helpers
 
+type ConnectionOptions = Record<string, string | number | boolean> | undefined;
+
+function flag(options: ConnectionOptions, key: string, fallback: boolean): boolean {
+  const value = options?.[key];
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  return fallback;
+}
+
+/**
+ * Only the TLS settings reach Tedious; app-level options such as `environment`
+ * or `mcpAccess` live in the same bag and must not leak into the driver.
+ * Encryption with a validated certificate stays the default; servers with the
+ * auto-generated self-signed certificate (the SQL Server default) need
+ * `trustServerCertificate`, which is what SSMS and DataGrip offer as well.
+ */
+function tlsOptions(options: ConnectionOptions): NonNullable<MssqlConfig["options"]> {
+  const serverName = typeof options?.serverName === "string" ? options.serverName.trim() : "";
+  return {
+    encrypt: flag(options, "encrypt", true),
+    trustServerCertificate: flag(options, "trustServerCertificate", false),
+    ...(serverName ? { serverName } : {}),
+  };
+}
+
+const CERTIFICATE_ERROR = /certificate|self[- ]signed|unable to verify|ERR_TLS_CERT/i;
+
+/** Point users at the setting that fixes the most common SQL Server TLS failure. */
+function connectionFailureMessage(error: unknown, trustsCertificate: boolean): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (trustsCertificate || !CERTIFICATE_ERROR.test(message)) return message;
+  return `${message} — the server certificate could not be validated; enable "Trust server certificate" in the connection settings if you trust this server.`;
+}
+
 function parseEndpoint(
   endpoint: string,
   user: string,
@@ -257,7 +295,7 @@ function parseEndpoint(
     password: password ?? "",
     server: endpoint,
     database: "",
-    options: { trustServerCertificate: false, encrypt: true, ...(options ?? {}) },
+    options: tlsOptions(options),
     pool: { max: 4 },
   };
   // host:port/db ou host/db — mssql exige `server`/`port`/`database` separados.

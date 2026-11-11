@@ -51,6 +51,12 @@ test("MssqlAdapter: usa TLS validado por padrão", () => {
   assert.deepEqual(poolConfig.options, { encrypt: true, trustServerCertificate: false });
 });
 
+test("MssqlAdapter: repassa só as opções de TLS salvas pela tela ao driver", () => {
+  const a = new MssqlAdapter({ ...cfg(), options: { trustServerCertificate: true, encrypt: "false", environment: "staging", mcpAccess: "off", ssl: "require" } });
+  const poolConfig = (a as unknown as { poolConfig: { options: Record<string, unknown> } }).poolConfig;
+  assert.deepEqual(poolConfig.options, { encrypt: false, trustServerCertificate: true });
+});
+
 test("test() retorna ok:false quando não consegue conectar", async () => {
   const a = new MssqlAdapter(cfg("127.0.0.1:1/dummy"), "nobody");
   const t = await a.test();

@@ -712,4 +712,6 @@ export const simplifiedChinese = {
   colorTeal: "青色",
   colorGray: "灰色",
   resizeColumn: "调整列 {column} 的宽度",
+  mssqlEncrypt: "加密连接",
+  mssqlTrustServerCertificate: "信任服务器证书（自签名）",
 } satisfies Record<TranslationKey, string>;
