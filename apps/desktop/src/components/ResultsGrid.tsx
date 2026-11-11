@@ -213,6 +213,8 @@ export function ResultsGrid({
   const gridScrollRef = useRef<HTMLDivElement | null>(null);
   const columnFocusTimerRef = useRef<number | null>(null);
   const previousResultRef = useRef<QueryResult | null | undefined>(result);
+  // Column names the current widths belong to; widths survive re-runs with the same columns.
+  const columnWidthsSignatureRef = useRef<string | null>(null);
   const applyingChangesRef = useRef(false);
   const editFinalizedRef = useRef(false);
 
@@ -228,7 +230,12 @@ export function ResultsGrid({
     setColumnFinder("");
     setFocusedColumnIndex(null);
     setHiddenColumnIndexes(new Set());
-    setColumnWidths({});
+    // Keep resized widths when the query is re-run (the result is briefly null while running).
+    const columnsSignature = result?.columns.length ? JSON.stringify(result.columns.map((column) => column.name)) : null;
+    if (columnsSignature !== null && columnsSignature !== columnWidthsSignatureRef.current) {
+      columnWidthsSignatureRef.current = columnsSignature;
+      setColumnWidths({});
+    }
     if (error) {
       setActiveTab("messages");
     } else if (result) {

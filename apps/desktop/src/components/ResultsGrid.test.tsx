@@ -550,3 +550,18 @@ test("resizes result columns by dragging or using the keyboard on the header div
   for (let index = 0; index < 20; index++) fireEvent.keyDown(handle, { key: "ArrowLeft" });
   expect(widths()[0]).toBe("48px");
 });
+
+test("keeps resized column widths when the same query is re-run and resets them for different columns", () => {
+  const view = render(<LanguageProvider><ResultsGrid result={result} /></LanguageProvider>);
+  const widths = () => Array.from(screen.getByRole("table").querySelectorAll("col"), (col) => col.style.width);
+  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize column id" }), { key: "ArrowRight" });
+  expect(widths()).toEqual(["166px", "150px"]);
+
+  // A re-run clears the result while running, then delivers a new object with the same columns.
+  view.rerender(<LanguageProvider><ResultsGrid result={null} running /></LanguageProvider>);
+  view.rerender(<LanguageProvider><ResultsGrid result={{ ...result, columns: result.columns.map((column) => ({ ...column })), rows: [...result.rows] }} /></LanguageProvider>);
+  expect(widths()).toEqual(["166px", "150px"]);
+
+  view.rerender(<LanguageProvider><ResultsGrid result={{ ...result, columns: [{ ...result.columns[0]!, name: "other" }, ...result.columns.slice(1)] }} /></LanguageProvider>);
+  expect(screen.getByRole("table").querySelector("colgroup")).toBeNull();
+});
