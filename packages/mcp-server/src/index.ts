@@ -9,6 +9,7 @@ import { MCP_DEFAULT_QUERY_LIMIT, MCP_MAX_QUERY_LIMIT } from "@omni-sql/ts-types
 import {
   BackendClientError,
   BackendMcpClient,
+  type McpToolName,
   MAX_REQUEST_BYTES,
   MAX_RATIONALE_BYTES,
   MAX_SQL_BYTES,
@@ -132,7 +133,26 @@ async function invoke<T>(operation: () => Promise<T>): Promise<ToolResult> {
   }
 }
 
-export function createMcpServer(client: BackendMcpClient): McpServer {
+/** Forwards an approved tool call; BackendMcpClient is the desktop implementation. */
+export interface McpToolBackend {
+  call<T>(tool: McpToolName, args: Record<string, unknown>, signal?: AbortSignal): Promise<T>;
+}
+
+export const DESKTOP_UNAVAILABLE_MESSAGE =
+  "omni-sql desktop is not running: this MCP server was started in standalone mode without a runtime descriptor. "
+  + "Start the omni-sql desktop app and launch the MCP server from it to use this tool.";
+
+/**
+ * Backend for standalone (introspection-only) mode. It has no endpoint, token or
+ * database access: every tool call fails without leaving the process.
+ */
+export class DesktopUnavailableBackend implements McpToolBackend {
+  call<T>(): Promise<T> {
+    return Promise.reject(new BackendClientError({ code: "unavailable", message: DESKTOP_UNAVAILABLE_MESSAGE }));
+  }
+}
+
+export function createMcpServer(client: McpToolBackend): McpServer {
   const server = new McpServer({ name: "omni-sql", version: "0.0.0" });
 
   server.registerTool(
@@ -240,6 +260,11 @@ export async function startMcpServer(
   transport = new StdioServerTransport(),
 ): Promise<void> {
   await createMcpServer(new BackendMcpClient(descriptor)).connect(transport);
+}
+
+/** Serves the same tools and schemas over STDIO, but every call reports that the desktop is not running. */
+export async function startStandaloneMcpServer(transport = new StdioServerTransport()): Promise<void> {
+  await createMcpServer(new DesktopUnavailableBackend()).connect(transport);
 }
 
 type HttpSession = {
@@ -717,8 +742,25 @@ export interface McpCliOptions {
   httpToken?: string;
 }
 
+/** Introspection-only mode: no descriptor, STDIO only, every tool call fails. */
+export interface McpStandaloneCliOptions {
+  standalone: true;
+  transport: "stdio";
+}
+
+/** Parses desktop-mode options; standalone mode is rejected here (see parseMcpCliMode). */
 export function parseMcpCliOptions(argv: string[], env: NodeJS.ProcessEnv): McpCliOptions {
+  const options = parseMcpCliMode(argv, env);
+  if ("standalone" in options) throw new Error("standalone mode has no runtime descriptor options");
+  return options;
+}
+
+export function parseMcpCliMode(
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+): McpCliOptions | McpStandaloneCliOptions {
   let descriptorPath: string | undefined;
+  let standalone = false;
   let explicitTransport: string | undefined;
   let explicitHost: string | undefined;
   let explicitPort: string | undefined;
@@ -726,6 +768,10 @@ export function parseMcpCliOptions(argv: string[], env: NodeJS.ProcessEnv): McpC
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === undefined) throw new Error("usage: node dist/index.js [runtime-descriptor-path] [options]");
+    if (argument === "--standalone") {
+      standalone = true;
+      continue;
+    }
     if (argument === "--streamable-http" || argument === "--http") {
       explicitTransport = "streamable-http";
       continue;
@@ -772,6 +818,16 @@ export function parseMcpCliOptions(argv: string[], env: NodeJS.ProcessEnv): McpC
     descriptorPath = argument;
   }
 
+  if (standalone || env.OMNI_SQL_MCP_STANDALONE === "1") {
+    if (descriptorPath !== undefined || env.OMNI_SQL_MCP_DESCRIPTOR) {
+      throw new Error("standalone mode does not accept a runtime descriptor");
+    }
+    if (explicitTransport !== undefined || explicitHost !== undefined || explicitPort !== undefined
+      || parseTransportMode(env.OMNI_SQL_MCP_TRANSPORT) !== "stdio") {
+      throw new Error("standalone mode supports only the stdio transport");
+    }
+    return { standalone: true, transport: "stdio" };
+  }
   const resolvedDescriptorPath = descriptorPath ?? env.OMNI_SQL_MCP_DESCRIPTOR;
   if (!resolvedDescriptorPath) throw new Error("runtime descriptor path is required");
   const transport = parseTransportMode(explicitTransport ?? env.OMNI_SQL_MCP_TRANSPORT);
@@ -805,7 +861,12 @@ export function diagnostic(error: unknown): string {
 }
 
 export async function main(argv = process.argv.slice(2), env = process.env): Promise<void> {
-  const options = parseMcpCliOptions(argv, env);
+  const options = parseMcpCliMode(argv, env);
+  if ("standalone" in options) {
+    process.stderr.write("[omni-sql-mcp] standalone mode: tools are listed, but every call fails until the desktop app starts the server\n");
+    await startStandaloneMcpServer();
+    return;
+  }
   const descriptor = await readRuntimeDescriptor(options.descriptorPath);
   if (options.transport === "stdio") {
     await startMcpServer(descriptor);
