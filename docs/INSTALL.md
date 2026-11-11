@@ -9,8 +9,16 @@ ODBC connections still need their database drivers
 
 ## Windows
 
-The `.exe` installer installs for the current user and provisions the WebView2
-runtime when it is missing. Installed copies update themselves.
+Install from [WinGet](https://learn.microsoft.com/windows/package-manager/winget/):
+
+```powershell
+winget install cccadet.omni-sql
+```
+
+or download the `.exe` installer from the release; WinGet runs the same
+installer. It installs for the current user and provisions the WebView2 runtime
+when it is missing. Installed copies update themselves. Each release is
+submitted to WinGet automatically and usually appears there within a day.
 
 The `x64-portable.zip` archive runs without an installer or administrator
 rights. Extract the whole `omni-sql` folder (running it from inside the ZIP does
