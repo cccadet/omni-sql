@@ -165,10 +165,41 @@ preserving `POST`/`GET`/`DELETE`, the `Mcp-Session-Id`, `Mcp-Protocol-Version`,
 `Last-Event-ID`, `Accept` and `Content-Type` headers, and SSE/chunked streaming
 without buffering.
 
+## Standalone mode
+
+`node dist/index.js --standalone` (or `OMNI_SQL_MCP_STANDALONE=1`) starts the
+server without a runtime descriptor. It exists so registries and catalogs such
+as Glama can build the server and run MCP introspection (`initialize`,
+`tools/list`) without the desktop app. It is not a way to use omni-sql:
+
+- It lists the same nine tools with the same input/output schemas and
+  annotations as the desktop-launched server.
+- Every tool call returns an `unavailable` error ("omni-sql desktop is not
+  running") without making any request; there is no endpoint, token,
+  credential or database access in this mode.
+- It runs only over STDIO. Passing a descriptor (argument or
+  `OMNI_SQL_MCP_DESCRIPTOR`) or selecting Streamable HTTP is rejected, so it
+  cannot be combined with the normal mode by accident.
+
+Without `--standalone`, the descriptor is still required and the desktop path
+is unchanged.
+
+[`packages/mcp-server/Dockerfile`](../packages/mcp-server/Dockerfile) builds
+this mode with pnpm 11.17.0 and Node 22 and ships only the bundled server. Build
+it from the repository root:
+
+```bash
+docker build -f packages/mcp-server/Dockerfile -t omni-sql-mcp .
+```
+
+```bash
+docker run -i --rm omni-sql-mcp
+```
+
 ## Verifying the setup
 
 1. Open a connected SQL tab and confirm **MCP** is ready in the status bar.
-2. From the client, list the eight tools and call `getActiveSql`.
+2. From the client, list the nine tools and call `getActiveSql`.
 3. Call `proposeSqlEdit` with, for example,
    `{"sql": "SELECT id, name FROM customers ORDER BY name;", "rationale": "Make the columns and order explicit."}`.
    The desktop shows a diff without changing the tab.
