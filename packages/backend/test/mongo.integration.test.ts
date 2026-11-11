@@ -144,7 +144,7 @@ test("HTTP RPC MongoDB connection, metadata, BSON reads, writes and destructive 
       return expected;
     }
     await callTool("getActiveSql", {}, async () => ({ sql: sourceSql, dialect: "duckdb" }));
-    await callTool("getActiveConnectionContext", {}, async () => ({ connectionId, label: config.label, dialect: config.dialect }));
+    await callTool("getActiveConnectionContext", {}, async () => ({ connectionId, label: config.label, dialect: config.dialect, mcpAccess: "read" }));
     await callTool("getSchemaSummary", {}, async () => ({ connectionId, schemas: [{ name: db.databaseName, relations: [{ name: "items", kind: "table", columns: itemMetadata.columns.map(({ name, dataType }) => ({ name, dataType })) }] }] }));
     const nativeSql = query("find", { filter: { name: "first" } });
     await callTool("getActiveSql", {}, async () => ({ sql: nativeSql, dialect: "mongodb" }));

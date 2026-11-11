@@ -812,6 +812,12 @@ button:focus-visible, select:focus-visible, [role="separator"]:focus-visible {
 .omni-mcp-diff-line.is-removed { background: color-mix(in srgb, var(--colorPaletteRedForeground1) 18%, transparent); }
 .omni-mcp-diff-line.is-added { background: color-mix(in srgb, var(--colorPaletteGreenForeground1) 18%, transparent); }
 .omni-mcp-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 240px; }
+.omni-mcp-edit-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.omni-mcp-target { display: grid; gap: 8px; min-width: 0; }
+.omni-mcp-target-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; min-width: 0; }
+.omni-mcp-target-field { flex: 1 1 320px; min-width: 0; }
+.omni-mcp-target-meta { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; }
+.omni-mcp-target-note { color: var(--colorNeutralForeground3); }
 .omni-connection-host-row { display: flex; gap: 12px; }
 .omni-results-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 100%; padding: 24px; box-sizing: border-box; text-align: center; }
 .omni-results-empty-copy.omni-results-empty-copy { max-width: 440px; color: var(--colorNeutralForeground3); line-height: 1.5; }

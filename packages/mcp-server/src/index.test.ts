@@ -199,10 +199,11 @@ test("HTTP startup binds valid ephemeral listeners and rejects absent token", as
   }
 });
 
-test("advertises exactly eight approved tools", async () => {
+test("advertises exactly nine approved tools", async () => {
   const expectedTools = [
     "getActiveSql",
     "getActiveConnectionContext",
+    "listConnections",
     "getSchemaSummary",
     "getTableIndexes",
     "explainSql",
@@ -618,8 +619,9 @@ test("Streamable HTTP forwards every remaining approved tool with validated argu
     await mcpClient.connect(transport);
     for (const [name, args] of [
       ["getActiveConnectionContext", {}],
+      ["listConnections", {}],
       ["getSchemaSummary", {}],
-      ["getTableIndexes", { schema: "public", table: "orders" }],
+      ["getTableIndexes", { connectionId: "conn-2", schema: "public", table: "orders" }],
       ["explainSql", { sql: "SELECT * FROM orders" }],
       ["getLatestSqlExecutionError", {}],
       ["proposeSqlEdit", { sql: "SELECT 1", rationale: "Use a literal" }],
@@ -627,10 +629,13 @@ test("Streamable HTTP forwards every remaining approved tool with validated argu
       const result = await mcpClient.callTool({ name, arguments: args });
       assert.deepEqual(result.content, [{ type: "text", text: JSON.stringify({ tool: name, args }) }]);
     }
+    const rejected = await mcpClient.callTool({ name: "listConnections", arguments: { connectionId: "conn-2" } });
+    assert.equal(rejected.isError, true);
     assert.deepEqual(forwarded, [
       { tool: "getActiveConnectionContext", args: {} },
+      { tool: "listConnections", args: {} },
       { tool: "getSchemaSummary", args: {} },
-      { tool: "getTableIndexes", args: { schema: "public", table: "orders" } },
+      { tool: "getTableIndexes", args: { connectionId: "conn-2", schema: "public", table: "orders" } },
       { tool: "explainSql", args: { sql: "SELECT * FROM orders" } },
       { tool: "getLatestSqlExecutionError", args: {} },
       { tool: "proposeSqlEdit", args: { sql: "SELECT 1", rationale: "Use a literal" } },

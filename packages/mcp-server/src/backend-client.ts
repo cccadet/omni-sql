@@ -29,6 +29,7 @@ export type RuntimeDescriptor = z.infer<typeof runtimeDescriptorSchema>;
 export const mcpToolNames = [
   "getActiveSql",
   "getActiveConnectionContext",
+  "listConnections",
   "getSchemaSummary",
   "getTableIndexes",
   "explainSql",

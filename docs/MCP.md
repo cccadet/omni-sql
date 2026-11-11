@@ -17,15 +17,32 @@ AI client ──MCP (STDIO or HTTP)──▶ local MCP server ──▶ backend 
 | Tool | What it does |
 | --- | --- |
 | `getActiveSql` | SQL and dialect of the active tab (dialect is `null` without a connection) |
-| `getActiveConnectionContext` | Safe connection context, without passwords or credentials |
-| `getSchemaSummary` | Schemas, relations and columns; accepts `schema`, `table`, `offset`, `limit` (default 50, max 100) and returns `nextOffset` when more exist |
-| `getTableIndexes` | Indexes of one table |
-| `explainSql` | Query plan without executing the query |
+| `getActiveConnectionContext` | Active connection: id, label, dialect, MCP access level and environment; never endpoint, user or credentials |
+| `listConnections` | Every connection whose MCP access is not Off, with the same safe fields, plus `activeConnectionId` |
+| `getSchemaSummary` | Schemas, relations and columns; accepts `connectionId`, `schema`, `table`, `offset`, `limit` (default 50, max 100) and returns `nextOffset` when more exist |
+| `getTableIndexes` | Indexes of one table; accepts `connectionId` |
+| `explainSql` | Query plan without executing the query; accepts `connectionId` |
 | `getLatestSqlExecutionError` | Latest execution error in the active tab |
 | `proposeSqlEdit` | Before/after proposal that you apply or reject in the desktop; stale proposals are rejected |
-| `executeSql` | Runs SQL after desktop approval; accepts `sql` and `limit` (default 100, max 1,000) and returns columns, rows, timing, affected count and `truncated`/`rowsMoreAvailable`, capped at 256 KiB |
+| `executeSql` | Runs SQL after desktop approval; accepts `sql`, `limit` (default 100, max 1,000) and a suggested `connectionId`, and returns the `connectionId` actually used, columns, rows, timing, affected count and `truncated`/`rowsMoreAvailable`, capped at 256 KiB |
 
-There are no tools to read other connections, stored credentials, files, the
+### Choosing a connection
+
+Tools work on the active connection unless they receive a `connectionId` from
+`listConnections`, so an agent can work on several databases without you
+switching tabs. Each connection carries its environment (`id` such as
+`development`, `staging` or `production`, or a custom id, and its display
+`name`), which helps the agent pick the right homologation or production
+database. An unknown id is rejected, and an id with MCP access Off is refused
+exactly as on the active tab.
+
+For `executeSql` the id is only a suggestion: the approval dialog preselects it
+(or the active connection) and you can run the SQL on another connection
+instead. The dialog shows the environment, warns when the target is not the
+active connection or is a production environment, and disables **Run** when the
+chosen connection is read-only and the SQL is not.
+
+There are no tools to read stored credentials, connection endpoints, files, the
 shell or processes. SQL, schema names, metadata and permitted results returned
 by the tools are visible to the connected client; use the integration only when
 that exposure is acceptable.
@@ -36,7 +53,7 @@ Each connection has an **MCP access** setting (`options.mcpAccess`):
 
 | Level | Effect |
 | --- | --- |
-| Off | No tool answers for a tab on this connection, not even `getActiveSql` |
+| Off | No tool answers for a tab on this connection, not even `getActiveSql`; the connection is left out of `listConnections` and cannot be targeted by `connectionId` |
 | Read-only (default) | Schema, indexes and plans. `executeSql` accepts one `SELECT`, `WITH`, `VALUES`, `TABLE`, `SHOW`, `DESCRIBE` or `EXPLAIN` (without `ANALYZE`); on MongoDB only `find` and `aggregate` without `$out`/`$merge` |
 | Read and write | Any SQL, always with desktop approval |
 
@@ -56,9 +73,10 @@ the text check alone; use a least-privilege database user anyway.
 ## Approvals
 
 `executeSql` can change data and structure. An approval is bound to the request
-and connection, cannot be replayed and expires with the request (120 s).
-Rejecting, switching tab or connection before approving, or cancelling the
-request starts no SQL. MCP cancellation and timeouts reach the adapter when it
+and to the connection chosen in the dialog, cannot be replayed and expires with
+the request (120 s). Rejecting, cancelling the request, or the chosen
+connection being removed or losing MCP access before you approve starts no SQL.
+The proposed SQL is shown with the editor's syntax colors. MCP cancellation and timeouts reach the adapter when it
 supports cancellation; cancelling does not undo statements already committed.
 
 While omni-sql is in the background, approval requests show a desktop

@@ -198,9 +198,27 @@ test("MCP result schemas retain valid nested data and reject unsafe payloads", (
       connectionId: "connection-1",
       label: "Production",
       dialect: "postgres",
+      mcpAccess: "read",
+      environment: { id: "production", name: "Produção" },
     }),
-    { connectionId: "connection-1", label: "Production", dialect: "postgres" },
+    { connectionId: "connection-1", label: "Production", dialect: "postgres", mcpAccess: "read", environment: { id: "production", name: "Produção" } },
   );
+  assert.deepEqual(
+    validateMcpToolResult("listConnections", {
+      activeConnectionId: null,
+      connections: [{ connectionId: "connection-2", label: "Dev", dialect: "mysql", mcpAccess: "write" }],
+    }),
+    { activeConnectionId: null, connections: [{ connectionId: "connection-2", label: "Dev", dialect: "mysql", mcpAccess: "write" }] },
+  );
+  for (const connection of [
+    { connectionId: "c", label: "L", dialect: "postgres", mcpAccess: "off" },
+    { connectionId: "c", label: "L", dialect: "postgres" },
+    { connectionId: "c", label: "L", dialect: "postgres", mcpAccess: "read", environment: { id: "production" } },
+    { connectionId: "c", label: "L", dialect: "postgres", mcpAccess: "read", environment: { id: "production", name: "Prod", color: "red" } },
+    { connectionId: "c", label: "L", dialect: "postgres", mcpAccess: "read", endpoint: "postgres://secret" },
+  ]) {
+    assert.throws(() => validateMcpToolResult("listConnections", { activeConnectionId: "c", connections: [connection] }), hasCode("invalid"));
+  }
   assert.deepEqual(
     validateMcpToolResult("getSchemaSummary", {
       connectionId: "connection-1",

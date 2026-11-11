@@ -96,11 +96,11 @@ test("MCP endpoint isolates tokens, rejects generic RPC, and bridges one UI resp
     ]) assert.equal((await rpc("connection.add", { config })).error, undefined, config.id);
     for (const [tool, result] of [
       ["getActiveSql", { sql: "SELECT * FROM reports", dialect: "duckdb" }],
-      ["getActiveConnectionContext", { connectionId: "mongo", label: "MongoDB", dialect: "mongodb" }],
+      ["getActiveConnectionContext", { connectionId: "mongo", label: "MongoDB", dialect: "mongodb", mcpAccess: "read" }],
       ["getActiveSql", { sql: '{"collection":"reports","operation":"find"}', dialect: "mongodb" }],
-      ["getActiveConnectionContext", { connectionId: "local-duckdb", label: "DuckDB", dialect: "duckdb" }],
+      ["getActiveConnectionContext", { connectionId: "local-duckdb", label: "DuckDB", dialect: "duckdb", mcpAccess: "read" }],
       ["getActiveSql", { sql: "SELECT * FROM files", dialect: "s3" }],
-      ["getActiveConnectionContext", { connectionId: "files", label: "S3", dialect: "s3" }],
+      ["getActiveConnectionContext", { connectionId: "files", label: "S3", dialect: "s3", mcpAccess: "read" }],
     ] as const) {
       const reading = post("/mcp", { tool, args: {} }, mcpHeaders);
       const delivered = await rpc("mcp.ui.next", { listenerId: "desktop", waitMs: 1_000 });

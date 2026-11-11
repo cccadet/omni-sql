@@ -849,7 +849,7 @@ it("MCP execution shows connection and SQL and requires approval before the exec
     });
     const dialog = await screen.findByRole("dialog", { name: "Approve SQL execution" });
     expect(within(dialog).getByText(/Local Postgres/)).toBeTruthy();
-    expect(within(dialog).getByDisplayValue("DELETE FROM users")).toBeTruthy();
+    expect(within(dialog).getByText("DELETE FROM users")).toBeTruthy();
     // A user away from the window must still learn that an approval is waiting before it expires.
     expect(notifyDesktop).toHaveBeenCalledWith({ title: "Approve SQL execution", body: expect.stringContaining("Local Postgres") });
     expect(call.mock.calls.some(([method]) => method === "mcp.ui.execute")).toBe(false);
@@ -857,6 +857,46 @@ it("MCP execution shows connection and SQL and requires approval before the exec
     await act(async () => { fireEvent.click(run); await pending; });
     expect(call).toHaveBeenCalledWith("mcp.ui.execute", expect.objectContaining({ id: "mcp-execute", connectionId: "conn-1" }));
     expect((screen.getByLabelText("SQL editor") as HTMLTextAreaElement).value).toBe("SELECT original");
+  } finally { start.mockRestore(); }
+});
+
+it("MCP execution preselects the suggested connection, warns about production and runs on the user's pick", async () => {
+  seedSession("SELECT original", 1000, "conn-1");
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [
+      { id: "conn-1", label: "Orders dev", dialect: "postgres", endpoint: "localhost", user: "user", options: { mcpAccess: "write", environment: "development" } },
+      { id: "conn-2", label: "Orders prod", dialect: "postgres", endpoint: "prod", user: "user", options: { mcpAccess: "write", environment: "production" } },
+      { id: "conn-3", label: "HR", dialect: "postgres", endpoint: "hr", user: "user", options: { mcpAccess: "off" } },
+    ] })
+    : defaultCall(method, params, signal));
+  const bridges: McpUiBridge[] = [];
+  const start = vi.spyOn(McpUiBridge.prototype, "start").mockImplementation(function (this: McpUiBridge) { bridges.push(this); });
+  try {
+    renderApp();
+    await waitFor(async () => expect(await bridges.at(-1)!.handleRequest({ id: "list", tool: "listConnections", args: {}, expiresAt: Date.now() + 60_000 })).toEqual({
+      activeConnectionId: "conn-1",
+      connections: [
+        { connectionId: "conn-1", label: "Orders dev", dialect: "postgres", mcpAccess: "write", environment: { id: "development", name: "Development" } },
+        { connectionId: "conn-2", label: "Orders prod", dialect: "postgres", mcpAccess: "write", environment: { id: "production", name: "Production" } },
+      ],
+    }));
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = bridges.at(-1)!.handleRequest({ id: "mcp-execute", tool: "executeSql", args: { connectionId: "conn-2", sql: "UPDATE orders SET status = 'x'" }, expiresAt: Date.now() + 60_000 });
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Approve SQL execution" });
+    const picker = within(dialog).getByLabelText("Run on connection") as HTMLSelectElement;
+    expect(picker.value).toBe("conn-2");
+    expect([...picker.options].map((option) => option.value)).toEqual(["conn-1", "conn-2"]);
+    expect(within(dialog).getByText("Connection suggested by the MCP client.")).toBeTruthy();
+    expect(within(dialog).getByText("This is not the active connection.")).toBeTruthy();
+    expect(within(dialog).getByText(/Production environment/)).toBeTruthy();
+    fireEvent.change(picker, { target: { value: "conn-1" } });
+    await waitFor(() => expect(screen.queryByText(/Production environment/)).toBeNull());
+    const run = await within(await screen.findByRole("dialog", { name: "Approve SQL execution" })).findByRole("button", { name: "Run" });
+    await act(async () => { fireEvent.click(run); await pending; });
+    expect(call).toHaveBeenCalledWith("mcp.ui.execute", expect.objectContaining({ id: "mcp-execute", connectionId: "conn-1" }));
   } finally { start.mockRestore(); }
 });
 

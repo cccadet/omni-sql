@@ -712,4 +712,9 @@ export const simplifiedChinese = {
   colorTeal: "青色",
   colorGray: "灰色",
   resizeColumn: "调整列 {column} 的宽度",
+  mcpTargetConnection: "执行连接",
+  mcpConnectionSuggested: "由 MCP 客户端建议的连接。",
+  mcpConnectionNotActive: "这不是当前活动连接。",
+  mcpProductionWarning: "生产环境：执行前请仔细检查 SQL。",
+  mcpReadOnlyBlocked: "此连接仅允许 MCP 只读访问。请选择其他连接或拒绝。",
 } satisfies Record<TranslationKey, string>;
