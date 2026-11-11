@@ -271,6 +271,7 @@ export interface SqlExecutionError {
 export type McpToolName =
   | "getActiveSql"
   | "getActiveConnectionContext"
+  | "listConnections"
   | "getSchemaSummary"
   | "getTableIndexes"
   | "getLatestSqlExecutionError"
@@ -312,17 +313,27 @@ export const MCP_LIMITS = {
   maxConnectionIdBytes: MCP_MAX_CONNECTION_ID_BYTES,
 } as const;
 
+/**
+ * Optional target for connection-scoped tools. Omitted means the active connection;
+ * otherwise an id returned by `listConnections`.
+ */
+export interface McpConnectionTarget {
+  readonly connectionId?: string;
+}
+
 export interface McpToolArgsByName {
-  executeSql: { readonly sql: string; readonly limit?: number };
+  /** `connectionId` is a suggestion: the desktop approval dialog may run it elsewhere. */
+  executeSql: McpConnectionTarget & { readonly sql: string; readonly limit?: number };
   getActiveSql: Record<string, never>;
   getActiveConnectionContext: Record<string, never>;
-  getSchemaSummary: { readonly schema?: string; readonly table?: string; readonly offset?: number; readonly limit?: number };
-  getTableIndexes: {
+  listConnections: Record<string, never>;
+  getSchemaSummary: McpConnectionTarget & { readonly schema?: string; readonly table?: string; readonly offset?: number; readonly limit?: number };
+  getTableIndexes: McpConnectionTarget & {
     readonly schema: string;
     readonly table: string;
   };
   getLatestSqlExecutionError: Record<string, never>;
-  explainSql: {
+  explainSql: McpConnectionTarget & {
     readonly sql: string;
   };
   proposeSqlEdit: {
@@ -357,6 +368,25 @@ export interface McpSchemaSummarySchema {
   readonly relations: readonly McpSchemaSummaryRelation[];
 }
 
+/** Environment tag set on the connection (`development`, `staging`, `production` or a custom id). */
+export interface McpConnectionEnvironment {
+  readonly id: string;
+  /** Display name in the desktop's language; custom environments use the user's own name. */
+  readonly name: string;
+}
+
+/** Safe connection description: never endpoint, user, options or credentials. */
+export interface McpConnectionSummary {
+  readonly connectionId: string;
+  readonly label: string;
+  readonly dialect: DialectId;
+  /** Connections with `off` access are never exposed. */
+  readonly mcpAccess: Exclude<McpAccess, "off">;
+  readonly environment?: McpConnectionEnvironment;
+}
+
+export const MCP_MAX_ENVIRONMENT_ID_BYTES = 128;
+
 export interface McpToolResultByName {
   executeSql: QueryResult & { readonly connectionId: string; readonly truncated: boolean };
   getActiveSql: {
@@ -364,10 +394,11 @@ export interface McpToolResultByName {
     /** Dialect of the active tab's connection; null when it has no connection. */
     readonly dialect: DialectId | null;
   };
-  getActiveConnectionContext: {
-    readonly connectionId: string;
-    readonly label: string;
-    readonly dialect: DialectId;
+  getActiveConnectionContext: McpConnectionSummary;
+  listConnections: {
+    /** Null when no connection is active or the active one has MCP access off. */
+    readonly activeConnectionId: string | null;
+    readonly connections: readonly McpConnectionSummary[];
   };
   getSchemaSummary: {
     readonly connectionId: string;

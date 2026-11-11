@@ -44,7 +44,9 @@ import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } fro
 import { basenameNoExt, exportConnectionsFile, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage, type TranslationKey } from "./i18n";
 import { useCsvOptions } from "./components/CsvOptionsDialog";
-import { McpUiBridge, McpUiError, type McpUiState } from "./lib/mcp-ui-bridge";
+import { McpUiBridge, type McpExecutionOutcome, type McpUiConnection, type McpUiState } from "./lib/mcp-ui-bridge";
+import { environmentName, findConnectionEnvironment } from "./components/Environments";
+import { useEnvironments, type EnvironmentDefinition } from "./lib/environments";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
 import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runMongoSql, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
 import { s3Buckets } from "./lib/s3-buckets";
@@ -99,6 +101,18 @@ function saveTrustedWarningConnections(connections: ReadonlySet<string>): void {
   } catch {
     // localStorage can be unavailable in restricted webviews.
   }
+}
+
+function toMcpUiConnection(connection: ConnectionEntry, environments: readonly EnvironmentDefinition[], t: (key: TranslationKey) => string): McpUiConnection {
+  const environment = findConnectionEnvironment(connection, environments);
+  const name = environment ? environmentName(environment, t).trim() : "";
+  return {
+    id: connection.id,
+    label: connection.label,
+    dialect: connection.dialect,
+    mcpAccess: connectionMcpAccess(connection),
+    ...(environment ? { environment: { id: environment.id, name: name || environment.id } } : {}),
+  };
 }
 
 interface ActiveQuery {
@@ -313,8 +327,14 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [mcpStarted, setMcpStarted] = useState(false);
   const [mcpProposal, setMcpProposal] = useState<McpEditProposal | null>(null);
-  const mcpProposalResolverRef = useRef<((outcome: "approved" | "rejected" | "stale") => void) | null>(null);
-  const mcpStateRef = useRef<McpUiState>({ activeTab: null, activeConnection: null, editor: null });
+  /** `connectionId` is the connection chosen in an execution approval. */
+  const mcpProposalResolverRef = useRef<((outcome: "approved" | "rejected" | "stale", connectionId?: string) => void) | null>(null);
+  const mcpStateRef = useRef<McpUiState>({ activeTab: null, activeConnection: null, connections: [], editor: null });
+  const environments = useEnvironments();
+  const mcpConnections = useMemo(
+    () => connections.map((connection) => toMcpUiConnection(connection, environments, t)),
+    [connections, environments, t],
+  );
   const connectionHealthCheckRef = useRef(0);
   const executionSequenceRef = useRef(0);
   const activeQueryRef = useRef<ActiveQuery | null>(null);
@@ -655,7 +675,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       latestSqlExecutionError: activeTab.latestSqlExecutionError ?? null,
       mongoSqlMode: activeTab.mongoSqlMode,
     } : null,
-    activeConnection: activeConnection ? { id: activeConnection.id, label: activeConnection.label, dialect: activeConnection.dialect, mcpAccess: connectionMcpAccess(activeConnection) } : null,
+    activeConnection: mcpConnections.find((connection) => connection.id === activeConnection?.id) ?? null,
+    connections: mcpConnections,
     editor: editorRef.current,
   };
 
@@ -1517,17 +1538,12 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   }, [activeConnectionId, addTab, onOpenFile, onSaveTab]);
 
 
+  // The MCP UI bridge resolves the target connection and rechecks it after each await.
   const getMcpSchemaSummary = useCallback(async (connectionId: string, args: McpToolArgsByName["getSchemaSummary"] = {}): Promise<McpToolResultByName["getSchemaSummary"]> => {
-    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
-      throw new McpUiError("stale", "Active connection changed before schema read");
-    }
     const response = await backend.call<{ relations: RelationInfo[] }>("metadata.listRelations", {
       connectionId,
       includeColumns: true,
     });
-    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
-      throw new McpUiError("stale", "Active connection changed during schema read");
-    }
     const schemas = new Map<string, { name: string; relations: { name: string; kind: "table" | "view"; columns: { name: string; dataType: string }[] }[] }>();
     const filtered = response.relations.filter((relation) => (!args.schema || relation.schema === args.schema) && (!args.table || relation.name === args.table));
     const offset = args.offset ?? 0;
@@ -1549,16 +1565,10 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     schema: string,
     table: string,
   ): Promise<McpToolResultByName["getTableIndexes"]> => {
-    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
-      throw new McpUiError("stale", "Active connection changed before index read");
-    }
     const response = await backend.call<{ indexes: McpToolResultByName["getTableIndexes"]["indexes"] }>(
       "metadata.listIndexes",
       { connectionId, schema, table },
     );
-    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
-      throw new McpUiError("stale", "Active connection changed during index read");
-    }
     return { connectionId, indexes: response.indexes };
   }, []);
 
@@ -1566,16 +1576,12 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     connectionId: string,
     sql: string,
   ): Promise<McpToolResultByName["explainSql"]> => {
-    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
-      throw new McpUiError("stale", "Active connection changed before SQL explain");
-    }
     const state = mcpStateRef.current;
-    const response = state.activeConnection?.dialect === "mongodb" && state.activeTab?.mongoSqlMode
+    // MongoDB SQL mode belongs to the active tab, so it only applies to the active connection.
+    const mongoSql = state.activeConnection?.id === connectionId && state.activeConnection.dialect === "mongodb" && state.activeTab?.mongoSqlMode;
+    const response = mongoSql
       ? await runMongoSql(connectionId, sql, 100, `mongo-mcp-explain-${crypto.randomUUID()}`, true).then((result) => ({ textual: result.rows.map((row) => row.join("\n")).join("\n"), format: "text" as const }))
       : await backend.call<McpToolResultByName["explainSql"] & { raw: unknown }>("query.explain", { connectionId, sql });
-    if (mcpStateRef.current.activeConnection?.id !== connectionId) {
-      throw new McpUiError("stale", "Active connection changed during SQL explain");
-    }
     return { connectionId, textual: response.textual, format: response.format };
   }, []);
 
@@ -1603,20 +1609,37 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     });
   }, [getTabRevision, t]);
 
-  const approveMcpExecution = useCallback((args: { sql: string; limit: number; tabId: string; connectionId: string; connectionLabel: string; expiresAt: number }) => {
-    return new Promise<"approved" | "rejected" | "stale">((resolve) => {
-      if (mcpProposalResolverRef.current || args.expiresAt <= Date.now() + MCP_PROPOSAL_SAFETY_WINDOW_MS) { resolve("rejected"); return; }
-      mcpProposalResolverRef.current = resolve;
-      setMcpProposal({ kind: "execute", tabId: args.tabId, connectionId: args.connectionId, connectionLabel: args.connectionLabel, limit: args.limit, expiresAt: args.expiresAt, originalSql: editorRef.current?.getAllText() ?? mcpStateRef.current.activeTab?.sql ?? "", proposedSql: args.sql, rationale: "", revision: getTabRevision(args.tabId) });
-      void notifyDesktop({ title: t("mcpExecuteTitle"), body: `${t("mcpApprovalNotificationBody")}\n${args.connectionLabel}` });
+  const approveMcpExecution = useCallback((args: { sql: string; limit: number; connectionId: string; suggested: boolean; expiresAt: number }) => {
+    return new Promise<McpExecutionOutcome>((resolve) => {
+      if (mcpProposalResolverRef.current || args.expiresAt <= Date.now() + MCP_PROPOSAL_SAFETY_WINDOW_MS) { resolve({ outcome: "rejected" }); return; }
+      mcpProposalResolverRef.current = (outcome, connectionId) => resolve(outcome === "approved" && connectionId ? { outcome, connectionId } : { outcome: outcome === "approved" ? "stale" : outcome });
+      const state = mcpStateRef.current;
+      const label = state.connections.find((connection) => connection.id === args.connectionId)?.label ?? args.connectionId;
+      setMcpProposal({
+        kind: "execute",
+        tabId: state.activeTab?.id ?? "",
+        connectionId: args.connectionId,
+        ...(args.suggested ? { suggestedConnectionId: args.connectionId } : {}),
+        limit: args.limit,
+        expiresAt: args.expiresAt,
+        originalSql: "",
+        proposedSql: args.sql,
+        rationale: "",
+        revision: 0,
+      });
+      void notifyDesktop({ title: t("mcpExecuteTitle"), body: `${t("mcpApprovalNotificationBody")}\n${label}` });
     });
-  }, [getTabRevision, t]);
+  }, [t]);
 
-  const resolveMcpProposal = useCallback((outcome: "approved" | "rejected" | "stale") => {
+  const resolveMcpProposal = useCallback((outcome: "approved" | "rejected" | "stale", connectionId?: string) => {
     const resolver = mcpProposalResolverRef.current;
     mcpProposalResolverRef.current = null;
     setMcpProposal(null);
-    resolver?.(outcome);
+    resolver?.(outcome, connectionId);
+  }, []);
+
+  const selectMcpExecutionConnection = useCallback((connectionId: string) => {
+    setMcpProposal((current) => current?.kind === "execute" ? { ...current, connectionId } : current);
   }, []);
 
   const applyMcpProposal = useCallback(() => {
@@ -1626,8 +1649,9 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       return;
     }
     if (mcpProposal.kind === "execute") {
-      const state = mcpStateRef.current;
-      resolveMcpProposal(state.activeTab?.id === mcpProposal.tabId && state.activeConnection?.id === mcpProposal.connectionId && getTabRevision(mcpProposal.tabId) === mcpProposal.revision ? "approved" : "stale");
+      const chosen = mcpStateRef.current.connections.find((connection) => connection.id === mcpProposal.connectionId);
+      if (!chosen || chosen.mcpAccess === "off") { resolveMcpProposal("stale"); return; }
+      resolveMcpProposal("approved", chosen.id);
       return;
     }
     const applied = compareAndSwapTabSql(
@@ -1642,7 +1666,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       return;
     }
     resolveMcpProposal("approved");
-  }, [compareAndSwapTabSql, getTabRevision, mcpProposal, resolveMcpProposal]);
+  }, [compareAndSwapTabSql, mcpProposal, resolveMcpProposal]);
 
   useEffect(() => {
     if (!mcpProposal?.expiresAt) return;
@@ -2127,7 +2151,14 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         onClose={() => setConnectionImportOpen(false)}
         onImported={async () => { await loadConnectionGroups(); await loadConnections(); }}
       />
-      <McpEditDialog proposal={mcpProposal} onApply={applyMcpProposal} onReject={() => resolveMcpProposal("rejected")} />
+      <McpEditDialog
+        proposal={mcpProposal}
+        connections={connections}
+        activeConnectionId={activeConnection?.id ?? null}
+        onSelectConnection={selectMcpExecutionConnection}
+        onApply={applyMcpProposal}
+        onReject={() => resolveMcpProposal("rejected")}
+      />
       {csvOptionsDialog}
     </div>
   );

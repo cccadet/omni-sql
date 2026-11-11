@@ -40,14 +40,25 @@ test("MCP request uses exact tool/args contract and per-tool allowlists", () => 
     args: { sql: "select 1", rationale: "Improve query" },
   });
 
-  invalid({ tool: "getSchemaSummary", args: { connectionId: "arbitrary" } });
+  // Connection-scoped tools accept a target from listConnections; the desktop enforces its MCP access.
+  for (const request of [
+    { tool: "getSchemaSummary", args: { connectionId: "conn-2" } },
+    { tool: "getTableIndexes", args: { connectionId: "conn-2", schema: "public", table: "orders" } },
+    { tool: "explainSql", args: { connectionId: "conn-2", sql: "select 1" } },
+    { tool: "executeSql", args: { connectionId: "conn-2", sql: "select 1" } },
+  ]) assert.deepEqual(validateMcpRequest(request), request);
+  invalid({ tool: "getSchemaSummary", args: { connectionId: "" } });
+  invalid({ tool: "getSchemaSummary", args: { connectionId: "x".repeat(257) } });
+  invalid({ tool: "explainSql", args: { connectionId: 42, sql: "select 1" } });
+  invalid({ tool: "getActiveConnectionContext", args: { connectionId: "conn-2" } });
+  invalid({ tool: "listConnections", args: { connectionId: "conn-2" } });
+  invalid({ tool: "getActiveSql", args: { connectionId: "conn-2" } });
   invalid({ tool: "getActiveSql", args: { value: "unexpected" } });
   invalid({ tool: "getLatestSqlExecutionError", args: { value: "unexpected" } });
   invalid({ tool: "openSqlTab", args: { title: "Draft", sql: "select 1" } });
   invalid({ tool: "proposeSqlEdit", args: { sql: "select 1" } });
   invalid({ tool: "proposeSqlEdit", args: { sql: "select 1", rationale: "test", connectionId: "arbitrary" } });
   invalid({ tool: "getTableIndexes", args: { schema: "public" } });
-  invalid({ tool: "getTableIndexes", args: { schema: "public", table: "orders", connectionId: "arbitrary" } });
   invalid({ tool: "explainSql", args: {} });
   invalid({ tool: "explainSql", args: { sql: "select 1", analyze: true } });
   invalid({ tool: "getActiveSql", args: {}, params: {} });
@@ -117,7 +128,7 @@ test("SQL and schema inputs keep authorization out of tool arguments", () => {
   assert.deepEqual(validateMcpRequest({ tool: "executeSql", args: { sql: "SELECT 1", limit: 100 } }).args, { sql: "SELECT 1", limit: 100 });
   for (const limit of [0, -1, 1001, 1.5, "100"]) invalid({ tool: "executeSql", args: { sql: "SELECT 1", limit } });
   invalid({ tool: "executeSql", args: { sql: "SELECT 1", executionRiskAccepted: true } });
-  invalid({ tool: "executeSql", args: { sql: "SELECT 1", connectionId: "arbitrary" } });
+  invalid({ tool: "executeSql", args: { sql: "SELECT 1", connectionId: "" } });
   assert.deepEqual(validateMcpRequest({ tool: "getSchemaSummary", args: { schema: "public", table: "users", offset: 2, limit: 10 } }).args, { schema: "public", table: "users", offset: 2, limit: 10 });
 });
 

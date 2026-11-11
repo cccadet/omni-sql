@@ -9,6 +9,7 @@ import { MCP_DEFAULT_QUERY_LIMIT, MCP_MAX_QUERY_LIMIT } from "@omni-sql/ts-types
 import {
   BackendClientError,
   BackendMcpClient,
+  MAX_CONNECTION_ID_BYTES,
   type McpToolName,
   MAX_REQUEST_BYTES,
   MAX_RATIONALE_BYTES,
@@ -67,20 +68,30 @@ export const proposeSqlEditInputSchema = z.object({
   rationale: boundedText(MAX_RATIONALE_BYTES, "rationale"),
 }).strict();
 
+const connectionIdInput = boundedText(MAX_CONNECTION_ID_BYTES, "connectionId")
+  .describe("Connection id from listConnections. Omit to use the active connection.")
+  .optional();
+
 const tableIndexesInputSchema = z.object({
+  connectionId: connectionIdInput,
   schema: boundedText(MAX_SQL_BYTES, "schema"),
   table: boundedText(MAX_SQL_BYTES, "table"),
 }).strict();
 
 const explainSqlInputSchema = z.object({
+  connectionId: connectionIdInput,
   sql: boundedText(MAX_SQL_BYTES, "sql"),
 }).strict();
 
 export const executeSqlInputSchema = z.object({
+  connectionId: boundedText(MAX_CONNECTION_ID_BYTES, "connectionId")
+    .describe("Suggested connection id from listConnections. Omit to use the active connection; the user may pick another one when approving.")
+    .optional(),
   sql: boundedText(MAX_SQL_BYTES, "sql"),
   limit: z.number().int().min(1).max(MCP_MAX_QUERY_LIMIT).optional(),
 }).strict();
 const schemaSummaryInputSchema = z.object({
+  connectionId: connectionIdInput,
   schema: boundedText(MAX_SQL_BYTES, "schema").optional(),
   table: boundedText(MAX_SQL_BYTES, "table").optional(),
   offset: z.number().int().min(0).optional(),
@@ -171,7 +182,7 @@ export function createMcpServer(client: McpToolBackend): McpServer {
   server.registerTool(
     "getActiveConnectionContext",
     {
-      description: "Read safe context for active Omni SQL connection.",
+      description: "Read safe context for the active Omni SQL connection: id, label, dialect, MCP access level and environment (e.g. development, staging, production).",
       inputSchema: emptyInputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false },
     },
@@ -182,9 +193,22 @@ export function createMcpServer(client: McpToolBackend): McpServer {
   );
 
   server.registerTool(
+    "listConnections",
+    {
+      description: "List Omni SQL connections available to MCP with id, label, dialect, MCP access level and environment, plus the active connection id. Pass a connectionId to the other tools to work on a connection other than the active one; check the environment before targeting production.",
+      inputSchema: emptyInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    async (input, extra) => invoke(() => {
+      emptyInputSchema.parse(input);
+      return client.call("listConnections", {}, extra.signal);
+    }),
+  );
+
+  server.registerTool(
     "getSchemaSummary",
     {
-      description: "Read schema summary for the active connection. Use schema/table filters and offset/limit to page large databases.",
+      description: "Read schema summary for a connection (the active one unless connectionId is given). Use schema/table filters and offset/limit to page large databases.",
       inputSchema: schemaSummaryInputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false },
     },
@@ -196,7 +220,7 @@ export function createMcpServer(client: McpToolBackend): McpServer {
   server.registerTool(
     "getTableIndexes",
     {
-      description: "Read indexes for a table in the active Omni SQL connection.",
+      description: "Read indexes for a table in an Omni SQL connection (the active one unless connectionId is given).",
       inputSchema: tableIndexesInputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false },
     },
@@ -209,7 +233,7 @@ export function createMcpServer(client: McpToolBackend): McpServer {
   server.registerTool(
     "explainSql",
     {
-      description: "Generate a non-executing query plan using the active Omni SQL connection.",
+      description: "Generate a non-executing query plan on an Omni SQL connection (the active one unless connectionId is given).",
       inputSchema: explainSqlInputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false },
     },
@@ -247,7 +271,7 @@ export function createMcpServer(client: McpToolBackend): McpServer {
   );
 
   server.registerTool("executeSql", {
-    description: `Execute SQL on the active connection after explicit approval in the desktop. Defaults to ${MCP_DEFAULT_QUERY_LIMIT} rows, at most ${MCP_MAX_QUERY_LIMIT}. Results are also byte-limited. May modify data or schema.`,
+    description: `Execute SQL after explicit approval in the desktop. Runs on the active connection unless connectionId suggests another one; the user can change the connection when approving, and the result's connectionId is the one actually used. Defaults to ${MCP_DEFAULT_QUERY_LIMIT} rows, at most ${MCP_MAX_QUERY_LIMIT}. Results are also byte-limited. May modify data or schema.`,
     inputSchema: executeSqlInputSchema,
     outputSchema: executeSqlOutputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },

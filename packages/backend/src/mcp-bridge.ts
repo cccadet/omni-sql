@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   McpAccess,
+  McpConnectionSummary,
   McpBridgeRequest,
   McpBridgeResponse,
   McpErrorCode,
@@ -24,6 +25,7 @@ import {
   MCP_MAX_ERROR_MESSAGE_BYTES as SHARED_MCP_MAX_ERROR_MESSAGE_BYTES,
   MCP_MAX_LISTENER_ID_BYTES as SHARED_MCP_MAX_LISTENER_ID_BYTES,
   MCP_MAX_CONNECTION_ID_BYTES as SHARED_MCP_MAX_CONNECTION_ID_BYTES,
+  MCP_MAX_ENVIRONMENT_ID_BYTES,
   MCP_MAX_SQL_BYTES as SHARED_MCP_MAX_SQL_BYTES,
   MCP_MAX_TITLE_BYTES as SHARED_MCP_MAX_TITLE_BYTES,
   MCP_MAX_QUEUE_SIZE as SHARED_MCP_MAX_QUEUE_SIZE,
@@ -49,6 +51,7 @@ export const MCP_LISTENER_LEASE_MS = SHARED_MCP_LISTENER_LEASE_MS;
 export const MCP_TOOL_NAMES: readonly McpToolName[] = [
   "getActiveSql",
   "getActiveConnectionContext",
+  "listConnections",
   "getSchemaSummary",
   "getTableIndexes",
   "explainSql",
@@ -221,17 +224,45 @@ function validateActiveSqlResult(value: unknown): McpToolResultByName["getActive
   };
 }
 
-function validateActiveConnectionContextResult(value: unknown): McpToolResultByName["getActiveConnectionContext"] {
+function validateConnectionSummary(value: unknown, label: string): McpConnectionSummary {
   const result = resultObject(
     value,
-    ["connectionId", "label", "dialect"],
-    ["connectionId", "label", "dialect"],
-    "getActiveConnectionContext result",
+    ["connectionId", "label", "dialect", "mcpAccess", "environment"],
+    ["connectionId", "label", "dialect", "mcpAccess"],
+    label,
   );
+  if (result.mcpAccess !== "read" && result.mcpAccess !== "write") {
+    throw new McpBridgeError("invalid", `${label}.mcpAccess is invalid`);
+  }
+  let environment: McpConnectionSummary["environment"];
+  if (result.environment !== undefined) {
+    const raw = resultObject(result.environment, ["id", "name"], ["id", "name"], `${label}.environment`);
+    environment = {
+      id: resultString(raw.id, `${label}.environment.id`, MCP_MAX_ENVIRONMENT_ID_BYTES),
+      name: resultString(raw.name, `${label}.environment.name`, MCP_MAX_TITLE_BYTES),
+    };
+  }
   return {
-    connectionId: resultString(result.connectionId, "getActiveConnectionContext.connectionId", MCP_MAX_CONNECTION_ID_BYTES),
-    label: resultString(result.label, "getActiveConnectionContext.label", MCP_MAX_TITLE_BYTES),
-    dialect: resultDialect(result.dialect, "getActiveConnectionContext.dialect"),
+    connectionId: resultString(result.connectionId, `${label}.connectionId`, MCP_MAX_CONNECTION_ID_BYTES),
+    label: resultString(result.label, `${label}.label`, MCP_MAX_TITLE_BYTES),
+    dialect: resultDialect(result.dialect, `${label}.dialect`),
+    mcpAccess: result.mcpAccess,
+    ...(environment ? { environment } : {}),
+  };
+}
+
+function validateActiveConnectionContextResult(value: unknown): McpToolResultByName["getActiveConnectionContext"] {
+  return validateConnectionSummary(value, "getActiveConnectionContext result");
+}
+
+function validateListConnectionsResult(value: unknown): McpToolResultByName["listConnections"] {
+  const result = resultObject(value, ["activeConnectionId", "connections"], ["activeConnectionId", "connections"], "listConnections result");
+  return {
+    activeConnectionId: result.activeConnectionId === null
+      ? null
+      : resultString(result.activeConnectionId, "listConnections.activeConnectionId", MCP_MAX_CONNECTION_ID_BYTES),
+    connections: resultArray(result.connections, "listConnections.connections")
+      .map((connection, index) => validateConnectionSummary(connection, `listConnections.connections[${index}]`)),
   };
 }
 
@@ -410,6 +441,8 @@ export function validateMcpToolResult<K extends McpToolName>(
       return validateActiveSqlResult(value) as McpToolResultByName[K];
     case "getActiveConnectionContext":
       return validateActiveConnectionContextResult(value) as McpToolResultByName[K];
+    case "listConnections":
+      return validateListConnectionsResult(value) as McpToolResultByName[K];
     case "getSchemaSummary":
       return validateSchemaSummaryResult(value) as McpToolResultByName[K];
     case "getTableIndexes":
@@ -595,7 +628,10 @@ export class McpBridge {
 
     if (response.ok) {
       try {
-        const result = validateMcpToolResult(pending.request.tool, response.result);
+        const validated = validateMcpToolResult(pending.request.tool, response.result);
+        const result = pending.request.tool === "listConnections"
+          ? this.filterListedConnections(validated as McpToolResultByName["listConnections"])
+          : validated;
         const connectionId = (result as { connectionId?: unknown }).connectionId;
         if (typeof connectionId === "string" && this.connectionAccess?.(connectionId) === "off") {
           pending.reject(new McpBridgeError("rejected", MCP_ACCESS_DISABLED_MESSAGE));
@@ -626,6 +662,20 @@ export class McpBridge {
       }
     }
     return { accepted: true };
+  }
+
+  /** The backend's persisted access is authoritative: drop `off` entries and correct stale levels. */
+  private filterListedConnections(result: McpToolResultByName["listConnections"]): McpToolResultByName["listConnections"] {
+    const accessFor = this.connectionAccess;
+    if (!accessFor) return result;
+    const connections = result.connections.flatMap((connection) => {
+      const access = accessFor(connection.connectionId);
+      return access === "off" ? [] : [{ ...connection, mcpAccess: access }];
+    });
+    const activeConnectionId = result.activeConnectionId !== null && accessFor(result.activeConnectionId) !== "off"
+      ? result.activeConnectionId
+      : null;
+    return { activeConnectionId, connections };
   }
 
   approveExecution(id: string, listenerId: string): { args: McpToolArgsByName["executeSql"]; signal: AbortSignal } {

@@ -18,6 +18,7 @@ import {
   parseKeybinding,
 } from "./format-sql";
 import { splitStatements, statementAt } from "./sql-statements";
+import { setSqlColorizer } from "./sql-colorizer";
 import { commandsForDialect, searchSqlCommands } from "./sql-command-library";
 export { createEditorActions, type EditorActionCallback } from "./editor-actions";
 
@@ -125,6 +126,7 @@ const COMMON_FUNCTIONS = [
 ] as const;
 
 export function registerSqlLanguage(monacoInstance: typeof monaco): void {
+  setSqlColorizer((sql) => monacoInstance.editor.colorize(sql, LANGUAGE_ID, { tabSize: 4 }));
   if (monacoInstance.languages.getLanguages().some((l) => l.id === LANGUAGE_ID)) {
     return;
   }

@@ -24,6 +24,7 @@ import {
 import {
   MCP_MAX_ERROR_MESSAGE_BYTES,
   MCP_MAX_BRIDGE_RESULT_BYTES,
+  MCP_MAX_CONNECTION_ID_BYTES,
   MCP_DEFAULT_QUERY_LIMIT,
   MCP_MAX_QUERY_LIMIT,
   MCP_MAX_LISTENER_ID_BYTES,
@@ -104,24 +105,25 @@ function validateToolArgs<K extends McpToolName>(tool: K, value: unknown): McpTo
   const args = requireRecord(value, "args");
   validateSafePayload(args, MCP_MAX_ARGUMENT_BYTES, "MCP args");
 
-  if (tool === "getActiveSql" || tool === "getActiveConnectionContext" || tool === "getLatestSqlExecutionError") {
+  if (args.connectionId !== undefined) requireText(args.connectionId, `${tool}.connectionId`, MCP_MAX_CONNECTION_ID_BYTES);
+  if (tool === "getActiveSql" || tool === "getActiveConnectionContext" || tool === "listConnections" || tool === "getLatestSqlExecutionError") {
     requireExactKeys(args, [], tool);
   } else if (tool === "getSchemaSummary") {
-    requireExactKeys(args, ["schema", "table", "offset", "limit"], tool);
+    requireExactKeys(args, ["connectionId", "schema", "table", "offset", "limit"], tool);
     if (args.schema !== undefined) requireText(args.schema, "schema");
     if (args.table !== undefined) requireText(args.table, "table");
     if (args.offset !== undefined && (!Number.isSafeInteger(args.offset) || Number(args.offset) < 0)) throw new McpBridgeError("invalid", "invalid schema offset");
     if (args.limit !== undefined && (!Number.isSafeInteger(args.limit) || Number(args.limit) < 1 || Number(args.limit) > 100)) throw new McpBridgeError("invalid", "invalid schema limit");
   } else if (tool === "executeSql") {
-    requireExactKeys(args, ["sql", "limit"], tool);
+    requireExactKeys(args, ["connectionId", "sql", "limit"], tool);
     requireText(args.sql, "executeSql.sql", MCP_MAX_SQL_BYTES);
     if (args.limit !== undefined && (!Number.isSafeInteger(args.limit) || Number(args.limit) < 1 || Number(args.limit) > MCP_MAX_QUERY_LIMIT)) throw new McpBridgeError("invalid", "invalid SQL row limit");
   } else if (tool === "getTableIndexes") {
-    requireExactKeys(args, ["schema", "table"], tool);
+    requireExactKeys(args, ["connectionId", "schema", "table"], tool);
     requireText(args.schema, "getTableIndexes.schema");
     requireText(args.table, "getTableIndexes.table");
   } else if (tool === "explainSql") {
-    requireExactKeys(args, ["sql"], tool);
+    requireExactKeys(args, ["connectionId", "sql"], tool);
     requireText(args.sql, "explainSql.sql", MCP_MAX_SQL_BYTES);
   } else if (tool === "proposeSqlEdit") {
     requireExactKeys(args, ["sql", "rationale"], tool);

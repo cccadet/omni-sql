@@ -208,12 +208,12 @@ test("MCP access off blocks execution and every result bound to the connection",
   assert.equal(result.isError, true);
   assert.equal(executions, initial);
   for (const [tool, args, uiResult] of [
-    ["getActiveConnectionContext", {}, { connectionId: "perm-blocked", label: "Blocked", dialect: "postgres" }],
+    ["getActiveConnectionContext", {}, { connectionId: "perm-blocked", label: "Blocked", dialect: "postgres", mcpAccess: "read" }],
     ["getSchemaSummary", {}, { connectionId: "perm-blocked", schemas: [{ name: "public", relations: [{ name: "salaries", kind: "table", columns: [] }] }] }],
     ["getTableIndexes", { schema: "public", table: "salaries" }, { connectionId: "perm-blocked", indexes: [] }],
     ["explainSql", { sql: "SELECT 1" }, { connectionId: "perm-blocked", textual: "Seq Scan on salaries", format: "text" }],
     // A connection the backend does not know is treated as off.
-    ["getActiveConnectionContext", {}, { connectionId: "never-saved", label: "Ghost", dialect: "postgres" }],
+    ["getActiveConnectionContext", {}, { connectionId: "never-saved", label: "Ghost", dialect: "postgres", mcpAccess: "read" }],
   ] as const) {
     const blocked = await callReadTool(tool, args, uiResult);
     assert.equal(blocked.isError, true, tool);
@@ -224,8 +224,27 @@ test("MCP access off blocks execution and every result bound to the connection",
   assert.equal(history.entries[0]?.status, "error");
   assert.equal(history.entries[0]?.errorCode, "rejected");
   assert.match(history.entries[0]?.errorMessage ?? "", /MCP access is disabled/);
-  const allowed = await callReadTool("getActiveConnectionContext", {}, { connectionId: "memory", label: "Memory", dialect: "postgres" });
+  const allowed = await callReadTool("getActiveConnectionContext", {}, { connectionId: "memory", label: "Memory", dialect: "postgres", mcpAccess: "read" });
   assert.equal(allowed.isError, undefined);
+});
+
+test("listConnections trusts persisted MCP access over what the desktop reports", async () => {
+  await addMemoryConnection("list-off", "off");
+  await addMemoryConnection("list-write", "write");
+  const listed = await callReadTool("listConnections", {}, {
+    activeConnectionId: "list-off",
+    connections: [
+      { connectionId: "list-off", label: "Hidden", dialect: "postgres", mcpAccess: "read" },
+      { connectionId: "list-write", label: "Dev", dialect: "postgres", mcpAccess: "read", environment: { id: "development", name: "Development" } },
+      { connectionId: "never-saved", label: "Ghost", dialect: "postgres", mcpAccess: "write" },
+    ],
+  });
+  assert.equal(listed.isError, undefined);
+  assert.deepEqual(listed.structuredContent, {
+    activeConnectionId: null,
+    connections: [{ connectionId: "list-write", label: "Dev", dialect: "postgres", mcpAccess: "write", environment: { id: "development", name: "Development" } }],
+  });
+  assert.doesNotMatch(JSON.stringify(listed), /Hidden|Ghost/);
 });
 
 test("read and write MCP access runs approved writes, and a permission change applies to the next request", async () => {

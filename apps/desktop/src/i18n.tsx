@@ -717,6 +717,11 @@ const english = {
   colorTeal: "Teal",
   colorGray: "Gray",
   resizeColumn: "Resize column {column}",
+  mcpTargetConnection: "Run on connection",
+  mcpConnectionSuggested: "Connection suggested by the MCP client.",
+  mcpConnectionNotActive: "This is not the active connection.",
+  mcpProductionWarning: "Production environment: review the SQL carefully before running it.",
+  mcpReadOnlyBlocked: "This connection allows read-only MCP access. Choose another connection or reject.",
   mssqlEncrypt: "Encrypt connection",
   mssqlTrustServerCertificate: "Trust server certificate (self-signed)",
 } as const;
@@ -995,6 +1000,11 @@ const portugueseBrazil = [
   "Verde-azulado",
   "Cinza",
   "Redimensionar coluna {column}",
+  "Executar na conexão",
+  "Conexão sugerida pelo cliente MCP.",
+  "Esta não é a conexão ativa.",
+  "Ambiente de produção: revise o SQL com cuidado antes de executar.",
+  "Esta conexão só permite acesso MCP de leitura. Escolha outra conexão ou rejeite.",
   "Criptografar conexão",
   "Confiar no certificado do servidor (autoassinado)",
 ] as const satisfies readonly string[];
