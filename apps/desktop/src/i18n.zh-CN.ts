@@ -717,4 +717,6 @@ export const simplifiedChinese = {
   mcpConnectionNotActive: "这不是当前活动连接。",
   mcpProductionWarning: "生产环境：执行前请仔细检查 SQL。",
   mcpReadOnlyBlocked: "此连接仅允许 MCP 只读访问。请选择其他连接或拒绝。",
+  mssqlEncrypt: "加密连接",
+  mssqlTrustServerCertificate: "信任服务器证书（自签名）",
 } satisfies Record<TranslationKey, string>;

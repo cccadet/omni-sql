@@ -130,6 +130,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [s3SecretKey, setS3SecretKey] = useState("");
   const password = mode === "s3" ? s3SecretKey : sqlPassword;
   const [ssl, setSsl] = useState(false);
+  const [mssqlEncrypt, setMssqlEncrypt] = useState(true);
+  const [mssqlTrustCertificate, setMssqlTrustCertificate] = useState(false);
   const [jdbcUrl, setJdbcUrl] = useState("");
   const [mongoUri, setMongoUri] = useState("mongodb://localhost:27017/test");
   const [odbcEndpoint, setOdbcEndpoint] = useState("");
@@ -170,6 +172,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setS3SecretKey("");
     setPassword("");
     setSsl(editing?.options?.ssl === true || editing?.options?.ssl === "require");
+    setMssqlEncrypt(editing?.options?.encrypt !== false && editing?.options?.encrypt !== "false");
+    setMssqlTrustCertificate(editing?.options?.trustServerCertificate === true || editing?.options?.trustServerCertificate === "true");
     if (isKnown) {
       const parts = parseEndpoint(editing!.endpoint, DEFAULT_PORTS[nextMode]);
       setHost(parts.host);
@@ -230,8 +234,13 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     if (mode === "s3") return { region: s3Region.trim(), endpoint: s3Endpoint.trim(),
       buckets: JSON.stringify(bucketUris(s3BucketList)),
       ducklakeMappings: JSON.stringify(ducklakeMappings.map((mapping) => ({ ...mapping, prefix: mapping.prefix.trim().replace(/\/$/, ""), path: mapping.path?.trim(), metadataSchema: mapping.metadataSchema?.trim() || undefined }))) };
+    if (mode === "sqlserver") {
+      // Defaults (encrypted, validated certificate) are not persisted.
+      const tls = { ...(mssqlEncrypt ? {} : { encrypt: false }), ...(mssqlTrustCertificate ? { trustServerCertificate: true } : {}) };
+      return Object.keys(tls).length > 0 ? tls : undefined;
+    }
     return ssl ? { ssl: "require" } : undefined;
-  }, [mode, jarPath, driverClassName, ssl, s3BucketList, s3Region, s3Endpoint, ducklakeMappings]);
+  }, [mode, jarPath, driverClassName, ssl, mssqlEncrypt, mssqlTrustCertificate, s3BucketList, s3Region, s3Endpoint, ducklakeMappings]);
 
   const defaultLabel = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl || t("jdbcGeneric");
@@ -602,7 +611,12 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
             {mode !== "demo" && mode !== "s3" && (
               <>
-                {mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && (
+                {mode === "sqlserver" ? (
+                  <>
+                    <Checkbox label={t("mssqlEncrypt")} checked={mssqlEncrypt} onChange={(_, data) => setMssqlEncrypt(data.checked === true)} disabled={busy} />
+                    <Checkbox label={t("mssqlTrustServerCertificate")} checked={mssqlTrustCertificate} onChange={(_, data) => setMssqlTrustCertificate(data.checked === true)} disabled={busy} />
+                  </>
+                ) : mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && (
                   <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />
                 )}
                 <details className="connection-schema-picker omni-connection-schemas" open={schemasOpen} onToggle={(event) => setSchemasOpen(event.currentTarget.open)}>

@@ -722,6 +722,8 @@ const english = {
   mcpConnectionNotActive: "This is not the active connection.",
   mcpProductionWarning: "Production environment: review the SQL carefully before running it.",
   mcpReadOnlyBlocked: "This connection allows read-only MCP access. Choose another connection or reject.",
+  mssqlEncrypt: "Encrypt connection",
+  mssqlTrustServerCertificate: "Trust server certificate (self-signed)",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -1003,6 +1005,8 @@ const portugueseBrazil = [
   "Esta não é a conexão ativa.",
   "Ambiente de produção: revise o SQL com cuidado antes de executar.",
   "Esta conexão só permite acesso MCP de leitura. Escolha outra conexão ou rejeite.",
+  "Criptografar conexão",
+  "Confiar no certificado do servidor (autoassinado)",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
