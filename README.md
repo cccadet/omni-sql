@@ -94,6 +94,12 @@ Download your package from the **[latest release](https://github.com/cccadet/omn
 | Debian/Ubuntu amd64 | `.deb` |
 | macOS 15+ Apple Silicon / Intel | `aarch64.dmg` / `x64.dmg` |
 
+On Windows you can also install with [WinGet](https://learn.microsoft.com/windows/package-manager/winget/):
+
+```powershell
+winget install cccadet.omni-sql
+```
+
 Node.js, Java and the ODBC driver manager are bundled; native connections need
 no database client. Release assets include `SHA256SUMS`. Linux ARM, AppImage and
 RPM are not packaged yet.

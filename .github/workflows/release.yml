@@ -268,3 +268,80 @@ jobs:
           body_path: docs/releases/v${{ needs.version.outputs.version }}.md
           files: |
             release-assets/*
+
+  # Opens the update PR for cccadet.omni-sql in microsoft/winget-pkgs once the
+  # release (and its versioned installer URL) is public. See
+  # distribution/winget/README.md for the WINGET_TOKEN secret.
+  winget:
+    name: Submit WinGet update
+    needs: [version, release]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      KOMAC_VERSION: "2.17.1"
+      KOMAC_SHA256: e694e79cd451afabf47bead66ed34586fef4814f7b94e4b61a098f419978d5d7
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Check WinGet token
+        id: token
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [[ -z "$WINGET_TOKEN" ]]; then
+            echo "::notice title=WinGet update skipped::WINGET_TOKEN secret is not set; submit cccadet.omni-sql $VERSION manually (distribution/winget/README.md)."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check versioned installer asset
+        if: steps.token.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          installer="omni-sql_${VERSION}_x64-setup.exe"
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --output - |
+            awk -v f="$installer" '$2 == f || $2 == "*" f { found = 1 } END { exit !found }' ||
+            { echo "::error::$installer is not listed in the v$VERSION SHA256SUMS" >&2; exit 1; }
+          echo "INSTALLER_URL=https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/$installer" >> "$GITHUB_ENV"
+
+      - name: Install Komac
+        if: steps.token.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          archive="komac-${KOMAC_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/russellbanks/Komac/releases/download/v${KOMAC_VERSION}/$archive"
+          echo "$KOMAC_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/komac"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/komac"
+          komac="$(find "$RUNNER_TEMP/komac" -type f -name komac | head -n 1)"
+          test -n "$komac"
+          chmod +x "$komac"
+          dirname "$komac" >> "$GITHUB_PATH"
+
+      - name: Submit update to microsoft/winget-pkgs
+        if: steps.token.outputs.present == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          set -euo pipefail
+          komac --version
+          komac update cccadet.omni-sql \
+            --version "$VERSION" \
+            --urls "$INSTALLER_URL" \
+            --release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION" \
+            --output "$RUNNER_TEMP/winget-manifests" \
+            --submit
+
+      - name: Upload submitted manifests
+        if: steps.token.outputs.present == 'true' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: winget-manifests
+          path: ${{ runner.temp }}/winget-manifests
+          if-no-files-found: warn
+          retention-days: 30

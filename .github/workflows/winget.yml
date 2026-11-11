@@ -1,5 +1,9 @@
 name: WinGet package validation
 
+# Validates the frozen 0.5.4 fixture (install, upgrade, uninstall, ARP metadata).
+# Releases are submitted to microsoft/winget-pkgs by the winget job in
+# release.yml; see distribution/winget/README.md for why this stays a fixture.
+
 on:
   workflow_dispatch:
   pull_request:
