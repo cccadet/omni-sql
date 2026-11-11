@@ -169,7 +169,10 @@ function logFailure(method: string, error: unknown, elapsedMs: number): void {
   const name = error instanceof Error ? error.name : "NonError";
   // Deliberately omit error details: NODE_ENV is not guaranteed by release launchers.
   const jdbcDetail = jdbcDebugDetail(method, error);
-  console.error(`[omni-sql] rpc failed method=${logSafe(method)} error=${logSafe(name)} elapsedMs=${elapsedMs}${jdbcDetail}`);
+  // Driver codes (ETIMEOUT, ESOCKET, ELOGIN…) carry no user data and tell network, TLS and auth failures apart.
+  const rawCode = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined;
+  const code = typeof rawCode === "string" && /^[A-Z0-9_]{1,40}$/.test(rawCode) ? ` code=${rawCode}` : "";
+  console.error(`[omni-sql] rpc failed method=${logSafe(method)} error=${logSafe(name)}${code} elapsedMs=${elapsedMs}${jdbcDetail}`);
 }
 
 /** Opt-in local diagnosis for JDBC metadata drivers; never enabled by release launchers. */

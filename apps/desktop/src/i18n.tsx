@@ -717,6 +717,8 @@ const english = {
   colorTeal: "Teal",
   colorGray: "Gray",
   resizeColumn: "Resize column {column}",
+  mssqlEncrypt: "Encrypt connection",
+  mssqlTrustServerCertificate: "Trust server certificate (self-signed)",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -993,6 +995,8 @@ const portugueseBrazil = [
   "Verde-azulado",
   "Cinza",
   "Redimensionar coluna {column}",
+  "Criptografar conexão",
+  "Confiar no certificado do servidor (autoassinado)",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

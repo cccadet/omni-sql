@@ -32,6 +32,24 @@ test("saves and restores an explicit environment without dropping SSL", async ()
   assert.deepEqual((add![1] as { config: ConnectionConfig }).config.options, { ssl: "require", environment: "production" });
 });
 
+test("SQL Server connections can trust a self-signed certificate and keep the setting on edit", async () => {
+  vi.mocked(backend.call).mockReset().mockResolvedValue({ connectionId: "saved-ms" });
+  const editing: ConnectionConfig = { id: "saved-ms", label: "BI", dialect: "sqlserver", endpoint: "bi.local:1433/master", user: "u", options: { environment: "staging" } };
+  const { unmount } = renderWithLanguage(<ConnectionDialog open editing={editing} onClose={close} onSaved={saved} />);
+  assert.equal(screen.queryByRole("checkbox", { name: "SSL require" }), null);
+  assert.equal((screen.getByRole("checkbox", { name: "Encrypt connection" }) as HTMLInputElement).checked, true);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Trust server certificate (self-signed)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => assert.ok(vi.mocked(backend.call).mock.calls.some(([method]) => method === "connection.add")));
+  const add = vi.mocked(backend.call).mock.calls.find(([method]) => method === "connection.add");
+  const options = (add![1] as { config: ConnectionConfig }).config.options;
+  assert.deepEqual(options, { trustServerCertificate: true, environment: "staging" });
+  unmount();
+
+  renderWithLanguage(<ConnectionDialog open editing={{ ...editing, options }} onClose={close} onSaved={saved} />);
+  assert.equal((screen.getByRole("checkbox", { name: "Trust server certificate (self-signed)" }) as HTMLInputElement).checked, true);
+});
+
 test("edits the environment list from the connection dialog and saves a custom environment", async () => {
   localStorage.removeItem(ENVIRONMENTS_KEY);
   resetEnvironmentsCache();
