@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { MCP_MAX_BRIDGE_RESULT_BYTES } from "@omni-sql/ts-types";
@@ -26,9 +27,11 @@ import {
   closeStreamableHttpServer,
   createStreamableHttpServer,
   DEFAULT_MCP_HTTP_PORT,
+  DESKTOP_UNAVAILABLE_MESSAGE,
   emptyInputSchema,
   getLatestSqlExecutionErrorInputSchema,
   isLoopbackHost,
+  parseMcpCliMode,
   parseMcpCliOptions,
   proposeSqlEditInputSchema,
   startMcpHttpServer,
@@ -196,6 +199,51 @@ test("HTTP startup binds valid ephemeral listeners and rejects absent token", as
     assert.ok(address && typeof address !== "string" && address.port > 0);
   } finally {
     await closeStreamableHttpServer(server);
+  }
+});
+
+test("standalone mode is explicit, descriptor-free and STDIO-only", () => {
+  assert.deepEqual(parseMcpCliMode(["--standalone"], {}), { standalone: true, transport: "stdio" });
+  assert.deepEqual(parseMcpCliMode([], { OMNI_SQL_MCP_STANDALONE: "1" }), { standalone: true, transport: "stdio" });
+  assert.throws(() => parseMcpCliMode([], {}), /runtime descriptor path is required/);
+  assert.throws(() => parseMcpCliOptions(["--standalone"], {}), /standalone mode/);
+  assert.throws(() => parseMcpCliMode(["--standalone", "runtime.json"], {}), /does not accept a runtime descriptor/);
+  assert.throws(() => parseMcpCliMode(["--standalone"], { OMNI_SQL_MCP_DESCRIPTOR: "runtime.json" }));
+  assert.throws(() => parseMcpCliMode(["--standalone", "--http"], { OMNI_SQL_MCP_HTTP_TOKEN: httpToken }), /only the stdio/);
+  assert.throws(() => parseMcpCliMode(["--standalone"], { OMNI_SQL_MCP_TRANSPORT: "http" }), /only the stdio/);
+});
+
+test("standalone CLI answers initialize and tools/list over STDIO and refuses every call", async () => {
+  const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [cliPath, "--standalone"],
+    stderr: "ignore",
+  });
+  const client = new Client({ name: "standalone-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    assert.equal(client.getServerVersion()?.name, "omni-sql");
+    const { tools } = await client.listTools();
+    assert.deepEqual(tools.map((tool) => tool.name), [...mcpToolNames]);
+    const executeSql = tools.find((tool) => tool.name === "executeSql");
+    assert.ok(executeSql?.inputSchema.properties && "sql" in executeSql.inputSchema.properties);
+    assert.equal(executeSql.annotations?.destructiveHint, true);
+
+    for (const [name, args] of [
+      ["executeSql", { sql: "select 1" }],
+      ["getActiveConnectionContext", {}],
+    ] as const) {
+      const result = await client.callTool({ name, arguments: args });
+      assert.equal(result.isError, true);
+      const [content] = result.content as { type: string; text: string }[];
+      assert.deepEqual(JSON.parse(content?.text ?? "null"), {
+        code: "unavailable",
+        message: DESKTOP_UNAVAILABLE_MESSAGE,
+      });
+    }
+  } finally {
+    await client.close();
   }
 });
 
