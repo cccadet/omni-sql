@@ -1293,7 +1293,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       setPendingRun({ sqls: statements.map((s) => s.text), label: t("running"), runAll: false });
       return;
     }
-    const sqls = target?.sql ? [target.sql] : statements.map((s) => s.text);
+    // A selection may hold several statements; drivers such as Oracle accept one per call.
+    const sqls = statements.map((s) => s.text);
     if (sqls.length === 0 || sqls.every((s) => !s.trim())) return;
     void runSqlSequence(sqls, t("running"));
   }, [activeConnectionId, activeDialect, activeTab.sql, runSqlSequence, handleConvertMongo, t]);
