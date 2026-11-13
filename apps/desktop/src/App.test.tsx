@@ -345,6 +345,21 @@ describe("App execution flow", () => {
     }));
   });
 
+  it("runs each statement of a multi-statement selection separately", async () => {
+    const first = "UPDATE t SET a = 'x;y' WHERE id IN (1, 2)";
+    const second = "UPDATE t SET a = 'z' WHERE id IN (3)";
+    seedSession(`${first};\n${second};`, 1000, "conn-1");
+    editorMockState.selection = { sql: `${first};\n${second};`, start: 0 };
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      const runs = call.mock.calls.filter(([method]) => method === "query.run").map(([, params]) => (params as { sql: string }).sql);
+      expect(runs).toEqual([first, second]);
+    });
+  });
+
   it("runs current SQL and renders returned rows", async () => {
     renderApp();
 
