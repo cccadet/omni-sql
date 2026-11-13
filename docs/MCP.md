@@ -79,6 +79,23 @@ connection being removed or losing MCP access before you approve starts no SQL.
 The proposed SQL is shown with the editor's syntax colors. MCP cancellation and timeouts reach the adapter when it
 supports cancellation; cancelling does not undo statements already committed.
 
+### Approval modes
+
+Each connection with MCP access also has an **MCP approval** setting
+(`options.mcpApproval`) for non-critical databases such as dev or staging:
+
+| Mode | Effect |
+| --- | --- |
+| Always ask (default) | Every `executeSql` shows the approval dialog |
+| Auto-approve SELECT | SQL that passes the read-only check runs without the dialog, through the read-only path described above; anything else asks |
+| Full permission | Any SQL the access level allows runs without the dialog; requires Read and write access |
+
+Destructive SQL (`DROP`, `TRUNCATE`, `DELETE`/`UPDATE` without `WHERE`, MongoDB
+deletes and updates) always shows the dialog, whatever the mode. With Read-only
+access, Full permission behaves as Auto-approve SELECT. The backend re-reads the
+saved mode for every auto-approved run and refuses it when the mode no longer
+allows it. Auto-approved runs appear in the MCP history like any other call.
+
 While omni-sql is in the background, approval requests show a desktop
 notification (Settings → General → Desktop notifications). The MCP panel shows
 desktop availability, pending requests, HTTP sessions and a history of tool
@@ -94,6 +111,15 @@ block read tools.
 3. Paste them into your client exactly as generated. `command` is the Node
    runtime, `args[0]` the MCP server entry point and `args[1]` a temporary
    runtime descriptor. Do not add a working directory or reorder arguments.
+
+In installed builds `args[0]` is a stable loader (`mcp-launcher-cache/server.mjs`
+in the app data folder). Each time omni-sql starts it copies the bundled server
+next to it and points the loader at that copy, so the client picks up the new
+server after an update without copying the configuration again; reconnect the
+client (for example `/mcp` → reconnect) to restart it. Older server copies are
+replaced by a redirect to the loader, so configurations copied before the loader
+existed keep working and start the current server. The Node runtime path changes
+only when an update ships a new Node version; older Node copies are kept.
 
 The descriptor holds a capability for the current run only: do not open, copy or
 share its contents. It is regenerated on every start, so copy a fresh

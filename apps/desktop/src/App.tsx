@@ -39,7 +39,7 @@ import { backend, type ConnectionEntry, type ConnectionGroup, type RelationColum
 import { splitStatements } from "./lib/sql-statements";
 import { buildCtePreview, type CtePreview } from "./lib/cte-preview";
 import { extractVariablesUnion, substituteVariables } from "./lib/sql-variables";
-import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, connectionMcpAccess, type DialectId, type FunctionDef, type McpToolResultByName, type McpToolArgsByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
+import { MCP_MAX_ERROR_MESSAGE_BYTES, MCP_MAX_SQL_BYTES, connectionMcpAccess, connectionMcpApproval, type DialectId, type FunctionDef, type McpToolResultByName, type McpToolArgsByName, type QueryResult, type RowEditability, type SqlExecutionError } from "@omni-sql/ts-types";
 import { analyzeExecutionRisk, type ExecutionRiskAnalysis, type Suggestion } from "@omni-sql/autocomplete-engine";
 import { basenameNoExt, exportConnectionsFile, pickAnalysisExportPath, pickAnalysisImportPath, pickOpenPath, pickSavePath, readSqlFile, writeSqlFile } from "./lib/file-io";
 import { useLanguage, type TranslationKey } from "./i18n";
@@ -111,6 +111,7 @@ function toMcpUiConnection(connection: ConnectionEntry, environments: readonly E
     label: connection.label,
     dialect: connection.dialect,
     mcpAccess: connectionMcpAccess(connection),
+    mcpApproval: connectionMcpApproval(connection),
     ...(environment ? { environment: { id: environment.id, name: name || environment.id } } : {}),
   };
 }

@@ -145,6 +145,30 @@ export function connectionMcpAccess(config: Pick<ConnectionConfig, "options"> | 
   return value === "off" || value === "write" ? value : DEFAULT_MCP_ACCESS;
 }
 
+/**
+ * Per-connection approval of MCP SQL execution, persisted as `options.mcpApproval`.
+ * `ask` always shows the desktop approval, `autoRead` runs read-only SQL without
+ * asking (in a read-only transaction), `auto` runs everything the access level allows.
+ */
+export type McpApproval = "ask" | "autoRead" | "auto";
+
+export const MCP_APPROVAL_MODES: readonly McpApproval[] = ["ask", "autoRead", "auto"];
+
+export const DEFAULT_MCP_APPROVAL: McpApproval = "ask";
+
+/**
+ * Effective approval mode; it never exceeds the access level. Read access caps
+ * `auto` at `autoRead`, and disabled access or unknown values always ask.
+ */
+export function connectionMcpApproval(config: Pick<ConnectionConfig, "options"> | null | undefined): McpApproval {
+  const access = connectionMcpAccess(config);
+  if (access === "off") return DEFAULT_MCP_APPROVAL;
+  const value = config?.options?.mcpApproval;
+  if (value === "autoRead") return "autoRead";
+  if (value === "auto") return access === "write" ? "auto" : "autoRead";
+  return DEFAULT_MCP_APPROVAL;
+}
+
 export interface ConnectionGroup {
   readonly id: string;
   readonly name: string;
@@ -530,6 +554,8 @@ export interface McpExecuteApproval {
   readonly id: string;
   readonly listenerId: string;
   readonly connectionId: string;
+  /** Set when the connection's approval mode ran the SQL without asking; the backend re-checks the mode. */
+  readonly autoApproved?: boolean;
 }
 
 export interface McpHistoryResult {

@@ -1091,21 +1091,13 @@ fn get_mcp_launcher_config<R: tauri::Runtime>(
             node_executable.display()
         ));
     }
+    #[cfg(debug_assertions)]
     let server_entry_path = mcp_server_entry_path(&app)?;
     // The MCP client owns this process, so the app's child job cannot stop it
     // before an installer replaces bundled resources. Run immutable copies
-    // outside the installation directory instead.
+    // outside the installation directory, behind a stable loader path.
     #[cfg(not(debug_assertions))]
-    let (node_executable, server_entry_path) = {
-        let cache_dir = app.path()
-            .app_data_dir()
-            .map_err(|err| format!("failed to resolve MCP launcher cache: {err}"))?
-            .join("mcp-launcher-cache");
-        (
-            stage_mcp_launcher_file(&node_executable, &cache_dir, "node", "exe")?,
-            stage_mcp_launcher_file(&server_entry_path, &cache_dir, "server", "mjs")?,
-        )
-    };
+    let server_entry_path = refresh_mcp_launcher(&app)?;
     Ok(McpLauncherConfig {
         command: strip_verbatim_prefix(node_executable).display().to_string(),
         args: vec![
@@ -1143,7 +1135,12 @@ fn stage_mcp_launcher_file(
     let target = cache_dir.join(format!("{stem}-{hash}.{extension}"));
     if target.is_file() {
         if file_sha256(&target)? == hash { return Ok(target); }
-        return Err(format!("MCP launcher cache file has changed: {}", target.display()));
+        // A server copy replaced by the legacy redirect is restaged when its
+        // build becomes current again (for example after a downgrade).
+        let is_redirect = fs::read(&target).ok().as_deref() == Some(MCP_LEGACY_SERVER_REDIRECT.as_bytes());
+        if !is_redirect {
+            return Err(format!("MCP launcher cache file has changed: {}", target.display()));
+        }
     }
     let temporary = cache_dir.join(format!(".{stem}-{}.tmp", generate_auth_token()?));
     let staged = (|| {
@@ -1160,6 +1157,81 @@ fn stage_mcp_launcher_file(
     })();
     let _ = fs::remove_file(&temporary);
     staged
+}
+
+#[cfg(any(not(debug_assertions), test))]
+const MCP_LAUNCHER_LOADER: &str = include_str!("mcp_launcher.mjs");
+#[cfg(any(not(debug_assertions), test))]
+const MCP_LAUNCHER_LOADER_NAME: &str = "server.mjs";
+#[cfg(any(not(debug_assertions), test))]
+const MCP_LAUNCHER_POINTER_NAME: &str = "server-current";
+/// Replaces superseded server copies: client configurations copied before the
+/// stable loader existed name a `server-<hash>.mjs` file directly, and keep
+/// working by starting the current server through the loader.
+#[cfg(any(not(debug_assertions), test))]
+const MCP_LEGACY_SERVER_REDIRECT: &str =
+    "// Superseded omni-sql MCP server: start the current one through the stable loader.\nimport \"./server.mjs\";\n";
+
+#[cfg(any(not(debug_assertions), test))]
+fn write_mcp_launcher_file_if_changed(cache_dir: &Path, name: &str, contents: &[u8]) -> Result<(), String> {
+    let target = cache_dir.join(name);
+    if fs::read(&target).ok().as_deref() == Some(contents) {
+        return Ok(());
+    }
+    let temporary = cache_dir.join(format!(".{name}-{}.tmp", generate_auth_token()?));
+    let written = fs::write(&temporary, contents)
+        .map_err(|err| format!("failed to write MCP launcher file {}: {err}", temporary.display()))
+        .and_then(|()| {
+            fs::rename(&temporary, &target)
+                .map_err(|err| format!("failed to update MCP launcher file {}: {err}", target.display()))
+        });
+    let _ = fs::remove_file(&temporary);
+    written
+}
+
+#[cfg(any(not(debug_assertions), test))]
+fn is_staged_mcp_server_name(name: &str) -> bool {
+    name.strip_prefix("server-")
+        .and_then(|rest| rest.strip_suffix(".mjs"))
+        .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
+}
+
+/// Stages the server build, points the stable loader at it and turns older
+/// server copies into redirects to the loader, so configurations that name
+/// them start the current server instead of failing. Running clients already
+/// loaded their module into memory. Node copies are kept because client
+/// configurations reference them by path.
+#[cfg(any(not(debug_assertions), test))]
+fn stage_mcp_server_launcher(server_entry: &Path, cache_dir: &Path) -> Result<PathBuf, String> {
+    let server = stage_mcp_launcher_file(server_entry, cache_dir, "server", "mjs")?;
+    let server_name = server
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("invalid MCP launcher cache path: {}", server.display()))?
+        .to_string();
+    write_mcp_launcher_file_if_changed(cache_dir, MCP_LAUNCHER_LOADER_NAME, MCP_LAUNCHER_LOADER.as_bytes())?;
+    write_mcp_launcher_file_if_changed(cache_dir, MCP_LAUNCHER_POINTER_NAME, server_name.as_bytes())?;
+    if let Ok(entries) = fs::read_dir(cache_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if name != server_name && is_staged_mcp_server_name(name) {
+                if let Err(err) = write_mcp_launcher_file_if_changed(cache_dir, name, MCP_LEGACY_SERVER_REDIRECT.as_bytes()) {
+                    log::warn!("failed to redirect superseded MCP server {name}: {err}");
+                }
+            }
+        }
+    }
+    Ok(cache_dir.join(MCP_LAUNCHER_LOADER_NAME))
+}
+
+#[cfg(not(debug_assertions))]
+fn refresh_mcp_launcher<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    let cache_dir = app.path()
+        .app_data_dir()
+        .map_err(|err| format!("failed to resolve MCP launcher cache: {err}"))?
+        .join("mcp-launcher-cache");
+    stage_mcp_server_launcher(&mcp_server_entry_path(app)?, &cache_dir)
 }
 
 #[cfg(debug_assertions)]
@@ -2055,6 +2127,13 @@ pub fn run() {
                                 return;
                             }
 
+                            // Point existing client configurations at this
+                            // version's server without waiting for the dialog.
+                            #[cfg(not(debug_assertions))]
+                            if let Err(err) = refresh_mcp_launcher(&app_handle) {
+                                log::warn!("failed to refresh MCP launcher: {err}");
+                            }
+
                             log::info!("backend sidecar health check passed on 127.0.0.1:{BACKEND_PORT}");
                             break;
                         }
@@ -2506,6 +2585,54 @@ mod tests {
         assert_eq!(fs::read(&old).unwrap(), b"old runtime");
         assert_eq!(fs::read(&new).unwrap(), b"new runtime");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn mcp_launcher_loader_follows_server_updates_at_a_stable_path() {
+        let directory = std::env::temp_dir().join(format!(
+            "omni-sql-mcp-loader-test-{}-{}",
+            std::process::id(),
+            generate_auth_token().unwrap()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("index.js");
+        let cache = directory.join("cache");
+        let node = directory.join("node.exe");
+        fs::write(&node, b"runtime").unwrap();
+        let staged_node = stage_mcp_launcher_file(&node, &cache, "node", "exe").unwrap();
+
+        fs::write(&source, b"old server").unwrap();
+        let loader = stage_mcp_server_launcher(&source, &cache).unwrap();
+        let old_server = cache.join(fs::read_to_string(cache.join(MCP_LAUNCHER_POINTER_NAME)).unwrap());
+        assert_eq!(fs::read(&old_server).unwrap(), b"old server");
+        assert_eq!(fs::read_to_string(&loader).unwrap(), MCP_LAUNCHER_LOADER);
+
+        fs::write(&source, b"new server").unwrap();
+        assert_eq!(stage_mcp_server_launcher(&source, &cache).unwrap(), loader);
+        let new_server = cache.join(fs::read_to_string(cache.join(MCP_LAUNCHER_POINTER_NAME)).unwrap());
+        assert_eq!(fs::read(&new_server).unwrap(), b"new server");
+        assert_eq!(
+            fs::read_to_string(&old_server).unwrap(),
+            MCP_LEGACY_SERVER_REDIRECT,
+            "configs naming an older copy start the current server through the loader"
+        );
+        assert!(staged_node.is_file(), "Node copies referenced by client configs are kept");
+
+        // Downgrading restages the redirected build instead of failing.
+        fs::write(&source, b"old server").unwrap();
+        stage_mcp_server_launcher(&source, &cache).unwrap();
+        assert_eq!(fs::read(&old_server).unwrap(), b"old server");
+        assert_eq!(fs::read_to_string(&new_server).unwrap(), MCP_LEGACY_SERVER_REDIRECT);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn staged_mcp_server_names_require_a_sha256_hash() {
+        assert!(is_staged_mcp_server_name(&format!("server-{}.mjs", "a".repeat(64))));
+        assert!(!is_staged_mcp_server_name("server.mjs"));
+        assert!(!is_staged_mcp_server_name("server-current"));
+        assert!(!is_staged_mcp_server_name(&format!("server-{}.mjs", "A".repeat(64))));
+        assert!(!is_staged_mcp_server_name(&format!("node-{}.mjs", "a".repeat(64))));
     }
 
     #[test]

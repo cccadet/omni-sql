@@ -1,7 +1,8 @@
-import { analyzeReadOnlySql } from "@omni-sql/autocomplete-engine";
+import { analyzeExecutionRisk, analyzeReadOnlySql } from "@omni-sql/autocomplete-engine";
 import type {
   DialectId,
   McpAccess,
+  McpApproval,
   McpBridgeRequest,
   McpConnectionEnvironment,
   McpConnectionSummary,
@@ -33,6 +34,8 @@ export interface McpUiConnection {
   label: string;
   dialect: DialectId;
   mcpAccess: McpAccess;
+  /** Effective approval mode for MCP SQL execution; missing means always ask. */
+  mcpApproval?: McpApproval;
   environment?: McpConnectionEnvironment;
 }
 
@@ -52,6 +55,19 @@ function connectionSummary(connection: McpUiConnection & { mcpAccess: "read" | "
 
 function isExposed(connection: McpUiConnection): connection is McpUiConnection & { mcpAccess: "read" | "write" } {
   return connection.mcpAccess !== "off";
+}
+
+/**
+ * Whether the connection's approval mode runs this SQL without the desktop
+ * dialog. Destructive SQL always asks, even with full permission.
+ */
+export function mcpAutoApproves(connection: McpUiConnection, sql: string): boolean {
+  if (!isExposed(connection)) return false;
+  const approval = connection.mcpApproval ?? "ask";
+  if (approval === "ask") return false;
+  if (analyzeExecutionRisk(sql, connection.dialect).level !== "none") return false;
+  if (approval === "autoRead" || connection.mcpAccess === "read") return analyzeReadOnlySql(sql, connection.dialect).readOnly;
+  return true;
 }
 
 interface ResolvedTarget {
@@ -110,8 +126,7 @@ export interface McpUiBridgeHandlers {
   explainSql: (connectionId: string, sql: string) => Promise<McpToolResultByName["explainSql"]>;
   proposeEdit: (args: { sql: string; rationale: string; tabId: string; originalSql: string; expiresAt?: number }) => Promise<"approved" | "rejected" | "stale">;
   /** `connectionId` is preselected; `suggested` means the MCP client chose it rather than defaulting to the active one. */
-  approveExecution: (args: { sql: string; limit: number; connectionId: string; suggested: boolean; expiresAt: number }) => Promise<McpExecutionOutcome>;
-  onStatus: (status: McpStatusResult | null, error?: string) => void;
+  approveExecution: (args: { sql: string; limit: number; connectionId: string; suggested: boolean; expiresAt: number }) => Promise<McpExecutionOutcome>;  onStatus: (status: McpStatusResult | null, error?: string) => void;
 }
 
 export function makeListenerId(): string {
@@ -252,21 +267,32 @@ export class McpUiBridge {
       case "executeSql": {
         const suggested = resolveMcpTarget(state, request.args.connectionId).connection;
         this.assertExecutable(state, suggested, request.args.sql);
-        const approval = await this.handlers.approveExecution({
-          sql: request.args.sql,
-          limit: request.args.limit ?? MCP_DEFAULT_QUERY_LIMIT,
-          connectionId: suggested.id,
-          suggested: request.args.connectionId !== undefined,
-          expiresAt: request.expiresAt,
-        });
-        if (approval.outcome !== "approved") throw new McpUiError(approval.outcome === "stale" ? "stale" : "rejected", "SQL execution was not approved");
+        const autoApproved = mcpAutoApproves(suggested, request.args.sql);
+        let chosenId = suggested.id;
+        if (!autoApproved) {
+          const approval = await this.handlers.approveExecution({
+            sql: request.args.sql,
+            limit: request.args.limit ?? MCP_DEFAULT_QUERY_LIMIT,
+            connectionId: suggested.id,
+            suggested: request.args.connectionId !== undefined,
+            expiresAt: request.expiresAt,
+          });
+          if (approval.outcome !== "approved") throw new McpUiError(approval.outcome === "stale" ? "stale" : "rejected", "SQL execution was not approved");
+          chosenId = approval.connectionId;
+        }
         // The user may have picked another connection in the approval dialog; recheck it against current state.
         const current = this.handlers.readState();
-        const chosen = current.connections.find((candidate) => candidate.id === approval.connectionId);
+        const chosen = current.connections.find((candidate) => candidate.id === chosenId);
         if (!chosen || !isExposed(chosen)) throw new McpUiError("stale", "Connection changed before execution");
         this.assertExecutable(current, chosen, request.args.sql);
+        if (autoApproved && !mcpAutoApproves(chosen, request.args.sql)) throw new McpUiError("stale", "Connection approval mode changed before execution");
         if (request.expiresAt <= Date.now() + PROPOSAL_SAFETY_WINDOW_MS) throw new McpUiError("timeout", "SQL execution request expired");
-        return backend.call<McpToolResultByName["executeSql"]>("mcp.ui.execute", { id: request.id, listenerId: this.listenerId, connectionId: chosen.id });
+        return backend.call<McpToolResultByName["executeSql"]>("mcp.ui.execute", {
+          id: request.id,
+          listenerId: this.listenerId,
+          connectionId: chosen.id,
+          ...(autoApproved ? { autoApproved: true } : {}),
+        });
       }
       case "proposeSqlEdit": {
         if (activeDisabled) throw new McpUiError("rejected", MCP_ACCESS_DISABLED_MESSAGE);

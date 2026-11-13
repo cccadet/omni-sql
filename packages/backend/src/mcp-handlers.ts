@@ -40,7 +40,9 @@ import type {
 
 import type { Server } from "node:http";
 import { startMcpHttpServer, closeStreamableHttpServer, getHttpSessionCount } from "@omni-sql/mcp-server";
-import { handlers, mcpAccessFor, runReadOnlyQuery } from "./handlers.ts";
+import { handlers, mcpAccessFor, mcpApprovalFor, runReadOnlyQuery } from "./handlers.ts";
+
+const MCP_APPROVAL_REQUIRED_MESSAGE = "This connection requires desktop approval for MCP SQL execution";
 
 let httpServer: Server | undefined;
 let startingHttp = false;
@@ -219,18 +221,27 @@ export const mcpHandlers: McpUiRouter = {
   },
   async "mcp.ui.execute"(value: McpExecuteApproval) {
     const params = requireRecord(value, "execution approval");
-    requireExactKeys(params, ["id", "listenerId", "connectionId"], "execution approval");
+    requireExactKeys(params, ["id", "listenerId", "connectionId", "autoApproved"], "execution approval");
     const id = requireText(params.id, "id", MCP_MAX_REQUEST_ID_BYTES);
     const listenerId = requireText(params.listenerId, "listenerId", MCP_MAX_LISTENER_ID_BYTES);
     const connectionId = requireText(params.connectionId, "connectionId", 256);
+    if (params.autoApproved !== undefined && typeof params.autoApproved !== "boolean") {
+      throw new McpBridgeError("invalid", "autoApproved must be boolean");
+    }
+    const autoApproved = params.autoApproved === true;
     const { args, signal } = mcpBridge.approveExecution(id, listenerId);
     const limit = args.limit ?? MCP_DEFAULT_QUERY_LIMIT;
     // Desktop approval never widens the connection's MCP permission.
     const access = mcpAccessFor(connectionId);
     if (access === "off") throw new McpBridgeError("rejected", MCP_ACCESS_DISABLED_MESSAGE);
-    const result = access === "read"
+    // Without a person in the loop, the saved approval mode must allow it:
+    // `autoRead` runs only in a read-only transaction, and `auto` never
+    // accepts destructive-SQL risk on the user's behalf.
+    const approval = autoApproved ? mcpApprovalFor(connectionId) : null;
+    if (approval === "ask") throw new McpBridgeError("rejected", MCP_APPROVAL_REQUIRED_MESSAGE);
+    const result = access === "read" || approval === "autoRead"
       ? await runReadOnlyQuery(connectionId, args.sql, limit, signal)
-      : await handlers["query.run"]({ connectionId, sql: args.sql, limit, executionRiskAccepted: true }, signal);
+      : await handlers["query.run"]({ connectionId, sql: args.sql, limit, executionRiskAccepted: !autoApproved }, signal);
     return boundMcpQueryResult(connectionId, result, limit);
   },
   async "mcp.ui.next"(params?: McpUiNextParams, context?: McpUiRequestContext): Promise<McpUiNextResult> {

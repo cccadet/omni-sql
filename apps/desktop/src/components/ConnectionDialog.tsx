@@ -13,7 +13,7 @@ import {
   Text,
   tokens,
 } from "@fluentui/react-components";
-import { DEFAULT_MCP_ACCESS, connectionMcpAccess, type ConnectionConfig, type McpAccess } from "@omni-sql/ts-types";
+import { DEFAULT_MCP_ACCESS, DEFAULT_MCP_APPROVAL, connectionMcpAccess, connectionMcpApproval, type ConnectionConfig, type McpAccess, type McpApproval } from "@omni-sql/ts-types";
 import { backend } from "../lib/backend";
 import { pickJarPath } from "../lib/file-io";
 import { listAnalysisS3 } from "../lib/analysis";
@@ -29,6 +29,12 @@ const MCP_ACCESS_OPTIONS = [
   { value: "read", label: "mcpAccessRead" },
   { value: "write", label: "mcpAccessWrite" },
 ] as const satisfies readonly { value: McpAccess; label: string }[];
+
+const MCP_APPROVAL_OPTIONS = [
+  { value: "ask", label: "mcpApprovalAsk" },
+  { value: "autoRead", label: "mcpApprovalAutoRead" },
+  { value: "auto", label: "mcpApprovalAuto" },
+] as const satisfies readonly { value: McpApproval; label: string }[];
 
 const DB_TYPES: readonly { mode: Mode; abbr: string; label?: string; color: string }[] = [
   { mode: "postgres", abbr: "PG", label: "PostgreSQL", color: "#336791" },
@@ -120,6 +126,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   // An id whose environment was removed counts as unset, so saving drops it.
   const selectedEnvironment = environments.some((option) => option.id === environment) ? environment : "";
   const [mcpAccess, setMcpAccess] = useState<McpAccess>(DEFAULT_MCP_ACCESS);
+  const [mcpApproval, setMcpApproval] = useState<McpApproval>(DEFAULT_MCP_APPROVAL);
   const [id, setId] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("5432");
@@ -166,6 +173,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     setLabel(editing?.label ?? "");
     setEnvironment(String(editing?.options?.environment ?? ""));
     setMcpAccess(editing ? connectionMcpAccess(editing) : DEFAULT_MCP_ACCESS);
+    setMcpApproval(editing ? connectionMcpApproval(editing) : DEFAULT_MCP_APPROVAL);
     setId(duplicating ? generateId() : editing?.id ?? "");
     setUser(isS3 ? "" : editing?.user ?? "");
     setS3AccessKey(isS3 ? editing?.user ?? "" : "");
@@ -268,7 +276,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
 
   const buildConfig = useCallback((): ConnectionConfig => {
     // The default (read-only) is not persisted.
-    const shared = { ...(selectedEnvironment ? { environment: selectedEnvironment } : {}), ...(mcpAccess !== DEFAULT_MCP_ACCESS ? { mcpAccess } : {}) };
+    const shared = { ...(selectedEnvironment ? { environment: selectedEnvironment } : {}), ...(mcpAccess !== DEFAULT_MCP_ACCESS ? { mcpAccess } : {}), ...(mcpAccess !== "off" && mcpApproval !== DEFAULT_MCP_APPROVAL ? { mcpApproval } : {}) };
     if (mode === "demo") {
       return {
         id: id || "demo",
@@ -289,7 +297,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
       options: Object.keys(shared).length > 0 ? { ...options, ...shared } : options,
       schemas: selectedSchemas.size > 0 ? [...selectedSchemas] : undefined,
     };
-  }, [mode, id, label, selectedEnvironment, mcpAccess, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
+  }, [mode, id, label, selectedEnvironment, mcpAccess, mcpApproval, defaultLabel, buildEndpoint, user, s3AccessKey, buildOptions, selectedSchemas]);
 
   const onTest = async () => {
     if (mode === "demo") return;
@@ -469,12 +477,29 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               <span id="omni-connection-mcp-label" className="omni-connection-environment-label">{t("connectionMcpAccess")}</span>
               <div role="radiogroup" aria-labelledby="omni-connection-mcp-label" className="omni-segmented" style={{ justifySelf: "start" }}>
                 {MCP_ACCESS_OPTIONS.map(({ value, label: key }) => (
-                  <button key={value} type="button" role="radio" aria-checked={mcpAccess === value} disabled={busy} onClick={() => { setMcpAccess(value); setTestResult(null); setError(null); setDirty(true); }}>
+                  <button key={value} type="button" role="radio" aria-checked={mcpAccess === value} disabled={busy} onClick={() => {
+                    setMcpAccess(value);
+                    // Read-only access cannot run everything without asking.
+                    if (value === "read") setMcpApproval((current) => current === "auto" ? "autoRead" : current);
+                    setTestResult(null); setError(null); setDirty(true);
+                  }}>
                     {t(key)}
                   </button>
                 ))}
               </div>
               <Text size={200}>{t("mcpAccessHint")}</Text>
+            </div>}
+
+            {mode !== "s3" && mcpAccess !== "off" && <div className="omni-connection-environment">
+              <span id="omni-connection-mcp-approval-label" className="omni-connection-environment-label">{t("connectionMcpApproval")}</span>
+              <div role="radiogroup" aria-labelledby="omni-connection-mcp-approval-label" className="omni-segmented" style={{ justifySelf: "start" }}>
+                {MCP_APPROVAL_OPTIONS.map(({ value, label: key }) => (
+                  <button key={value} type="button" role="radio" aria-checked={mcpApproval === value} disabled={busy || (value === "auto" && mcpAccess !== "write")} onClick={() => { setMcpApproval(value); setTestResult(null); setError(null); setDirty(true); }}>
+                    {t(key)}
+                  </button>
+                ))}
+              </div>
+              <Text size={200}>{t("mcpApprovalHint")}</Text>
             </div>}
 
             {mode === "mongodb" && <Field label="MongoDB URI">
