@@ -306,3 +306,43 @@ test("MCP cancellation interrupts a real PostgreSQL query and allows another que
     for (const connectionId of ["pg-cancel", "pg-observer"]) await rpc("connection.remove", { connectionId });
   }
 });
+
+/** Runs a request as the desktop would after skipping the dialog by approval mode. */
+async function autoApprove(sql: string, connectionId: string) {
+  const { request, result } = await requestExecution(sql);
+  const execution = await rpc<McpToolResultByName["executeSql"]>("mcp.ui.execute", { id: request.id, listenerId: "execution-ui", connectionId, autoApproved: true })
+    .then((value) => ({ value, error: null }), (error: Error) => ({ value: null, error }));
+  await rpc("mcp.ui.respond", execution.value
+    ? { id: request.id, listenerId: "execution-ui", ok: true, result: execution.value }
+    : { id: request.id, listenerId: "execution-ui", ok: false, error: { code: "rejected", message: execution.error?.message ?? "failed" } });
+  await result;
+  return execution;
+}
+
+test("auto-approved MCP execution follows the connection's saved approval mode", async () => {
+  const add = (id: string, options: Record<string, string>) =>
+    rpc("connection.add", { config: { id, label: id, dialect: "jdbc-generic", endpoint: "memory://local", user: "test", options } });
+  await add("approval-ask", { mcpAccess: "write" });
+  await add("approval-read", { mcpAccess: "write", mcpApproval: "autoRead" });
+  await add("approval-full", { mcpAccess: "write", mcpApproval: "auto" });
+  await add("approval-capped", { mcpAccess: "read", mcpApproval: "auto" });
+
+  let runs = executions;
+  assert.match((await autoApprove("SELECT * FROM users", "approval-ask")).error?.message ?? "", /requires desktop approval/);
+  assert.equal(executions, runs);
+
+  const reads = readOnlyExecutions;
+  assert.ok((await autoApprove("SELECT * FROM users", "approval-read")).value);
+  assert.equal(readOnlyExecutions, reads + 1, "auto-approved SELECT runs in the read-only path");
+  runs = executions;
+  assert.ok((await autoApprove("DELETE FROM users WHERE id = 1", "approval-read")).error);
+  assert.ok((await autoApprove("DELETE FROM users WHERE id = 1", "approval-capped")).error, "read access caps full permission at SELECT");
+  assert.equal(executions, runs);
+
+  assert.equal((await autoApprove("DELETE FROM users WHERE id = 1", "approval-full")).value?.rowsAffected, 2);
+  assert.equal(executions, runs + 1);
+  assert.match((await autoApprove("DELETE FROM users", "approval-full")).error?.message ?? "", /explicit confirmation/);
+  assert.equal(executions, runs + 1, "destructive SQL is never accepted without a person");
+
+  await assert.rejects(rpc("mcp.ui.execute", { id: "x", listenerId: "execution-ui", connectionId: "approval-full", autoApproved: "yes" }), /autoApproved must be boolean/);
+});

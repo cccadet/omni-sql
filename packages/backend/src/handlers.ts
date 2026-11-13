@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { ListBucketsCommand, S3Client } from "@aws-sdk/client-s3";
-import { connectionMcpAccess, type ConnectionConfig, type McpAccess, type Relation, type Database } from "@omni-sql/ts-types";
+import { connectionMcpAccess, connectionMcpApproval, type ConnectionConfig, type McpAccess, type McpApproval, type Relation, type Database } from "@omni-sql/ts-types";
 import type { Adapter, QueryBatch } from "@omni-sql/adapters-core";
 import { registerAdapter, resolveAdapter } from "@omni-sql/adapters-core";
 import { PostgresAdapter } from "@omni-sql/adapters-pg";
@@ -331,6 +331,11 @@ function requireSession(id: string): Session {
  */
 export function mcpAccessFor(connectionId: string): McpAccess {
   return connectionMcpAccess(sessions.get(connectionId)?.config ?? cache.getConnection(connectionId));
+}
+
+/** Effective MCP approval mode of a saved connection; unknown connections always ask. */
+export function mcpApprovalFor(connectionId: string): McpApproval {
+  return connectionMcpApproval(sessions.get(connectionId)?.config ?? cache.getConnection(connectionId));
 }
 
 /**

@@ -320,6 +320,61 @@ describe("MCP connection access", () => {
   });
 });
 
+describe("MCP approval modes", () => {
+  const autoRead: McpUiConnection = { id: "staging", label: "Staging", dialect: "postgres", mcpAccess: "write", mcpApproval: "autoRead" };
+  const full: McpUiConnection = { id: "dev", label: "Dev", dialect: "postgres", mcpAccess: "write", mcpApproval: "auto" };
+  const autoApproved = (id: string, connectionId: string) => ["mcp.ui.execute", { id, listenerId: "test-listener", connectionId, autoApproved: true }];
+
+  it("runs SELECT without asking and still asks for writes when only SELECT is auto-approved", async () => {
+    const approval = vi.fn<ApproveExecution>(async () => ({ outcome: "rejected" }));
+    const bridge = setup(withConnections({ activeTab: null, activeConnection: autoRead, editor: null }), approval);
+    const rpc = vi.spyOn(backend, "call").mockResolvedValue({ rows: [] });
+    try {
+      await bridge.handleRequest(request("read", "executeSql", { sql: "SELECT id FROM orders" }));
+      expect(approval).not.toHaveBeenCalled();
+      expect(rpc).toHaveBeenCalledWith(...autoApproved("read", "staging"));
+
+      await expect(bridge.handleRequest(request("write", "executeSql", { sql: "UPDATE orders SET paid = true WHERE id = 1" }))).rejects.toMatchObject({ code: "rejected" });
+      expect(approval).toHaveBeenCalledOnce();
+      expect(rpc).toHaveBeenCalledTimes(1);
+    } finally { rpc.mockRestore(); }
+  });
+
+  it("runs writes without asking under full permission but always asks for destructive SQL", async () => {
+    const approval = vi.fn<ApproveExecution>(async () => ({ outcome: "rejected" }));
+    const bridge = setup(withConnections({ activeTab: null, activeConnection: full, editor: null }), approval);
+    const rpc = vi.spyOn(backend, "call").mockResolvedValue({ rows: [] });
+    try {
+      await bridge.handleRequest(request("update", "executeSql", { sql: "UPDATE orders SET paid = true WHERE id = 1" }));
+      expect(rpc).toHaveBeenCalledWith(...autoApproved("update", "dev"));
+      expect(approval).not.toHaveBeenCalled();
+
+      for (const sql of ["DROP TABLE orders", "DELETE FROM orders", "TRUNCATE orders"]) {
+        await expect(bridge.handleRequest(request(sql, "executeSql", { sql }))).rejects.toMatchObject({ code: "rejected" });
+        expect(approval).toHaveBeenLastCalledWith(expect.objectContaining({ sql }));
+      }
+      expect(rpc).toHaveBeenCalledTimes(1);
+    } finally { rpc.mockRestore(); }
+  });
+
+  it("refuses an auto-approved run when the connection's mode changes before execution", async () => {
+    const asking = { ...full, mcpApproval: "ask" as const };
+    const states = [withConnections({ activeTab: null, activeConnection: full, editor: null }), withConnections({ activeTab: null, activeConnection: asking, editor: null })];
+    let reads = 0;
+    const bridge = new McpUiBridge({
+      readState: () => states[Math.min(reads++, 1)]!,
+      getSchemaSummary: vi.fn(), getTableIndexes: vi.fn(), explainSql: vi.fn(), proposeEdit: vi.fn(),
+      approveExecution: vi.fn(approveAsSuggested),
+      onStatus: vi.fn(),
+    }, "test-listener");
+    const rpc = vi.spyOn(backend, "call");
+    try {
+      await expect(bridge.handleRequest(request("run", "executeSql", { sql: "SELECT 1" }))).rejects.toMatchObject({ code: "stale" });
+      expect(rpc).not.toHaveBeenCalled();
+    } finally { rpc.mockRestore(); }
+  });
+});
+
 it("reports DuckDB for MongoDB SQL tabs and prevents MCP from executing through the native adapter", async () => {
   const bridge = setup(withConnections({ activeTab: { id: "tab", title: "Mongo SQL", sql: "SELECT 1", mongoSqlMode: true }, activeConnection: { id: "mongo", label: "MongoDB", dialect: "mongodb", mcpAccess: "read" }, editor: null }));
   await expect(bridge.handleRequest({ id: "mode", tool: "getActiveSql", args: {}, expiresAt: Date.now() + 60_000 })).resolves.toEqual({ sql: "SELECT 1", dialect: "duckdb" });
