@@ -51,6 +51,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.99.1 # keep in sync with release.yml
           targets: x86_64-pc-windows-msvc
 
       - name: Setup JDK
@@ -74,6 +75,15 @@ jobs:
 
       - name: Build Tauri NSIS installer
         run: pnpm --filter desktop exec tauri build --target x86_64-pc-windows-msvc --bundles nsis
+
+      # release.yml builds the portable ZIP from target/release/resources; tauri-build copies it there.
+      - name: Verify resources copied for the portable archive
+        shell: pwsh
+        run: |
+          $resources = "apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/resources"
+          foreach ($required in "runtime/node/node.exe", "runtime/jre/bin/java.exe", "backend/index.mjs", "sidecar/omni-sql-sidecar.jar") {
+            if (-not (Test-Path -LiteralPath (Join-Path $resources $required))) { throw "Missing $resources/$required" }
+          }
 
       - name: Verify NSIS executable and silent WinGet uninstallation
         timeout-minutes: 5
