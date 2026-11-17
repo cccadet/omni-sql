@@ -490,7 +490,20 @@ pub struct S3ListRequest {
     pub catalog: Option<DuckLakeCatalog>,
 }
 
-pub fn list_s3_objects(request: S3ListRequest) -> Result<Vec<String>, String> {
+/// Objects scanned per listing; bounds memory for very large buckets.
+const MAX_S3_LISTED_OBJECTS: usize = 1_000_000;
+/// Catalog entries returned to the UI after compaction.
+const MAX_S3_CATALOG_ENTRIES: usize = 20_000;
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct S3Listing {
+    pub objects: Vec<String>,
+    /// True when objects or catalog entries were dropped because a bound was reached.
+    pub truncated: bool,
+}
+
+pub fn list_s3_objects(request: S3ListRequest) -> Result<S3Listing, String> {
     if request.prefix.len() > 512 || request.prefix.contains("..") || request.prefix.chars().any(char::is_control)
         || request.prefix.chars().any(|c| matches!(c, '*' | '?' | '[' | ']' | '\'')) {
         return Err("invalid S3 prefix".to_string());
@@ -498,12 +511,66 @@ pub fn list_s3_objects(request: S3ListRequest) -> Result<Vec<String>, String> {
     let root = request.uri.trim().trim_end_matches('/');
     let remote = open_s3_reader(root, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
     let prefix = request.prefix.trim_start_matches('/');
-    let pattern = format!("{root}/{prefix}**");
-    let mut statement = remote.prepare("SELECT file FROM glob(?) LIMIT 500")
+    glob_catalog_listing(&remote, &format!("{root}/{prefix}**"), MAX_S3_LISTED_OBJECTS, MAX_S3_CATALOG_ENTRIES)
+}
+
+/// Globs `pattern` with at most `max_objects` scanned and compacts the result for table discovery.
+fn glob_catalog_listing(remote: &Connection, pattern: &str, max_objects: usize, max_entries: usize) -> Result<S3Listing, String> {
+    let mut statement = remote.prepare(&format!("SELECT file FROM glob(?) LIMIT {}", max_objects + 1))
         .map_err(|error| format!("failed to prepare S3 listing: {error}"))?;
     let rows = statement.query_map([pattern], |row| row.get::<_, String>(0))
         .map_err(|error| format!("failed to list S3 objects: {error}"))?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(|error| format!("failed to read S3 listing: {error}"))
+    let mut files = rows.collect::<Result<Vec<_>, _>>().map_err(|error| format!("failed to read S3 listing: {error}"))?;
+    let scan_truncated = files.len() > max_objects;
+    files.truncate(max_objects);
+    let mut listing = compact_s3_listing(files, max_entries);
+    listing.truncated |= scan_truncated;
+    Ok(listing)
+}
+
+/// Reduces a raw object listing to what table discovery needs, so a bucket of any size
+/// yields every Delta/Iceberg table: one `_delta_log/*.json` per Delta root, one
+/// `*.metadata.json` per Iceberg root (current, else the latest), one DuckLake data file
+/// per directory, and CSV/Parquet files outside table roots. Table markers are kept
+/// ahead of loose files when `max_entries` is reached.
+fn compact_s3_listing(files: Vec<String>, max_entries: usize) -> S3Listing {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut delta: BTreeMap<String, String> = BTreeMap::new();
+    let mut iceberg: BTreeMap<String, String> = BTreeMap::new();
+    for file in &files {
+        if let Some((root, rest)) = file.split_once("/_delta_log/") {
+            if !rest.contains('/') && rest.to_ascii_lowercase().ends_with(".json") {
+                delta.entry(root.to_string()).and_modify(|kept| if file < kept { *kept = file.clone() }).or_insert_with(|| file.clone());
+            }
+        } else if let Some((root, rest)) = file.rsplit_once("/metadata/") {
+            if !rest.contains('/') && rest.to_ascii_lowercase().ends_with(".metadata.json") {
+                let current = |uri: &str| uri.contains("current.metadata.json");
+                iceberg.entry(root.to_string())
+                    .and_modify(|kept| if current(file) || (!current(kept) && file > kept) { *kept = file.clone() })
+                    .or_insert_with(|| file.clone());
+            }
+        }
+    }
+    let roots: BTreeSet<&str> = delta.keys().chain(iceberg.keys()).map(String::as_str).collect();
+    // Checks each ancestor directory, so cost grows with path depth rather than table count.
+    let under_table = |file: &str| file.match_indices('/').any(|(index, _)| roots.contains(&file[..index]));
+    let mut ducklake_dirs = BTreeSet::new();
+    let mut loose = BTreeSet::new();
+    for file in &files {
+        let lower = file.to_ascii_lowercase();
+        if file.contains("/_delta_log/") || lower.contains(".ducklake.files/") || under_table(file) { continue; }
+        let (dir, name) = file.rsplit_once('/').unwrap_or(("", file.as_str()));
+        if name.to_ascii_lowercase().starts_with("ducklake-") && lower.ends_with(".parquet") {
+            if ducklake_dirs.insert(dir.to_string()) { loose.insert(file.clone()); }
+        } else if lower.ends_with(".parquet") || lower.ends_with(".csv") {
+            loose.insert(file.clone());
+        }
+    }
+    let mut markers: Vec<String> = delta.into_values().chain(iceberg.into_values()).collect();
+    markers.sort();
+    let total = markers.len() + loose.len();
+    let objects: Vec<String> = markers.into_iter().chain(loose).take(max_entries).collect();
+    S3Listing { truncated: total > objects.len(), objects }
 }
 
 #[derive(Debug, Deserialize)]
@@ -3236,6 +3303,64 @@ mod tests {
     }
 
     #[test]
+    fn s3_listing_keeps_every_table_root_in_large_buckets() {
+        let bucket = "s3://lakehouse";
+        let mut files = Vec::new();
+        // 150 Delta tables with many data files each: far more than the old 500-object cut.
+        for table in 0..150 {
+            let root = format!("{bucket}/curated/t{table:03}");
+            for version in 0..3 { files.push(format!("{root}/_delta_log/{version:020}.json")); }
+            files.push(format!("{root}/_delta_log/_last_checkpoint"));
+            for part in 0..20 { files.push(format!("{root}/ano=2024/part-{part:05}.snappy.parquet")); }
+        }
+        files.push(format!("{bucket}/materialized/vw_fato_custo/_delta_log/00000000000000000001.json"));
+        files.push(format!("{bucket}/materialized/vw_fato_custo/_delta_log/00000000000000000000.json"));
+        files.push(format!("{bucket}/materialized/vw_fato_custo/part-00000.parquet"));
+        files.push(format!("{bucket}/iceberg/orders/metadata/v1.metadata.json"));
+        files.push(format!("{bucket}/iceberg/orders/metadata/current.metadata.json"));
+        files.push(format!("{bucket}/iceberg/orders/metadata/v2.metadata.json"));
+        files.push(format!("{bucket}/iceberg/orders/data/00000.parquet"));
+        files.push(format!("{bucket}/lake/main/t/ducklake-a.parquet"));
+        files.push(format!("{bucket}/lake/main/t/ducklake-b.parquet"));
+        files.push(format!("{bucket}/raw/orders.csv"));
+        files.push(format!("{bucket}/raw/_SUCCESS"));
+        assert!(files.len() > 3_000);
+
+        let listing = compact_s3_listing(files.clone(), MAX_S3_CATALOG_ENTRIES);
+        assert!(!listing.truncated);
+        assert_eq!(listing.objects.iter().filter(|uri| uri.contains("/_delta_log/")).count(), 151);
+        assert!(listing.objects.contains(&format!("{bucket}/materialized/vw_fato_custo/_delta_log/00000000000000000000.json")));
+        assert!(listing.objects.contains(&format!("{bucket}/iceberg/orders/metadata/current.metadata.json")));
+        assert!(!listing.objects.iter().any(|uri| uri.contains("part-") || uri.contains("/data/") || uri.ends_with("_SUCCESS")));
+        assert_eq!(listing.objects.iter().filter(|uri| uri.contains("ducklake-")).count(), 1);
+        assert!(listing.objects.contains(&format!("{bucket}/raw/orders.csv")));
+        assert_eq!(listing.objects.len(), 154);
+
+        // When the entry bound is hit, table roots are kept ahead of loose files and the cut is reported.
+        let bounded = compact_s3_listing(files, 152);
+        assert!(bounded.truncated);
+        assert_eq!(bounded.objects.len(), 152);
+        assert!(bounded.objects.iter().all(|uri| uri.contains("/_delta_log/") || uri.contains("/metadata/")));
+        assert!(bounded.objects.contains(&format!("{bucket}/materialized/vw_fato_custo/_delta_log/00000000000000000000.json")));
+    }
+
+    #[test]
+    fn glob_catalog_listing_reports_when_the_object_scan_is_capped() {
+        let directory = TempDirectory(create_temp_directory().unwrap());
+        for name in ["a.csv", "b.csv", "c.csv", "notes.txt"] { std::fs::write(directory.0.join(name), "id\n1\n").unwrap(); }
+        let connection = Connection::open_in_memory().unwrap();
+        let pattern = format!("{}/*", directory.0.to_string_lossy().replace('\\', "/"));
+
+        let full = glob_catalog_listing(&connection, &pattern, 10, 10).unwrap();
+        assert!(!full.truncated);
+        assert_eq!(full.objects.len(), 3, "only CSV/Parquet files are catalog entries: {:?}", full.objects);
+
+        let capped = glob_catalog_listing(&connection, &pattern, 2, 10).unwrap();
+        assert!(capped.truncated);
+        assert!(capped.objects.len() <= 2);
+    }
+
+    #[test]
     fn queries_s3_csv_parquet_delta_and_iceberg_without_snapshot() {
         if std::env::var("OMNI_SQL_RUN_S3_INTEGRATION").as_deref() != Ok("1") { return; }
         let engine = DataEngine::open_in_memory().unwrap();
@@ -3249,7 +3374,7 @@ mod tests {
             catalog: None,
             access_key_id: Some(access_key_id.clone()), secret_access_key: Some(secret_access_key.clone()),
         }).unwrap();
-        assert!(objects.iter().any(|uri| uri == "s3://omni-test/csv/orders.csv"));
+        assert!(objects.objects.iter().any(|uri| uri == "s3://omni-test/csv/orders.csv"));
         let cases = [
             (S3Format::Csv, "s3://omni-test/csv/orders.csv"),
             (S3Format::Parquet, "s3://omni-test/parquet/orders.parquet"),

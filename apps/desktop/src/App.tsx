@@ -288,6 +288,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   const [sidebarCache, setSidebarCache] = useState<Record<string, { schemas: string[]; relations: RelationInfo[]; functions: FunctionDef[] }>>({});
   const [s3Catalog, setS3Catalog] = useState<Record<string, ({ schema: string; name: string } & S3TableSource)[]>>({});
   const [s3DuckLakeCandidates, setS3DuckLakeCandidates] = useState<Record<string, string[]>>({});
+  const [s3CatalogTruncated, setS3CatalogTruncated] = useState<Record<string, boolean>>({});
   const s3ColumnRequests = useRef(new Map<string, Promise<RelationColumn[]>>());
   const [s3Prefixes, setS3Prefixes] = useState<Record<string, string>>({});
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -520,10 +521,13 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId });
     const buckets = s3Buckets(s3);
     const candidates: string[] = [];
+    let truncated = false;
     const sources = (await Promise.all(buckets.map(async (bucketUri) => {
-      const objects = await listAnalysisS3({ uri: bucketUri, region: String(s3.options?.region ?? ""),
+      const listing = await listAnalysisS3({ uri: bucketUri, region: String(s3.options?.region ?? ""),
         endpoint: String(s3.options?.endpoint ?? "") || undefined, accessKeyId: credentials.accessKeyId || undefined,
         secretAccessKey: credentials.secretAccessKey, prefix: prefixOverride ?? s3Prefixes[connectionId] ?? "" });
+      const objects = listing.objects;
+      truncated ||= listing.truncated;
       const schema = bucketUri.slice(5);
       candidates.push(...duckLakeCandidatePrefixes(objects).filter((prefix) =>
         !(credentials.ducklakeMappings ?? []).some((mapping) => prefix === mapping.prefix || prefix.startsWith(`${mapping.prefix}/`))));
@@ -540,6 +544,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       });
     }))).flat();
     setS3DuckLakeCandidates((previous) => ({ ...previous, [connectionId]: candidates }));
+    setS3CatalogTruncated((previous) => ({ ...previous, [connectionId]: truncated }));
     setS3Catalog((previous) => ({ ...previous, [connectionId]: sources }));
     return { buckets, sources };
   }, [s3Prefixes]);
@@ -1868,6 +1873,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
           onLoadS3Columns={activeConnectionId ? (schema, table) => loadS3Columns(activeConnectionId, schema, table) : undefined}
           s3Prefix={activeConnectionId ? s3Prefixes[activeConnectionId] ?? "" : ""}
           duckLakeCandidates={activeConnectionId ? s3DuckLakeCandidates[activeConnectionId] ?? [] : []}
+          s3CatalogTruncated={activeConnectionId ? s3CatalogTruncated[activeConnectionId] ?? false : false}
           onS3PrefixChange={onS3PrefixChange}
           onOpenInNewTab={onOpenInNewTab}
           localDatasets={localDatasets}

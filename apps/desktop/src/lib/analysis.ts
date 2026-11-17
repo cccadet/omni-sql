@@ -319,8 +319,11 @@ export async function runAnalysisS3(input: {
   return { ...result, elapsedMs: 0 };
 }
 
-export async function listAnalysisS3(input: { uri: string; region: string; endpoint?: string; accessKeyId?: string; secretAccessKey?: string; prefix: string }): Promise<string[]> {
-  return invoke<string[]>("analysis_list_s3", { request: input });
+/** Objects relevant to table discovery; `truncated` means a listing bound was reached and some tables may be missing. */
+export interface S3Listing { objects: string[]; truncated: boolean }
+
+export async function listAnalysisS3(input: { uri: string; region: string; endpoint?: string; accessKeyId?: string; secretAccessKey?: string; prefix: string }): Promise<S3Listing> {
+  return invoke<S3Listing>("analysis_list_s3", { request: input });
 }
 
 export async function listAnalysisDuckLake(input: { uri: string; region: string; endpoint?: string; accessKeyId?: string; secretAccessKey?: string; prefix: string; catalog: DuckLakeCatalog }): Promise<{ schema: string; name: string; uri: string }[]> {

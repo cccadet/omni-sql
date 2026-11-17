@@ -1777,7 +1777,7 @@ async fn analysis_query_s3(
 }
 
 #[tauri::command]
-async fn analysis_list_s3(request: data_engine::S3ListRequest) -> Result<Vec<String>, String> {
+async fn analysis_list_s3(request: data_engine::S3ListRequest) -> Result<data_engine::S3Listing, String> {
     tauri::async_runtime::spawn_blocking(move || data_engine::list_s3_objects(request))
         .await.map_err(|error| format!("S3 listing task failed: {error}"))?
 }

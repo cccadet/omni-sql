@@ -724,4 +724,5 @@ export const simplifiedChinese = {
   mcpReadOnlyBlocked: "此连接仅允许 MCP 只读访问。请选择其他连接或拒绝。",
   mssqlEncrypt: "加密连接",
   mssqlTrustServerCertificate: "信任服务器证书（自签名）",
+  s3CatalogTruncated: "S3 列表已达到大小上限，部分表可能缺失。请设置 S3 前缀以缩小目录范围。",
 } satisfies Record<TranslationKey, string>;

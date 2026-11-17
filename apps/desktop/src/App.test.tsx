@@ -959,7 +959,7 @@ it("runs S3 DuckLake queries with only the referenced catalog table", async () =
       ? Promise.resolve({ accessKeyId: "", ducklakeMappings: [{ prefix: "s3://replicacao-totvs/lake", catalog }] })
       : defaultCall(method, params, signal));
   vi.mocked(invoke).mockImplementation(async (command) => {
-    if (command === "analysis_list_s3") return ["s3://replicacao-totvs/lake/ducklake-1.parquet"];
+    if (command === "analysis_list_s3") return { objects: ["s3://replicacao-totvs/lake/ducklake-1.parquet"], truncated: false };
     if (command === "analysis_list_ducklake") {
       return ["pat_proced", "other_a", "other_b"].map((name) => ({ schema: "srespuni", name, uri: "s3://replicacao-totvs/lake" }));
     }
@@ -973,6 +973,23 @@ it("runs S3 DuckLake queries with only the referenced catalog table", async () =
   await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("analysis_query_s3_catalog", { request: expect.objectContaining({
     sources: [expect.objectContaining({ schema: "replicacao-totvs", name: "srespuni__pat_proced", format: "ducklake", catalog })],
   }) }));
+});
+
+it("warns when the S3 listing was truncated so tables may be missing", async () => {
+  seedSession("SELECT 1", 1000, "s3-1");
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "s3-1", label: "Lake", dialect: "s3", endpoint: "s3://lakehouse", user: "", options: { region: "us-east-1" } }] })
+    : method === "connection.s3Credentials" ? Promise.resolve({ accessKeyId: "" })
+      : defaultCall(method, params, signal));
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "analysis_list_s3") return { objects: ["s3://lakehouse/materialized/vw_fato_custo/_delta_log/00000000000000000000.json"], truncated: true };
+    if (command === "analysis_list_datasets") return [];
+    return undefined;
+  });
+  renderApp();
+
+  expect(await screen.findByText(/S3 listing hit its size limit/)).toBeTruthy();
 });
 
 it.each([false, true])("resolves MongoDB CTE completion from SQL mode or /mongo (command=%s)", async (command) => {
