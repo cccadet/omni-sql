@@ -959,7 +959,7 @@ it("runs S3 DuckLake queries with only the referenced catalog table", async () =
       ? Promise.resolve({ accessKeyId: "", ducklakeMappings: [{ prefix: "s3://replicacao-totvs/lake", catalog }] })
       : defaultCall(method, params, signal));
   vi.mocked(invoke).mockImplementation(async (command) => {
-    if (command === "analysis_list_s3") return ["s3://replicacao-totvs/lake/ducklake-1.parquet"];
+    if (command === "analysis_list_s3") return { objects: ["s3://replicacao-totvs/lake/ducklake-1.parquet"], truncated: false };
     if (command === "analysis_list_ducklake") {
       return ["pat_proced", "other_a", "other_b"].map((name) => ({ schema: "srespuni", name, uri: "s3://replicacao-totvs/lake" }));
     }
