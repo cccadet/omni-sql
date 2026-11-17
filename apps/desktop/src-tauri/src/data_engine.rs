@@ -511,15 +511,19 @@ pub fn list_s3_objects(request: S3ListRequest) -> Result<S3Listing, String> {
     let root = request.uri.trim().trim_end_matches('/');
     let remote = open_s3_reader(root, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
     let prefix = request.prefix.trim_start_matches('/');
-    let pattern = format!("{root}/{prefix}**");
-    let mut statement = remote.prepare(&format!("SELECT file FROM glob(?) LIMIT {}", MAX_S3_LISTED_OBJECTS + 1))
+    glob_catalog_listing(&remote, &format!("{root}/{prefix}**"), MAX_S3_LISTED_OBJECTS, MAX_S3_CATALOG_ENTRIES)
+}
+
+/// Globs `pattern` with at most `max_objects` scanned and compacts the result for table discovery.
+fn glob_catalog_listing(remote: &Connection, pattern: &str, max_objects: usize, max_entries: usize) -> Result<S3Listing, String> {
+    let mut statement = remote.prepare(&format!("SELECT file FROM glob(?) LIMIT {}", max_objects + 1))
         .map_err(|error| format!("failed to prepare S3 listing: {error}"))?;
     let rows = statement.query_map([pattern], |row| row.get::<_, String>(0))
         .map_err(|error| format!("failed to list S3 objects: {error}"))?;
     let mut files = rows.collect::<Result<Vec<_>, _>>().map_err(|error| format!("failed to read S3 listing: {error}"))?;
-    let scan_truncated = files.len() > MAX_S3_LISTED_OBJECTS;
-    files.truncate(MAX_S3_LISTED_OBJECTS);
-    let mut listing = compact_s3_listing(files, MAX_S3_CATALOG_ENTRIES);
+    let scan_truncated = files.len() > max_objects;
+    files.truncate(max_objects);
+    let mut listing = compact_s3_listing(files, max_entries);
     listing.truncated |= scan_truncated;
     Ok(listing)
 }
@@ -3338,6 +3342,22 @@ mod tests {
         assert_eq!(bounded.objects.len(), 152);
         assert!(bounded.objects.iter().all(|uri| uri.contains("/_delta_log/") || uri.contains("/metadata/")));
         assert!(bounded.objects.contains(&format!("{bucket}/materialized/vw_fato_custo/_delta_log/00000000000000000000.json")));
+    }
+
+    #[test]
+    fn glob_catalog_listing_reports_when_the_object_scan_is_capped() {
+        let directory = TempDirectory(create_temp_directory().unwrap());
+        for name in ["a.csv", "b.csv", "c.csv", "notes.txt"] { std::fs::write(directory.0.join(name), "id\n1\n").unwrap(); }
+        let connection = Connection::open_in_memory().unwrap();
+        let pattern = format!("{}/*", directory.0.to_string_lossy().replace('\\', "/"));
+
+        let full = glob_catalog_listing(&connection, &pattern, 10, 10).unwrap();
+        assert!(!full.truncated);
+        assert_eq!(full.objects.len(), 3, "only CSV/Parquet files are catalog entries: {:?}", full.objects);
+
+        let capped = glob_catalog_listing(&connection, &pattern, 2, 10).unwrap();
+        assert!(capped.truncated);
+        assert!(capped.objects.len() <= 2);
     }
 
     #[test]

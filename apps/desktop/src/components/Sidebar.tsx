@@ -71,6 +71,8 @@ export interface SidebarProps {
   onLoadS3Columns?: (schema: string, table: string) => Promise<RelationColumn[]>;
   s3Prefix?: string;
   duckLakeCandidates?: readonly string[];
+  /** The last S3 listing hit a size bound, so some tables may be missing. */
+  s3CatalogTruncated?: boolean;
   onS3PrefixChange?: (prefix: string) => void;
   onOpenInNewTab?: (title: string, sql: string) => void;
   metadataRefreshFailed?: boolean;
@@ -199,6 +201,7 @@ export function Sidebar({
   onLoadS3Columns,
   s3Prefix = "",
   duckLakeCandidates = [],
+  s3CatalogTruncated = false,
   onS3PrefixChange,
   onOpenInNewTab,
   mongoSqlMode = false,
@@ -515,6 +518,10 @@ export function Sidebar({
             onKeyDown={(event) => { if (event.key === "Enter") onS3PrefixChange?.(s3PrefixDraft); }}
             placeholder={tr("s3PrefixPlaceholder")} aria-label={tr("s3PrefixLabel")} />
           <Button size="small" onClick={() => onS3PrefixChange?.(s3PrefixDraft)}>{tr("s3ListPrefix")}</Button>
+        </div>}
+        {connection?.dialect === "s3" && s3CatalogTruncated && <div className="omni-s3-limit" role="status">
+          <WarningRegular fontSize={14} />
+          <span>{tr("s3CatalogTruncated")}</span>
         </div>}
         {connection?.dialect === "s3" && duckLakeCandidates.length > 0 && <div className="omni-s3-limit omni-ducklake-summary">
           <WarningRegular fontSize={14} />

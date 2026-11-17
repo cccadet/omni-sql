@@ -975,6 +975,23 @@ it("runs S3 DuckLake queries with only the referenced catalog table", async () =
   }) }));
 });
 
+it("warns when the S3 listing was truncated so tables may be missing", async () => {
+  seedSession("SELECT 1", 1000, "s3-1");
+  const defaultCall = call.getMockImplementation()!;
+  call.mockImplementation((method, params, signal) => method === "connection.list"
+    ? Promise.resolve({ configs: [{ id: "s3-1", label: "Lake", dialect: "s3", endpoint: "s3://lakehouse", user: "", options: { region: "us-east-1" } }] })
+    : method === "connection.s3Credentials" ? Promise.resolve({ accessKeyId: "" })
+      : defaultCall(method, params, signal));
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "analysis_list_s3") return { objects: ["s3://lakehouse/materialized/vw_fato_custo/_delta_log/00000000000000000000.json"], truncated: true };
+    if (command === "analysis_list_datasets") return [];
+    return undefined;
+  });
+  renderApp();
+
+  expect(await screen.findByText(/S3 listing hit its size limit/)).toBeTruthy();
+});
+
 it.each([false, true])("resolves MongoDB CTE completion from SQL mode or /mongo (command=%s)", async (command) => {
   const sql = "WITH x AS (SELECT name FROM items) SELECT x.";
   seedSession(command ? `/mongo\n${sql}` : sql, 100, "mongo-1");

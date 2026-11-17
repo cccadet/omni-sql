@@ -288,6 +288,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   const [sidebarCache, setSidebarCache] = useState<Record<string, { schemas: string[]; relations: RelationInfo[]; functions: FunctionDef[] }>>({});
   const [s3Catalog, setS3Catalog] = useState<Record<string, ({ schema: string; name: string } & S3TableSource)[]>>({});
   const [s3DuckLakeCandidates, setS3DuckLakeCandidates] = useState<Record<string, string[]>>({});
+  const [s3CatalogTruncated, setS3CatalogTruncated] = useState<Record<string, boolean>>({});
   const s3ColumnRequests = useRef(new Map<string, Promise<RelationColumn[]>>());
   const [s3Prefixes, setS3Prefixes] = useState<Record<string, string>>({});
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -543,8 +544,9 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       });
     }))).flat();
     setS3DuckLakeCandidates((previous) => ({ ...previous, [connectionId]: candidates }));
+    setS3CatalogTruncated((previous) => ({ ...previous, [connectionId]: truncated }));
     setS3Catalog((previous) => ({ ...previous, [connectionId]: sources }));
-    return { buckets, sources, truncated };
+    return { buckets, sources };
   }, [s3Prefixes]);
 
   const sendCurrentSqlToAnalysis = useCallback(() => {
@@ -749,11 +751,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         for (const key of s3ColumnRequests.current.keys()) {
           if (key.startsWith(`${connectionId}:`)) s3ColumnRequests.current.delete(key);
         }
-        const { buckets, sources, truncated } = await discoverS3Catalog(s3, prefixOverride);
-        if (truncated) {
-          setBusyMsg(`${t("warning")}: ${t("s3CatalogTruncated")}`);
-          window.setTimeout(() => setBusyMsg(null), 10_000);
-        }
+        const { buckets, sources } = await discoverS3Catalog(s3, prefixOverride);
         const localDatasets = [...await listAnalysisDatasets("local-duckdb"), ...await listAnalysisDatasets("federated")];
         setSidebarCache((previous) => ({ ...previous, [connectionId]: {
           schemas: [...buckets.map((bucket) => bucket.slice(5)), ...(localDatasets.length ? ["local"] : [])],
@@ -1875,6 +1873,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
           onLoadS3Columns={activeConnectionId ? (schema, table) => loadS3Columns(activeConnectionId, schema, table) : undefined}
           s3Prefix={activeConnectionId ? s3Prefixes[activeConnectionId] ?? "" : ""}
           duckLakeCandidates={activeConnectionId ? s3DuckLakeCandidates[activeConnectionId] ?? [] : []}
+          s3CatalogTruncated={activeConnectionId ? s3CatalogTruncated[activeConnectionId] ?? false : false}
           onS3PrefixChange={onS3PrefixChange}
           onOpenInNewTab={onOpenInNewTab}
           localDatasets={localDatasets}
