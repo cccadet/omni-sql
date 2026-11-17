@@ -148,7 +148,7 @@ test("registers multiple S3 buckets without choosing a format", async () => {
   vi.mocked(backend.call).mockImplementation(async (method) => method === "connection.list"
     ? { configs: [] } : method === "connection.listBuckets"
       ? { buckets: ["bucket", "bucket-two"] } : { connectionId: "s3-1", ok: true });
-  vi.mocked(listAnalysisS3).mockResolvedValue([]);
+  vi.mocked(listAnalysisS3).mockResolvedValue({ objects: [], truncated: false });
   renderWithLanguage(<ConnectionDialog open onClose={close} onSaved={saved} />);
   pickType("s3");
   fireEvent.change(screen.getByPlaceholderText("My connection"), { target: { value: "Sales lake" } });

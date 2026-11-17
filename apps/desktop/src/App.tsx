@@ -520,10 +520,13 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     const credentials = await backend.call<S3DiscoveryCredentials>("connection.s3Credentials", { connectionId });
     const buckets = s3Buckets(s3);
     const candidates: string[] = [];
+    let truncated = false;
     const sources = (await Promise.all(buckets.map(async (bucketUri) => {
-      const objects = await listAnalysisS3({ uri: bucketUri, region: String(s3.options?.region ?? ""),
+      const listing = await listAnalysisS3({ uri: bucketUri, region: String(s3.options?.region ?? ""),
         endpoint: String(s3.options?.endpoint ?? "") || undefined, accessKeyId: credentials.accessKeyId || undefined,
         secretAccessKey: credentials.secretAccessKey, prefix: prefixOverride ?? s3Prefixes[connectionId] ?? "" });
+      const objects = listing.objects;
+      truncated ||= listing.truncated;
       const schema = bucketUri.slice(5);
       candidates.push(...duckLakeCandidatePrefixes(objects).filter((prefix) =>
         !(credentials.ducklakeMappings ?? []).some((mapping) => prefix === mapping.prefix || prefix.startsWith(`${mapping.prefix}/`))));
@@ -541,7 +544,7 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     }))).flat();
     setS3DuckLakeCandidates((previous) => ({ ...previous, [connectionId]: candidates }));
     setS3Catalog((previous) => ({ ...previous, [connectionId]: sources }));
-    return { buckets, sources };
+    return { buckets, sources, truncated };
   }, [s3Prefixes]);
 
   const sendCurrentSqlToAnalysis = useCallback(() => {
@@ -746,7 +749,11 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
         for (const key of s3ColumnRequests.current.keys()) {
           if (key.startsWith(`${connectionId}:`)) s3ColumnRequests.current.delete(key);
         }
-        const { buckets, sources } = await discoverS3Catalog(s3, prefixOverride);
+        const { buckets, sources, truncated } = await discoverS3Catalog(s3, prefixOverride);
+        if (truncated) {
+          setBusyMsg(`${t("warning")}: ${t("s3CatalogTruncated")}`);
+          window.setTimeout(() => setBusyMsg(null), 10_000);
+        }
         const localDatasets = [...await listAnalysisDatasets("local-duckdb"), ...await listAnalysisDatasets("federated")];
         setSidebarCache((previous) => ({ ...previous, [connectionId]: {
           schemas: [...buckets.map((bucket) => bucket.slice(5)), ...(localDatasets.length ? ["local"] : [])],

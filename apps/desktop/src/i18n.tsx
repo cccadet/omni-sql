@@ -729,6 +729,7 @@ const english = {
   mcpReadOnlyBlocked: "This connection allows read-only MCP access. Choose another connection or reject.",
   mssqlEncrypt: "Encrypt connection",
   mssqlTrustServerCertificate: "Trust server certificate (self-signed)",
+  s3CatalogTruncated: "The S3 listing hit its size limit, so some tables may be missing. Set an S3 prefix to narrow the catalog.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -1017,6 +1018,7 @@ const portugueseBrazil = [
   "Esta conexão só permite acesso MCP de leitura. Escolha outra conexão ou rejeite.",
   "Criptografar conexão",
   "Confiar no certificado do servidor (autoassinado)",
+  "A listagem do S3 atingiu o limite de tamanho e algumas tabelas podem estar faltando. Defina um prefixo S3 para restringir o catálogo.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(
