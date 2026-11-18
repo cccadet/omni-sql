@@ -17,14 +17,26 @@ dependencies {
     // Fase 3: Calcite para parsing real de SQL (extração de colunas de CTE
     // via SqlParser, sem depender de schema/catálogo — só sintático). Ainda
     // sem Ktor: o HTTP server continua com.sun.net.httpserver do JDK.
-    implementation("org.apache.calcite:calcite-core:1.37.0")
+    implementation("org.apache.calcite:calcite-core:1.42.0")
+    // Transitivas do Calcite/Avatica com advisories corrigidos só em versões
+    // mais novas que as que o Calcite declara (Jackson, Guava, HttpComponents,
+    // protobuf, commons-lang3). Remover quando o Calcite alcançar.
+    implementation(platform("com.fasterxml.jackson:jackson-bom:2.18.12"))
+    constraints {
+        implementation("com.google.guava:guava:33.8.0-jre")
+        implementation("org.apache.httpcomponents.core5:httpcore5:5.4.4")
+        implementation("org.apache.httpcomponents.core5:httpcore5-h2:5.4.4")
+        implementation("org.apache.httpcomponents.client5:httpclient5:5.6.5")
+        implementation("com.google.protobuf:protobuf-java:3.25.9")
+        implementation("org.apache.commons:commons-lang3:3.22.0")
+    }
     // slf4j-nop: Calcite loga via SLF4J; sem um binding, cada boot imprime o
     // aviso "SLF4J: No SLF4J providers were found" no stderr do sidecar.
     runtimeOnly("org.slf4j:slf4j-nop:2.0.13")
     // JSON leve para o corpo de /scope/resolve — evita reescrever
     // encode/escape de string à mão (nomes de coluna citados podem conter
     // aspas, unicode etc.).
-    implementation("org.json:json:20240303")
+    implementation("org.json:json:20260814")
     testImplementation(kotlin("test"))
     // Só de teste: driver JDBC real e embutido pra validar carregamento
     // dinâmico de jar (JdbcConnectionManagerTest) sem precisar de um banco

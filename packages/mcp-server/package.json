@@ -17,9 +17,9 @@
     "coverage": "node --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-coverage-include=\"src/**/*.ts\" --test-coverage-exclude=\"**/*.test.ts\" --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@omni-sql/ts-types": "workspace:*",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "esbuild": "^0.25.12"

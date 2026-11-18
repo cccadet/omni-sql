@@ -907,6 +907,9 @@ it("MCP execution preselects the suggested connection, warns about production an
     expect(within(dialog).getByText("Connection suggested by the MCP client.")).toBeTruthy();
     expect(within(dialog).getByText("This is not the active connection.")).toBeTruthy();
     expect(within(dialog).getByText(/Production environment/)).toBeTruthy();
+    // Focus the picker like a user would: changing it while focus is outside the
+    // modal lets Tabster deactivate the modalizer and aria-hide the dialog.
+    act(() => picker.focus());
     fireEvent.change(picker, { target: { value: "conn-1" } });
     await waitFor(() => expect(screen.queryByText(/Production environment/)).toBeNull());
     const run = await within(await screen.findByRole("dialog", { name: "Approve SQL execution" })).findByRole("button", { name: "Run" });
