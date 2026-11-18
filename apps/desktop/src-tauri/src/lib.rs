@@ -2222,6 +2222,13 @@ pub fn run() {
                 clear_inherited_child_overrides(&mut cmd);
                 #[cfg(windows)]
                 cmd.creation_flags(CREATE_NO_WINDOW);
+                // Java4Shell (CVE-2026-114938) mitigation: the reported overflow is in
+                // HotSpot's AVX-512 Base64 decode intrinsic, so fall back to the pure
+                // Java decoder. IgnoreUnrecognizedVMOptions keeps non-HotSpot JVMs
+                // (e.g. OpenJ9 from PATH) starting. Remove once the bundled JRE ships
+                // the fix.
+                cmd.arg("-XX:+IgnoreUnrecognizedVMOptions")
+                    .arg("-XX:-UseBASE64Intrinsics");
                 cmd.arg("-jar").arg(&sidecar_jar);
                 cmd.current_dir(&sidecar_dir)
                     .env("OMNI_SIDE_CAR_PORT", SIDECAR_PORT.to_string())
