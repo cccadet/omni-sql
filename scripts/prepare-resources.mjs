@@ -133,9 +133,15 @@ export function extract(archive, destination, platform = process.platform, run =
       // Arguments after a -Command string are not reliably exposed as $args by
       // Windows PowerShell, so embed both paths as escaped PowerShell literals.
       const quote = (value) => `'${value.replaceAll("'", "''")}'`;
-      const command = `Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(destination)} -Force`;
+      // Stop turns module errors into a nonzero exit so the tar fallback runs;
+      // otherwise powershell.exe exits 0 with nothing extracted.
+      const command = `$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(destination)} -Force`;
+      // A PSModulePath inherited from PowerShell 7 makes Windows PowerShell load
+      // the PowerShell 7 Archive module, which fails on .NET Framework. Without
+      // it, Windows PowerShell uses its own default module path.
+      const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "psmodulepath"));
       try {
-        run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], { stdio: "inherit" });
+        run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], { stdio: "inherit", env });
       } catch (powerShellError) {
         const archiveRoot = path.parse(path.resolve(archive)).root;
         const destinationRoot = path.parse(path.resolve(destination)).root;
