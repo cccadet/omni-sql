@@ -16,6 +16,7 @@ import {
   updateRowViaConnection,
 } from "./introspection.ts";
 import type { ConnectionConfig } from "@omni-sql/ts-types";
+import { AdapterError } from "@omni-sql/adapters-core";
 import type { Connection, Pool } from "oracledb";
 
 // Sem instância Oracle local: smoke só valida construção + recusa de dial.
@@ -272,6 +273,7 @@ test("streamQuery lê o resultado Oracle completo em lotes e fecha o cursor", as
   let executeOptions: Record<string, unknown> | undefined;
   const pendingRows = [[[1], [2]], [[3]], []] as unknown[][][];
   const conn = {
+    getStatementInfo: async () => ({ metaData: [{ name: "ID", dbType: oracledb.DB_TYPE_NUMBER }] }),
     execute: async (sql: string, _binds: unknown, options: Record<string, unknown>) => {
       executedSql = sql;
       executeOptions = options;
@@ -304,6 +306,56 @@ test("streamQuery lê o resultado Oracle completo em lotes e fecha o cursor", as
   assert.deepEqual(batches.map((batch) => batch.rows), [[[1], [2]], [[3]]]);
   assert.deepEqual(batches[0]?.columns, [{ name: "ID", dataType: "number", nullable: true }]);
   assert.equal(closed, true);
+});
+
+test("streamQuery formata DATE/TIMESTAMP no Oracle sem perder precisão nem o tipo de origem", async () => {
+  let executedSql = "";
+  const conn = {
+    getStatementInfo: async () => ({
+      metaData: [
+        { name: "ID", dbType: oracledb.DB_TYPE_NUMBER, dbTypeName: "NUMBER" },
+        { name: "CRIADO \"EM\"", dbType: oracledb.DB_TYPE_TIMESTAMP, dbTypeName: "TIMESTAMP" },
+        { name: "DIA", dbType: oracledb.DB_TYPE_DATE, dbTypeName: "DATE" },
+      ],
+    }),
+    execute: async (sql: string) => {
+      executedSql = sql;
+      return {
+        metaData: [{ name: "ID", dbTypeName: "NUMBER" }, { name: "CRIADO \"EM\"", dbTypeName: "VARCHAR2" }, { name: "DIA", dbTypeName: "VARCHAR2" }],
+        resultSet: {
+          getRows: async () => [],
+          close: async () => undefined,
+        },
+      };
+    },
+  } as unknown as Connection;
+
+  const batches = [];
+  for await (const batch of streamQueryViaConnection(conn, "SELECT * FROM docs", {
+    batchSize: 10,
+    signal: new AbortController().signal,
+  })) batches.push(batch);
+
+  assert.equal(executedSql,
+    `SELECT q."ID", TO_CHAR(q."CRIADO ""EM""", 'YYYY-MM-DD"T"HH24:MI:SS.FF') AS "CRIADO ""EM""", ` +
+    `TO_CHAR(q."DIA", 'YYYY-MM-DD"T"HH24:MI:SS') AS "DIA" FROM (SELECT * FROM docs) q`);
+  assert.deepEqual(batches[0]?.columns.map((column) => column.dataType), ["number", "timestamp", "date"]);
+});
+
+test("streamQuery explica colunas duplicadas quando precisa formatar datas", async () => {
+  const conn = {
+    getStatementInfo: async () => ({
+      metaData: [{ name: "ID", dbType: oracledb.DB_TYPE_NUMBER }, { name: "ID_1", dbType: oracledb.DB_TYPE_DATE }],
+    }),
+    execute: async () => { throw new Error("ORA-00904: \"Q\".\"ID_1\": invalid identifier"); },
+  } as unknown as Connection;
+
+  await assert.rejects(async () => {
+    for await (const _ of streamQueryViaConnection(conn, "SELECT a.id, b.id FROM a JOIN b ON 1 = 1", {
+      batchSize: 10,
+      signal: new AbortController().signal,
+    })) { /* consume */ }
+  }, (error: unknown) => error instanceof AdapterError && error.causeTag === "unsupported" && /alias the columns/.test(error.message));
 });
 
 test("runQuery executa a DDL gerada pela tela de criação de tabela", async () => {

@@ -10,7 +10,7 @@ import type {
   QueryResultColumn,
   Relation,
 } from "@omni-sql/ts-types";
-import type { QueryBatch, QueryStreamOptions, RowInsertSpec, RowUpdateSpec } from "@omni-sql/adapters-core";
+import { AdapterError, type QueryBatch, type QueryStreamOptions, type RowInsertSpec, type RowUpdateSpec } from "@omni-sql/adapters-core";
 import { oracleDescriptor, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 
 // ─────────────────────────── Types
@@ -605,7 +605,13 @@ export async function* streamQueryViaConnection(
   }
   const normalized = stripTrailingStatementDelimiter(sql);
   const needsDual = /^\s*SELECT\b/i.test(normalized) && !/\bFROM\b/i.test(normalized);
-  const result = await conn.execute(needsDual ? `${normalized} FROM DUAL` : normalized, [], {
+  const sourceSql = needsDual ? `${normalized} FROM DUAL` : normalized;
+  // The thin driver turns DATE/TIMESTAMP into JS Dates (milliseconds, client time zone), so Oracle
+  // formats temporal columns itself; the statement is described, not executed, to find them.
+  const described = (await conn.getStatementInfo(sourceSql)).metaData ?? [];
+  const temporal = described.map((column) => TEMPORAL_FORMATS.get(column.dbType));
+  const wrapped = temporal.some(Boolean);
+  const result = await conn.execute(wrapped ? formatTemporalColumns(sourceSql, described.map((column) => column.name), temporal) : sourceSql, [], {
     resultSet: true,
     outFormat: oracledb.OUT_FORMAT_ARRAY,
     fetchArraySize: options.batchSize,
@@ -616,12 +622,19 @@ export async function* streamQueryViaConnection(
       if (metadata.dbType === oracledb.DB_TYPE_BLOB) return { type: oracledb.DB_TYPE_LONG_RAW };
       return undefined;
     },
+  }).catch((error: unknown) => {
+    // The driver renames repeated columns (ID, ID_1), which the outer projection cannot reference.
+    if (wrapped && /^ORA-00904\b/.test(error instanceof Error ? error.message : "")) {
+      throw new AdapterError("unsupported", "Oracle analytical source has duplicate column names; alias the columns in the source SQL", { cause: error });
+    }
+    throw error;
   });
   if (!result.resultSet) throw new Error("analytical source query did not return rows");
 
-  const columns: QueryResultColumn[] = (result.metaData ?? []).map((metadata) => ({
+  const columns: QueryResultColumn[] = (result.metaData ?? []).map((metadata, index) => ({
     name: metadata.name,
-    dataType: (metadata.dbTypeName ?? "unknown").replace(/^DB_TYPE_/, "").toLowerCase(),
+    // Formatted temporal columns keep their source type; their values are lossless ISO strings.
+    dataType: ((temporal[index] ? described[index]?.dbTypeName : metadata.dbTypeName) ?? "unknown").replace(/^DB_TYPE_/, "").toLowerCase(),
     nullable: true,
   }));
   const resultSet = result.resultSet;
@@ -633,9 +646,6 @@ export async function* streamQueryViaConnection(
         if (!emittedRows) yield { columns, rows: [] };
         break;
       }
-      if (rows.some((row) => row.some((value, index) => value instanceof Date && /timestamp/i.test(columns[index]?.dataType ?? "")))) {
-        throw new Error("Oracle analytical streaming cannot preserve TIMESTAMP microseconds; cast it to VARCHAR with TO_CHAR in the source SQL");
-      }
       emittedRows = true;
       yield { columns, rows };
     }
@@ -643,6 +653,23 @@ export async function* streamQueryViaConnection(
   } finally {
     await resultSet.close().catch(() => undefined);
   }
+}
+
+// FF keeps the column's own fractional precision; LOCAL TIME ZONE values render in the session zone.
+const TEMPORAL_FORMATS: ReadonlyMap<unknown, string> = new Map<unknown, string>([
+  [oracledb.DB_TYPE_DATE, 'YYYY-MM-DD"T"HH24:MI:SS'],
+  [oracledb.DB_TYPE_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI:SS.FF'],
+  [oracledb.DB_TYPE_TIMESTAMP_LTZ, 'YYYY-MM-DD"T"HH24:MI:SS.FF'],
+  [oracledb.DB_TYPE_TIMESTAMP_TZ, 'YYYY-MM-DD"T"HH24:MI:SS.FFTZH:TZM'],
+]);
+
+function formatTemporalColumns(sql: string, names: readonly string[], formats: readonly (string | undefined)[]): string {
+  const projection = names.map((name, index) => {
+    const column = `q.${quoteIdentifier(oracleDescriptor, name)}`;
+    const format = formats[index];
+    return format ? `TO_CHAR(${column}, '${format}') AS ${quoteIdentifier(oracleDescriptor, name)}` : column;
+  });
+  return `SELECT ${projection.join(", ")} FROM (${sql}) q`;
 }
 
 /**

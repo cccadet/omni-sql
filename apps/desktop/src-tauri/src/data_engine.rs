@@ -1380,6 +1380,8 @@ impl DataEngine {
                 return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
             }
             let sql = validate_s3_sql(&request.sql)?;
+            // Declared before the reader so DuckDB closes its spill files before the directory is removed.
+            let spill = self.remote_spill_directory()?;
             let remote = open_s3_reader(&request.uri, request.format, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
             let _remote_guard = self.arm_remote_interrupt(&remote)?;
             let relation = if matches!(request.format, S3Format::Ducklake) {
@@ -1390,8 +1392,7 @@ impl DataEngine {
             };
             remote.execute_batch(&format!("CREATE VIEW s3_source AS SELECT * FROM {relation}"))
                 .map_err(|error| format!("failed to open S3 source: {error}"))?;
-            remote.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
-                .map_err(|error| format!("failed to restrict S3 reader: {error}"))?;
+            restrict_remote_reader(&remote, &spill.0)?;
             // The editor can refer to the registered view, but cannot invoke file readers.
             Self::query_preview(&remote, sql, request.limit)
         })
@@ -1457,6 +1458,7 @@ impl DataEngine {
             }
             let sql = validate_s3_sql(&request.sql)?;
             let first = &request.sources[0];
+            let spill = self.remote_spill_directory()?;
             let remote = open_s3_reader(&first.uri, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
             let _remote_guard = self.arm_remote_interrupt(&remote)?;
             if request.sources.iter().any(|source| matches!(source.format, S3Format::Delta)) {
@@ -1551,8 +1553,7 @@ impl DataEngine {
                 let _ = std::fs::remove_file(&temporary_path);
                 stage_result.map_err(|error| format!("failed to stage local dataset for S3 join: {error}"))?;
             }
-            remote.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
-                .map_err(|error| format!("failed to restrict S3 reader: {error}"))?;
+            restrict_remote_reader(&remote, &spill.0)?;
             query(&remote, sql)
     }
 
@@ -1972,6 +1973,13 @@ impl DataEngine {
             let _ = cancel_backend_source(&source);
         }
         Ok(true)
+    }
+
+    /// A private spill directory per remote reader keeps concurrent readers' DuckDB temp files apart.
+    fn remote_spill_directory(&self) -> Result<TempDirectory, String> {
+        let path = self._temp_directory.0.join(random_id()?);
+        private_data_directory(&path)?;
+        Ok(TempDirectory(path))
     }
 
     fn arm_remote_interrupt(&self, connection: &Connection) -> Result<RemoteInterruptGuard<'_>, String> {
@@ -2514,6 +2522,30 @@ fn initialize_connection(connection: &Connection, temp_directory: &Path) -> Resu
              SET lock_configuration = true;"
         ))
         .map_err(|error| format!("failed to secure the DuckDB data engine: {error}"))
+}
+
+/// Object-store schemes remote readers may reach; local paths stay blocked (validated SQL also
+/// rejects URI literals, so user SQL only reaches the registered sources).
+const REMOTE_READER_PREFIXES: &[&str] = &[
+    "s3://", "s3a://", "s3n://", "r2://", "gcs://", "gs://", "http://", "https://", "az://", "azure://", "abfss://",
+];
+
+/// Locks a remote reader down to object stores plus its own spill directory, so large sorts,
+/// joins and window functions can spill past `memory_limit` instead of failing.
+fn restrict_remote_reader(remote: &Connection, spill_directory: &Path) -> Result<(), String> {
+    let spill_directory = spill_directory.to_str()
+        .ok_or_else(|| "analytical temporary path is not valid UTF-8".to_string())?
+        .replace('\'', "''");
+    let prefixes = REMOTE_READER_PREFIXES.iter().map(|prefix| format!("'{prefix}'")).collect::<Vec<_>>().join(", ");
+    remote.execute_batch(&format!(
+        "SET temp_directory = '{spill_directory}';\
+         SET max_temp_directory_size = '4GB';\
+         SET allowed_directories = [{prefixes}];\
+         SET enable_external_access = false;\
+         SET autoload_known_extensions = false;\
+         SET autoinstall_known_extensions = false;\
+         SET lock_configuration = true;"
+    )).map_err(|error| format!("failed to restrict remote reader: {error}"))
 }
 
 fn create_temp_directory() -> Result<PathBuf, String> {
@@ -4254,6 +4286,28 @@ mod tests {
         assert_eq!(validate_csv_delimiter(Some(" "), true).unwrap(), b' ');
         assert_eq!(validate_csv_delimiter(Some("'"), true).unwrap(), b'\'');
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn restricted_remote_reader_spills_windows_but_blocks_local_files() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let spill = engine.remote_spill_directory().unwrap();
+        let remote = Connection::open_in_memory().unwrap();
+        remote.execute_batch("SET memory_limit = '128MB'; SET threads = 2;").unwrap();
+        restrict_remote_reader(&remote, &spill.0).unwrap();
+        // Same shape as the reported DuckLake query: per-key MIN/MAX windows plus a global ORDER BY.
+        let rows: i64 = remote.query_row(
+            "SELECT count(*) FROM (SELECT k, v, MIN(v) OVER (PARTITION BY k) AS mn, MAX(v) OVER (PARTITION BY k) AS mx \
+             FROM (SELECT (i % 500000)::VARCHAR || repeat('x', 40) AS k, i AS v FROM range(3000000) t(i)) ORDER BY k, v) WHERE mn <> mx",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(rows, 3_000_000);
+        let local = engine._temp_directory.0.join("secret.csv");
+        std::fs::write(&local, "a\n1\n").unwrap();
+        let error = remote.query_row(&format!("SELECT count(*) FROM read_csv('{}')", local.to_string_lossy().replace('\'', "''")), [], |row| row.get::<_, i64>(0))
+            .unwrap_err().to_string();
+        assert!(error.contains("Permission Error"), "{error}");
+        assert!(remote.execute_batch("SET enable_external_access = true").is_err());
     }
 
     #[test]
