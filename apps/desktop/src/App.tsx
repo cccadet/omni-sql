@@ -1973,7 +1973,11 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
               <select className="omni-cross-source-select" aria-label={t("sourceDatabase")} value={crossSourceConnectionId} onChange={(event) => { setCrossSourceConnectionId(event.target.value); setCrossSourceSql(""); setCrossSourceError(null); }}>
                 <option value="">{t("ducklakeSelectConnection")}</option>
                 {connections.filter((connection) => connection.dialect !== "s3" && connection.dialect !== "duckdb" && connection.dialect !== "mongodb")
-                  .map((connection) => <option key={connection.id} value={connection.id}>{connection.label} ({DIALECT_LABELS[connection.dialect] ?? connection.dialect})</option>)}
+                  .map((connection) => {
+                    const environment = findConnectionEnvironment(connection, environments);
+                    const environmentTag = environment ? environmentName(environment, t).trim() || environment.id : "";
+                    return <option key={connection.id} value={connection.id}>{environmentTag ? `[${environmentTag}] ` : ""}{connection.label} ({DIALECT_LABELS[connection.dialect] ?? connection.dialect})</option>;
+                  })}
               </select>
               {crossSourceConnectionId && <>
                 <Input aria-label={t("searchSourceTable")} placeholder={t("searchSourceTable")} value={crossSourceSearch} onChange={(_, data) => setCrossSourceSearch(data.value)} />
