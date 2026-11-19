@@ -725,4 +725,7 @@ export const simplifiedChinese = {
   mssqlEncrypt: "加密连接",
   mssqlTrustServerCertificate: "信任服务器证书（自签名）",
   s3CatalogTruncated: "S3 列表已达到大小上限，部分表可能缺失。请设置 S3 前缀以缩小目录范围。",
+  analysisMemoryLimit: "DuckDB 内存上限",
+  analysisMemoryLimitTitle: "DuckDB 内存",
+  analysisMemoryLimitHint: "适用于 S3/DuckLake、MongoDB SQL 和本地分析查询。更大的排序、连接和窗口函数会溢出到磁盘临时文件夹（最多 4 GB）。请为系统其他部分保留内存。",
 } satisfies Record<TranslationKey, string>;

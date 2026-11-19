@@ -28,6 +28,8 @@ import { ResultsGrid } from "./components/ResultsGrid";
 import { StatusBar, type ConnectionHealth, type McpVisualState, type UpdateCheckStatus, type UpdateInfo } from "./components/StatusBar";
 import { McpEditDialog, type McpEditProposal } from "./components/McpEditDialog";
 import { BackgroundProcessesDialog } from "./components/BackgroundProcessesDialog";
+import { MemoryLimitDialog } from "./components/MemoryLimitDialog";
+import { applyAnalysisMemoryLimit, DEFAULT_ANALYSIS_MEMORY_LIMIT_MB, loadAnalysisMemoryLimit, saveAnalysisMemoryLimit } from "./lib/analysis-memory";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { FormatSettings } from "./components/FormatSettings";
 import { HistoryPanel, type HistoryEntry } from "./components/HistoryPanel";
@@ -268,6 +270,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   const [analysisImportStatus, setAnalysisImportStatus] = useState<AnalysisOperationStatus | null>(null);
   const [analysisImportOpen, setAnalysisImportOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
+  const [memoryLimitMb, setMemoryLimitMb] = useState(loadAnalysisMemoryLimit);
+  const [memoryLimitOpen, setMemoryLimitOpen] = useState(false);
   const [analysisImportError, setAnalysisImportError] = useState<string | null>(null);
   const [crossSourceOpen, setCrossSourceOpen] = useState(false);
   const [crossSourceConnectionId, setCrossSourceConnectionId] = useState("");
@@ -647,6 +651,18 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     () => connections.find((c) => c.id === activeConnectionId) ?? null,
     [connections, activeConnectionId],
   );
+  // The engine starts at its default; a saved limit is re-applied once per launch.
+  useEffect(() => {
+    const saved = loadAnalysisMemoryLimit();
+    if (saved === DEFAULT_ANALYSIS_MEMORY_LIMIT_MB) return;
+    void applyAnalysisMemoryLimit(saved).then(setMemoryLimitMb, () => setMemoryLimitMb(DEFAULT_ANALYSIS_MEMORY_LIMIT_MB));
+  }, []);
+  const saveMemoryLimit = useCallback(async (value: number) => {
+    const applied = await applyAnalysisMemoryLimit(value);
+    setMemoryLimitMb(applied);
+    saveAnalysisMemoryLimit(applied);
+  }, []);
+  const usesAnalysisEngine = activeConnection?.dialect === "s3" || activeConnection?.dialect === "duckdb" || activeConnection?.dialect === "mongodb";
   useEffect(() => {
     if (activeConnection?.dialect === "mongodb" && !activeTab.mongoSqlMode && activeTab.sql === "SELECT 1") {
       updateTabSql(activeTab.id, initialMongoQuery(activeConnection.endpoint, sidebarCache[activeConnection.id]?.relations));
@@ -1951,8 +1967,9 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
       </section>
 
       <div style={{ gridColumn: "1 / -1", gridRow: 6 }}>
-        <StatusBar compactConnection connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() && !portableInstall ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} mcpOpen={mcpDialogOpen} onMcpOpenChange={setMcpDialogOpen} />
+        <StatusBar compactConnection connection={activeConnection} database={activeDatabase} result={result} cursorPosition={cursorPosition} busyMsg={busyMsg} health={connectionHealth} update={updateInfo} updateStatus={updateCheckStatus} onInstallUpdate={supportsInAppUpdate() && !portableInstall ? installUpdate : undefined} mcpState={mcpState} mcpStatus={mcpStatus} mcpError={mcpError} mcpOpen={mcpDialogOpen} onMcpOpenChange={setMcpDialogOpen} memoryLimitMb={usesAnalysisEngine ? memoryLimitMb : null} onMemoryLimitClick={() => setMemoryLimitOpen(true)} />
       </div>
+      {memoryLimitOpen && <MemoryLimitDialog memoryLimitMb={memoryLimitMb} onClose={() => setMemoryLimitOpen(false)} onSave={saveMemoryLimit} />}
 
       {dialogOpen && <ConnectionDialog
         open={dialogOpen}
