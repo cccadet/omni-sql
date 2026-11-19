@@ -528,6 +528,9 @@ select option {
 .omni-status-detail { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding-left: 10px; border-left: 1px solid var(--colorNeutralStroke2); white-space: nowrap; }
 .omni-status-detail strong { color: var(--colorNeutralForeground1); font-weight: 600; }
 .omni-status-update.omni-status-update { padding: 1px 10px; border: 0; border-radius: 10px; background: var(--colorBrandBackground); color: var(--colorNeutralForegroundOnBrand); font: inherit; font-weight: 600; }
+.omni-status-memory { display: flex; align-items: center; gap: 4px; padding: 1px 6px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.omni-status-memory:hover:not(:disabled) { background: var(--colorNeutralBackground1Hover); }
+.omni-status-memory:focus-visible { outline: 1px solid var(--colorStrokeFocus2); }
 .omni-status-mcp { border: 0; border-left: 1px solid var(--colorNeutralStroke2); border-radius: 0; padding: 2px 5px 2px 10px; }
 
 /* Logo */

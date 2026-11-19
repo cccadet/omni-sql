@@ -731,6 +731,9 @@ const english = {
   mssqlEncrypt: "Encrypt connection",
   mssqlTrustServerCertificate: "Trust server certificate (self-signed)",
   s3CatalogTruncated: "The S3 listing hit its size limit, so some tables may be missing. Set an S3 prefix to narrow the catalog.",
+  analysisMemoryLimit: "DuckDB memory limit",
+  analysisMemoryLimitTitle: "DuckDB memory",
+  analysisMemoryLimitHint: "Applies to S3/DuckLake, MongoDB SQL and local analysis queries. Larger sorts, joins and windows spill to a temporary folder on disk (up to 4 GB). Leave headroom for the rest of your system.",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -1020,6 +1023,9 @@ const portugueseBrazil = [
   "Criptografar conexão",
   "Confiar no certificado do servidor (autoassinado)",
   "A listagem do S3 atingiu o limite de tamanho e algumas tabelas podem estar faltando. Defina um prefixo S3 para restringir o catálogo.",
+  "Limite de memória do DuckDB",
+  "Memória do DuckDB",
+  "Vale para consultas S3/DuckLake, MongoDB SQL e análise local. Ordenações, joins e janelas maiores usam uma pasta temporária em disco (até 4 GB). Deixe memória livre para o resto do sistema.",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

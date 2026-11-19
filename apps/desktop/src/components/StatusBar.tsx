@@ -7,7 +7,9 @@ import {
   DocumentRegular,
   CursorRegular,
   PlugConnectedRegular as McpIcon,
+  DeveloperBoardRegular as MemoryIcon,
 } from "@fluentui/react-icons";
+import { formatMemoryLimit } from "../lib/analysis-memory";
 import type { QueryResult } from "@omni-sql/ts-types";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ConnectionEntry } from "../lib/backend";
@@ -58,9 +60,12 @@ export interface StatusBarProps {
   /** Controls the MCP dialog from outside (e.g. Settings); uncontrolled when omitted. */
   mcpOpen?: boolean;
   onMcpOpenChange?: (open: boolean) => void;
+  /** DuckDB memory limit shown while the active connection runs on the analytical engine. */
+  memoryLimitMb?: number | null;
+  onMemoryLimitClick?: () => void;
 }
 
-export function StatusBar({ compactConnection = false, connection, result, cursorPosition, busyMsg, database, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError, mcpOpen: controlledMcpOpen, onMcpOpenChange }: StatusBarProps) {
+export function StatusBar({ compactConnection = false, connection, result, cursorPosition, busyMsg, database, health = "unknown", update, updateStatus, onInstallUpdate, mcpState = "inactive", mcpStatus, mcpError, mcpOpen: controlledMcpOpen, onMcpOpenChange, memoryLimitMb, onMemoryLimitClick }: StatusBarProps) {
   const { t } = useLanguage();
   const [uncontrolledMcpOpen, setUncontrolledMcpOpen] = useState(false);
   const mcpOpen = controlledMcpOpen ?? uncontrolledMcpOpen;
@@ -166,6 +171,19 @@ export function StatusBar({ compactConnection = false, connection, result, curso
           style={{ cursor: onInstallUpdate || update.releaseUrl ? "pointer" : "default" }}
         >
           {t("updateAvailable").replace("{version}", displayUpdateVersion(update.version))}
+        </button>
+      )}
+      {memoryLimitMb != null && (
+        <button
+          type="button"
+          className="omni-status-memory"
+          aria-label={`${t("analysisMemoryLimit")}: ${formatMemoryLimit(memoryLimitMb)}`}
+          title={t("analysisMemoryLimit")}
+          onClick={onMemoryLimitClick}
+          disabled={!onMemoryLimitClick}
+        >
+          <MemoryIcon fontSize={12} />
+          DuckDB {formatMemoryLimit(memoryLimitMb)}
         </button>
       )}
       {result && (

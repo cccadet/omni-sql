@@ -7,7 +7,7 @@ use std::{
     io::{BufRead, BufReader, Read, Seek},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -41,6 +41,10 @@ struct MongoSqlSource {
     native_plan: Option<String>,
 }
 
+/// DuckDB memory budget per connection; larger sorts, joins and windows spill to disk.
+pub const DEFAULT_MEMORY_LIMIT_MB: u32 = 512;
+pub const MIN_MEMORY_LIMIT_MB: u32 = 256;
+pub const MAX_MEMORY_LIMIT_MB: u32 = 64 * 1024;
 const DEFAULT_MEMORY_LIMIT: &str = "512MB";
 const DEFAULT_THREADS: u8 = 2;
 const MAX_SNAPSHOT_ROWS: usize = 10_000;
@@ -670,8 +674,11 @@ impl Drop for TempDirectory {
 /// owner until the dedicated worker/queue is introduced later in M1.
 pub struct DataEngine {
     inner: Mutex<EngineInner>,
-    interrupt: Arc<InterruptHandle>,
+    /// Replaced together with the connection when the memory limit changes.
+    interrupt: Mutex<Arc<InterruptHandle>>,
     remote_interrupt: Mutex<Option<Arc<InterruptHandle>>>,
+    path: Option<PathBuf>,
+    memory_limit_mb: AtomicU32,
     current_operation: Mutex<Option<String>>,
     operation_status: Mutex<Option<OperationStatus>>,
     source_cancellation: Mutex<Option<SourceCancellation>>,
@@ -755,9 +762,7 @@ impl DataEngine {
 
     fn open_at(path: Option<&Path>) -> Result<Self, String> {
         let temp_directory = TempDirectory(create_temp_directory()?);
-        let connection = match path { Some(path) => Connection::open(path), None => Connection::open_in_memory() }
-            .map_err(|error| format!("failed to open the DuckDB data engine: {error}"))?;
-        initialize_connection(&connection, &temp_directory.0)?;
+        let connection = open_engine_connection(path, &temp_directory.0, DEFAULT_MEMORY_LIMIT_MB)?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS omni_local_dataset_registry (id VARCHAR PRIMARY KEY, metadata VARCHAR NOT NULL)")
             .map_err(|error| format!("failed to initialize DuckDB dataset registry: {error}"))?;
         let datasets = {
@@ -776,8 +781,10 @@ impl DataEngine {
                 datasets,
                 result_handles: HashMap::new(),
             }),
-            interrupt,
+            interrupt: Mutex::new(interrupt),
             remote_interrupt: Mutex::new(None),
+            path: path.map(Path::to_path_buf),
+            memory_limit_mb: AtomicU32::new(DEFAULT_MEMORY_LIMIT_MB),
             current_operation: Mutex::new(None),
             operation_status: Mutex::new(None),
             source_cancellation: Mutex::new(None),
@@ -1337,6 +1344,8 @@ impl DataEngine {
                 let source: MongoSqlSource = serde_json::from_value(source.clone()).map_err(|_| "Invalid MongoDB SQL source")?;
                 let remote = Connection::open_in_memory().map_err(|_| "Unable to open MongoDB SQL engine")?;
                 let _guard = self.arm_remote_interrupt(&remote)?;
+                remote.execute_batch(&format!("SET memory_limit = '{}'", self.memory_limit()))
+                    .map_err(|_| "Unable to configure MongoDB SQL engine")?;
                 return query_mongo_snapshot(&remote, source, request.limit, request.explain);
             }
             let response: JsonValue = reqwest::blocking::Client::builder()
@@ -1353,7 +1362,7 @@ impl DataEngine {
             let uri = mongo_connection_uri(&credentials)?;
             let remote = Connection::open_in_memory().map_err(|_| "Unable to open MongoDB SQL engine")?;
             let _guard = self.arm_remote_interrupt(&remote)?;
-            remote.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS}; SET allow_unsigned_extensions = false; INSTALL mongo FROM community; LOAD mongo;"))
+            remote.execute_batch(&format!("SET memory_limit = '{}'; SET threads = {DEFAULT_THREADS}; SET allow_unsigned_extensions = false; INSTALL mongo FROM community; LOAD mongo;", self.memory_limit()))
                 .map_err(|_| "Unable to load MongoDB SQL extension. Check network access and DuckDB extension compatibility.")?;
             // The catalog itself is read-only, independently of the SQL guard and UI mode.
             remote.execute_batch(&format!("ATTACH '{}' AS mongo (TYPE MONGO, READ_ONLY); USE mongo;", uri.replace('\'', "''")))
@@ -1380,6 +1389,8 @@ impl DataEngine {
                 return Err(format!("preview limit must be between 1 and {MAX_PREVIEW_ROWS}"));
             }
             let sql = validate_s3_sql(&request.sql)?;
+            // Declared before the reader so DuckDB closes its spill files before the directory is removed.
+            let spill = self.remote_spill_directory()?;
             let remote = open_s3_reader(&request.uri, request.format, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
             let _remote_guard = self.arm_remote_interrupt(&remote)?;
             let relation = if matches!(request.format, S3Format::Ducklake) {
@@ -1390,8 +1401,7 @@ impl DataEngine {
             };
             remote.execute_batch(&format!("CREATE VIEW s3_source AS SELECT * FROM {relation}"))
                 .map_err(|error| format!("failed to open S3 source: {error}"))?;
-            remote.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
-                .map_err(|error| format!("failed to restrict S3 reader: {error}"))?;
+            restrict_remote_reader(&remote, &spill.0, &self.memory_limit())?;
             // The editor can refer to the registered view, but cannot invoke file readers.
             Self::query_preview(&remote, sql, request.limit)
         })
@@ -1457,6 +1467,7 @@ impl DataEngine {
             }
             let sql = validate_s3_sql(&request.sql)?;
             let first = &request.sources[0];
+            let spill = self.remote_spill_directory()?;
             let remote = open_s3_reader(&first.uri, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
             let _remote_guard = self.arm_remote_interrupt(&remote)?;
             if request.sources.iter().any(|source| matches!(source.format, S3Format::Delta)) {
@@ -1551,8 +1562,7 @@ impl DataEngine {
                 let _ = std::fs::remove_file(&temporary_path);
                 stage_result.map_err(|error| format!("failed to stage local dataset for S3 join: {error}"))?;
             }
-            remote.execute_batch("SET autoload_known_extensions = false; SET autoinstall_known_extensions = false; SET disabled_filesystems = 'LocalFileSystem'; SET lock_configuration = true;")
-                .map_err(|error| format!("failed to restrict S3 reader: {error}"))?;
+            restrict_remote_reader(&remote, &spill.0, &self.memory_limit())?;
             query(&remote, sql)
     }
 
@@ -1752,7 +1762,7 @@ impl DataEngine {
         let convert = (|| {
             let reader = Connection::open_in_memory()
                 .map_err(|error| format!("failed to open JSON reader: {error}"))?;
-            reader.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS}; INSTALL json; LOAD json; INSTALL parquet; LOAD parquet;"))
+            reader.execute_batch(&format!("SET memory_limit = '{}'; SET threads = {DEFAULT_THREADS}; INSTALL json; LOAD json; INSTALL parquet; LOAD parquet;", self.memory_limit()))
                 .map_err(|error| format!("failed to load JSON support: {error}"))?;
             reader.execute_batch(&format!("COPY (SELECT * FROM read_json_auto('{escaped_source}')) TO '{escaped_target}' (FORMAT PARQUET)"))
                 .map_err(|error| format!("failed to read JSON file: {error}"))?;
@@ -1958,10 +1968,7 @@ impl DataEngine {
                 status.state = "cancelling".to_string();
             }
         }
-        self.interrupt.interrupt();
-        if let Ok(slot) = self.remote_interrupt.lock() {
-            if let Some(remote) = slot.as_ref() { remote.interrupt(); }
-        }
+        self.interrupt_all();
         let source = self.source_cancellation.lock()
             .map_err(|_| "source cancellation lock is poisoned".to_string())?
             .as_ref()
@@ -1972,6 +1979,59 @@ impl DataEngine {
             let _ = cancel_backend_source(&source);
         }
         Ok(true)
+    }
+
+    fn interrupt_all(&self) {
+        if let Ok(local) = self.interrupt.lock() { local.interrupt(); }
+        if let Ok(slot) = self.remote_interrupt.lock() {
+            if let Some(remote) = slot.as_ref() { remote.interrupt(); }
+        }
+    }
+
+    pub fn memory_limit_mb(&self) -> u32 {
+        self.memory_limit_mb.load(Ordering::Acquire)
+    }
+
+    fn memory_limit(&self) -> String {
+        format!("{}MB", self.memory_limit_mb())
+    }
+
+    /// Applies a new DuckDB memory limit. Remote readers pick it up on their next query; the
+    /// local engine's configuration is locked, so its connection is reopened with the new value.
+    pub fn set_memory_limit_mb(&self, memory_limit_mb: u32) -> Result<u32, String> {
+        if !(MIN_MEMORY_LIMIT_MB..=MAX_MEMORY_LIMIT_MB).contains(&memory_limit_mb) {
+            return Err(format!("memory limit must be between {MIN_MEMORY_LIMIT_MB} MB and {MAX_MEMORY_LIMIT_MB} MB"));
+        }
+        if memory_limit_mb == self.memory_limit_mb() { return Ok(memory_limit_mb); }
+        let path = self.path.clone().ok_or("the in-memory analytical engine cannot be reopened")?;
+        let operation_id = format!("memory-limit-{}", random_id()?);
+        self.run_operation(operation_id, || {
+            let mut inner = self.lock()?;
+            // DuckDB holds a file lock, so the old connection must close before reopening.
+            let placeholder = Connection::open_in_memory()
+                .map_err(|error| format!("failed to reopen the DuckDB data engine: {error}"))?;
+            drop(std::mem::replace(&mut inner.connection, placeholder));
+            // Temporary result tables lived in the closed connection.
+            inner.result_handles.clear();
+            let (connection, applied) = match open_engine_connection(Some(&path), &self._temp_directory.0, memory_limit_mb) {
+                Ok(connection) => (connection, Ok(memory_limit_mb)),
+                Err(error) => (
+                    open_engine_connection(Some(&path), &self._temp_directory.0, self.memory_limit_mb())?,
+                    Err(error),
+                ),
+            };
+            *self.interrupt.lock().map_err(|_| "analytical interrupt lock is poisoned".to_string())? = connection.interrupt_handle();
+            inner.connection = connection;
+            if let Ok(value) = applied { self.memory_limit_mb.store(value, Ordering::Release); }
+            applied
+        })
+    }
+
+    /// A private spill directory per remote reader keeps concurrent readers' DuckDB temp files apart.
+    fn remote_spill_directory(&self) -> Result<TempDirectory, String> {
+        let path = self._temp_directory.0.join(random_id()?);
+        private_data_directory(&path)?;
+        Ok(TempDirectory(path))
     }
 
     fn arm_remote_interrupt(&self, connection: &Connection) -> Result<RemoteInterruptGuard<'_>, String> {
@@ -2022,10 +2082,7 @@ impl DataEngine {
                 while matches!(completion.recv_timeout(std::time::Duration::from_millis(10)),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
                     if self.cancel_requested.load(Ordering::Acquire) {
-                        self.interrupt.interrupt();
-                        if let Ok(slot) = self.remote_interrupt.lock() {
-                            if let Some(remote) = slot.as_ref() { remote.interrupt(); }
-                        }
+                        self.interrupt_all();
                     }
                 }
             });
@@ -2497,7 +2554,14 @@ fn append_row(
         .map_err(|error| format!("row {row_index}: source append failed: {error}"))
 }
 
-fn initialize_connection(connection: &Connection, temp_directory: &Path) -> Result<(), String> {
+fn open_engine_connection(path: Option<&Path>, temp_directory: &Path, memory_limit_mb: u32) -> Result<Connection, String> {
+    let connection = match path { Some(path) => Connection::open(path), None => Connection::open_in_memory() }
+        .map_err(|error| format!("failed to open the DuckDB data engine: {error}"))?;
+    initialize_connection(&connection, temp_directory, memory_limit_mb)?;
+    Ok(connection)
+}
+
+fn initialize_connection(connection: &Connection, temp_directory: &Path, memory_limit_mb: u32) -> Result<(), String> {
     let temp_directory = temp_directory.to_str()
         .ok_or_else(|| "analytical temporary path is not valid UTF-8".to_string())?
         .replace('\'', "''");
@@ -2509,11 +2573,36 @@ fn initialize_connection(connection: &Connection, temp_directory: &Path) -> Resu
              SET autoinstall_known_extensions = false;\
              SET autoload_known_extensions = false;\
              SET allow_unsigned_extensions = false;\
-             SET memory_limit = '{DEFAULT_MEMORY_LIMIT}';\
+             SET memory_limit = '{memory_limit_mb}MB';\
              SET threads = {DEFAULT_THREADS};\
              SET lock_configuration = true;"
         ))
         .map_err(|error| format!("failed to secure the DuckDB data engine: {error}"))
+}
+
+/// Object-store schemes remote readers may reach; local paths stay blocked (validated SQL also
+/// rejects URI literals, so user SQL only reaches the registered sources).
+const REMOTE_READER_PREFIXES: &[&str] = &[
+    "s3://", "s3a://", "s3n://", "r2://", "gcs://", "gs://", "http://", "https://", "az://", "azure://", "abfss://",
+];
+
+/// Locks a remote reader down to object stores plus its own spill directory, so large sorts,
+/// joins and window functions can spill past `memory_limit` instead of failing.
+fn restrict_remote_reader(remote: &Connection, spill_directory: &Path, memory_limit: &str) -> Result<(), String> {
+    let spill_directory = spill_directory.to_str()
+        .ok_or_else(|| "analytical temporary path is not valid UTF-8".to_string())?
+        .replace('\'', "''");
+    let prefixes = REMOTE_READER_PREFIXES.iter().map(|prefix| format!("'{prefix}'")).collect::<Vec<_>>().join(", ");
+    remote.execute_batch(&format!(
+        "SET memory_limit = '{memory_limit}';\
+         SET temp_directory = '{spill_directory}';\
+         SET max_temp_directory_size = '4GB';\
+         SET allowed_directories = [{prefixes}];\
+         SET enable_external_access = false;\
+         SET autoload_known_extensions = false;\
+         SET autoinstall_known_extensions = false;\
+         SET lock_configuration = true;"
+    )).map_err(|error| format!("failed to restrict remote reader: {error}"))
 }
 
 fn create_temp_directory() -> Result<PathBuf, String> {
@@ -3081,7 +3170,8 @@ fn validate_mongo_sql(sql: &str) -> Result<&str, String> {
 fn query_mongo_snapshot(connection: &Connection, source: MongoSqlSource, limit: usize, explain: bool) -> Result<AnalysisQueryResult, String> {
     let sql = validate_mongo_sql(&source.sql)?;
     if source.row_count != source.documents.len() { return Err("MongoDB SQL source row count mismatch".into()); }
-    connection.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS};"))
+    // The caller sets memory_limit, which follows the user's analysis setting.
+    connection.execute_batch(&format!("SET threads = {DEFAULT_THREADS};"))
         .map_err(|error| format!("failed to configure MongoDB SQL engine: {error}"))?;
     // Bound parameters plus an explicit recursive schema avoid sampling arrays as VARCHAR.
     connection.execute(
@@ -3559,6 +3649,37 @@ mod tests {
         }).unwrap();
         assert_eq!(result.rows, vec![vec![JsonValue::from(7)]]);
         drop(reopened);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn changing_the_memory_limit_reopens_the_local_engine_without_losing_datasets() {
+        let directory = create_temp_directory().unwrap();
+        let path = directory.join("local.duckdb");
+        let engine = DataEngine::open_persistent(&path).unwrap();
+        engine.import_result(ImportResultRequest {
+            operation_id: "memory-import".into(), workspace_id: "local-duckdb".into(), name: "customers".into(),
+            columns: vec![ImportColumn { name: "id".into(), data_type: "INTEGER".into(), nullable: false }],
+            rows: vec![vec![JsonValue::from(7)]], rows_more_available: false,
+            source_connection_id: None, source_sql: None, selection: ImportSelection::Full,
+        }).unwrap();
+        assert_eq!(engine.memory_limit_mb(), DEFAULT_MEMORY_LIMIT_MB);
+        assert!(engine.set_memory_limit_mb(MIN_MEMORY_LIMIT_MB - 1).is_err());
+        assert!(engine.set_memory_limit_mb(MAX_MEMORY_LIMIT_MB + 1).is_err());
+        assert_eq!(engine.set_memory_limit_mb(2048).unwrap(), 2048);
+        assert_eq!(engine.memory_limit_mb(), 2048);
+        let applied = engine.query(QueryRequest {
+            operation_id: "memory-setting".into(), workspace_id: "local-duckdb".into(),
+            sql: "SELECT current_setting('memory_limit') AS memory_limit".into(), limit: 1,
+        }).unwrap();
+        // DuckDB reports the limit in binary units (2048 MB = 1.9 GiB).
+        assert_eq!(applied.rows, vec![vec![JsonValue::from("1.9 GiB")]]);
+        let result = engine.query(QueryRequest {
+            operation_id: "memory-query".into(), workspace_id: "local-duckdb".into(),
+            sql: "SELECT id FROM customers".into(), limit: 10,
+        }).unwrap();
+        assert_eq!(result.rows, vec![vec![JsonValue::from(7)]]);
+        drop(engine);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -4254,6 +4375,28 @@ mod tests {
         assert_eq!(validate_csv_delimiter(Some(" "), true).unwrap(), b' ');
         assert_eq!(validate_csv_delimiter(Some("'"), true).unwrap(), b'\'');
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn restricted_remote_reader_spills_windows_but_blocks_local_files() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        let spill = engine.remote_spill_directory().unwrap();
+        let remote = Connection::open_in_memory().unwrap();
+        remote.execute_batch("SET threads = 2;").unwrap();
+        restrict_remote_reader(&remote, &spill.0, "128MB").unwrap();
+        // Same shape as the reported DuckLake query: per-key MIN/MAX windows plus a global ORDER BY.
+        let rows: i64 = remote.query_row(
+            "SELECT count(*) FROM (SELECT k, v, MIN(v) OVER (PARTITION BY k) AS mn, MAX(v) OVER (PARTITION BY k) AS mx \
+             FROM (SELECT (i % 500000)::VARCHAR || repeat('x', 40) AS k, i AS v FROM range(3000000) t(i)) ORDER BY k, v) WHERE mn <> mx",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(rows, 3_000_000);
+        let local = engine._temp_directory.0.join("secret.csv");
+        std::fs::write(&local, "a\n1\n").unwrap();
+        let error = remote.query_row(&format!("SELECT count(*) FROM read_csv('{}')", local.to_string_lossy().replace('\'', "''")), [], |row| row.get::<_, i64>(0))
+            .unwrap_err().to_string();
+        assert!(error.contains("Permission Error"), "{error}");
+        assert!(remote.execute_batch("SET enable_external_access = true").is_err());
     }
 
     #[test]

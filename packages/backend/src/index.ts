@@ -11,6 +11,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
 import { closeMcpHttp, closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
 import { McpBridgeError } from "./mcp-bridge.ts";
+import { AdapterError } from "@omni-sql/adapters-core";
 import {
   MCP_MAX_HTTP_BODY_BYTES,
   type McpErrorCode,
@@ -478,8 +479,12 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         res.end(`${JSON.stringify({ type: "complete" })}\n`);
       } catch (error) {
         logFailure("analysis.stream", error, 0);
+        // Adapter "unsupported" errors carry fixed, adapter-authored guidance rather than driver text.
         const safeError = error instanceof RpcValidationError || error instanceof RpcDatabaseError
-          ? error : safePostgresDatabaseError(error) ?? safeOracleDatabaseError(error);
+          ? error
+          : error instanceof AdapterError && error.causeTag === "unsupported"
+            ? new RpcValidationError(error.message)
+            : safePostgresDatabaseError(error) ?? safeOracleDatabaseError(error);
         const message = safeError?.message ?? "source query failed; run the SELECT on its connection to inspect the database error";
         if (!res.headersSent) {
           send(res, safeError instanceof RpcValidationError ? 400 : 500, { error: message });

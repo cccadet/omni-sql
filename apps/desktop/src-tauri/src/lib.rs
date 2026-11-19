@@ -1778,6 +1778,18 @@ async fn analysis_query_mongo(app: AppHandle, request: data_engine::MongoQueryRe
 }
 
 #[tauri::command]
+fn analysis_memory_limit(engine: tauri::State<'_, data_engine::DataEngine>) -> u32 {
+    engine.memory_limit_mb()
+}
+
+#[tauri::command]
+async fn analysis_set_memory_limit(app: AppHandle, memory_limit_mb: u32) -> Result<u32, String> {
+    // Reopening local.duckdb waits for the engine lock, so it runs off the UI thread.
+    tauri::async_runtime::spawn_blocking(move || app.state::<data_engine::DataEngine>().set_memory_limit_mb(memory_limit_mb))
+        .await.map_err(|error| format!("memory limit task failed: {error}"))?
+}
+
+#[tauri::command]
 async fn analysis_query_s3(
     app: AppHandle,
     request: data_engine::S3QueryRequest,
@@ -1896,6 +1908,8 @@ pub fn run() {
             analysis_preview_csv,
             analysis_import_s3,
             analysis_query_mongo,
+            analysis_memory_limit,
+            analysis_set_memory_limit,
             analysis_query_s3,
             analysis_list_s3,
             analysis_list_ducklake,
