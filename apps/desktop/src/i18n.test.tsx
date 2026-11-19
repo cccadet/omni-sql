@@ -1,5 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { dictionaries, LanguageProvider, useLanguage, type Language } from "./i18n";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { dictionaries, LanguageProvider, readInstallerLanguage, useLanguage, type Language } from "./i18n";
+
+vi.mock("@tauri-apps/api/core", () => ({ isTauri: vi.fn(() => false), invoke: vi.fn() }));
 
 const storage = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -62,6 +65,36 @@ describe("language provider", () => {
     expect(screen.getByTestId("bucket-label").textContent).toBe("加载存储桶");
     expect(screen.getByTestId("catalog-label").textContent).toBe("添加 DuckLake 目录");
     expect(localStorage.getItem("omni-sql:language")).toBe("zh-CN");
+  });
+
+  describe("installer language", () => {
+    afterEach(() => {
+      vi.mocked(isTauri).mockReturnValue(false);
+      vi.mocked(invoke).mockReset();
+    });
+
+    it("is not read outside the desktop app", async () => {
+      expect(await readInstallerLanguage()).toBeNull();
+      expect(invoke).not.toHaveBeenCalled();
+    });
+
+    it.each<[unknown, Language | null]>([
+      ["pt-BR", "pt-BR"],
+      ["zh-CN", "zh-CN"],
+      [null, null],
+      ["fr-FR", null],
+    ])("maps the installer value %j to %j", async (value, expected) => {
+      vi.mocked(isTauri).mockReturnValue(true);
+      vi.mocked(invoke).mockResolvedValue(value);
+      expect(await readInstallerLanguage()).toBe(expected);
+      expect(invoke).toHaveBeenCalledWith("get_installer_language");
+    });
+
+    it("falls back when the desktop command fails", async () => {
+      vi.mocked(isTauri).mockReturnValue(true);
+      vi.mocked(invoke).mockRejectedValue(new Error("unknown command"));
+      expect(await readInstallerLanguage()).toBeNull();
+    });
   });
 
   describe("first-run language", () => {
