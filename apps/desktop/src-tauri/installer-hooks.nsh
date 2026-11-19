@@ -21,4 +21,19 @@
 !macro NSIS_HOOK_POSTINSTALL
   ; WinGet reads this registry value instead of adding /S to UninstallString.
   WriteRegStr SHCTX "${UNINSTKEY}" "QuietUninstallString" '$\"$INSTDIR\uninstall.exe$\" /S'
+  ; Seeds the app language until the user picks one in the app.
+  StrCpy $0 "en"
+  ${If} $LANGUAGE == 1046
+    StrCpy $0 "pt-BR"
+  ${ElseIf} $LANGUAGE == 2052
+    StrCpy $0 "zh-CN"
+  ${EndIf}
+  FileOpen $1 "$INSTDIR\installer-language" w
+  FileWrite $1 $0
+  FileClose $1
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  ; Not tracked by the generated uninstaller; remove it so $INSTDIR can be deleted.
+  Delete "$INSTDIR\installer-language"
 !macroend

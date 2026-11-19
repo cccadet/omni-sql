@@ -338,6 +338,16 @@ fn is_portable_install() -> bool {
         .unwrap_or(false)
 }
 
+/// Language chosen in the Windows installer, written next to the executable by
+/// `installer-hooks.nsh`. Absent for portable copies, macOS and Linux.
+#[tauri::command]
+fn get_installer_language() -> Option<String> {
+    let executable = std::env::current_exe().ok()?;
+    let contents = std::fs::read_to_string(executable.parent()?.join("installer-language")).ok()?;
+    let language = contents.trim();
+    (!language.is_empty()).then(|| language.to_string())
+}
+
 #[tauri::command]
 fn prepare_update_install(app: AppHandle) -> Result<(), String> {
     if is_portable_install() {
@@ -1862,6 +1872,7 @@ pub fn run() {
             get_sidecar_diagnostics,
             get_managed_processes,
             is_portable_install,
+            get_installer_language,
             stop_managed_process,
             restart_managed_processes,
             get_auth_token,

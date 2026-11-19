@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { simplifiedChinese } from "./i18n.zh-CN";
 
 export type Language = "en" | "pt-BR" | "zh-CN";
@@ -1038,17 +1039,45 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
-function readLanguage(): Language {
+function isLanguage(value: unknown): value is Language {
+  return value === "pt-BR" || value === "en" || value === "zh-CN";
+}
+
+function systemLanguage(): Language | null {
+  const preferred = typeof navigator === "undefined" ? [] : [...(navigator.languages ?? []), navigator.language];
+  for (const tag of preferred) {
+    const lower = tag?.toLowerCase() ?? "";
+    if (lower.startsWith("pt")) return "pt-BR";
+    if (lower.startsWith("zh")) return "zh-CN";
+    if (lower.startsWith("en")) return "en";
+  }
+  return null;
+}
+
+/** Saved choice, then the installer's language, then the OS language, then English. */
+function readLanguage(installerLanguage: Language | null | undefined): Language {
   try {
     const value = localStorage.getItem(LANGUAGE_KEY);
-    return value === "pt-BR" || value === "en" || value === "zh-CN" ? value : "en";
+    if (isLanguage(value)) return value;
   } catch {
-    return "en";
+    // localStorage can be unavailable in restricted webviews.
+  }
+  return installerLanguage ?? systemLanguage() ?? "en";
+}
+
+/** Language selected in the Windows installer, if this copy was installed by it. */
+export async function readInstallerLanguage(): Promise<Language | null> {
+  if (!isTauri()) return null;
+  try {
+    const value = await invoke<string | null>("get_installer_language");
+    return isLanguage(value) ? value : null;
+  } catch {
+    return null;
   }
 }
 
-export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<Language>(readLanguage);
+export function LanguageProvider({ children, installerLanguage }: { children: ReactNode; installerLanguage?: Language | null }) {
+  const [language, setLanguageState] = useState<Language>(() => readLanguage(installerLanguage));
   const setLanguage = (next: Language) => {
     setLanguageState(next);
     try {

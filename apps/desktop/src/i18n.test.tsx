@@ -64,6 +64,38 @@ describe("language provider", () => {
     expect(localStorage.getItem("omni-sql:language")).toBe("zh-CN");
   });
 
+  describe("first-run language", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    function mockSystemLanguages(languages: string[]) {
+      vi.spyOn(navigator, "languages", "get").mockReturnValue(languages);
+      vi.spyOn(navigator, "language", "get").mockReturnValue(languages[0] ?? "");
+    }
+
+    it("uses the installer language over the system language", () => {
+      mockSystemLanguages(["pt-BR"]);
+      render(<LanguageProvider installerLanguage="zh-CN"><LanguageProbe /></LanguageProvider>);
+      expect(screen.getByTestId("language").textContent).toBe("zh-CN");
+    });
+
+    it("keeps the language saved in the app over the installer language", () => {
+      localStorage.setItem("omni-sql:language", "en");
+      render(<LanguageProvider installerLanguage="pt-BR"><LanguageProbe /></LanguageProvider>);
+      expect(screen.getByTestId("language").textContent).toBe("en");
+    });
+
+    it.each([
+      [["pt-PT"], "pt-BR"],
+      [["zh-TW", "en-US"], "zh-CN"],
+      [["de-DE", "pt-BR"], "pt-BR"],
+      [["de-DE"], "en"],
+    ])("follows the system languages %j without a saved or installer language", (languages, expected) => {
+      mockSystemLanguages(languages);
+      render(<LanguageProvider><LanguageProbe /></LanguageProvider>);
+      expect(screen.getByTestId("language").textContent).toBe(expected);
+    });
+  });
+
   it("falls back to English for an unsupported saved language", () => {
     localStorage.setItem("omni-sql:language", "unknown");
     render(<LanguageProvider><LanguageProbe /></LanguageProvider>);
