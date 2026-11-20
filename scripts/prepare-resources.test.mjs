@@ -156,6 +156,21 @@ test("extracts Windows ZIPs with PowerShell paths instead of tar.exe", () => {
   fs.rmSync(destination, { recursive: true, force: true });
 });
 
+test("runs Windows PowerShell with its own Archive module and fails loudly", () => {
+  const destination = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-extract-"));
+  const saved = process.env.PSModulePath;
+  process.env.PSModulePath = "C:\\Program Files\\PowerShell\\7\\Modules";
+  let command;
+  try {
+    extract("D:\\runner\\downloads\\node.zip", destination, "win32", (file, args, options) => { command = { file, args, options }; });
+  } finally {
+    if (saved === undefined) delete process.env.PSModulePath; else process.env.PSModulePath = saved;
+    fs.rmSync(destination, { recursive: true, force: true });
+  }
+  assert.equal(Object.keys(command.options.env).some((key) => key.toLowerCase() === "psmodulepath"), false);
+  assert.match(command.args[4], /^\$ErrorActionPreference = 'Stop'; Expand-Archive /);
+});
+
 test("escapes Windows paths when invoking PowerShell", () => {
   const destination = fs.mkdtempSync(path.join(os.tmpdir(), "omni-sql-extract-"));
   const archive = "D:\\runner\\O'Reilly\\node.zip";
