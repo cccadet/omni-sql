@@ -11,6 +11,8 @@ Object.defineProperty(globalThis, "localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
     clear: () => storage.clear(),
+    key: (index: number) => [...storage.keys()][index] ?? null,
+    get length() { return storage.size; },
   },
 });
 
@@ -115,6 +117,14 @@ describe("language provider", () => {
       localStorage.setItem("omni-sql:language", "en");
       render(<LanguageProvider installerLanguage="pt-BR"><LanguageProbe /></LanguageProvider>);
       expect(screen.getByTestId("language").textContent).toBe("en");
+    });
+
+    it("keeps English for a user of an earlier version who never chose a language", () => {
+      mockSystemLanguages(["pt-BR"]);
+      localStorage.setItem("omni-sql:theme", "dark");
+      render(<LanguageProvider installerLanguage="pt-BR"><LanguageProbe /></LanguageProvider>);
+      expect(screen.getByTestId("language").textContent).toBe("en");
+      expect(localStorage.getItem("omni-sql:language")).toBe("en");
     });
 
     it.each([

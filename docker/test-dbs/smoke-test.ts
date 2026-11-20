@@ -260,7 +260,8 @@ for (const [key, target] of targets) {
         }
         throw new Error("temporal query returned no row");
       };
-      if (key === "mssql" || key === "oracle") {
+      // Oracle formats temporal columns as ISO strings server-side, so only SQL Server still rejects.
+      if (key === "mssql") {
         await assert.rejects(read, /cannot preserve.*cast it to VARCHAR/);
       } else {
         assert.match(String(await read()), /123456/);
