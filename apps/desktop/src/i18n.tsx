@@ -1060,11 +1060,27 @@ function systemLanguage(): Language | null {
   return null;
 }
 
+/**
+ * Before v0.25 the app showed English without saving it. Other omni-sql keys mean an existing
+ * user, so English is saved for them instead of switching to the installer or OS language on update.
+ */
+function isExistingInstall(): boolean {
+  for (let index = 0; index < localStorage.length; index++) {
+    const key = localStorage.key(index);
+    if (key !== LANGUAGE_KEY && key?.startsWith("omni-sql")) return true;
+  }
+  return false;
+}
+
 /** Saved choice, then the installer's language, then the OS language, then English. */
 function readLanguage(installerLanguage: Language | null | undefined): Language {
   try {
     const value = localStorage.getItem(LANGUAGE_KEY);
     if (isLanguage(value)) return value;
+    if (isExistingInstall()) {
+      localStorage.setItem(LANGUAGE_KEY, "en");
+      return "en";
+    }
   } catch {
     // localStorage can be unavailable in restricted webviews.
   }
