@@ -98,6 +98,40 @@ describe("Sidebar", () => {
     expect(call.mock.calls.some(([method]) => method === "query.execute")).toBe(false);
   });
 
+  it("renders large schemas in pages instead of every object at once", () => {
+    const many = Array.from({ length: 130 }, (_, index) => ({
+      schema: "big",
+      name: `t${String(index).padStart(3, "0")}`,
+      kind: "table" as const,
+      columns: [{ name: "id", dataType: "integer", nullable: false, isPrimaryKey: true }],
+    }));
+    renderSidebar({ relations: many, functions: [] });
+    expect(screen.queryByText("t000")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "big" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tables (130)" }));
+    expect(screen.getByText("t099")).toBeTruthy();
+    expect(screen.queryByText("t100")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show 30 more of 30" }));
+    expect(screen.getByText("t129")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Show \d+ more/ })).toBeNull();
+  }, 30_000);
+
+  it("expands views and inserts or opens views and functions", () => {
+    const onInsert = vi.fn();
+    const onOpenInNewTab = vi.fn();
+    renderSidebar({ onInsert, onOpenInNewTab });
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Views (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "recent_orders" }));
+    expect(screen.getByText("id")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Insert public.recent_orders" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open public.recent_orders in a new tab" }));
+    fireEvent.click(screen.getByRole("button", { name: "Functions (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Insert public.refresh_orders" }));
+    expect(onInsert.mock.calls).toEqual([["public.recent_orders"], ["public.refresh_orders"]]);
+    expect(onOpenInNewTab).toHaveBeenCalledWith("recent_orders", "SELECT * FROM public.recent_orders LIMIT 1000");
+  }, 30_000);
+
   it("localizes S3 prefix controls and creates a quoted S3 query", () => {
     localStorage.setItem("omni-sql:language", "pt-BR");
     const s3 = { ...connection, dialect: "s3" as const };

@@ -260,6 +260,8 @@ export class MetadataCache {
     const schemas = schemaStmt.all(conn.config.id) as Array<{
       id: number; name: string; last_synced_at: number | null;
     }>;
+    // SQLite is the source of truth: schemas dropped by a narrower sync must leave memory too.
+    conn.schemas.clear();
     for (const s of schemas) {
       const memSchema: MemSchema = {
         relations: new Map(),

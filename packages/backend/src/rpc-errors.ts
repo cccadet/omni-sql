@@ -17,13 +17,14 @@ export class RpcDatabaseError extends Error {
 /**
  * Oracle errors are otherwise hidden as "Internal error", which makes ordinary
  * DDL failures (permissions, quota, duplicate objects...) impossible to fix.
- * Only accept the driver's structured ORA code and its single-line ORA message;
- * arbitrary adapter errors remain private.
+ * Only accept the driver's structured ORA code (or node-oracledb's own NJS code,
+ * e.g. an unsupported column type) and its single-line message; arbitrary
+ * adapter errors remain private.
  */
 export function safeOracleDatabaseError(error: unknown): RpcDatabaseError | undefined {
   if (!(error instanceof Error)) return undefined;
   const code = Reflect.get(error, "code");
-  if (typeof code !== "string" || !/^ORA-\d{5}$/.test(code)) return undefined;
+  if (typeof code !== "string" || !/^(?:ORA-\d{5}|NJS-\d{3})$/.test(code)) return undefined;
   const firstLine = error.message.split(/\r?\n/, 1)[0]?.trim();
   if (!firstLine?.startsWith(`${code}:`)) return undefined;
   const sanitized = [...firstLine]

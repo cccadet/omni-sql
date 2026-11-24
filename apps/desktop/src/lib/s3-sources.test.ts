@@ -82,4 +82,7 @@ test("S3 queries send only the catalog tables they reference, even in catalogs a
   expect(() => selectReferencedS3Sources(catalog, "SELECT 1")).toThrow(/602 tabelas/);
   expect(selectReferencedS3Sources(catalog.slice(0, 2), "SELECT 1")).toHaveLength(2);
   expect(() => selectReferencedS3Sources([], "SELECT * FROM srespuni__pat_proced")).toThrow(/Nenhuma tabela/);
+  // Imported JOIN tables live in the local schema and need no S3 source, even in a large catalog.
+  expect(selectReferencedS3Sources(catalog, 'SELECT * from "local"."dim_documento"')).toEqual([]);
+  expect(selectReferencedS3Sources([], "SELECT * FROM local.dim_documento")).toEqual([]);
 });

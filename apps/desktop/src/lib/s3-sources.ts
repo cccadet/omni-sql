@@ -26,15 +26,19 @@ export function resolveDuckLakeSource<T extends S3TableSource>(source: T, creden
 
 const MAX_S3_QUERY_SOURCES = 500;
 
-/** Keeps only catalog tables whose name appears as an identifier in the SQL; the engine registers each sent source as a view. */
+/**
+ * Keeps only catalog tables whose name appears as an identifier in the SQL; the engine registers each sent source as a view.
+ * A query over imported `local` tables alone needs no S3 source, so it gets an empty list.
+ */
 export function selectReferencedS3Sources<T extends { name: string }>(sources: readonly T[], sql: string): T[] {
-  if (sources.length === 0) throw new Error("Nenhuma tabela encontrada no catálogo S3 desta conexão; atualize o catálogo ou revise o prefixo");
   const identifiers = new Set<string>();
   for (const match of sql.matchAll(/"((?:[^"]|"")*)"|[A-Za-z_][A-Za-z0-9_$]*/g)) {
     identifiers.add((match[1] === undefined ? match[0] : match[1].replaceAll('""', '"')).toLowerCase());
   }
   const referenced = sources.filter((source) => identifiers.has(source.name.toLowerCase()));
   if (referenced.length > 0) return referenced;
+  if (identifiers.has("local")) return [];
+  if (sources.length === 0) throw new Error("Nenhuma tabela encontrada no catálogo S3 desta conexão; atualize o catálogo ou revise o prefixo");
   if (sources.length <= MAX_S3_QUERY_SOURCES) return [...sources];
   throw new Error(`A consulta não referencia nenhuma das ${sources.length} tabelas do catálogo S3`);
 }

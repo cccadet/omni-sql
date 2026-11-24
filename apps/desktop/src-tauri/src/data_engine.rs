@@ -56,6 +56,9 @@ const MAX_DATASETS: usize = 16;
 const MAX_RESULT_HANDLES: usize = 8;
 const MAX_SAMPLE_BYTES: usize = MAX_SNAPSHOT_BYTES;
 const MAX_DATASET_BYTES: usize = 4 * 1024 * 1024 * 1024;
+/// Spill cap for temp storage. JOIN imports land in TEMP tables, which DuckDB keeps uncompressed in
+/// the spill directory, so a few million wide rows exceed a 4GB cap well before the dataset budget.
+const MAX_TEMP_DIRECTORY_SIZE: &str = "32GB";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1462,13 +1465,36 @@ impl DataEngine {
 
     fn with_s3_catalog<T>(&self, request: &S3CatalogQueryRequest, query: impl FnOnce(&Connection, &str) -> Result<T, String>) -> Result<T, String> {
             validate_workspace_id(&request.workspace_id)?;
-            if request.sources.is_empty() || request.sources.len() > 500 {
-                return Err("S3 catalog must contain between 1 and 500 sources".to_string());
+            if request.sources.len() > 500 {
+                return Err("S3 catalog must contain at most 500 sources".to_string());
             }
             let sql = validate_s3_sql(&request.sql)?;
-            let first = &request.sources[0];
+            let normalized_sql = sql.to_ascii_lowercase();
+            let local_datasets = {
+                let inner = self.lock()?;
+                inner.datasets.values()
+                    .filter(|dataset| dataset.workspace_id == "local-duckdb" || dataset.workspace_id == "federated")
+                    .filter(|dataset| {
+                        let name = dataset.relation_name.to_ascii_lowercase();
+                        [
+                            format!("local.{name}"),
+                            format!("local.{}", quote_identifier(&name)),
+                            format!("\"local\".{name}"),
+                            format!("\"local\".{}", quote_identifier(&name)),
+                        ].iter().any(|reference| normalized_sql.contains(reference))
+                    })
+                    .map(|dataset| (dataset.relation_name.clone(), dataset.workspace_id.clone()))
+                    .collect::<Vec<_>>()
+            };
+            // A query may read only local datasets (imported for a JOIN), so S3 sources are optional then.
+            if request.sources.is_empty() && local_datasets.is_empty() {
+                return Err("the query references no S3 catalog table or local dataset".to_string());
+            }
             let spill = self.remote_spill_directory()?;
-            let remote = open_s3_reader(&first.uri, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?;
+            let remote = match request.sources.first() {
+                Some(first) => open_s3_reader(&first.uri, S3Format::Parquet, &request.region, request.endpoint.as_deref(), request.access_key_id.as_deref(), request.secret_access_key.as_deref())?,
+                None => open_local_join_reader()?,
+            };
             let _remote_guard = self.arm_remote_interrupt(&remote)?;
             if request.sources.iter().any(|source| matches!(source.format, S3Format::Delta)) {
                 remote.execute_batch("INSTALL delta; LOAD delta;").map_err(|error| format!("failed to load Delta support: {error}"))?;
@@ -1507,24 +1533,13 @@ impl DataEngine {
                 remote.execute_batch(&statement)
                     .map_err(|error| format!("failed to register S3 source: {error}"))?;
             }
-            let normalized_sql = sql.to_ascii_lowercase();
-            let local_datasets = {
-                let inner = self.lock()?;
-                inner.datasets.values()
-                    .filter(|dataset| dataset.workspace_id == "local-duckdb" || dataset.workspace_id == "federated")
-                    .filter(|dataset| {
-                        let name = dataset.relation_name.to_ascii_lowercase();
-                        [
-                            format!("local.{name}"),
-                            format!("local.{}", quote_identifier(&name)),
-                            format!("\"local\".{name}"),
-                            format!("\"local\".{}", quote_identifier(&name)),
-                        ].iter().any(|reference| normalized_sql.contains(reference))
-                    })
-                    .map(|dataset| (dataset.relation_name.clone(), dataset.workspace_id.clone()))
-                    .collect::<Vec<_>>()
-            };
             if !local_datasets.is_empty() {
+                // Staging copies whole local tables into this in-memory reader; give it the spill directory first.
+                let spill_path = spill.0.to_str()
+                    .ok_or_else(|| "analytical temporary path is not valid UTF-8".to_string())?
+                    .replace('\'', "''");
+                remote.execute_batch(&format!("SET memory_limit = '{}'; SET temp_directory = '{spill_path}'; SET max_temp_directory_size = '{MAX_TEMP_DIRECTORY_SIZE}';", self.memory_limit()))
+                    .map_err(|error| format!("failed to prepare local join staging: {error}"))?;
                 remote.execute_batch("LOAD parquet")
                     .map_err(|error| format!("failed to load Parquet for local join: {error}"))?;
                 remote.execute_batch("CREATE SCHEMA local")
@@ -2554,6 +2569,15 @@ fn append_row(
         .map_err(|error| format!("row {row_index}: source append failed: {error}"))
 }
 
+/// Reader for S3-dialect queries that only touch staged local datasets: no httpfs or credentials.
+fn open_local_join_reader() -> Result<Connection, String> {
+    let remote = Connection::open_in_memory()
+        .map_err(|error| format!("failed to open local join reader: {error}"))?;
+    remote.execute_batch(&format!("SET memory_limit = '{DEFAULT_MEMORY_LIMIT}'; SET threads = {DEFAULT_THREADS};"))
+        .map_err(|error| format!("failed to limit local join reader resources: {error}"))?;
+    Ok(remote)
+}
+
 fn open_engine_connection(path: Option<&Path>, temp_directory: &Path, memory_limit_mb: u32) -> Result<Connection, String> {
     let connection = match path { Some(path) => Connection::open(path), None => Connection::open_in_memory() }
         .map_err(|error| format!("failed to open the DuckDB data engine: {error}"))?;
@@ -2568,7 +2592,7 @@ fn initialize_connection(connection: &Connection, temp_directory: &Path, memory_
     connection
         .execute_batch(&format!(
             "SET temp_directory = '{temp_directory}';\
-             SET max_temp_directory_size = '4GB';\
+             SET max_temp_directory_size = '{MAX_TEMP_DIRECTORY_SIZE}';\
              SET enable_external_access = false;\
              SET autoinstall_known_extensions = false;\
              SET autoload_known_extensions = false;\
@@ -2596,7 +2620,7 @@ fn restrict_remote_reader(remote: &Connection, spill_directory: &Path, memory_li
     remote.execute_batch(&format!(
         "SET memory_limit = '{memory_limit}';\
          SET temp_directory = '{spill_directory}';\
-         SET max_temp_directory_size = '4GB';\
+         SET max_temp_directory_size = '{MAX_TEMP_DIRECTORY_SIZE}';\
          SET allowed_directories = [{prefixes}];\
          SET enable_external_access = false;\
          SET autoload_known_extensions = false;\
@@ -3555,6 +3579,26 @@ mod tests {
             limit: 1000,
         }).unwrap();
         assert_eq!(result.rows, vec![vec![JsonValue::from("Lin"), JsonValue::from(20)]]);
+    }
+
+    #[test]
+    fn s3_catalog_query_reads_an_imported_join_table_without_s3_sources() {
+        let engine = DataEngine::open_in_memory().unwrap();
+        engine.import_result(ImportResultRequest {
+            operation_id: "local-only-fixture".into(), workspace_id: "federated".into(), name: "dim_documento".into(),
+            columns: vec![ImportColumn { name: "id".into(), data_type: "INTEGER".into(), nullable: false }],
+            rows: vec![vec![JsonValue::from(7)]], rows_more_available: false,
+            source_connection_id: None, source_sql: None, selection: ImportSelection::Full,
+        }).unwrap();
+        let request = |sql: &str| S3CatalogQueryRequest {
+            operation_id: "s3-local-only".into(), workspace_id: "s3-local-only".into(), sources: vec![],
+            region: String::new(), endpoint: None, access_key_id: None, secret_access_key: None,
+            sql: sql.into(), limit: 1000,
+        };
+        let result = engine.query_s3_catalog(request("SELECT * from \"local\".\"dim_documento\"")).unwrap();
+        assert_eq!(result.rows, vec![vec![JsonValue::from(7)]]);
+        let error = engine.query_s3_catalog(request("SELECT 1")).unwrap_err();
+        assert!(error.contains("no S3 catalog table or local dataset"), "{error}");
     }
 
     #[test]

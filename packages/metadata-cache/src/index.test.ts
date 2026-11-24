@@ -303,3 +303,19 @@ test("groups support CRUD, root moves, and upserts preserve membership", () => {
     cache.close();
   }
 });
+
+test("re-ingesting fewer schemas drops the deselected ones from lookups", () => {
+  const cache = MetadataCache.open(tmpPath());
+  try {
+    cache.upsertConnection(cfg());
+    cache.ingestIntrospection("c1", [
+      { name: "public", relations: [USERS], functions: [] },
+      { name: "sales", relations: [{ ...ORDERS, schema: "sales" }], functions: [] },
+    ]);
+    cache.ingestIntrospection("c1", [{ name: "public", relations: [USERS], functions: [] }]);
+    assert.deepEqual(cache.listSchemas("c1").map((schema) => schema.name), ["public"]);
+    assert.deepEqual(cache.getTablesBySchema("c1", "sales"), []);
+  } finally {
+    cache.close();
+  }
+});
