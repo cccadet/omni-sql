@@ -116,6 +116,22 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: /^Show \d+ more/ })).toBeNull();
   }, 30_000);
 
+  it("expands views and inserts or opens views and functions", () => {
+    const onInsert = vi.fn();
+    const onOpenInNewTab = vi.fn();
+    renderSidebar({ onInsert, onOpenInNewTab });
+    fireEvent.click(screen.getByRole("button", { name: "public" }));
+    fireEvent.click(screen.getByRole("button", { name: "Views (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "recent_orders" }));
+    expect(screen.getByText("id")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Insert public.recent_orders" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open public.recent_orders in a new tab" }));
+    fireEvent.click(screen.getByRole("button", { name: "Functions (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Insert public.refresh_orders" }));
+    expect(onInsert.mock.calls).toEqual([["public.recent_orders"], ["public.refresh_orders"]]);
+    expect(onOpenInNewTab).toHaveBeenCalledWith("recent_orders", "SELECT * FROM public.recent_orders LIMIT 1000");
+  }, 30_000);
+
   it("localizes S3 prefix controls and creates a quoted S3 query", () => {
     localStorage.setItem("omni-sql:language", "pt-BR");
     const s3 = { ...connection, dialect: "s3" as const };
