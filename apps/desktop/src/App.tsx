@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Input, Menu, MenuDivider, MenuItem, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
+import { Button, Combobox, Dialog,DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Dropdown, Input, Menu, MenuDivider, MenuItem, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, Option, Radio, RadioGroup, Title1, tokens } from "@fluentui/react-components";
 import { AddRegular, AppsListRegular, FolderRegular, ArrowSwapRegular, ArrowSyncRegular, SignOutRegular, BookRegular, DatabaseRegular, DocumentArrowUpRegular, FolderOpenRegular, HistoryRegular, NavigationRegular, PanelLeftRegular, SaveRegular, SettingsRegular, WeatherSunnyRegular, WeatherMoonRegular } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -670,6 +670,21 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
   }, [activeConnection, activeTab.id, activeTab.sql, activeTab.mongoSqlMode, updateTabSql, sidebarCache]);
 
   const crossSourceConnection = connections.find((connection) => connection.id === crossSourceConnectionId);
+  const crossSourceConnectionOptions = useMemo(() => connections
+    .filter((connection) => connection.dialect !== "s3" && connection.dialect !== "duckdb" && connection.dialect !== "mongodb")
+    .map((connection) => {
+      const environment = findConnectionEnvironment(connection, environments);
+      const environmentTag = environment ? environmentName(environment, t).trim() || environment.id : "";
+      return { id: connection.id, text: `${environmentTag ? `[${environmentTag}] ` : ""}${connection.label} (${DIALECT_LABELS[connection.dialect] ?? connection.dialect})` };
+    }), [connections, environments, t]);
+  // Rendering thousands of options makes the popup sluggish; typing narrows the list.
+  const crossSourceTableOptions = useMemo(() => {
+    const search = crossSourceSearch.trim().toLowerCase();
+    return crossSourceRelations
+      .map((relation) => `${relation.schema}.${relation.name}`)
+      .filter((qualified) => qualified.toLowerCase().includes(search))
+      .slice(0, 200);
+  }, [crossSourceRelations, crossSourceSearch]);
 
   useEffect(() => {
     if (!crossSourceOpen || !crossSourceConnectionId) { setCrossSourceRelations([]); return; }
@@ -1987,25 +2002,33 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
             <DialogTitle>{t("addTableToJoin")}</DialogTitle>
             <DialogContent style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div>{t("crossSourceHint")}</div>
-              <select className="omni-cross-source-select" aria-label={t("sourceDatabase")} value={crossSourceConnectionId} onChange={(event) => { setCrossSourceConnectionId(event.target.value); setCrossSourceSql(""); setCrossSourceError(null); }}>
-                <option value="">{t("ducklakeSelectConnection")}</option>
-                {connections.filter((connection) => connection.dialect !== "s3" && connection.dialect !== "duckdb" && connection.dialect !== "mongodb")
-                  .map((connection) => {
-                    const environment = findConnectionEnvironment(connection, environments);
-                    const environmentTag = environment ? environmentName(environment, t).trim() || environment.id : "";
-                    return <option key={connection.id} value={connection.id}>{environmentTag ? `[${environmentTag}] ` : ""}{connection.label} ({DIALECT_LABELS[connection.dialect] ?? connection.dialect})</option>;
-                  })}
-              </select>
+              <Dropdown
+                className="omni-cross-source-picker"
+                aria-label={t("sourceDatabase")}
+                placeholder={t("ducklakeSelectConnection")}
+                value={crossSourceConnectionOptions.find((option) => option.id === crossSourceConnectionId)?.text ?? ""}
+                selectedOptions={crossSourceConnectionId ? [crossSourceConnectionId] : []}
+                onOptionSelect={(_, data) => { setCrossSourceConnectionId(data.optionValue ?? ""); setCrossSourceSql(""); setCrossSourceSearch(""); setCrossSourceError(null); }}
+              >
+                {crossSourceConnectionOptions.map((option) => <Option key={option.id} value={option.id} text={option.text}>{option.text}</Option>)}
+              </Dropdown>
               {crossSourceConnectionId && <>
-                <Input aria-label={t("searchSourceTable")} placeholder={t("searchSourceTable")} value={crossSourceSearch} onChange={(_, data) => setCrossSourceSearch(data.value)} />
-                <select className="omni-cross-source-select" aria-label={t("availableTables")} size={Math.min(6, Math.max(2, crossSourceRelations.length))} value="" onChange={(event) => {
-                  const relation = crossSourceRelations.find((item) => `${item.schema}.${item.name}` === event.target.value);
-                  if (relation) selectCrossSourceRelation(relation);
-                }}>
-                  <option value="" disabled>{t("chooseTable")}</option>
-                  {crossSourceRelations.filter((relation) => `${relation.schema}.${relation.name}`.toLowerCase().includes(crossSourceSearch.toLowerCase()))
-                    .map((relation) => <option key={`${relation.schema}.${relation.name}`} value={`${relation.schema}.${relation.name}`}>{relation.schema}.{relation.name}</option>)}
-                </select>
+                <Combobox
+                  className="omni-cross-source-picker"
+                  freeform
+                  aria-label={t("availableTables")}
+                  placeholder={t("searchSourceTable")}
+                  value={crossSourceSearch}
+                  onChange={(event) => setCrossSourceSearch(event.currentTarget.value)}
+                  onOptionSelect={(_, data) => {
+                    const relation = crossSourceRelations.find((item) => `${item.schema}.${item.name}` === data.optionValue);
+                    if (!relation) return;
+                    setCrossSourceSearch(`${relation.schema}.${relation.name}`);
+                    selectCrossSourceRelation(relation);
+                  }}
+                >
+                  {crossSourceTableOptions.map((qualified) => <Option key={qualified} value={qualified}>{qualified}</Option>)}
+                </Combobox>
                 <textarea className="omni-cross-source-sql" aria-label={t("sourceSql")} value={crossSourceSql} onChange={(event) => setCrossSourceSql(event.target.value)} rows={4} placeholder="SELECT * FROM schema.table WHERE ..." />
                 <label><input type="checkbox" checked={crossSourceAllRows} onChange={(event) => setCrossSourceAllRows(event.target.checked)} /> {t("importAllRows")}</label>
                 {!crossSourceAllRows && <Input type="number" min={1} max={1000000} aria-label={t("rowLimit")} value={String(crossSourceLimit)} onChange={(_, data) => setCrossSourceLimit(Math.max(1, Math.min(1000000, Number(data.value) || 1)))} />}

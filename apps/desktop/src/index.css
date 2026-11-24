@@ -103,7 +103,9 @@ body {
 .omni-s3-browser-heading svg { color: var(--colorBrandForeground1); }
 .omni-s3-field-label { margin-bottom: 5px; color: var(--colorNeutralForeground2); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .omni-s3-connection-select { box-sizing: border-box; width: 100%; min-height: 32px; padding: 4px 8px; border: 1px solid var(--colorNeutralStroke1); border-radius: 5px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; }
-.omni-cross-source-select, .omni-cross-source-sql { box-sizing: border-box; width: 100%; padding: 7px 9px; border: 1px solid var(--colorNeutralStroke1); border-radius: 5px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; }
+.omni-cross-source-picker { width: 100%; min-width: 0; }
+.omni-cross-source-picker .fui-Combobox__input { width: 100%; }
+.omni-cross-source-sql { box-sizing: border-box; width: 100%; padding: 7px 9px; border: 1px solid var(--colorNeutralStroke1); border-radius: 5px; background: var(--colorNeutralBackground1); color: var(--colorNeutralForeground1); font: inherit; }
 .omni-cross-source-sql { resize: vertical; min-height: 86px; font-family: Consolas, monospace; }
 .omni-s3-connection-select:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: 1px; }
 .omni-s3-bucket { margin: 7px 0 16px; overflow: hidden; color: var(--colorNeutralForeground3); font: 11px/1.3 Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }

@@ -96,7 +96,8 @@ interface SchemaGroup {
 interface TreeNodeProps {
   label: React.ReactNode;
   icon?: React.ReactNode;
-  children?: React.ReactNode;
+  /** A function is called only while expanded, so collapsed subtrees cost nothing to render. */
+  children?: React.ReactNode | (() => React.ReactNode);
   defaultExpanded?: boolean;
   forceExpanded?: boolean;
   actions?: React.ReactNode;
@@ -107,7 +108,7 @@ interface TreeNodeProps {
 function TreeNode({ label, icon, children, defaultExpanded = false, forceExpanded, actions, onContextMenu, onExpandedChange }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const isExpanded = forceExpanded ?? expanded;
-  const hasChildren = Boolean(children);
+  const hasChildren = typeof children === "function" || Boolean(children);
   return (
     <div style={{ marginLeft: 10, minWidth: 0 }}>
       <div
@@ -143,7 +144,7 @@ function TreeNode({ label, icon, children, defaultExpanded = false, forceExpande
         </div>
         {actions}
       </div>
-      {isExpanded && <div>{children}</div>}
+      {isExpanded && <div>{typeof children === "function" ? children() : children}</div>}
     </div>
   );
 }
@@ -156,6 +157,7 @@ interface MenuItem {
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 640;
 const DEFAULT_WIDTH = 260;
+const SIDEBAR_PAGE_SIZE = 100;
 const WIDTH_KEY = "omni-sql:sidebarWidth";
 
 function relationKey(schema: string, name: string) {
@@ -224,6 +226,7 @@ export function Sidebar({
   const [width, setWidth] = useState(loadWidth);
   const [resizing, setResizing] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [listLimits, setListLimits] = useState<Record<string, number>>({});
   const [indexCache, setIndexCache] = useState<Record<string, { loading: boolean; error: string | null; indexes: IndexInfo[] }>>({});
   const [columnCache, setColumnCache] = useState<Record<string, { loading: boolean; error: string | null; columns: RelationColumn[] }>>({});
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -251,6 +254,7 @@ export function Sidebar({
 
   useEffect(() => {
     setExpanded(new Set());
+    setListLimits({});
     setIndexCache({});
     setColumnCache({});
     setSearchMatches(null);
@@ -444,6 +448,22 @@ export function Sidebar({
   if (!open) return null;
 
   const isSearching = !!search.trim();
+  // A schema can hold thousands of objects; render them in pages so expanding one stays responsive.
+  const renderCapped = <T,>(listKey: string, items: readonly T[], renderItem: (item: T) => React.ReactNode) => {
+    const limit = listLimits[listKey] ?? SIDEBAR_PAGE_SIZE;
+    const remaining = items.length - limit;
+    return <>
+      {items.slice(0, limit).map(renderItem)}
+      {remaining > 0 && <Button
+        appearance="transparent"
+        size="small"
+        className="omni-sidebar-show-more"
+        onClick={() => setListLimits((previous) => ({ ...previous, [listKey]: limit + SIDEBAR_PAGE_SIZE }))}
+      >
+        {tr("showMoreObjects").replace("{count}", String(Math.min(SIDEBAR_PAGE_SIZE, remaining))).replace("{remaining}", String(remaining))}
+      </Button>}
+    </>;
+  };
   const qualified = (schema: string, name: string) => connection?.dialect === "s3" || connection?.dialect === "duckdb" || (connection?.dialect === "mongodb" && mongoSqlMode)
     ? `"${schema.replaceAll('"', '""')}"."${name.replaceAll('"', '""')}"`
     : `${schema}.${name}`;
@@ -604,6 +624,7 @@ export function Sidebar({
                 { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
               ])}
             >
+              {() => <>
               <TreeNode
                   label={`${tr(connection?.dialect === "mongodb" ? "collections" : "tables")} (${g.tables.length})`}
                   icon={<TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
@@ -613,7 +634,7 @@ export function Sidebar({
                     { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
                   ])}
                 >
-                  {g.tables.map((t) => {
+                  {() => renderCapped(`${g.name}\u0000tables`, g.tables, (t) => {
                     const key = relationKey(g.name, t.name);
                     const isOpen = expanded.has(key);
                     const indexState = indexCache[key];
@@ -679,6 +700,7 @@ export function Sidebar({
                               }
                             </>}
                           >
+                            {() => <>
                             <div className="columns">
                               <div className="sub-header"><span>{tr("columns")}{(columnState && !columnState.loading && !columnState.error) || t.columns !== undefined ? ` (${columns.length})` : ""}</span></div>
                               {((columnState?.loading ?? t.columns === undefined)) && <p className="sub-hint">{tr("loading")}</p>}
@@ -749,6 +771,7 @@ export function Sidebar({
                                 </div>
                               )}
                             </div>}
+                            </>}
                           </TreeNode>
                           <button
                             className="obj-expand-trigger"
@@ -770,7 +793,7 @@ export function Sidebar({
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
                 >
-                  {g.views.map((v) => {
+                  {() => renderCapped(`${g.name}\u0000views`, g.views, (v) => {
                     const key = relationKey(g.name, v.name);
                     const isOpen = expanded.has(key);
                     const columnState = columnCache[key];
@@ -822,7 +845,7 @@ export function Sidebar({
                               </Tooltip>
                             </>}
                           >
-                            <div className="columns">
+                            {() => <div className="columns">
                               {(columnState?.loading ?? v.columns === undefined) && <p className="sub-hint">{tr("loading")}</p>}
                               {columnState?.error && <p className="sub-hint error">{columnState.error}</p>}
                               {!columnState?.loading && !columnState?.error && columns.map((c) => {
@@ -835,7 +858,7 @@ export function Sidebar({
                                   </div>
                                 );
                               })}
-                            </div>
+                            </div>}
                           </TreeNode>
                           <button
                             className="obj-expand-trigger"
@@ -858,7 +881,7 @@ export function Sidebar({
                   defaultExpanded={isSearching}
                   forceExpanded={isSearching || undefined}
                 >
-                  {g.functions.map((f) => {
+                  {() => renderCapped(`${g.name}\u0000functions`, g.functions, (f) => {
                     return (
                       <div
                         key={relationKey(g.name, f.name)}
@@ -896,6 +919,7 @@ export function Sidebar({
                   })}
                 </TreeNode>
               )}
+              </>}
             </TreeNode>
           ))
         )}

@@ -172,7 +172,7 @@ function logFailure(method: string, error: unknown, elapsedMs: number): void {
   const jdbcDetail = jdbcDebugDetail(method, error);
   // Driver codes (ETIMEOUT, ESOCKET, ELOGIN…) carry no user data and tell network, TLS and auth failures apart.
   const rawCode = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined;
-  const code = typeof rawCode === "string" && /^[A-Z0-9_]{1,40}$/.test(rawCode) ? ` code=${rawCode}` : "";
+  const code = typeof rawCode === "string" && /^[A-Z0-9_-]{1,40}$/.test(rawCode) ? ` code=${rawCode}` : "";
   console.error(`[omni-sql] rpc failed method=${logSafe(method)} error=${logSafe(name)}${code} elapsedMs=${elapsedMs}${jdbcDetail}`);
 }
 

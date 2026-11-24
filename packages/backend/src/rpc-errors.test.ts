@@ -13,6 +13,11 @@ test("safeOracleDatabaseError exposes a structured single-line ORA message", () 
   assert.equal(safe.message, "ORA-01031: insufficient privileges");
 });
 
+test("safeOracleDatabaseError exposes node-oracledb driver errors", () => {
+  const error = Object.assign(new Error("NJS-010: unsupported data type 2016 in column 4 (ROWID)"), { code: "NJS-010" });
+  assert.equal(safeOracleDatabaseError(error)?.message, "NJS-010: unsupported data type 2016 in column 4 (ROWID)");
+});
+
 test("safeOracleDatabaseError rejects unstructured and mismatched errors", () => {
   assert.equal(safeOracleDatabaseError(new Error("password=secret")), undefined);
   assert.equal(safeOracleDatabaseError(Object.assign(new Error("ORA-01031: denied"), { code: "NJS-500" })), undefined);
