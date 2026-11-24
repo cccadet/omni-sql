@@ -675,7 +675,8 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     .map((connection) => {
       const environment = findConnectionEnvironment(connection, environments);
       const environmentTag = environment ? environmentName(environment, t).trim() || environment.id : "";
-      return { id: connection.id, text: `${environmentTag ? `[${environmentTag}] ` : ""}${connection.label} (${DIALECT_LABELS[connection.dialect] ?? connection.dialect})` };
+      const prefix = environmentTag ? "[" + environmentTag + "] " : "";
+      return { id: connection.id, text: `${prefix}${connection.label} (${DIALECT_LABELS[connection.dialect] ?? connection.dialect})` };
     }), [connections, environments, t]);
   // Rendering thousands of options makes the popup sluggish; typing narrows the list.
   const crossSourceTableOptions = useMemo(() => {

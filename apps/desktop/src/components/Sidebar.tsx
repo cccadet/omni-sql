@@ -477,6 +477,309 @@ export function Sidebar({
   const metadataAgeLabel = metadataFreshness === "unsynced" ? tr("notSyncedShort") : metadataAge ? tr("syncedAgo").replace("{age}", metadataAge) : tr("syncedJustNow");
   const metadataTooltip = `${metadataRefreshFailed ? `${tr("error")}: ${tr("refreshMetadata")}` : metadataFreshness === "today" ? tr("metadataUpdatedToday") : metadataFreshness === "stale" ? tr("metadataStale") : tr("metadataNotSynced")}${metadataTimestamp ? ` · ${tr("lastSync")}: ${metadataTimestamp}` : ""}`;
 
+  // Subtree renderers live here, not inline, so lazily rendered children stay shallow.
+  const renderTableItem = (g: SchemaGroup, t: RelationInfo) => {
+    const key = relationKey(g.name, t.name);
+    const isOpen = expanded.has(key);
+    const indexState = indexCache[key];
+    const columnState = columnCache[key];
+    const columns = columnState?.columns ?? t.columns ?? [];
+    return (
+      <div key={key} style={{ marginLeft: 10 }}>
+        <div
+          className={`obj-row${connection?.dialect === "s3" ? " omni-s3-object-row" : ""}`}
+          role="presentation"
+          onContextMenu={(e) =>
+            openMenu(e, connection?.dialect === "s3" || connection?.dialect === "mongodb" ? [
+              { label: tr("openSelectTab"), action: () => openTable(g.name, t.name) },
+              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
+            ] : connection?.dialect === "duckdb" ? [
+              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
+              { label: tr("analysisDeleteDataset"), action: () => onDeleteLocalDataset?.(t.name) },
+            ] : [
+              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
+              { label: tr("viewStructure"), action: () => setStructureTable({ schema: g.name, table: t.name }) },
+              { label: tr("generateDdl"), action: () => void openDefinition("table", g.name, t.name) },
+            ])
+          }
+        >
+          <TreeNode
+            label={
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }} onDoubleClick={() => openTable(g.name, t.name)}>
+                <TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span title={connection?.dialect === "s3" ? `${g.name}.${t.name}${t.description ? ` — ${t.description}` : ""}` : t.description}>{t.name}</span>
+                </span>
+                {connection?.dialect === "s3" && t.format && <span className={`omni-s3-format is-${t.format}`}>{t.format}</span>}
+              </span>
+            }
+            defaultExpanded={false}
+            forceExpanded={isOpen || undefined}
+            onExpandedChange={(nextExpanded) => {
+              if (nextExpanded) {
+                void ensureColumns(g.name, t.name);
+                if (connection?.dialect !== "s3" && connection?.dialect !== "duckdb") void ensureIndexes(g.name, t.name);
+              }
+            }}
+            actions={<>
+              <Tooltip content={tr("openObjectTab").replace("{object}", `${g.name}.${t.name}`)} relationship="label">
+                <Button appearance="transparent" size="small" icon={<OpenRegular fontSize={13} />} aria-label={tr("openObjectTab").replace("{object}", `${g.name}.${t.name}`)} onClick={() => openTable(g.name, t.name)} />
+              </Tooltip>
+              {connection?.dialect === "duckdb" ? <Tooltip content={tr("analysisDeleteDataset")} relationship="label">
+              <Button appearance="transparent" size="small" icon={<DeleteRegular fontSize={13} />} onClick={(e) => { e.stopPropagation(); onDeleteLocalDataset?.(t.name); }} aria-label={`${tr("analysisDeleteDataset")}: ${t.name}`} />
+            </Tooltip> :
+              <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)} relationship="label">
+                <Button
+                  appearance="transparent"
+                  size="small"
+                  icon={<ArrowEnterRegular fontSize={11} />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    insertQualified(g.name, t.name);
+                  }}
+                  style={{ padding: 0, height: 20, minWidth: 0 }}
+                  aria-label={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)}
+                />
+              </Tooltip>
+              }
+            </>}
+          >
+            {() => <>
+            <div className="columns">
+              <div className="sub-header"><span>{tr("columns")}{(columnState && !columnState.loading && !columnState.error) || t.columns !== undefined ? ` (${columns.length})` : ""}</span></div>
+              {((columnState?.loading ?? t.columns === undefined)) && <p className="sub-hint">{tr("loading")}</p>}
+              {columnState?.error && <p className="sub-hint error">{columnState.error}</p>}
+              {!columnState?.loading && !columnState?.error && columns.map((c) => {
+                const ColumnIcon = typeIcon(c.dataType);
+                return (
+                  <div
+                    key={c.name}
+                    className="column"
+                    title={`${c.name}: ${c.dataType}${c.nullable ? "" : " NOT NULL"}${c.isPrimaryKey ? " — PK" : ""}${c.foreignKeyTo ? ` — FK → ${c.foreignKeyTo.schema}.${c.foreignKeyTo.table}.${c.foreignKeyTo.column}` : ""}${c.description ? `\n${c.description}` : ""}`}
+                  >
+                    {c.isPrimaryKey ? (
+                      <>
+                        <LinkRegular fontSize={10} style={{ color: tokens.colorPaletteDarkOrangeForeground1 }} />
+                        <span className="badge badge-pk">PK</span>
+                      </>
+                    ) : c.foreignKeyTo ? (
+                      <>
+                        <LinkRegular fontSize={10} style={{ color: tokens.colorPaletteBlueForeground2 }} />
+                        <span className="badge badge-fk">FK</span>
+                      </>
+                    ) : (
+                      <ColumnIcon fontSize={10} style={{ color: tokens.colorNeutralForeground3 }} />
+                    )}
+                    <span className="col-name">{c.name}</span>
+                    <span className="col-type">{c.dataType}</span>
+                  </div>
+                );
+              })}
+            </div>
+            {connection?.dialect !== "s3" && connection?.dialect !== "duckdb" && connection?.dialect !== "mongodb" && <div className="indexes">
+              <div className="sub-header">
+                <span>
+                  {tr("indexes")}
+                  {indexState && !indexState.loading && !indexState.error ? ` (${indexState.indexes.length})` : ""}
+                </span>
+              </div>
+              {(!indexState || indexState.loading) && (
+                <p className="sub-hint">{tr("loading")}</p>
+              )}
+              {indexState?.error && (
+                <p className="sub-hint error">{indexState.error}</p>
+              )}
+              {indexState && !indexState.loading && !indexState.error && indexState.indexes.length === 0 && (
+                <p className="sub-hint">{tr("noIndexes")}</p>
+              )}
+              {indexState && !indexState.loading && !indexState.error && indexState.indexes.length > 0 && (
+                <div className="columns">
+                  {indexState.indexes.map((idx) => (
+                    <div
+                      key={idx.name}
+                      className="column"
+                      title={`${idx.name}: ${idx.columns.join(", ")}`}
+                    >
+                      {idx.primary ? (
+                        <>
+                          <LinkRegular fontSize={10} style={{ color: tokens.colorPaletteDarkOrangeForeground1 }} />
+                          <span className="badge badge-pk">PK</span>
+                        </>
+                      ) : (
+                        <span className="col-dot" />
+                      )}
+                      <span className="col-name">{idx.name}</span>
+                      <span className="col-type">{idx.unique ? "UNIQUE " : ""}({idx.columns.join(", ")})</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>}
+            </>}
+          </TreeNode>
+          <button
+            className="obj-expand-trigger"
+            type="button"
+            aria-label={tr("expandCollapse")}
+            title={tr("expandCollapse")}
+            onClick={() => toggleExpand(g.name, t.name, connection?.dialect !== "s3" && connection?.dialect !== "duckdb")}
+            tabIndex={-1}
+          />
+        </div>
+      </div>
+    );
+  };
+  const renderViewItem = (g: SchemaGroup, v: RelationInfo) => {
+    const key = relationKey(g.name, v.name);
+    const isOpen = expanded.has(key);
+    const columnState = columnCache[key];
+    const columns = columnState?.columns ?? v.columns ?? [];
+    return (
+      <div key={key} style={{ marginLeft: 10 }}>
+        <div
+          className="obj-row"
+          role="presentation"
+          onContextMenu={(e) =>
+            openMenu(e, connection?.dialect === "mongodb" ? [
+              { label: tr("openCollection"), action: () => openTable(g.name, v.name) },
+            ] : [
+              { label: tr("insertInEditor"), action: () => insertQualified(g.name, v.name) },
+              { label: tr("viewDefinition"), action: () => void openDefinition("view", g.name, v.name) },
+            ])
+          }
+        >
+          <TreeNode
+            label={
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <EyeRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span title={v.description}>{v.name}</span>
+                </span>
+              </span>
+            }
+            defaultExpanded={false}
+            forceExpanded={isOpen || undefined}
+            onExpandedChange={(nextExpanded) => {
+              if (nextExpanded) void ensureColumns(g.name, v.name);
+            }}
+            actions={<>
+              <Tooltip content={tr("openObjectTab").replace("{object}", `${g.name}.${v.name}`)} relationship="label">
+                <Button appearance="transparent" size="small" icon={<OpenRegular fontSize={13} />} aria-label={tr("openObjectTab").replace("{object}", `${g.name}.${v.name}`)} onClick={() => openTable(g.name, v.name)} />
+              </Tooltip>
+              <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)} relationship="label">
+                <Button
+                  appearance="transparent"
+                  size="small"
+                  icon={<ArrowEnterRegular fontSize={11} />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    insertQualified(g.name, v.name);
+                  }}
+                  style={{ padding: 0, height: 20, minWidth: 0 }}
+                  aria-label={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)}
+                />
+              </Tooltip>
+            </>}
+          >
+            {() => <div className="columns">
+              {(columnState?.loading ?? v.columns === undefined) && <p className="sub-hint">{tr("loading")}</p>}
+              {columnState?.error && <p className="sub-hint error">{columnState.error}</p>}
+              {!columnState?.loading && !columnState?.error && columns.map((c) => {
+                const ColumnIcon = typeIcon(c.dataType);
+                return (
+                  <div key={c.name} className="column" title={c.description}>
+                    <ColumnIcon fontSize={10} style={{ color: tokens.colorNeutralForeground3 }} />
+                    <span className="col-name">{c.name}</span>
+                    <span className="col-type">{c.dataType}</span>
+                  </div>
+                );
+              })}
+            </div>}
+          </TreeNode>
+          <button
+            className="obj-expand-trigger"
+            type="button"
+            aria-label={tr("expandCollapse")}
+            title={tr("expandCollapse")}
+            onClick={() => toggleExpand(g.name, v.name, false)}
+            tabIndex={-1}
+          />
+        </div>
+      </div>
+    );
+  };
+  const renderFunctionItem = (g: SchemaGroup, f: FunctionDef) => {
+    return (
+      <div
+        key={relationKey(g.name, f.name)}
+        className="obj-row"
+        role="presentation"
+        style={{ marginLeft: 10 }}
+        onContextMenu={(e) =>
+          openMenu(e, [
+            { label: tr("insertInEditor"), action: () => insertQualified(g.name, f.name) },
+            { label: tr("viewDefinition"), action: () => void openDefinition("function", g.name, f.name) },
+          ])
+        }
+      >
+        <NumberSymbolRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
+        <Button
+          appearance="transparent"
+          size="small"
+          onClick={() => insertQualified(g.name, f.name)}
+          style={{ padding: 0, height: 20, minWidth: 0, flex: 1, justifyContent: "flex-start" }}
+        >
+          <span className="obj-name">{f.name}</span>
+        </Button>
+        <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${f.name}`)} relationship="label">
+          <Button
+            appearance="transparent"
+            size="small"
+            icon={<ArrowEnterRegular fontSize={11} />}
+            onClick={() => insertQualified(g.name, f.name)}
+            style={{ padding: 0, height: 20, minWidth: 0 }}
+            aria-label={tr("insertObject").replace("{object}", `${g.name}.${f.name}`)}
+          />
+        </Tooltip>
+      </div>
+    );
+  };
+  const renderSchemaContent = (g: SchemaGroup) => (
+    <>
+      <TreeNode
+          label={`${tr(connection?.dialect === "mongodb" ? "collections" : "tables")} (${g.tables.length})`}
+          icon={<TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
+          defaultExpanded={isSearching}
+          forceExpanded={isSearching || undefined}
+          onContextMenu={connection?.dialect === "s3" || connection?.dialect === "mongodb" ? undefined : (event) => openMenu(event, [
+            { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
+          ])}
+        >
+          {() => renderCapped(`${g.name}\u0000tables`, g.tables, (t) => renderTableItem(g, t))}
+        </TreeNode>
+      {g.views.length > 0 && (
+        <TreeNode
+          label={`${tr("views")} (${g.views.length})`}
+          icon={<EyeRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
+          defaultExpanded={isSearching}
+          forceExpanded={isSearching || undefined}
+        >
+          {() => renderCapped(`${g.name}\u0000views`, g.views, (v) => renderViewItem(g, v))}
+        </TreeNode>
+      )}
+      {g.functions.length > 0 && (
+        <TreeNode
+          label={`${tr("functions")} (${g.functions.length})`}
+          icon={<NumberSymbolRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
+          defaultExpanded={isSearching}
+          forceExpanded={isSearching || undefined}
+        >
+          {() => renderCapped(`${g.name}\u0000functions`, g.functions, (f) => renderFunctionItem(g, f))}
+        </TreeNode>
+      )}
+    </>
+  );
+
   return (
     <Card
       ref={sidebarRef}
@@ -624,302 +927,7 @@ export function Sidebar({
                 { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
               ])}
             >
-              {() => <>
-              <TreeNode
-                  label={`${tr(connection?.dialect === "mongodb" ? "collections" : "tables")} (${g.tables.length})`}
-                  icon={<TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
-                  defaultExpanded={isSearching}
-                  forceExpanded={isSearching || undefined}
-                  onContextMenu={connection?.dialect === "s3" || connection?.dialect === "mongodb" ? undefined : (event) => openMenu(event, [
-                    { label: tr("createTable"), action: () => setCreateTableSchema(g.name) },
-                  ])}
-                >
-                  {() => renderCapped(`${g.name}\u0000tables`, g.tables, (t) => {
-                    const key = relationKey(g.name, t.name);
-                    const isOpen = expanded.has(key);
-                    const indexState = indexCache[key];
-                    const columnState = columnCache[key];
-                    const columns = columnState?.columns ?? t.columns ?? [];
-                    return (
-                      <div key={key} style={{ marginLeft: 10 }}>
-                        <div
-                          className={`obj-row${connection?.dialect === "s3" ? " omni-s3-object-row" : ""}`}
-                          role="presentation"
-                          onContextMenu={(e) =>
-                            openMenu(e, connection?.dialect === "s3" || connection?.dialect === "mongodb" ? [
-                              { label: tr("openSelectTab"), action: () => openTable(g.name, t.name) },
-                              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
-                            ] : connection?.dialect === "duckdb" ? [
-                              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
-                              { label: tr("analysisDeleteDataset"), action: () => onDeleteLocalDataset?.(t.name) },
-                            ] : [
-                              { label: tr("insertInEditor"), action: () => insertQualified(g.name, t.name) },
-                              { label: tr("viewStructure"), action: () => setStructureTable({ schema: g.name, table: t.name }) },
-                              { label: tr("generateDdl"), action: () => void openDefinition("table", g.name, t.name) },
-                            ])
-                          }
-                        >
-                          <TreeNode
-                            label={
-                              <span style={{ display: "flex", alignItems: "center", gap: 4 }} onDoubleClick={() => openTable(g.name, t.name)}>
-                                <TableRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
-                                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  <span title={connection?.dialect === "s3" ? `${g.name}.${t.name}${t.description ? ` — ${t.description}` : ""}` : t.description}>{t.name}</span>
-                                </span>
-                                {connection?.dialect === "s3" && t.format && <span className={`omni-s3-format is-${t.format}`}>{t.format}</span>}
-                              </span>
-                            }
-                            defaultExpanded={false}
-                            forceExpanded={isOpen || undefined}
-                            onExpandedChange={(nextExpanded) => {
-                              if (nextExpanded) {
-                                void ensureColumns(g.name, t.name);
-                                if (connection?.dialect !== "s3" && connection?.dialect !== "duckdb") void ensureIndexes(g.name, t.name);
-                              }
-                            }}
-                            actions={<>
-                              <Tooltip content={tr("openObjectTab").replace("{object}", `${g.name}.${t.name}`)} relationship="label">
-                                <Button appearance="transparent" size="small" icon={<OpenRegular fontSize={13} />} aria-label={tr("openObjectTab").replace("{object}", `${g.name}.${t.name}`)} onClick={() => openTable(g.name, t.name)} />
-                              </Tooltip>
-                              {connection?.dialect === "duckdb" ? <Tooltip content={tr("analysisDeleteDataset")} relationship="label">
-                              <Button appearance="transparent" size="small" icon={<DeleteRegular fontSize={13} />} onClick={(e) => { e.stopPropagation(); onDeleteLocalDataset?.(t.name); }} aria-label={`${tr("analysisDeleteDataset")}: ${t.name}`} />
-                            </Tooltip> :
-                              <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)} relationship="label">
-                                <Button
-                                  appearance="transparent"
-                                  size="small"
-                                  icon={<ArrowEnterRegular fontSize={11} />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    insertQualified(g.name, t.name);
-                                  }}
-                                  style={{ padding: 0, height: 20, minWidth: 0 }}
-                                  aria-label={tr("insertObject").replace("{object}", `${g.name}.${t.name}`)}
-                                />
-                              </Tooltip>
-                              }
-                            </>}
-                          >
-                            {() => <>
-                            <div className="columns">
-                              <div className="sub-header"><span>{tr("columns")}{(columnState && !columnState.loading && !columnState.error) || t.columns !== undefined ? ` (${columns.length})` : ""}</span></div>
-                              {((columnState?.loading ?? t.columns === undefined)) && <p className="sub-hint">{tr("loading")}</p>}
-                              {columnState?.error && <p className="sub-hint error">{columnState.error}</p>}
-                              {!columnState?.loading && !columnState?.error && columns.map((c) => {
-                                const ColumnIcon = typeIcon(c.dataType);
-                                return (
-                                  <div
-                                    key={c.name}
-                                    className="column"
-                                    title={`${c.name}: ${c.dataType}${c.nullable ? "" : " NOT NULL"}${c.isPrimaryKey ? " — PK" : ""}${c.foreignKeyTo ? ` — FK → ${c.foreignKeyTo.schema}.${c.foreignKeyTo.table}.${c.foreignKeyTo.column}` : ""}${c.description ? `\n${c.description}` : ""}`}
-                                  >
-                                    {c.isPrimaryKey ? (
-                                      <>
-                                        <LinkRegular fontSize={10} style={{ color: tokens.colorPaletteDarkOrangeForeground1 }} />
-                                        <span className="badge badge-pk">PK</span>
-                                      </>
-                                    ) : c.foreignKeyTo ? (
-                                      <>
-                                        <LinkRegular fontSize={10} style={{ color: tokens.colorPaletteBlueForeground2 }} />
-                                        <span className="badge badge-fk">FK</span>
-                                      </>
-                                    ) : (
-                                      <ColumnIcon fontSize={10} style={{ color: tokens.colorNeutralForeground3 }} />
-                                    )}
-                                    <span className="col-name">{c.name}</span>
-                                    <span className="col-type">{c.dataType}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            {connection?.dialect !== "s3" && connection?.dialect !== "duckdb" && connection?.dialect !== "mongodb" && <div className="indexes">
-                              <div className="sub-header">
-                                <span>
-                                  {tr("indexes")}
-                                  {indexState && !indexState.loading && !indexState.error ? ` (${indexState.indexes.length})` : ""}
-                                </span>
-                              </div>
-                              {(!indexState || indexState.loading) && (
-                                <p className="sub-hint">{tr("loading")}</p>
-                              )}
-                              {indexState?.error && (
-                                <p className="sub-hint error">{indexState.error}</p>
-                              )}
-                              {indexState && !indexState.loading && !indexState.error && indexState.indexes.length === 0 && (
-                                <p className="sub-hint">{tr("noIndexes")}</p>
-                              )}
-                              {indexState && !indexState.loading && !indexState.error && indexState.indexes.length > 0 && (
-                                <div className="columns">
-                                  {indexState.indexes.map((idx) => (
-                                    <div
-                                      key={idx.name}
-                                      className="column"
-                                      title={`${idx.name}: ${idx.columns.join(", ")}`}
-                                    >
-                                      {idx.primary ? (
-                                        <>
-                                          <LinkRegular fontSize={10} style={{ color: tokens.colorPaletteDarkOrangeForeground1 }} />
-                                          <span className="badge badge-pk">PK</span>
-                                        </>
-                                      ) : (
-                                        <span className="col-dot" />
-                                      )}
-                                      <span className="col-name">{idx.name}</span>
-                                      <span className="col-type">{idx.unique ? "UNIQUE " : ""}({idx.columns.join(", ")})</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>}
-                            </>}
-                          </TreeNode>
-                          <button
-                            className="obj-expand-trigger"
-                            type="button"
-                            aria-label={tr("expandCollapse")}
-                            title={tr("expandCollapse")}
-                            onClick={() => toggleExpand(g.name, t.name, connection?.dialect !== "s3" && connection?.dialect !== "duckdb")}
-                            tabIndex={-1}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </TreeNode>
-              {g.views.length > 0 && (
-                <TreeNode
-                  label={`${tr("views")} (${g.views.length})`}
-                  icon={<EyeRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
-                  defaultExpanded={isSearching}
-                  forceExpanded={isSearching || undefined}
-                >
-                  {() => renderCapped(`${g.name}\u0000views`, g.views, (v) => {
-                    const key = relationKey(g.name, v.name);
-                    const isOpen = expanded.has(key);
-                    const columnState = columnCache[key];
-                    const columns = columnState?.columns ?? v.columns ?? [];
-                    return (
-                      <div key={key} style={{ marginLeft: 10 }}>
-                        <div
-                          className="obj-row"
-                          role="presentation"
-                          onContextMenu={(e) =>
-                            openMenu(e, connection?.dialect === "mongodb" ? [
-                              { label: tr("openCollection"), action: () => openTable(g.name, v.name) },
-                            ] : [
-                              { label: tr("insertInEditor"), action: () => insertQualified(g.name, v.name) },
-                              { label: tr("viewDefinition"), action: () => void openDefinition("view", g.name, v.name) },
-                            ])
-                          }
-                        >
-                          <TreeNode
-                            label={
-                              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                <EyeRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
-                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  <span title={v.description}>{v.name}</span>
-                                </span>
-                              </span>
-                            }
-                            defaultExpanded={false}
-                            forceExpanded={isOpen || undefined}
-                            onExpandedChange={(nextExpanded) => {
-                              if (nextExpanded) void ensureColumns(g.name, v.name);
-                            }}
-                            actions={<>
-                              <Tooltip content={tr("openObjectTab").replace("{object}", `${g.name}.${v.name}`)} relationship="label">
-                                <Button appearance="transparent" size="small" icon={<OpenRegular fontSize={13} />} aria-label={tr("openObjectTab").replace("{object}", `${g.name}.${v.name}`)} onClick={() => openTable(g.name, v.name)} />
-                              </Tooltip>
-                              <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)} relationship="label">
-                                <Button
-                                  appearance="transparent"
-                                  size="small"
-                                  icon={<ArrowEnterRegular fontSize={11} />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    insertQualified(g.name, v.name);
-                                  }}
-                                  style={{ padding: 0, height: 20, minWidth: 0 }}
-                                  aria-label={tr("insertObject").replace("{object}", `${g.name}.${v.name}`)}
-                                />
-                              </Tooltip>
-                            </>}
-                          >
-                            {() => <div className="columns">
-                              {(columnState?.loading ?? v.columns === undefined) && <p className="sub-hint">{tr("loading")}</p>}
-                              {columnState?.error && <p className="sub-hint error">{columnState.error}</p>}
-                              {!columnState?.loading && !columnState?.error && columns.map((c) => {
-                                const ColumnIcon = typeIcon(c.dataType);
-                                return (
-                                  <div key={c.name} className="column" title={c.description}>
-                                    <ColumnIcon fontSize={10} style={{ color: tokens.colorNeutralForeground3 }} />
-                                    <span className="col-name">{c.name}</span>
-                                    <span className="col-type">{c.dataType}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>}
-                          </TreeNode>
-                          <button
-                            className="obj-expand-trigger"
-                            type="button"
-                            aria-label={tr("expandCollapse")}
-                            title={tr("expandCollapse")}
-                            onClick={() => toggleExpand(g.name, v.name, false)}
-                            tabIndex={-1}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </TreeNode>
-              )}
-              {g.functions.length > 0 && (
-                <TreeNode
-                  label={`${tr("functions")} (${g.functions.length})`}
-                  icon={<NumberSymbolRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />}
-                  defaultExpanded={isSearching}
-                  forceExpanded={isSearching || undefined}
-                >
-                  {() => renderCapped(`${g.name}\u0000functions`, g.functions, (f) => {
-                    return (
-                      <div
-                        key={relationKey(g.name, f.name)}
-                        className="obj-row"
-                        role="presentation"
-                        style={{ marginLeft: 10 }}
-                        onContextMenu={(e) =>
-                          openMenu(e, [
-                            { label: tr("insertInEditor"), action: () => insertQualified(g.name, f.name) },
-                            { label: tr("viewDefinition"), action: () => void openDefinition("function", g.name, f.name) },
-                          ])
-                        }
-                      >
-                        <NumberSymbolRegular fontSize={12} style={{ color: tokens.colorNeutralForeground2 }} />
-                        <Button
-                          appearance="transparent"
-                          size="small"
-                          onClick={() => insertQualified(g.name, f.name)}
-                          style={{ padding: 0, height: 20, minWidth: 0, flex: 1, justifyContent: "flex-start" }}
-                        >
-                          <span className="obj-name">{f.name}</span>
-                        </Button>
-                        <Tooltip content={tr("insertObject").replace("{object}", `${g.name}.${f.name}`)} relationship="label">
-                          <Button
-                            appearance="transparent"
-                            size="small"
-                            icon={<ArrowEnterRegular fontSize={11} />}
-                            onClick={() => insertQualified(g.name, f.name)}
-                            style={{ padding: 0, height: 20, minWidth: 0 }}
-                            aria-label={tr("insertObject").replace("{object}", `${g.name}.${f.name}`)}
-                          />
-                        </Tooltip>
-                      </div>
-                    );
-                  })}
-                </TreeNode>
-              )}
-              </>}
+              {() => renderSchemaContent(g)}
             </TreeNode>
           ))
         )}
