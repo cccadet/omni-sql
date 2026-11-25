@@ -9,6 +9,7 @@
   <a href="https://sonarcloud.io/summary/new_code?id=cccadet_omni-sql"><img src="https://sonarcloud.io/api/project_badges/measure?project=cccadet_omni-sql&metric=alert_status" alt="Quality gate status" /></a>
   <a href="https://github.com/cccadet/omni-sql/releases/latest"><img src="https://img.shields.io/github/v/release/cccadet/omni-sql" alt="Latest release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
+  <a href="https://glama.ai/mcp/servers/cccadet/omni-sql"><img src="https://glama.ai/mcp/servers/cccadet/omni-sql/badges/score.svg" alt="cccadet/omni-sql MCP server on Glama" /></a>
 </p>
 
 <p align="center"><sub>Early-stage software · Windows x64, Linux amd64 and macOS Apple Silicon / Intel</sub></p>
