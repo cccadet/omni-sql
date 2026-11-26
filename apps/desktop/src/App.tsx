@@ -47,7 +47,7 @@ import { basenameNoExt, exportConnectionsFile, pickAnalysisExportPath, pickAnaly
 import { useLanguage, type TranslationKey } from "./i18n";
 import { useCsvOptions } from "./components/CsvOptionsDialog";
 import { McpUiBridge, type McpExecutionOutcome, type McpUiConnection, type McpUiState } from "./lib/mcp-ui-bridge";
-import { environmentName, findConnectionEnvironment } from "./components/Environments";
+import { EnvironmentBadge, environmentName, findConnectionEnvironment } from "./components/Environments";
 import { useEnvironments, type EnvironmentDefinition } from "./lib/environments";
 import { localizeSuggestionLabels } from "./lib/localize-suggestions";
 import { cancelAnalysis, dropAnalysisDataset, exportAnalysis, getAnalysisOperationStatus, importAnalysisFile, importQueryResult, importQuerySource, importS3CatalogQuery, listAnalysisDatasets, listAnalysisS3, runMongoSql, runAnalysis, runS3CatalogQuery, suggestAnalysisDatasetName, type AnalysisOperationStatus, type DatasetRef } from "./lib/analysis";
@@ -675,9 +675,10 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
     .map((connection) => {
       const environment = findConnectionEnvironment(connection, environments);
       const environmentTag = environment ? environmentName(environment, t).trim() || environment.id : "";
-      const prefix = environmentTag ? "[" + environmentTag + "] " : "";
-      return { id: connection.id, text: `${prefix}${connection.label} (${DIALECT_LABELS[connection.dialect] ?? connection.dialect})` };
+      const label = `${connection.label} (${DIALECT_LABELS[connection.dialect] ?? connection.dialect})`;
+      return { id: connection.id, connection, label, text: environmentTag ? `${label} · ${environmentTag}` : label };
     }), [connections, environments, t]);
+  const selectedCrossSourceConnection = crossSourceConnectionOptions.find((option) => option.id === crossSourceConnectionId);
   // Rendering thousands of options makes the popup sluggish; typing narrows the list.
   const crossSourceTableOptions = useMemo(() => {
     const search = crossSourceSearch.trim().toLowerCase();
@@ -2007,11 +2008,12 @@ export default function App({ themeName: name, onToggleTheme: toggle, density, o
                 className="omni-cross-source-picker"
                 aria-label={t("sourceDatabase")}
                 placeholder={t("ducklakeSelectConnection")}
-                value={crossSourceConnectionOptions.find((option) => option.id === crossSourceConnectionId)?.text ?? ""}
+                value={selectedCrossSourceConnection?.text ?? ""}
+                button={selectedCrossSourceConnection ? { children: <span className="omni-connection-option"><EnvironmentBadge connection={selectedCrossSourceConnection.connection} />{selectedCrossSourceConnection.label}</span> } : undefined}
                 selectedOptions={crossSourceConnectionId ? [crossSourceConnectionId] : []}
                 onOptionSelect={(_, data) => { setCrossSourceConnectionId(data.optionValue ?? ""); setCrossSourceSql(""); setCrossSourceSearch(""); setCrossSourceError(null); }}
               >
-                {crossSourceConnectionOptions.map((option) => <Option key={option.id} value={option.id} text={option.text}>{option.text}</Option>)}
+                {crossSourceConnectionOptions.map((option) => <Option key={option.id} value={option.id} text={option.text}><span className="omni-connection-option"><EnvironmentBadge connection={option.connection} />{option.label}</span></Option>)}
               </Dropdown>
               {crossSourceConnectionId && <>
                 <Combobox
