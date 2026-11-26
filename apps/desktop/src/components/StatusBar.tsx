@@ -76,6 +76,7 @@ export function StatusBar({ compactConnection = false, connection, result, curso
     mariadb: "MariaDB",
     sqlserver: "SQL Server",
     oracle: "Oracle",
+    sqlite: "SQLite",
     "jdbc-generic": "JDBC",
     odbc: "ODBC",
     s3: "S3",

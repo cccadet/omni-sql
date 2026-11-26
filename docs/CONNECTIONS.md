@@ -17,10 +17,10 @@ dialog.
 
 The connection dialog walks through:
 
-1. **Database type:** PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, MongoDB,
-   S3, generic JDBC or ODBC.
+1. **Database type:** PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, SQLite,
+   MongoDB, S3, generic JDBC or ODBC.
 2. **Connection details:** host, port, database or service, user and password,
-   or a JDBC URL / ODBC connection string.
+   a SQLite file, or a JDBC URL / ODBC connection string.
 3. **Options:** folder, environment, SSL, **MCP access** and which schemas to
    load.
 

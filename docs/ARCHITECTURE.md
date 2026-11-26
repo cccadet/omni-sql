@@ -37,8 +37,8 @@ flowchart LR
 - **Metadata cache:** SQLite via `node:sqlite`. Passwords use the OS keyring;
   a file fallback exists only for development and must be enabled explicitly.
 - **Native adapters:** PostgreSQL (`pg`), MySQL/MariaDB (`mysql2/promise`),
-  SQL Server (`mssql`/Tedious), Oracle (`oracledb` thin mode) and experimental
-  ODBC (`odbc`). MongoDB uses the native `mongodb` driver; see [MONGODB.md](MONGODB.md).
+  SQL Server (`mssql`/Tedious), Oracle (`oracledb` thin mode), SQLite
+  (built-in `node:sqlite`) and experimental ODBC (`odbc`). MongoDB uses the native `mongodb` driver; see [MONGODB.md](MONGODB.md).
 - **JVM sidecar:** Kotlin + Apache Calcite. Resolves CTE output columns for
   tier-2 autocomplete and loads user-supplied JDBC drivers. See its
   [README](../services/jvm-sidecar/README.md).

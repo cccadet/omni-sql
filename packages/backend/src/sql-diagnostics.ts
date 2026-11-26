@@ -31,6 +31,7 @@ function polyglotDialect(dialect: DialectId): Dialect {
     case "mariadb": return Dialect.MySQL;
     case "sqlserver": return Dialect.TSQL;
     case "oracle": return Dialect.Oracle;
+    case "sqlite": return Dialect.SQLite;
     default: return Dialect.Generic;
   }
 }
@@ -65,7 +66,7 @@ export function diagnosePolyglotSyntaxError(
   target: DialectId,
   database: readonly SqlDiagnostic[],
 ): SqlDiagnostic[] {
-  if (!sql.trim() || ![...POLYGLOT_SOURCE_DIALECTS, "mariadb" as const].includes(target) ||
+  if (!sql.trim() || ![...POLYGLOT_SOURCE_DIALECTS, "mariadb" as const, "sqlite" as const].includes(target) ||
       !database.some((diagnostic) => diagnostic.source === "database" && isSyntaxErrorMessage(diagnostic.message))) {
     return [];
   }

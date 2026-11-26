@@ -39,7 +39,7 @@ export const CONNECTION_EXPORT_FORMAT = "omni-sql.connections";
 const CONNECTION_EXPORT_VERSION = 1;
 
 /** Dialects that can be recreated from an export; the built-in local DuckDB is per machine. */
-const IMPORTABLE_DIALECTS = new Set<DialectId>(["postgres", "mysql", "mariadb", "sqlserver", "oracle", "jdbc-generic", "odbc", "mongodb", "s3"]);
+const IMPORTABLE_DIALECTS = new Set<DialectId>(["postgres", "mysql", "mariadb", "sqlserver", "oracle", "sqlite", "jdbc-generic", "odbc", "mongodb", "s3"]);
 
 type Json = Record<string, unknown>;
 

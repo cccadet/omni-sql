@@ -4,6 +4,7 @@ import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import {
   jdbcGenericDescriptor,
   mariadbDescriptor,
+  sqliteDescriptor,
   mysqlDescriptor,
   odbcDescriptor,
   oracleDescriptor,
@@ -159,6 +160,7 @@ export function registerSqlLanguage(monacoInstance: typeof monaco): void {
     ...mariadbDescriptor.keywords,
     ...sqlserverDescriptor.keywords,
     ...oracleDescriptor.keywords,
+    ...sqliteDescriptor.keywords,
     ...jdbcGenericDescriptor.keywords,
     ...odbcDescriptor.keywords,
   ])];

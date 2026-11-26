@@ -13,7 +13,7 @@ apps/desktop/src-tauri       Tauri/Rust shell; spawns Node/JVM sidecars
 packages/ts-types            Shared models and contracts
 packages/dialect-descriptors Dialect descriptors consumed by the lexer
 packages/adapters-core       Adapter interface, registry and caching wrapper
-packages/adapters-{pg,mysql,mssql,oracle,jdbc,odbc}
+packages/adapters-{pg,mysql,mssql,oracle,sqlite,jdbc,odbc}
                              Database adapters
 packages/autocomplete-engine Lexer and contextual completion
 packages/metadata-cache      SQLite (node:sqlite), last_synced_at
@@ -24,7 +24,8 @@ apps/docs                    Astro Starlight docs site generated from docs/ (pag
 website                      Static landing page; Pages serves it with the docs under /docs
 ```
 Drivers: `pg`, `mysql2/promise` (MySQL/MariaDB), `mssql`/Tedious,
-`oracledb` thin mode, generic JDBC, `odbc`, and `mongodb`.
+`oracledb` thin mode, built-in `node:sqlite`, generic JDBC, `odbc`,
+and `mongodb`.
 PostgreSQL uses information_schema/pg_catalog, server-side cursors and
 `EXPLAIN (FORMAT JSON)`; SQL Server plans use `SET SHOWPLAN_XML` in a separate transaction.
 Tauri ↔ backend contracts live in `packages/backend/src/protocol.ts` (localhost:41920).

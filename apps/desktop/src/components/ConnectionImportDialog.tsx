@@ -171,7 +171,7 @@ export function ConnectionImportDialog({ open, connections, groups, onClose, onI
       return t("importUnsupportedType").replace("{driver}", candidate.driver);
     }
     const dialect = candidate.config?.dialect;
-    return dialect && dialect !== "s3" && dialect !== "odbc" && dialect !== "mongodb" && !candidate.config?.user ? t("importNeedsUser") : "";
+    return dialect && dialect !== "s3" && dialect !== "odbc" && dialect !== "mongodb" && dialect !== "sqlite" && !candidate.config?.user ? t("importNeedsUser") : "";
   };
 
   const selectedCount = candidates?.filter((candidate) => candidate.config && selected.has(candidate.sourceId)).length ?? 0;

@@ -28,6 +28,7 @@
     "@omni-sql/adapters-odbc": "workspace:*",
     "@omni-sql/adapters-oracle": "workspace:*",
     "@omni-sql/adapters-pg": "workspace:*",
+    "@omni-sql/adapters-sqlite": "workspace:*",
     "@omni-sql/autocomplete-engine": "workspace:*",
     "@omni-sql/dialect-descriptors": "workspace:*",
     "@omni-sql/mcp-server": "workspace:*",

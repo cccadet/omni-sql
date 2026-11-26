@@ -67,7 +67,8 @@ anywhere in the text (`INSERT`, a `DELETE` inside a CTE, `SELECT INTO`,
 `FOR UPDATE`, `CALL`, `EXEC`, `SET`, …), ignoring strings, comments and quoted
 identifiers. Side-effecting functions cannot be detected from text, so on
 PostgreSQL, MySQL and MariaDB the statement also runs inside a read-only
-transaction that is always rolled back. SQL Server, Oracle, JDBC and ODBC rely on
+transaction that is always rolled back, and on SQLite it runs on a connection
+opened read-only. SQL Server, Oracle, JDBC and ODBC rely on
 the text check alone; use a least-privilege database user anyway.
 
 ## Approvals

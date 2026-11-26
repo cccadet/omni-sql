@@ -14,6 +14,7 @@ import { mongoSqlToNative } from "./mongo-sql.ts";
 import { mongoSqlSourcePlan } from "./mongo-sql-source.ts";
 import { MongoAdapter } from "./mongo-adapter.ts";
 import { OdbcAdapter } from "@omni-sql/adapters-odbc";
+import { SqliteAdapter } from "@omni-sql/adapters-sqlite";
 import { dialectDescriptor, duckdbFunctions, quoteIdentifier } from "@omni-sql/dialect-descriptors";
 import {
   analyzeReadOnlySql,
@@ -25,7 +26,7 @@ import {
   type Token,
 } from "@omni-sql/autocomplete-engine";
 import { MetadataCache } from "@omni-sql/metadata-cache";
-import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
+import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError, safeSqliteDatabaseError } from "./rpc-errors.ts";
 import {
   assertEndpointHasNoEmbeddedCredentials,
   assertExecutionRiskAccepted,
@@ -240,6 +241,7 @@ registerAdapter("sqlserver", (config, password) => new MssqlAdapter(config, pass
 registerAdapter("jdbc-generic", (config, password) => new JdbcAdapter(config, password));
 registerAdapter("mongodb", (config, password) => new MongoAdapter(config, password));
 registerAdapter("odbc", (config, password) => new OdbcAdapter(config, password));
+registerAdapter("sqlite", (config, password) => new SqliteAdapter(config, password));
 
 // ─────────────────────────── Adapter construction
 
@@ -354,6 +356,7 @@ export async function runReadOnlyQuery(connectionId: string, sql: string, limit:
   } catch (error) {
     if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
     if (s.config.dialect === "postgres") throw safePostgresDatabaseError(error) ?? error;
+    if (s.config.dialect === "sqlite") throw safeSqliteDatabaseError(error) ?? error;
     throw error;
   }
 }
@@ -861,7 +864,7 @@ export const handlers: BackendRpcRouter = {
     const adapter = resolveAdapter(config, effectivePassword);
     const startedAt = Date.now();
     try {
-      if (config.dialect === "postgres") {
+      if (config.dialect === "postgres" || config.dialect === "sqlite") {
         await adapter.connect();
         await adapter.close().catch(() => undefined);
         return { ok: true, latencyMs: Date.now() - startedAt };
@@ -874,7 +877,7 @@ export const handlers: BackendRpcRouter = {
       return {
         ok: false,
         latencyMs: Date.now() - startedAt,
-        message: (e instanceof RpcDatabaseError || e instanceof RpcValidationError ? e.message : config.dialect === "postgres" ? safePostgresDatabaseError(e)?.message : undefined) ?? "Connection test failed",
+        message: (e instanceof RpcDatabaseError || e instanceof RpcValidationError ? e.message : config.dialect === "postgres" ? safePostgresDatabaseError(e)?.message : config.dialect === "sqlite" ? safeSqliteDatabaseError(e)?.message : undefined) ?? "Connection test failed",
       };
     }
   },
@@ -914,6 +917,7 @@ export const handlers: BackendRpcRouter = {
       return { schemas };
     } catch (error) {
       if (config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
+      if (config.dialect === "sqlite") throw safeSqliteDatabaseError(error) ?? error;
       throw error;
     } finally {
       await adapter.close().catch((e) => console.warn(`[omni-sql] listSchemas: close failed: ${errorMessage(e)}`));
@@ -930,6 +934,7 @@ export const handlers: BackendRpcRouter = {
     } catch (error) {
       if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
       if (s.config.dialect === "postgres") throw safePostgresDatabaseError(error) ?? error;
+      if (s.config.dialect === "sqlite") throw safeSqliteDatabaseError(error) ?? error;
       throw error;
     }
     if (mutatesDatabaseStructure(sql)) {
@@ -1168,6 +1173,7 @@ export const handlers: BackendRpcRouter = {
       return db;
     } catch (error) {
       if (s.config.dialect === "oracle") throw safeOracleDatabaseError(error) ?? error;
+      if (s.config.dialect === "sqlite") throw safeSqliteDatabaseError(error) ?? error;
       throw error;
     }
   },

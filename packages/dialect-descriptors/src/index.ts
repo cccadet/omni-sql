@@ -68,6 +68,13 @@ const MYSQL_KEYWORDS = new Set([
   "IGNORE", "SQL_CALC_FOUND_ROWS", "SEPARATOR", "AUTO_INCREMENT",
 ]);
 
+const SQLITE_KEYWORDS = new Set([
+  ...ANSI_KEYWORDS,
+  "PRAGMA", "ATTACH", "DETACH", "VACUUM", "AUTOINCREMENT", "GLOB", "REGEXP",
+  "WITHOUT", "CONFLICT", "REPLACE", "ABORT", "IGNORE", "RETURNING", "INDEXED",
+  "TEMP", "TEMPORARY", "IF", "REINDEX", "ANALYZE", "TRIGGER",
+]);
+
 function ansiLike(
   dialect: DialectId,
   keywords: ReadonlySet<string>,
@@ -124,6 +131,15 @@ export const oracleDescriptor: DialectDescriptor = {
   lineComment: ["--"],
 };
 
+/** SQLite aceita `"x"` (canônico), `` `x` `` e `[x]`; nomes não têm limite de tamanho. */
+export const sqliteDescriptor: DialectDescriptor = {
+  ...ansiLike("sqlite", SQLITE_KEYWORDS, {
+    identifierQuoteChars: ['"', "`", "[", "]"],
+    identifierQuotePairs: [['"', '"'], ["`", "`"], ["[", "]"]],
+  }),
+  identifierMaxLength: null,
+};
+
 export const jdbcGenericDescriptor: DialectDescriptor = ansiLike("jdbc-generic", new Set(ANSI_KEYWORDS), {
   identifierQuoteChars: ['"'],
 });
@@ -146,6 +162,7 @@ const REGISTRY = {
   mariadb: mariadbDescriptor,
   sqlserver: sqlserverDescriptor,
   oracle: oracleDescriptor,
+  sqlite: sqliteDescriptor,
   "jdbc-generic": jdbcGenericDescriptor,
   odbc: odbcDescriptor,
   s3: s3Descriptor,

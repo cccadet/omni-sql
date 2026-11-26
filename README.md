@@ -77,6 +77,7 @@ See the [MCP guide](docs/MCP.md) for setup and the security model.
 | <img src="docs/images/database-icons/mariadb.svg" alt="" width="18" height="18" /> MariaDB | ✅ | ✅ | ✅ |
 | <img src="docs/images/database-icons/sqlserver.svg" alt="" width="18" height="18" /> SQL Server | ✅ | ✅ | ✅ |
 | <img src="docs/images/database-icons/oracle.svg" alt="" width="18" height="18" /> Oracle | ✅ | ✅ | ✅ |
+| <img src="docs/images/database-icons/sqlite.svg" alt="" width="18" height="18" /> SQLite | ✅ | ✅ | ✅ |
 | MongoDB | ✅ | ✅ Sampled fields | Native Extended JSON + read-only SQL |
 | <img src="docs/images/database-icons/jdbc-generic.svg" alt="" width="18" height="18" /> Generic JDBC | 🧪 Experimental | Driver-dependent | Driver-dependent |
 | ODBC | 🧪 Experimental | Driver-dependent | Driver-dependent |

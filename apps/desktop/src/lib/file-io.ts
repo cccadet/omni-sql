@@ -48,6 +48,17 @@ export async function pickJarPath(): Promise<string | null> {
   return typeof result === "string" ? result : null;
 }
 
+export async function pickSqlitePath(): Promise<string | null> {
+  const result = await openDialog({
+    filters: [
+      { name: "SQLite", extensions: ["db", "sqlite", "sqlite3", "db3"] },
+      { name: "*", extensions: ["*"] },
+    ],
+    multiple: false,
+  });
+  return typeof result === "string" ? result : null;
+}
+
 export async function pickAnalysisExportPath(defaultName: string, format: "csv" | "parquet" | "arrow"): Promise<string | null> {
   const labels = { csv: "CSV", parquet: "Parquet", arrow: "Arrow IPC" } as const;
   return (await save({

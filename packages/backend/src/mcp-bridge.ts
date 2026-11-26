@@ -67,6 +67,7 @@ const MCP_DIALECT_NAMES = new Set([
   "mariadb",
   "sqlserver",
   "oracle",
+  "sqlite",
   "jdbc-generic",
   "odbc",
   "mongodb",

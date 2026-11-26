@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RpcDatabaseError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
+import { RpcDatabaseError, safeOracleDatabaseError, safePostgresDatabaseError, safeSqliteDatabaseError } from "./rpc-errors.ts";
 
 test("safeOracleDatabaseError exposes a structured single-line ORA message", () => {
   const error = Object.assign(
@@ -46,4 +46,19 @@ test("PostgreSQL connection errors use fixed messages without driver secrets", (
   }
   const safe = safePostgresDatabaseError(Object.assign(new Error("password authentication failed"), { code: "28P01" }));
   assert.equal(safe?.message, "28P01: password authentication failed");
+});
+
+test("safeSqliteDatabaseError exposes engine and file errors, nothing else", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(":memory:");
+  let engineError: unknown;
+  try { db.prepare("SELECT * FROM missing_table"); } catch (error) { engineError = error; }
+  db.close();
+  assert.equal(safeSqliteDatabaseError(engineError)?.message, "SQLite: no such table: missing_table");
+
+  const fileError = Object.assign(new Error("SQLite file not found. Check the path."), { code: "ERR_SQLITE_FILE" });
+  assert.equal(safeSqliteDatabaseError(fileError)?.message, "SQLite: SQLite file not found. Check the path.");
+
+  assert.equal(safeSqliteDatabaseError(Object.assign(new Error("secret"), { code: "ERR_SQLITE_ERROR" })), undefined);
+  assert.equal(safeSqliteDatabaseError(new Error("secret")), undefined);
 });

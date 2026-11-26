@@ -17,6 +17,8 @@ export function DialectIcon({ dialect, size = 14, className }: DialectIconProps)
       return <svg className={className} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true"><path fill="#47A248" d="M8 0C6 3 3 5 3 8c0 3 2 5 5 6 3-1 5-3 5-6 0-3-3-5-5-8Z" /><path stroke="#235A27" d="M8 4v12" /></svg>;
     case "duckdb":
       return <DuckDbIcon size={size} />;
+    case "sqlite":
+      return <svg className={className} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="3.5" rx="5" ry="2" fill="#0F80CC" /><path fill="#003B57" d="M3 3.5v9c0 1.1 2.2 2 5 2s5-.9 5-2v-9c0 1.1-2.2 2-5 2s-5-.9-5-2Z" /><path stroke="#97D9F6" strokeWidth="0.8" fill="none" d="M3 7.5c0 1.1 2.2 2 5 2s5-.9 5-2" /></svg>;
     case "postgres":
       return (
         <svg

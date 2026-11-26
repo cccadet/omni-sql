@@ -70,3 +70,25 @@ export function safePostgresDatabaseError(error: unknown): RpcDatabaseError | un
     .slice(0, 450);
   return new RpcDatabaseError(`${code}: ${sanitized}`);
 }
+
+/**
+ * `node:sqlite` tags engine errors with `code: "ERR_SQLITE_ERROR"` and a numeric
+ * `errcode`; the SQLite adapter tags its own file checks `ERR_SQLITE_FILE` with
+ * fixed text. Only those become a bounded single line; anything else stays hidden.
+ */
+export function safeSqliteDatabaseError(error: unknown): RpcDatabaseError | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const code = Reflect.get(error, "code");
+  const fromEngine = code === "ERR_SQLITE_ERROR" && typeof Reflect.get(error, "errcode") === "number";
+  if (!fromEngine && code !== "ERR_SQLITE_FILE") return undefined;
+  const firstLine = error.message.split(/\r?\n/, 1)[0]?.trim();
+  if (!firstLine) return undefined;
+  const sanitized = [...firstLine]
+    .filter((character) => {
+      const charCode = character.charCodeAt(0);
+      return charCode >= 32 && charCode !== 127;
+    })
+    .join("")
+    .slice(0, 450);
+  return new RpcDatabaseError(`SQLite: ${sanitized}`);
+}
