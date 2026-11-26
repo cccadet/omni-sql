@@ -35,6 +35,7 @@ const TYPE_OPTIONS: Record<DialectId, readonly string[]> = {
   mariadb: ["int", "tinyint", "smallint", "bigint", "decimal(18,2)", "float", "double", "varchar(255)", "text", "tinyint(1)", "date", "time", "datetime", "timestamp", "json", "binary(16)"],
   sqlserver: ["int", "tinyint", "smallint", "bigint", "decimal(18,2)", "real", "float", "nvarchar(255)", "nvarchar(max)", "varchar(255)", "bit", "date", "time", "datetime2", "datetimeoffset", "uniqueidentifier", "varbinary(max)"],
   oracle: ["NUMBER(10)", "NUMBER(5)", "NUMBER(19)", "NUMBER(18,2)", "BINARY_FLOAT", "BINARY_DOUBLE", "VARCHAR2(255)", "NVARCHAR2(255)", "CLOB", "NUMBER(1)", "DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "RAW(16)", "BLOB"],
+  sqlite: ["INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC", "BOOLEAN", "DATE", "DATETIME"],
   "jdbc-generic": ["INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
   odbc: ["INTEGER", "SMALLINT", "BIGINT", "DECIMAL(18,2)", "REAL", "DOUBLE", "VARCHAR(255)", "TEXT", "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "BINARY"],
   mongodb: ["JSON"],
@@ -48,6 +49,7 @@ const DEFAULT_OPTIONS: Record<DialectId, readonly string[]> = {
   mariadb: ["NULL", "0", "1", "true", "false", "''", "CURRENT_DATE", "CURRENT_TIMESTAMP", "UUID()"],
   sqlserver: ["NULL", "0", "1", "''", "GETDATE()", "SYSDATETIME()", "NEWID()", "NEWSEQUENTIALID()"],
   oracle: ["NULL", "0", "1", "''", "SYSDATE", "SYSTIMESTAMP", "SYS_GUID()", "sequence_name.NEXTVAL"],
+  sqlite: ["NULL", "0", "1", "''", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP"],
   "jdbc-generic": ["NULL", "0", "1", "true", "false", "''", "CURRENT_DATE", "CURRENT_TIMESTAMP"],
   odbc: ["NULL", "0", "1", "true", "false", "''", "CURRENT_DATE", "CURRENT_TIMESTAMP"],
   mongodb: [],
@@ -117,7 +119,9 @@ export function buildAlterTableSql(dialect: DialectId, schema: string, table: st
   const originalPrimary = original.filter((column) => column.isPrimaryKey).map((column) => draftByOriginal.get(column.name)?.name ?? column.name);
   const nextPrimary = draft.filter((column) => column.primaryKey).map((column) => column.name);
   const primaryChanged = originalPrimary.length !== nextPrimary.length || originalPrimary.some((name, index) => name !== nextPrimary[index]);
-  if (primaryChanged && originalPrimary.length > 0) {
+  if (primaryChanged && dialect === "sqlite") {
+    statements.push("-- SQLite não altera a chave primária com ALTER TABLE; recrie a tabela com a nova chave.");
+  } else if (primaryChanged && originalPrimary.length > 0) {
     if (dialect === "mysql" || dialect === "mariadb" || dialect === "oracle") {
       statements.push(`ALTER TABLE ${target} DROP PRIMARY KEY;`);
     } else if (primaryConstraint) {
@@ -142,7 +146,9 @@ export function buildAlterTableSql(dialect: DialectId, schema: string, table: st
     }
     const changed = current.dataType.trim() !== previous.dataType || current.nullable !== previous.nullable || current.defaultValue.trim() !== (previous.defaultValue ?? "").trim();
     if (!changed) continue;
-    if (dialect === "postgres") {
+    if (dialect === "sqlite") {
+      statements.push(`-- SQLite não altera tipo, NULL ou default de ${q(current.name)} com ALTER TABLE; recrie a tabela.`);
+    } else if (dialect === "postgres") {
       if (current.dataType.trim() !== previous.dataType) statements.push(`ALTER TABLE ${target} ALTER COLUMN ${q(current.name)} TYPE ${current.dataType.trim()};`);
       if (current.nullable !== previous.nullable) statements.push(`ALTER TABLE ${target} ALTER COLUMN ${q(current.name)} ${current.nullable ? "DROP" : "SET"} NOT NULL;`);
       if (current.defaultValue.trim() !== (previous.defaultValue ?? "").trim()) statements.push(`ALTER TABLE ${target} ALTER COLUMN ${q(current.name)} ${current.defaultValue.trim() ? `SET DEFAULT ${current.defaultValue.trim()}` : "DROP DEFAULT"};`);
@@ -159,7 +165,7 @@ export function buildAlterTableSql(dialect: DialectId, schema: string, table: st
     const keyword = dialect === "oracle" ? "ADD" : "ADD COLUMN";
     statements.push(`ALTER TABLE ${target} ${keyword} ${dialect === "oracle" ? `(${columnDefinition(dialect, column)})` : columnDefinition(dialect, column)};`);
   }
-  if (primaryChanged && nextPrimary.length > 0) {
+  if (primaryChanged && nextPrimary.length > 0 && dialect !== "sqlite") {
     const columns = nextPrimary.map(q).join(", ");
     const namedConstraint = primaryConstraint && dialect !== "mysql" && dialect !== "mariadb" && dialect !== "oracle"
       ? `CONSTRAINT ${q(primaryConstraint.name)} `
@@ -172,7 +178,7 @@ export function buildAlterTableSql(dialect: DialectId, schema: string, table: st
 export function buildAlterIndexesSql(dialect: DialectId, schema: string, table: string, original: readonly IndexInfo[], draft: readonly EditDraftIndex[]): string {
   const q = (value: string) => quoteIdentifier(value, dialect);
   const tableTarget = schema.trim() ? `${q(schema.trim())}.${q(table)}` : q(table);
-  const indexTarget = (name: string) => schema.trim() && (dialect === "postgres" || dialect === "oracle") ? `${q(schema.trim())}.${q(name)}` : q(name);
+  const indexTarget = (name: string) => schema.trim() && (dialect === "postgres" || dialect === "oracle" || dialect === "sqlite") ? `${q(schema.trim())}.${q(name)}` : q(name);
   const draftByOriginal = new Map(draft.filter((index) => index.originalName).map((index) => [index.originalName!, index]));
   const statements: string[] = [];
   const dropIndex = (name: string) => {
@@ -182,6 +188,8 @@ export function buildAlterIndexesSql(dialect: DialectId, schema: string, table: 
   };
   const createIndex = (index: EditDraftIndex) => {
     const columns = index.columnsText.split(",").map((column) => column.trim()).filter(Boolean).map(q).join(", ");
+    // SQLite qualifica o índice com o schema e proíbe qualificar a tabela.
+    if (dialect === "sqlite") return `CREATE ${index.unique ? "UNIQUE " : ""}INDEX ${indexTarget(index.name.trim())} ON ${q(table)} (${columns});`;
     return `CREATE ${index.unique ? "UNIQUE " : ""}INDEX ${q(index.name.trim())} ON ${tableTarget} (${columns});`;
   };
   const dropPrimaryKey = (name: string) => dialect === "mysql" || dialect === "mariadb"
@@ -197,7 +205,8 @@ export function buildAlterIndexesSql(dialect: DialectId, schema: string, table: 
     if (!current) continue;
     const currentColumns = splitIndexColumns(current.columnsText);
     const changed = current.name.trim() !== previous.name || currentColumns.join("\0") !== previous.columns.join("\0");
-    if (changed) statements.push(dropPrimaryKey(previous.name), createPrimaryKey(current));
+    if (changed && dialect === "sqlite") statements.push("-- SQLite não altera a chave primária com ALTER TABLE; recrie a tabela com a nova chave.");
+    else if (changed) statements.push(dropPrimaryKey(previous.name), createPrimaryKey(current));
   }
   for (const previous of original.filter((index) => !index.primary)) {
     const current = draftByOriginal.get(previous.name);

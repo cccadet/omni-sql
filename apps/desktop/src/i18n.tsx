@@ -734,6 +734,9 @@ const english = {
   analysisMemoryLimit: "DuckDB memory limit",
   analysisMemoryLimitTitle: "DuckDB memory",
   analysisMemoryLimitHint: "Applies to S3/DuckLake, MongoDB SQL and local analysis queries. Larger sorts, joins and windows spill to a temporary folder on disk (up to 4 GB). Leave headroom for the rest of your system.",
+  sqliteFile: "Database file",
+  sqliteFileHint: "Absolute path to an existing .db/.sqlite file. Credentials are not used.",
+  sqliteOpenReadOnly: "Open read-only",
 } as const;
 
 export type TranslationKey = keyof typeof english;
@@ -1026,6 +1029,9 @@ const portugueseBrazil = [
   "Limite de memória do DuckDB",
   "Memória do DuckDB",
   "Vale para consultas S3/DuckLake, MongoDB SQL e análise local. Ordenações, joins e janelas maiores usam uma pasta temporária em disco (até 4 GB). Deixe memória livre para o resto do sistema.",
+  "Arquivo do banco",
+  "Caminho absoluto de um arquivo .db/.sqlite existente. Credenciais não são usadas.",
+  "Abrir somente leitura",
 ] as const satisfies readonly string[];
 
 const portugueseBrazilDictionary = Object.fromEntries(

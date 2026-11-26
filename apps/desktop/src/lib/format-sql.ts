@@ -10,6 +10,7 @@ const DIALECT_MAP: Record<DialectId, SqlLanguage> = {
   mariadb: "mariadb",
   sqlserver: "transactsql",
   oracle: "plsql",
+  sqlite: "sqlite",
   "jdbc-generic": "sql",
   odbc: "sql",
   s3: "sql",

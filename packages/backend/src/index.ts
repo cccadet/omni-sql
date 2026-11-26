@@ -8,7 +8,7 @@ import type {
 } from "./protocol.ts";
 import { closeBackendResources, handlers, streamAnalysisQuery } from "./handlers.ts";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError } from "./rpc-errors.ts";
+import { RpcDatabaseError, RpcValidationError, safeOracleDatabaseError, safePostgresDatabaseError, safeSqliteDatabaseError } from "./rpc-errors.ts";
 import { closeMcpHttp, closeMcpBridge, handleMcpRequest, mcpHandlers } from "./mcp-handlers.ts";
 import { McpBridgeError } from "./mcp-bridge.ts";
 import { AdapterError } from "@omni-sql/adapters-core";
@@ -484,7 +484,7 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
           ? error
           : error instanceof AdapterError && error.causeTag === "unsupported"
             ? new RpcValidationError(error.message)
-            : safePostgresDatabaseError(error) ?? safeOracleDatabaseError(error);
+            : safePostgresDatabaseError(error) ?? safeOracleDatabaseError(error) ?? safeSqliteDatabaseError(error);
         const message = safeError?.message ?? "source query failed; run the SELECT on its connection to inspect the database error";
         if (!res.headersSent) {
           send(res, safeError instanceof RpcValidationError ? 400 : 500, { error: message });
@@ -536,7 +536,7 @@ export function startServer(port: number = DEFAULT_PORT): ReturnType<typeof crea
         return;
       }
       const safeError = e instanceof RpcValidationError || e instanceof RpcDatabaseError || e instanceof McpBridgeError
-        ? e : safePostgresDatabaseError(e);
+        ? e : safePostgresDatabaseError(e) ?? safeSqliteDatabaseError(e);
       logFailure(rpc.method, safeError ?? e, Date.now() - t0);
       const message = safeError?.message ?? INTERNAL_ERROR_MESSAGE;
       const code = e instanceof McpBridgeError ? -32001 : -32000;

@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { buildAlterTableSql, buildCreateTableSql, buildSampleRowSql, CreateTableDialog } from "./TableDialogs";
+import { buildAlterIndexesSql, buildAlterTableSql, buildCreateTableSql, buildSampleRowSql, CreateTableDialog } from "./TableDialogs";
 import { LanguageProvider } from "../i18n";
 
 describe("buildSampleRowSql", () => {
@@ -73,5 +73,32 @@ describe("buildAlterTableSql", () => {
       { id: 1, originalName: "id", name: "order_id", dataType: "integer", nullable: false, primaryKey: true, defaultValue: "" },
     ]);
     expect(sql).toBe("EXEC sp_rename N'dbo.orders.id', N'order_id', 'COLUMN';");
+  });
+});
+
+describe("SQLite DDL", () => {
+  const original = [{ name: "id", dataType: "INTEGER", nullable: false, isPrimaryKey: true }, { name: "note", dataType: "TEXT", nullable: true, isPrimaryKey: false }];
+
+  it("keeps supported ALTER TABLE forms and flags changes that need a table rebuild", () => {
+    const sql = buildAlterTableSql("sqlite", "main", "orders", original, [
+      { id: 1, originalName: "id", name: "id", dataType: "INTEGER", nullable: false, primaryKey: false, defaultValue: "" },
+      { id: 2, originalName: "note", name: "memo", dataType: "BLOB", nullable: true, primaryKey: true, defaultValue: "" },
+      { id: 3, name: "created_at", dataType: "DATETIME", nullable: true, primaryKey: false, defaultValue: "CURRENT_TIMESTAMP" },
+    ]);
+    expect(sql.split("\n")).toEqual([
+      "-- SQLite não altera a chave primária com ALTER TABLE; recrie a tabela com a nova chave.",
+      "ALTER TABLE main.orders RENAME COLUMN note TO memo;",
+      "-- SQLite não altera tipo, NULL ou default de memo com ALTER TABLE; recrie a tabela.",
+      "ALTER TABLE main.orders ADD COLUMN created_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP;",
+    ]);
+  });
+
+  it("qualifies the index, not the table, when creating SQLite indexes", () => {
+    const sql = buildAlterIndexesSql("sqlite", "archive", "orders", [
+      { name: "orders_note", unique: false, primary: false, columns: ["note"] },
+    ], [
+      { id: 1, originalName: "orders_note", name: "orders_note", columnsText: "note, id", unique: true, primary: false },
+    ]);
+    expect(sql).toBe("DROP INDEX archive.orders_note;\nCREATE UNIQUE INDEX archive.orders_note ON orders (note, id);");
   });
 });

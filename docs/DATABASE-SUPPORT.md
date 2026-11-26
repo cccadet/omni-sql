@@ -7,9 +7,37 @@
 | MariaDB | Supported | Uses the MySQL wire-compatible `mysql2/promise` adapter. Server/version-specific SQL or metadata differences can limit introspection. |
 | SQL Server | Supported | Native `mssql`/Tedious adapter; metadata queries and `SET SHOWPLAN_XML ON` in an isolated transaction for plans. |
 | Oracle | Supported | Native `oracledb` thin-mode adapter; Oracle metadata and `EXPLAIN PLAN` with available row, byte, cost, time estimates, and predicates. No Oracle Instant Client is required for thin mode. |
+| SQLite | Supported | Built-in `node:sqlite` (no extra driver); opens an existing local file, introspects `main` and attached databases, `EXPLAIN QUERY PLAN`, read-only connection for safe reads. See [SQLite](#sqlite). |
 | Generic JDBC | Experimental | JVM sidecar loads a user-provided driver JAR and `java.sql.Driver` class, then connects through the supplied JDBC URL. |
 | ODBC | Experimental | Generic ODBC adapter with bounded query and stream support. Requires a separately installed 64-bit driver compatible with the target database. |
 | MongoDB | Native + read-only SQL | Extended JSON `find`/`aggregate`, explicit writes, metadata, autocomplete, and `/mongo` SELECT conversion. SQL mode executes supported SELECTs natively, with DuckDB for complex queries. See [MongoDB usage](MONGODB.md). |
+
+## SQLite
+
+Choose **SQLite** and pick the database file. The path must be absolute and the
+file must already exist: Omni SQL never creates an empty database because of a
+typo. `:memory:` is accepted for scratch work. There are no credentials. Tick
+**Open read-only** to block every write through that connection.
+
+- Schemas are the attached databases: `main` plus any `ATTACH`ed file; `temp`
+  is skipped. Built-in functions are listed once, under `main`.
+- Metadata comes from `sqlite_schema` and the `table_xinfo`, `foreign_key_list`,
+  `index_list` and `index_info` pragmas. `REFERENCES parent` without a column
+  resolves to the parent's primary key. An `INTEGER PRIMARY KEY` (rowid alias)
+  is shown as a primary-key index even though SQLite stores no separate index.
+- Plans use `EXPLAIN QUERY PLAN`, rendered as a tree. Validation compiles the
+  statement without running it. Table definitions include indexes and triggers.
+- Integers beyond JavaScript's safe range arrive as decimal strings; BLOBs as
+  `0x…` hex. Expression columns report the storage class of the first non-null
+  value (`integer`, `real`, `text`, `blob`).
+- MCP read-only SQL runs on a second connection opened read-only, which a
+  `PRAGMA` cannot turn writable.
+- The driver is synchronous: a long query blocks the backend until it finishes
+  and cannot be cancelled. Streaming for local analysis checks for cancellation
+  between batches. Loadable extensions are disabled.
+- `ALTER TABLE` in SQLite cannot change a column's type, nullability, default
+  or the primary key; the table editor emits a comment asking you to rebuild
+  the table for those changes.
 
 ## Generic JDBC
 

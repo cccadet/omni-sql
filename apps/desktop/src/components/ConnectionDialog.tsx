@@ -15,14 +15,14 @@ import {
 } from "@fluentui/react-components";
 import { DEFAULT_MCP_ACCESS, DEFAULT_MCP_APPROVAL, connectionMcpAccess, connectionMcpApproval, type ConnectionConfig, type McpAccess, type McpApproval } from "@omni-sql/ts-types";
 import { backend } from "../lib/backend";
-import { pickJarPath } from "../lib/file-io";
+import { pickJarPath, pickSqlitePath } from "../lib/file-io";
 import { listAnalysisS3 } from "../lib/analysis";
 import { s3Buckets } from "../lib/s3-buckets";
 import { useEnvironments } from "../lib/environments";
 import { useLanguage } from "../i18n";
 import { EnvironmentDot, EnvironmentsDialog, environmentName } from "./Environments";
 
-type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "jdbc-generic" | "odbc" | "s3" | "mongodb" | "demo";
+type Mode = "postgres" | "oracle" | "mysql" | "mariadb" | "sqlserver" | "sqlite" | "jdbc-generic" | "odbc" | "s3" | "mongodb" | "demo";
 
 const MCP_ACCESS_OPTIONS = [
   { value: "off", label: "mcpAccessOff" },
@@ -42,6 +42,7 @@ const DB_TYPES: readonly { mode: Mode; abbr: string; label?: string; color: stri
   { mode: "mariadb", abbr: "Ma", label: "MariaDB", color: "#003545" },
   { mode: "sqlserver", abbr: "MS", label: "SQL Server", color: "#A91D22" },
   { mode: "oracle", abbr: "Or", label: "Oracle", color: "#C74634" },
+  { mode: "sqlite", abbr: "SL", label: "SQLite", color: "#0F80CC" },
   { mode: "mongodb", abbr: "Mo", label: "MongoDB", color: "#2E7D32" },
   { mode: "s3", abbr: "S3", label: "S3", color: "#B8620B" },
   { mode: "jdbc-generic", abbr: "JD", color: "#5A5A8A" },
@@ -50,6 +51,7 @@ const DB_TYPES: readonly { mode: Mode; abbr: string; label?: string; color: stri
 ];
 
 const DEFAULT_PORTS: Record<Mode, string> = {
+  sqlite: "",
   postgres: "5432",
   oracle: "1521",
   mysql: "3306",
@@ -63,6 +65,7 @@ const DEFAULT_PORTS: Record<Mode, string> = {
 };
 
 const DEFAULT_DATABASES: Record<Mode, string> = {
+  sqlite: "",
   postgres: "postgres",
   oracle: "orcl",
   mysql: "app",
@@ -76,6 +79,7 @@ const DEFAULT_DATABASES: Record<Mode, string> = {
 };
 
 const DEFAULT_USERS: Record<Mode, string> = {
+  sqlite: "",
   postgres: "postgres",
   oracle: "system",
   mysql: "root",
@@ -141,6 +145,8 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const [mssqlTrustCertificate, setMssqlTrustCertificate] = useState(false);
   const [jdbcUrl, setJdbcUrl] = useState("");
   const [mongoUri, setMongoUri] = useState("mongodb://localhost:27017/test");
+  const [sqlitePath, setSqlitePath] = useState("");
+  const [sqliteReadOnly, setSqliteReadOnly] = useState(false);
   const [odbcEndpoint, setOdbcEndpoint] = useState("");
   const [s3BucketList, setS3BucketList] = useState("");
   const [availableBuckets, setAvailableBuckets] = useState<string[] | null>(null);
@@ -167,9 +173,11 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     const isJdbc = editingDialect === "jdbc-generic";
     const isOdbc = editingDialect === "odbc";
     const isS3 = editingDialect === "s3";
-    const nextMode = editingDialect === "mongodb" ? "mongodb" : isKnown ? editingDialect : isJdbc ? "jdbc-generic" : isOdbc ? "odbc" : isS3 ? "s3" : "demo";
+    const nextMode = editingDialect === "mongodb" || editingDialect === "sqlite" ? editingDialect : isKnown ? editingDialect : isJdbc ? "jdbc-generic" : isOdbc ? "odbc" : isS3 ? "s3" : "demo";
     setMode(nextMode);
     setMongoUri(editingDialect === "mongodb" ? editing!.endpoint : "mongodb://localhost:27017/test");
+    setSqlitePath(editingDialect === "sqlite" ? editing!.endpoint : "");
+    setSqliteReadOnly(editingDialect === "sqlite" && (editing!.options?.readOnly === true || editing!.options?.readOnly === "true"));
     setLabel(editing?.label ?? "");
     setEnvironment(String(editing?.options?.environment ?? ""));
     setMcpAccess(editing ? connectionMcpAccess(editing) : DEFAULT_MCP_ACCESS);
@@ -230,14 +238,16 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
   const buildEndpoint = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl;
     if (mode === "mongodb") return mongoUri.trim();
+    if (mode === "sqlite") return sqlitePath.trim();
     if (mode === "odbc") return odbcEndpoint;
     if (mode === "s3") return bucketUris(s3BucketList)[0] ?? "s3://";
     return `${host}:${port}/${database}`;
-  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, s3BucketList, host, port, database]);
+  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, sqlitePath, s3BucketList, host, port, database]);
 
   const buildOptions = useCallback((): ConnectionConfig["options"] => {
     if (mode === "jdbc-generic") return { jarPath, driverClassName };
     if (mode === "mongodb") return undefined;
+    if (mode === "sqlite") return sqliteReadOnly ? { readOnly: true } : undefined;
     if (mode === "odbc") return { timeout: 30 };
     if (mode === "s3") return { region: s3Region.trim(), endpoint: s3Endpoint.trim(),
       buckets: JSON.stringify(bucketUris(s3BucketList)),
@@ -248,15 +258,16 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
       return Object.keys(tls).length > 0 ? tls : undefined;
     }
     return ssl ? { ssl: "require" } : undefined;
-  }, [mode, jarPath, driverClassName, ssl, mssqlEncrypt, mssqlTrustCertificate, s3BucketList, s3Region, s3Endpoint, ducklakeMappings]);
+  }, [mode, jarPath, driverClassName, sqliteReadOnly, ssl, mssqlEncrypt, mssqlTrustCertificate, s3BucketList, s3Region, s3Endpoint, ducklakeMappings]);
 
   const defaultLabel = useCallback(() => {
     if (mode === "jdbc-generic") return jdbcUrl || t("jdbcGeneric");
     if (mode === "mongodb") return mongoUri.trim() || "MongoDB";
+    if (mode === "sqlite") return sqlitePath.trim().split(/[\\/]/).pop() || "SQLite";
     if (mode === "odbc") return odbcEndpoint || "ODBC";
     if (mode === "s3") return bucketUris(s3BucketList)[0] || "S3";
     return `${host}/${database}`;
-  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, s3BucketList, host, database, t]);
+  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, sqlitePath, s3BucketList, host, database, t]);
 
   const canConnect = useCallback(() => {
     if (mode === "jdbc-generic") {
@@ -264,6 +275,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     }
     if (mode === "mongodb") return /^mongodb(?:\+srv)?:\/\//i.test(mongoUri.trim()) && !mongoUri.split("?")[0]!.includes("@");
     if (mode === "odbc") return odbcEndpoint.trim().length > 0;
+    if (mode === "sqlite") return sqlitePath.trim().length > 0;
     if (mode === "s3") {
       const buckets = bucketUris(s3BucketList);
       return buckets.every((value) => /^s3:\/\/[^/@]+\/?$/.test(value))
@@ -272,7 +284,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
           && (mapping.kind === "postgres" ? !!mapping.connectionId : !!mapping.path?.trim()));
     }
     return host.length > 0 && user.length > 0;
-  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, s3BucketList, jarPath, driverClassName, user, host, ducklakeMappings]);
+  }, [mode, jdbcUrl, odbcEndpoint, mongoUri, sqlitePath, s3BucketList, jarPath, driverClassName, user, host, ducklakeMappings]);
 
   const buildConfig = useCallback((): ConnectionConfig => {
     // The default (read-only) is not persisted.
@@ -365,10 +377,15 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
     const isDefaultUser = user === "" || ALL_MODES.some((m) => user === DEFAULT_USERS[m]);
     if (next !== mode) setDirty(true);
     setMode(next);
-    if (next === "demo" || next === "jdbc-generic" || next === "odbc" || next === "s3") return;
+    if (next === "demo" || next === "jdbc-generic" || next === "odbc" || next === "s3" || next === "sqlite") return;
     if (isDefaultPort) setPort(DEFAULT_PORTS[next]);
     if (isDefaultDatabase) setDatabase(DEFAULT_DATABASES[next]);
     if (isDefaultUser) setUser(DEFAULT_USERS[next]);
+  };
+
+  const pickSqlite = async () => {
+    const picked = await pickSqlitePath();
+    if (picked) { setSqlitePath(picked); setDirty(true); }
   };
 
   const pickJar = async () => {
@@ -507,6 +524,19 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               <Text size={200}>{t("mongoUriHint")} {t("connectionCredentialsHint")}</Text>
             </Field>}
 
+            {mode === "sqlite" && (
+              <>
+                <Field label={t("sqliteFile")}>
+                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    <Input value={sqlitePath} onChange={(_, data) => setSqlitePath(data.value)} placeholder="C:\data\app.db" disabled={busy} required style={{ flex: 1 }} />
+                    <Button type="button" onClick={pickSqlite} disabled={busy}>{t("browse")}</Button>
+                  </div>
+                  <Text size={200}>{t("sqliteFileHint")}</Text>
+                </Field>
+                <Checkbox label={t("sqliteOpenReadOnly")} checked={sqliteReadOnly} onChange={(_, data) => setSqliteReadOnly(data.checked === true)} disabled={busy} />
+              </>
+            )}
+
             {mode === "jdbc-generic" && (
               <>
                 <Label>
@@ -606,7 +636,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </>
             )}
 
-            {mode !== "demo" && mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && mode !== "s3" && (
+            {mode !== "demo" && mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && mode !== "s3" && mode !== "sqlite" && (
               <>
                 <div className="omni-connection-host-row">
                   <Field label="Host" style={{ flex: 1 }}>
@@ -622,7 +652,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
               </>
             )}
 
-            {mode !== "demo" && mode !== "s3" && (
+            {mode !== "demo" && mode !== "s3" && mode !== "sqlite" && (
               <>
                 <Field label={t("user")}>
                   <Input value={user} onChange={(_, data) => setUser(data.value)} placeholder={DEFAULT_USERS[mode]} disabled={busy} required={mode !== "mongodb"} style={{ marginTop: 4 }} />
@@ -641,7 +671,7 @@ export function ConnectionDialog({ open, editing, duplicating = false, onClose, 
                     <Checkbox label={t("mssqlEncrypt")} checked={mssqlEncrypt} onChange={(_, data) => setMssqlEncrypt(data.checked === true)} disabled={busy} />
                     <Checkbox label={t("mssqlTrustServerCertificate")} checked={mssqlTrustCertificate} onChange={(_, data) => setMssqlTrustCertificate(data.checked === true)} disabled={busy} />
                   </>
-                ) : mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && (
+                ) : mode !== "jdbc-generic" && mode !== "odbc" && mode !== "mongodb" && mode !== "sqlite" && (
                   <Checkbox label="SSL require" checked={ssl} onChange={(_, data) => setSsl(data.checked === true)} disabled={busy} />
                 )}
                 <details className="connection-schema-picker omni-connection-schemas" open={schemasOpen} onToggle={(event) => setSchemasOpen(event.currentTarget.open)}>

@@ -728,4 +728,7 @@ export const simplifiedChinese = {
   analysisMemoryLimit: "DuckDB 内存上限",
   analysisMemoryLimitTitle: "DuckDB 内存",
   analysisMemoryLimitHint: "适用于 S3/DuckLake、MongoDB SQL 和本地分析查询。更大的排序、连接和窗口函数会溢出到磁盘临时文件夹（最多 4 GB）。请为系统其他部分保留内存。",
+  sqliteFile: "数据库文件",
+  sqliteFileHint: "现有 .db/.sqlite 文件的绝对路径。不使用凭据。",
+  sqliteOpenReadOnly: "以只读方式打开",
 } satisfies Record<TranslationKey, string>;

@@ -1,3 +1,4 @@
+/* global process, console, URL */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -14,6 +15,7 @@ const reports = [
   ["packages/adapters-oracle", "coverage/lcov.info"],
   ["packages/adapters-jdbc", "coverage/lcov.info"],
   ["packages/adapters-odbc", "coverage/lcov.info"],
+  ["packages/adapters-sqlite", "coverage/lcov.info"],
   ["packages/autocomplete-engine", "coverage/lcov.info"],
   ["packages/dialect-descriptors", "coverage/lcov.info"],
   ["packages/metadata-cache", "coverage/lcov.info"],

@@ -268,6 +268,18 @@ importers:
         specifier: ^8.11.10
         version: 8.20.0
 
+  packages/adapters-sqlite:
+    dependencies:
+      '@omni-sql/adapters-core':
+        specifier: workspace:*
+        version: link:../adapters-core
+      '@omni-sql/dialect-descriptors':
+        specifier: workspace:*
+        version: link:../dialect-descriptors
+      '@omni-sql/ts-types':
+        specifier: workspace:*
+        version: link:../ts-types
+
   packages/autocomplete-engine:
     dependencies:
       '@omni-sql/dialect-descriptors':
@@ -306,6 +318,9 @@ importers:
       '@omni-sql/adapters-pg':
         specifier: workspace:*
         version: link:../adapters-pg
+      '@omni-sql/adapters-sqlite':
+        specifier: workspace:*
+        version: link:../adapters-sqlite
       '@omni-sql/autocomplete-engine':
         specifier: workspace:*
         version: link:../autocomplete-engine

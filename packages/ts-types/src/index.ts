@@ -13,6 +13,7 @@ export type DialectId =
   | "mariadb"
   | "sqlserver"
   | "oracle"
+  | "sqlite"
   | "jdbc-generic"
   | "odbc"
   | "mongodb"
